@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4219b9e1-52b6-463b-b9d7-5d2aecaadd27
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,12 +33,16 @@
     Name of the UTM VM. Default: yuruna-download-agent-service.
 .PARAMETER AllowPseudoLocale
     Enable developer pseudo locales for this VM. Disabled by default.
+.PARAMETER PlanOnly
+    Resolve and check every input the build needs, report seed values that
+    would be baked empty, and exit 0 without changing anything.
 #>
 
 param(
     [Parameter(Position = 0)]
     [string]$VMName = "yuruna-download-agent-service",
-    [switch]$AllowPseudoLocale
+    [switch]$AllowPseudoLocale,
+    [switch]$PlanOnly
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -73,6 +77,79 @@ if (-not (Test-Path $utmPlist)) {
     exit 1
 }
 
+# --- REGION: Resolve the build plan
+# Every input that can refuse the build is read before anything is torn down,
+# so a missing key, password, template or network leaves the working VM
+# untouched. -PlanOnly stops after this region, having changed nothing.
+$_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+
+# --- REGION: Yuruna harness SSH key
+# See https://yuruna.link/42e220c4-0004
+# Seed the shared harness key so guest provisioning and failure diagnostics agree.
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
+$SshAuthorizedKey = Get-YurunaSshPublicKey
+if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
+
+# --- REGION: Vault admin password
+# Each service family has its own admin account: a shared name would map several
+# VMs to one vault entry, and the last build would invalidate the others' credential.
+$_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
+$AdminPassword = Get-Password -Username 'download-agent-service-admin'
+if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce7652d3e480135e'); exit 1 }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
+
+# Check the shared seed templates before the guest network is resolved.
+foreach ($f in @((Join-Path $_repoRoot 'host/vmconfig/download-agent-service.base.user-data'),
+        (Join-Path $_repoRoot 'host/vmconfig/download-agent-service.utm.overlay.yml'),
+        (Join-Path $_repoRoot 'host/vmconfig/download-agent-service.meta-data'))) {
+    if (-not (Test-Path -LiteralPath $f)) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
+        exit 1
+    }
+}
+
+# --- REGION: Select the guest network
+# See https://yuruna.link/42e220c4-0004
+# Resolve the network mode once so the seed and the bundle cannot disagree.
+Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+$NetworkMode = Resolve-UtmNetworkMode
+
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
+# Bake the status-service address and storage coordinates for the selected network.
+# YURUNA_GUEST_REACHABLE_HOST_IP overrides the host address.
+if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
+    $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
+} else {
+    $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
+}
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
+$YurunaHostPort = $_statusSeed.Port
+$tc = $_statusSeed.Config
+$serviceLanguage = Resolve-SeedLanguageTag -Config $tc
+$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
+$poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
+
+# --- REGION: Report seed values baked empty
+# The build goes on without them, because the guest can still serve, but it
+# reports each one so the Start says the bring-up is degraded instead of clean.
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
+if (-not $YurunaHostIp) { Write-SeedDegradation -VMName $VMName -Name 'hostAddress' }
+
+if ($PlanOnly) {
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.service_build_plan_accepted' -Arguments @{ vMName = "$VMName" })
+    exit 0
+}
+
 # --- REGION: Seek the base image
 # One cloud image backs every extension service on this host; this VM grows
 # its own copy below (host/modules/Yuruna.Image.psm1).
@@ -81,16 +158,109 @@ $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'macos.utm').BaseImageF
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d9b89a1cbf294786' -Arguments @{ vMName = "$VMName"; baseImageFile = "$baseImageFile" })
-$_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 # --- REGION: Base image provenance
 # Emit the source URL from a healthy sidecar; warn when provenance is incomplete.
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
+$null = Wait-YurunaAggregatorReady
+$aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
+if (-not $aggregatorSeedUrl -and @(Get-PoolAggregatorServiceClaim).Count -gt 0) { Write-SeedDegradation -VMName $VMName -Name 'aggregatorUrl' }
+
+# --- REGION: Download-agent configuration
+# Config seconds become Go durations here because the value lands unmodified on
+# the daemon's flag line. Defaults match the daemon's own frozen defaults, so a
+# host with no downloadAgentService block and a bare daemon behave identically.
+$agentScanInterval = '900s'
+$agentFreshness    = '86400s'
+$agentPrefetchLead = '7200s'
+$agentAutoSeed     = 'true'
+if ($tc -and $tc.downloadAgentService) {
+    $agentConfig = $tc.downloadAgentService
+    if ($agentConfig.scanIntervalSeconds) { $agentScanInterval = "$([int]$agentConfig.scanIntervalSeconds)s" }
+    if ($agentConfig.freshnessSeconds)    { $agentFreshness    = "$([int]$agentConfig.freshnessSeconds)s" }
+    if ($agentConfig.prefetchLeadSeconds) { $agentPrefetchLead = "$([int]$agentConfig.prefetchLeadSeconds)s" }
+    # autoSeed is a real boolean, so an explicit `false` must survive: test for
+    # presence, not truthiness, or opting out silently reverts to the default.
+    if ($null -ne $agentConfig.autoSeed) {
+        $agentAutoSeed = if ($agentConfig.autoSeed) { 'true' } else { 'false' }
+    }
+}
+# Squid coordinates for the daemon's byte downloads. Resolve-CacheHostIp answers
+# with an address THIS HOST can dial, and on macOS that can be 127.0.0.1 -- the
+# local forwarder into the cache VM, which no guest can reach -- so a loopback
+# answer is not a usable seed value.
+$cacheProxyIp = ''
+try {
+    $cacheProxyIp = [string](Resolve-CacheHostIp)
+} catch {
+    Write-Verbose "Resolve-CacheHostIp: $($_.Exception.Message)"
+}
+if (-not $cacheProxyIp -or $cacheProxyIp -eq '127.0.0.1' -or $cacheProxyIp -eq '::1') { $cacheProxyIp = '' }
+# The proxy CA travels in the seed, resolved through this host's pin
+# (Resolve-YurunaPinnedProxyCa), instead of the guest fetching it over HTTP.
+$cacheCaB64 = ''
+if ($cacheProxyIp) {
+    Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Global -Force -WarningAction SilentlyContinue
+    $cacheUrlHost = if ($cacheProxyIp.Contains(':')) { "[$cacheProxyIp]" } else { $cacheProxyIp }
+    $cacheCa = Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://$cacheUrlHost/yuruna-squid-ca.crt" -CacheHost $cacheProxyIp -MaxAttempts 2
+    if ($cacheCa.Refused) {
+        # An agent seeded with another root would meet a proxy that bumps with
+        # this one; the refusal is reported as source_integrity, not built around.
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.proxy_ca_refused_build' -Arguments @{ vMName = "$VMName"; cacheHost = "$cacheProxyIp"; reason = "$($cacheCa.Reason)" }) -ErrorAction Continue
+        exit (Get-YurunaSourceIntegrityExitCode)
+    }
+    $cacheCaB64 = [string]$cacheCa.CaCertBase64
+}
+if ($cacheProxyIp) {
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d4bb65397ec1cb33' -Arguments @{ cacheProxyIp = "$cacheProxyIp" })
+} else {
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fdd52e517bbdfc60')
+}
+
+# --- REGION: Render user-data / meta-data
+# Render user-data from the shared base + UTM overlay (host/vmconfig/
+# download-agent-service.*). New-CloudInitUserData resolves placeholders with literal
+# .Replace(), so values carrying regex-special chars are safe.
+Import-Module (Join-Path $_repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+# The NAS password is fetched by the guest over mutual TLS; the seed carries
+# only this VM's client leaf for the host config service.
+Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.ConfigServiceCA.psm1') -Force
+$configSeed = Get-YurunaConfigServiceSeedMaterial -VMName $VMName -HostId ([string]$poolNas.HostId) -Config $tc
+$UserData = New-CloudInitUserData `
+    -BasePath    (Join-Path $_repoRoot 'host/vmconfig/download-agent-service.base.user-data') `
+    -OverlayPath (Join-Path $_repoRoot 'host/vmconfig/download-agent-service.utm.overlay.yml') `
+    -RepoRoot    $_repoRoot `
+    -Replacement @{
+        YURUNA_LANGUAGE_PLACEHOLDER = $serviceLanguage
+        YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        PASSWORD_PLACEHOLDER           = $AdminPassword
+        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
+        YURUNA_HOST_ID_PLACEHOLDER     = $poolNas.HostId
+        YURUNA_AGGREGATOR_URL_PLACEHOLDER      = $aggregatorSeedUrl
+        POOL_NAS_NETWORK_PATH_PLACEHOLDER  = $poolNas.NetworkPath
+        POOL_NAS_NETWORK_IP_PLACEHOLDER    = $poolNas.NetworkIp
+        POOL_NAS_NETWORK_USER_PLACEHOLDER  = $poolNas.NetworkUser
+        YURUNA_CONFIG_SERVICE_PORT_PLACEHOLDER               = $configSeed.Port
+        YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configSeed.CaCertBase64
+        YURUNA_CONFIG_SERVICE_CLIENT_CERT_BASE64_PLACEHOLDER = $configSeed.ClientCertBase64
+        YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER  = $configSeed.ClientKeyBase64
+        DOWNLOAD_AGENT_SCAN_INTERVAL_PLACEHOLDER = $agentScanInterval
+        DOWNLOAD_AGENT_FRESHNESS_PLACEHOLDER     = $agentFreshness
+        DOWNLOAD_AGENT_PREFETCH_LEAD_PLACEHOLDER = $agentPrefetchLead
+        DOWNLOAD_AGENT_AUTO_SEED_PLACEHOLDER     = $agentAutoSeed
+        YURUNA_CACHE_PROXY_IP_PLACEHOLDER        = $cacheProxyIp
+        YURUNA_CACHE_CA_CERT_BASE64_PLACEHOLDER  = $cacheCaB64
+    } -Confirm:$false
+
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004
-# Runs AFTER the base image is confirmed so a failed image fetch never
-# destroys a working VM.
+# Runs after the plan, the base image and the rendered seed are confirmed,
+# so a refused input or a failed fetch never destroys a working VM.
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7565389d0d010c89' -Arguments @{ utmDir = "$UtmDir" })
@@ -101,11 +271,9 @@ if (-not (Remove-UtmTestVM -VMName $VMName -Confirm:$false)) {
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 # --- REGION: Copy base image -> per-VM disk
-# Copy the pre-built qcow2 cloud image into the bundle as the boot disk.
-# qcow2 (not raw) is deliberate: UTM's QEMU backend boots it directly and
-# it sidesteps the macOS F_PUNCHHOLE-alignment EINVAL a raw disk hits
-# under UTM's discard=unmap,detect-zeroes=unmap: qcow2 punches holes only
-# at its 64 KiB cluster boundaries, which are 4 KiB-aligned.
+# See https://yuruna.link/429f3d06-0092
+# Copy the pre-built qcow2 cloud image into the bundle as the boot disk; qcow2,
+# not raw, avoids the macOS F_PUNCHHOLE alignment failure a raw disk hits.
 $DiskImage = "$DataDir/disk.qcow2"
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_6288433a06ff55be')
 # `/bin/cp -c` triggers APFS clone (O(1), sparse-preserving). Falls back
@@ -142,143 +310,6 @@ try {
     $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
     Copy-Item -Path (Join-Path $hostVmConfigDir 'download-agent-service.meta-data') -Destination "$SeedDir/meta-data"
 
-    # --- REGION: Yuruna harness SSH key
-    # See https://yuruna.link/42e220c4-0004
-    # Seed the shared harness key so guest provisioning and failure diagnostics agree.
-    Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
-    Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
-    $SshAuthorizedKey = Get-YurunaSshPublicKey
-    if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
-
-    # --- REGION: Vault admin password
-    # Each service family has its own admin account: a shared name would map several
-    # VMs to one vault entry, and the last build would invalidate the others' credential.
-    $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-    $AdminPassword = Get-Password -Username 'download-agent-service-admin'
-    if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce7652d3e480135e'); exit 1 }
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
-
-    # --- REGION: Select the guest network
-    # See https://yuruna.link/42e220c4-0004
-    # Resolve the network mode once so the seed and the bundle cannot disagree.
-    Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
-    Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
-    Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
-    Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
-    Import-Module (Join-Path $_repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
-    Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
-    Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-    $NetworkMode = Resolve-UtmNetworkMode
-
-    # --- REGION: Yuruna host coordinates
-    # See https://yuruna.link/4220a755-001b
-    # Bake the status-service address and storage coordinates for the selected network.
-    # YURUNA_GUEST_REACHABLE_HOST_IP overrides the host address.
-    if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
-        $YurunaHostIp = $env:YURUNA_GUEST_REACHABLE_HOST_IP
-    } else {
-        $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
-    }
-    if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-    $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
-    $YurunaHostPort = $_statusSeed.Port
-    $tc = $_statusSeed.Config
-    $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
-    $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
-    $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
-    # --- REGION: https://yuruna.link/42e220c4-0004
-    # Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
-    $null = Wait-YurunaAggregatorReady
-    $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
-
-    # --- REGION: Download-agent configuration
-    # Config seconds become Go durations here because the value lands unmodified on
-    # the daemon's flag line. Defaults match the daemon's own frozen defaults, so a
-    # host with no downloadAgentService block and a bare daemon behave identically.
-    $agentScanInterval = '900s'
-    $agentFreshness    = '86400s'
-    $agentPrefetchLead = '7200s'
-    $agentAutoSeed     = 'true'
-    if ($tc -and $tc.downloadAgentService) {
-        $agentConfig = $tc.downloadAgentService
-        if ($agentConfig.scanIntervalSeconds) { $agentScanInterval = "$([int]$agentConfig.scanIntervalSeconds)s" }
-        if ($agentConfig.freshnessSeconds)    { $agentFreshness    = "$([int]$agentConfig.freshnessSeconds)s" }
-        if ($agentConfig.prefetchLeadSeconds) { $agentPrefetchLead = "$([int]$agentConfig.prefetchLeadSeconds)s" }
-        # autoSeed is a real boolean, so an explicit `false` must survive: test for
-        # presence, not truthiness, or opting out silently reverts to the default.
-        if ($null -ne $agentConfig.autoSeed) {
-            $agentAutoSeed = if ($agentConfig.autoSeed) { 'true' } else { 'false' }
-        }
-    }
-    # Squid coordinates for the daemon's byte downloads. Resolve-CacheHostIp answers
-    # with an address THIS HOST can dial, and on macOS that can be 127.0.0.1 -- the
-    # local forwarder into the cache VM, which no guest can reach -- so a loopback
-    # answer is not a usable seed value.
-    $cacheProxyIp = ''
-    try {
-        $cacheProxyIp = [string](Resolve-CacheHostIp)
-    } catch {
-        Write-Verbose "Resolve-CacheHostIp: $($_.Exception.Message)"
-    }
-    if (-not $cacheProxyIp -or $cacheProxyIp -eq '127.0.0.1' -or $cacheProxyIp -eq '::1') { $cacheProxyIp = '' }
-    # The proxy CA travels in the seed, resolved through this host's pin
-    # (Resolve-YurunaPinnedProxyCa), instead of the guest fetching it over HTTP.
-    $cacheCaB64 = ''
-    if ($cacheProxyIp) {
-        Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Global -Force -WarningAction SilentlyContinue
-        $cacheUrlHost = if ($cacheProxyIp.Contains(':')) { "[$cacheProxyIp]" } else { $cacheProxyIp }
-        $cacheCa = Get-CachingProxyServiceCaCertBase64 -CacheCaUrl "http://$cacheUrlHost/yuruna-squid-ca.crt" -CacheHost $cacheProxyIp -MaxAttempts 2
-        if ($cacheCa.Refused) {
-            # An agent seeded with another root would meet a proxy that bumps with
-            # this one; the refusal is reported as source_integrity, not built around.
-            Write-Error (Format-YurunaOperatorMessage -Key 'host.proxy_ca_refused_build' -Arguments @{ vMName = "$VMName"; cacheHost = "$cacheProxyIp"; reason = "$($cacheCa.Reason)" }) -ErrorAction Continue
-            exit (Get-YurunaSourceIntegrityExitCode)
-        }
-        $cacheCaB64 = [string]$cacheCa.CaCertBase64
-    }
-    if ($cacheProxyIp) {
-        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_d4bb65397ec1cb33' -Arguments @{ cacheProxyIp = "$cacheProxyIp" })
-    } else {
-        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fdd52e517bbdfc60')
-    }
-
-    # --- REGION: Render user-data / meta-data
-    # Render user-data from the shared base + UTM overlay (host/vmconfig/
-    # download-agent-service.*). New-CloudInitUserData resolves placeholders with literal
-    # .Replace(), so values carrying regex-special chars are safe.
-    Import-Module (Join-Path $_repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-    # The NAS password is fetched by the guest over mutual TLS; the seed carries
-    # only this VM's client leaf for the host config service.
-    Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.ConfigServiceCA.psm1') -Force
-    $configSeed = Get-YurunaConfigServiceSeedMaterial -VMName $VMName -HostId ([string]$poolNas.HostId) -Config $tc
-    $UserData = New-CloudInitUserData `
-        -BasePath    (Join-Path $_repoRoot 'host/vmconfig/download-agent-service.base.user-data') `
-        -OverlayPath (Join-Path $_repoRoot 'host/vmconfig/download-agent-service.utm.overlay.yml') `
-        -RepoRoot    $_repoRoot `
-        -Replacement @{
-            YURUNA_LANGUAGE_PLACEHOLDER = $serviceLanguage
-            YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
-            SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-            PASSWORD_PLACEHOLDER           = $AdminPassword
-            YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
-            YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
-            YURUNA_HOST_ID_PLACEHOLDER     = $poolNas.HostId
-            YURUNA_AGGREGATOR_URL_PLACEHOLDER      = $aggregatorSeedUrl
-            POOL_NAS_NETWORK_PATH_PLACEHOLDER  = $poolNas.NetworkPath
-            POOL_NAS_NETWORK_IP_PLACEHOLDER    = $poolNas.NetworkIp
-            POOL_NAS_NETWORK_USER_PLACEHOLDER  = $poolNas.NetworkUser
-            YURUNA_CONFIG_SERVICE_PORT_PLACEHOLDER               = $configSeed.Port
-            YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configSeed.CaCertBase64
-            YURUNA_CONFIG_SERVICE_CLIENT_CERT_BASE64_PLACEHOLDER = $configSeed.ClientCertBase64
-            YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER  = $configSeed.ClientKeyBase64
-            DOWNLOAD_AGENT_SCAN_INTERVAL_PLACEHOLDER = $agentScanInterval
-            DOWNLOAD_AGENT_FRESHNESS_PLACEHOLDER     = $agentFreshness
-            DOWNLOAD_AGENT_PREFETCH_LEAD_PLACEHOLDER = $agentPrefetchLead
-            DOWNLOAD_AGENT_AUTO_SEED_PLACEHOLDER     = $agentAutoSeed
-            YURUNA_CACHE_PROXY_IP_PLACEHOLDER        = $cacheProxyIp
-            YURUNA_CACHE_CA_CERT_BASE64_PLACEHOLDER  = $cacheCaB64
-        } -Confirm:$false
     Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
     # --- REGION: https://yuruna.link/4220a755-000b
     Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"

@@ -322,6 +322,8 @@ class _Collector:
             "YURUNA_K8S_MINOR": ("Kubernetes", "generic", False),
             "YURUNA_OPENTOFU_VERSION": ("OpenTofu", "generic", True),
             "YURUNA_HELM_VERSION": ("Helm", "generic", True),
+            "YURUNA_FLANNEL_VERSION": ("flannel-io/flannel", "generic", True),
+            "YURUNA_MKCERT_VERSION": ("FiloSottile/mkcert", "generic", True),
             "YURUNA_NVM_VERSION": ("nvm-sh/nvm", "download", True),
             "YURUNA_NODE_MAJOR": ("node", "nvm", False),
         }

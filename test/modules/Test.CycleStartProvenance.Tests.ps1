@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 422b8d9d-ee36-4c20-b920-5d584af0ebff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,36 +46,24 @@ if (-not $script:HadLogProxy) {
 # Fixtures live at FILE scope, not inside the Describe: a Describe body runs
 # during discovery and everything it declares is discarded before any It runs,
 # so a helper defined there is a CommandNotFoundException by the time an It
-# calls it. All $global:__Yuruna* access (the cross-module channels Start-LogFile
-# publishes) is confined to these two suppressed helpers.
+# calls it. The $global:__Yuruna* channels Start-LogFile publishes are saved and
+# restored here through Save-YurunaTestGlobal and Restore-YurunaTestGlobal.
 function New-CycleStartFixture {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test must save the Yuruna.Log cross-module globals Start-LogFile sets.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: temp dir + saves globals; no production state.')]
     [OutputType([hashtable])]
     param()
-    $saved = @{
-        Cycle    = $global:__YurunaCycleFolder
-        LogFile  = $global:__YurunaLogFile
-        Identity = $global:__YurunaCycleIdentity
-        StartUtc = $global:__YurunaCycleStartUtc
-    }
+    $saved = Save-YurunaTestGlobal -Name '__YurunaCycleFolder', '__YurunaLogFile', '__YurunaCycleIdentity', '__YurunaCycleStartUtc'
     $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-cyclestart-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $root -Force | Out-Null
     return @{ Root = $root; Saved = $saved }
 }
 
 function Restore-CycleStartFixture {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test teardown: restores the Yuruna.Log cross-module globals it saved.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test teardown: restores saved globals and removes the temp dir.')]
     param([Parameter(Mandatory)][hashtable]$Fixture)
-    $global:__YurunaCycleFolder   = $Fixture.Saved.Cycle
-    $global:__YurunaLogFile       = $Fixture.Saved.LogFile
-    $global:__YurunaCycleIdentity = $Fixture.Saved.Identity
-    $global:__YurunaCycleStartUtc = $Fixture.Saved.StartUtc
+    Restore-YurunaTestGlobal -Saved $Fixture.Saved
     if ($Fixture.Root) { Remove-Item -LiteralPath $Fixture.Root -Recurse -Force -ErrorAction SilentlyContinue }
 }
 

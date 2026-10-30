@@ -1197,6 +1197,30 @@
           "example": "value"
         }
       }
+    },
+    "download.api_delete_refused_reason": {
+      "message": "delete refused: {reason}",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "detail"
+        }
+      }
+    },
+    "download.api_prune_refused_reason": {
+      "message": "prune refused: {reason}",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "detail"
+        }
+      }
     }
   }
 }

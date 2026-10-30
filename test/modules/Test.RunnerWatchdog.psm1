@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42547b68-a60f-4a35-be1d-21d02f08f7bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,7 @@
 #requires -version 7
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameChecking
 
 
 <#
@@ -138,6 +139,8 @@ function Start-Watchdog {
     # (a separate-process Start-Job cannot see this module's functions), so the
     # tests and the watchdog exercise one definition.
     $innerIdentityScript = Get-WatchdogInnerIdentityScript
+    # The same text Stop-YurunaProcessTree runs, for the same reason.
+    $treeKillScript = Get-YurunaProcessTreeKillScript
     # $using: pulls $RuntimeDir/$thresholdSeconds/$PollSeconds straight from the
     # enclosing scope at job-dispatch time. Cleaner than param() +
     # -ArgumentList, and dodges a PSSA false-positive where the rule
@@ -150,6 +153,7 @@ function Start-Watchdog {
         $pollSeconds      = $using:PollSeconds
         # Rebuild the shared identity predicate in this separate-process job.
         $sameInner    = [scriptblock]::Create($using:innerIdentityScript)
+        $treeKill     = [scriptblock]::Create($using:treeKillScript)
         $stepHbFile = Join-Path $runtimeDir 'runner.stepHeartbeat'
         $phaseFile  = Join-Path $runtimeDir 'runner.phase'
         $pidFile    = Join-Path $runtimeDir 'inner.pid'
@@ -292,35 +296,7 @@ function Start-Watchdog {
                     # step usually has live children (console capture, OCR,
                     # ssh) that would otherwise orphan, keep handles open,
                     # and confuse the next cycle's process discovery.
-                    if ($IsWindows) {
-                        & taskkill /PID $innerPid /T /F 2>$null | Out-Null
-                        # Backstop when taskkill is unavailable or failed;
-                        # a still-live root is worse than orphaned leaves.
-                        Stop-Process -Id $innerPid -Force -ErrorAction SilentlyContinue
-                    } else {
-                        $childrenOf = @{}
-                        foreach ($row in @(& /bin/ps -eo pid=,ppid= 2>$null)) {
-                            $parts = -split "$row"
-                            if ($parts.Count -eq 2) {
-                                $childrenOf[[int]$parts[1]] = @($childrenOf[[int]$parts[1]]) + [int]$parts[0]
-                            }
-                        }
-                        $doomed = [System.Collections.Generic.List[int]]::new()
-                        $queue  = [System.Collections.Generic.Queue[int]]::new()
-                        $queue.Enqueue($innerPid)
-                        while ($queue.Count -gt 0) {
-                            $cur = $queue.Dequeue()
-                            $doomed.Add($cur)
-                            foreach ($kid in @($childrenOf[$cur])) {
-                                if ($kid) { $queue.Enqueue($kid) }
-                            }
-                        }
-                        # Leaves first so a dying parent can't respawn or
-                        # reparent work mid-sweep; the root goes last.
-                        for ($di = $doomed.Count - 1; $di -ge 0; $di--) {
-                            Stop-Process -Id $doomed[$di] -Force -ErrorAction SilentlyContinue
-                        }
-                    }
+                    & $treeKill $innerPid 2000
                     return
                 }
                 if (& $sameInnerConfirmedGone $innerPid $innerStartUtc) {

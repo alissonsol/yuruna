@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42771d17-19c8-478e-adde-9418cf0f9f10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -456,6 +456,37 @@ function Get-YurunaPoolFromDoc {
 
 <#
 .SYNOPSIS
+Keeps a pool's frameworkRing.canaryMembers in step with a change to its members[]:
+-NewHostId replaces $HostId, its absence removes it. Returns $true when the list changed.
+.DESCRIPTION
+A canary that left the pool, or kept a retired id, would leave the ring waiting on
+passes no member can produce. Removing the last canary leaves an empty list, which
+freezes the followers; the block itself is the operator's and is never deleted here.
+#>
+function Update-YurunaPoolRingCanary {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Edits only the in-memory pools document; the caller validates, previews and publishes it.')]
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Pool,
+        [Parameter(Mandatory)][string]$HostId,
+        [string]$NewHostId = ''
+    )
+    $ring = $Pool['frameworkRing']
+    if ($ring -isnot [System.Collections.IDictionary] -or -not $ring.Contains('canaryMembers')) { return $false }
+    $current = @($ring['canaryMembers'] | Where-Object { $null -ne $_ })
+    if ($current -notcontains $HostId) { return $false }
+    $next = foreach ($id in $current) {
+        if ($id -ne $HostId) { $id }
+        elseif ($NewHostId -and $current -notcontains $NewHostId) { $NewHostId }
+    }
+    $ring['canaryMembers'] = @($next)
+    return $true
+}
+
+<#
+.SYNOPSIS
 Normalizes an operator-typed hostId to its canonical form (42-prefixed 32-hex, no
 separators). Returns $null when the value is not a host uuid in any accepted form.
 .DESCRIPTION
@@ -663,5 +694,5 @@ Export-ModuleMember -Function Open-YurunaPoolAdminStore, Publish-YurunaPoolDocCh
     Resolve-YurunaPoolSchemaPath, Test-YurunaPoolDocValid, Test-YurunaPoolConfigurationFile, `
     Lock-YurunaPoolConfigurationClone, Unlock-YurunaPoolConfigurationClone, `
     Open-YurunaPoolConfiguration, Read-YurunaPoolsDoc, Save-YurunaPoolDoc, Publish-YurunaPoolConfiguration, `
-    Get-YurunaPoolFromDoc, Resolve-YurunaPoolAdminTarget, ConvertTo-YurunaHostId, `
+    Get-YurunaPoolFromDoc, Update-YurunaPoolRingCanary, Resolve-YurunaPoolAdminTarget, ConvertTo-YurunaHostId, `
     New-YurunaPoolConfigurationStore, Initialize-YurunaPoolConfigurationStorePath

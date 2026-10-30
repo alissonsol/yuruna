@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 424e6972-d523-4837-8d0f-f7e8f6aa351c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Put this host's settings back the way Enable-TestAutomation found them.
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-006c.
 .PARAMETER RemainingArguments
     Anything not declared here is forwarded to the per-host script verbatim
     (-WhatIf and -StopServices among them), so a parameter added there needs no
@@ -54,7 +54,7 @@ Use-LogLevelFromEnv
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 
 # --- REGION: Common-parameter relay
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-006d
 $extra = @()
 if ($PSBoundParameters.ContainsKey('Verbose') -or $VerbosePreference -eq 'Continue') { $extra += '-Verbose' }
 

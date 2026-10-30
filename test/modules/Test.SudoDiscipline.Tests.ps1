@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42737e44-4d56-4bc8-a429-c72432343f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -243,7 +243,7 @@ function Get-SudoInvocation {
     [OutputType([hashtable[]], [object[]])]
     param([Parameter(Mandatory)][string]$Path)
 
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$null)
+    $ast = Get-YurunaTestFileAst -Path $Path
     $commands = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)
     $found = @()
     foreach ($cmd in $commands) {
@@ -415,7 +415,7 @@ Describe 'the shared sudo wrappers stay the chokepoint' {
         $missing = @()
         foreach ($rel in $ScopedFile) {
             $path = Join-Path $repoRoot $rel
-            $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+            $ast = Get-YurunaTestFileAst -Path $path
             $calls = @($ast.FindAll({ param($n)
                 $n -is [System.Management.Automation.Language.CommandAst] -and
                 $n.GetCommandName() -in $script:SudoersInstaller }, $true))

@@ -10,6 +10,14 @@ const DataheILdownload = `{
   "download.actions": "פעולות",
   "download.actions_need_the_internal_authentication_key_as_a_bearer": "פעולות דורשות את מפתח האימות הפנימי כאסימון bearer",
   "download.api_arch_query_parameter_is_required_amd64_or_arm64": "פרמטר השאילתה arch נדרש (amd64 או arm64)",
+  "download.api_delete_refused_reason": [
+    "המחיקה נדחתה: ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "download.api_detail": [
     {
       "arg": "detail",
@@ -30,6 +38,14 @@ const DataheILdownload = `{
   "download.api_no_image_store_configured": "לא הוגדר אחסון לדמויות מערכת",
   "download.api_pool_refresh_refused_reason": [
     "רענון המאגר נדחה: ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "download.api_prune_refused_reason": [
+    "הגיזום נדחה: ",
     {
       "arg": "reason",
       "type": "detail",

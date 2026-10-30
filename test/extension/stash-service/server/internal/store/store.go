@@ -3,8 +3,8 @@
 // GUID: 42c38683-662f-4aa2-a5ee-f57155f40235
 
 // Package store owns the filesystem side of the stash service: path
-// resolution under the StashFolder (section 6), per-day file directories,
-// extension extraction (section 6.3), and the staging-to-final move/zip step
+// resolution under the StashFolder (https://yuruna.link/429e934f-000a), per-day file directories,
+// extension extraction (https://yuruna.link/429e934f-000b), and the staging-to-final move/zip step
 // invoked by sshsrv after the SCP wire protocol completes.
 package store
 
@@ -33,13 +33,13 @@ type Store struct {
 
 // New returns a Store rooted at the share folder and BEST-EFFORT pre-creates
 // the share-side layout (hostkey/, files/). Pre-creation failure is NOT
-// fatal: at startup the share may be offline/unmounted (section 8.4), in which case
+// fatal: at startup the share may be offline/unmounted (https://yuruna.link/429e934f-000e), in which case
 // folder is the unmounted, root-owned mountpoint and these mkdirs fail with
 // EACCES. Store construction still succeeds; SSH startup separately requires
 // a usable host identity, including an existing local key when share-key state
 // is uncertain. Share dirs are created lazily once the share is writable.
 // metadata/ is intentionally NOT created here -- the SQLite index lives on the
-// VM's local disk (section 6.1, section 8).
+// VM's local disk (https://yuruna.link/429e934f-000a, https://yuruna.link/429e934f-000c).
 func New(folder string) (*Store, error) {
 	for _, sub := range []string{config.HostKeyDirName, config.FilesDirName} {
 		_ = os.MkdirAll(filepath.Join(folder, sub), 0o700) // best-effort; see doc
@@ -48,7 +48,7 @@ func New(folder string) (*Store, error) {
 }
 
 // NewFilesOnly returns a Store rooted at folder with only files/ created --
-// used for the VM-local NAS-offline buffer (section 8.4), which mirrors the
+// used for the VM-local NAS-offline buffer (https://yuruna.link/429e934f-000e), which mirrors the
 // share's files/yyyy/mm/dd layout (so a flush is a same-relative-path
 // copy). SSH startup may also persist a fallback hostkey/ under this folder.
 func NewFilesOnly(folder string) (*Store, error) {
@@ -100,8 +100,8 @@ func (s *Store) StagingDir(t time.Time, id string) (string, error) {
 	return dir, nil
 }
 
-// ExtractExtension implements section 6.3's extension-extraction rules with
-// the section 13 decision (option c: discard the whole extension on any
+// ExtractExtension implements the extension-extraction rules of
+// https://yuruna.link/429e934f-000b (discard the whole extension on any
 // disallowed character). Returns the leading-dot extension lowercased,
 // or the empty string when the filename has none / is a dotfile /
 // contains a disallowed char.
@@ -121,7 +121,7 @@ func ExtractExtension(filename string) string {
 	if len(ext) > config.ExtensionMaxLength {
 		ext = ext[:config.ExtensionMaxLength]
 	}
-	// Rule 5: charset check. section 13 decision is option (c): discard.
+	// Rule 5: charset check; any disallowed character discards the extension.
 	for _, r := range ext {
 		if !isAllowedExtensionRune(r) {
 			return ""
@@ -283,7 +283,7 @@ func zipDir(srcDir, dstZip string) error {
 }
 
 // ShareOnline reports whether the share-side StashFolder is backed by a
-// live network mount AND is writable (section 8.4). The network-mount check is
+// live network mount AND is writable (https://yuruna.link/429e934f-000e). The network-mount check is
 // essential: with cifs `nofail`, an unmounted share leaves a writable
 // LOCAL mountpoint dir, so a write probe alone would silently store
 // "on the share" on local disk and lose the data on reimage. Requiring
@@ -369,7 +369,7 @@ func probeWritable(dir string) bool {
 }
 
 // DirSize sums the bytes of regular files under root (the buffer-ceiling
-// check, section 8.4). A missing root is size 0, not an error.
+// check, https://yuruna.link/429e934f-000e). A missing root is size 0, not an error.
 func DirSize(root string) (int64, error) {
 	var total int64
 	err := filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
@@ -394,7 +394,7 @@ func DirSize(root string) (int64, error) {
 
 // AtomicCopyFile copies src to dst via a temp file in dst's directory plus
 // fsync + rename, so a reader (or a crash) never sees a partial artifact
-// on the share. Used by the flush worker (section 8.4).
+// on the share. Used by the flush worker (https://yuruna.link/429e934f-000e).
 func AtomicCopyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {

@@ -210,8 +210,11 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- REGION: Request decoding
+// decode reads a small JSON body that must arrive within the shared body read
+// timeout: the server sets no ReadTimeout, so a client that sent its headers and
+// then trickled the body would otherwise hold a goroutine for as long as it liked.
 func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
-	if err := jsonbody.Decode(r.Body, dst, config.MaxRequestBytes, false); err != nil {
+	if err := jsonbody.DecodeRequest(w, r, dst, config.MaxRequestBytes, false); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return false
 	}
@@ -240,6 +243,9 @@ func (s *Server) handleNewPool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "poolId is required")
 		return
 	}
+	if !cliValues(w, cliField{"poolId", body.PoolID, false}, cliField{"displayName", body.DisplayName, true}, cliField{"configuredState", body.ConfiguredState, false}) {
+		return
+	}
 	s.relay(w, "new-pool", body.PoolID, s.configuration.NewPool(r.Context(), body.PoolID, body.DisplayName, body.ConfiguredState))
 }
 
@@ -247,6 +253,9 @@ func (s *Server) handleRemovePool(w http.ResponseWriter, r *http.Request) {
 	poolID := r.URL.Query().Get("poolId")
 	if poolID == "" {
 		writeErr(w, http.StatusBadRequest, "poolId is required")
+		return
+	}
+	if !cliValues(w, cliField{"poolId", poolID, false}) {
 		return
 	}
 	force := r.URL.Query().Get("force") == "true"
@@ -262,6 +271,9 @@ func (s *Server) handleConfiguredState(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "poolId and configuredState are required")
 		return
 	}
+	if !cliValues(w, cliField{"poolId", body.PoolID, false}, cliField{"configuredState", body.ConfiguredState, false}) {
+		return
+	}
 	s.relay(w, "configured-state", body.PoolID, s.configuration.SetConfiguredState(r.Context(), body.PoolID, body.ConfiguredState))
 }
 
@@ -274,6 +286,9 @@ func (s *Server) handleAddHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "poolId and hostId are required")
 		return
 	}
+	if !cliValues(w, cliField{"poolId", body.PoolID, false}, cliField{"hostId", body.HostID, false}) {
+		return
+	}
 	s.relay(w, "add-host", body.PoolID, s.configuration.AddHost(r.Context(), body.PoolID, body.HostID))
 }
 
@@ -282,6 +297,9 @@ func (s *Server) handleRemoveHost(w http.ResponseWriter, r *http.Request) {
 	hostID := r.URL.Query().Get("hostId")
 	if poolID == "" || hostID == "" {
 		writeErr(w, http.StatusBadRequest, "poolId and hostId are required")
+		return
+	}
+	if !cliValues(w, cliField{"poolId", poolID, false}, cliField{"hostId", hostID, false}) {
 		return
 	}
 	s.relay(w, "remove-host", poolID, s.configuration.RemoveHost(r.Context(), poolID, hostID, true))
@@ -313,11 +331,14 @@ func (s *Server) handleSetPoolRepositories(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "poolId is required")
 		return
 	}
+	if !cliValues(w, cliField{"poolId", poolID, false}) {
+		return
+	}
 	if (frameworkURL == "") != (projectURL == "") {
 		writeErr(w, http.StatusBadRequest, "frameworkUrl and projectUrl must both be set, or both be empty to clear them")
 		return
 	}
-	if !safeRepositoryURL(frameworkURL) || !safeRepositoryURL(projectURL) {
+	if !cliValue(frameworkURL, false) || !cliValue(projectURL, false) {
 		writeErr(w, http.StatusBadRequest, "frameworkUrl and projectUrl must not contain whitespace or control characters, and must not start with '-'")
 		return
 	}
@@ -328,17 +349,44 @@ func (s *Server) handleSetPoolRepositories(w http.ResponseWriter, r *http.Reques
 	s.relay(w, "set-repositories", poolID, s.configuration.SetPoolRepositories(r.Context(), poolID, frameworkURL, projectURL))
 }
 
-// safeRepositoryURL reports whether an already-trimmed value may be handed to
-// the pool-admin CLI as a repository URL. Empty passes: the caller decides
-// what an empty pair means.
-func safeRepositoryURL(v string) bool {
+// cliValue reports whether a value may be handed to a pool-admin CLI as a
+// parameter value. Each value reaches pwsh as its own argv entry, so this is
+// not about shell quoting: a value that starts with '-' binds as a parameter
+// name, and a control character -- or, unless words is set, any whitespace --
+// is a paste accident the CLI could only report less clearly. Empty passes:
+// the caller decides what an empty value means.
+func cliValue(v string, words bool) bool {
 	if strings.HasPrefix(v, "-") {
 		return false
 	}
 	for _, r := range v {
-		if unicode.IsSpace(r) || unicode.IsControl(r) {
+		if unicode.IsControl(r) || (!words && unicode.IsSpace(r)) {
 			return false
 		}
+	}
+	return true
+}
+
+// cliField is one request value bound for a pool-admin CLI, named as the
+// request spells it so a refusal says which one.
+type cliField struct {
+	name, value string
+	words       bool
+}
+
+// cliValues answers 400 for the first field cliValue refuses and reports
+// whether every field passed.
+func cliValues(w http.ResponseWriter, fields ...cliField) bool {
+	for _, f := range fields {
+		if cliValue(f.value, f.words) {
+			continue
+		}
+		if f.words {
+			writeErr(w, http.StatusBadRequest, f.name+" must not start with '-' or contain control characters")
+		} else {
+			writeErr(w, http.StatusBadRequest, f.name+" must not start with '-' or contain whitespace or control characters")
+		}
+		return false
 	}
 	return true
 }

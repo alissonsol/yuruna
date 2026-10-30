@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d51fa5-ad15-451c-8e70-d870a6c34b99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,11 +137,11 @@ Describe 'Write-YurunaPoolState (gating round-trips through pool.state.json)' {
     BeforeAll {
         $script:StateRuntimeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yps-" + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Force -Path $script:StateRuntimeDir | Out-Null
-        $script:SavedRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $script:SavedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:StateRuntimeDir
     }
     AfterAll {
-        $env:YURUNA_RUNTIME_DIR = $script:SavedRuntimeDir
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeDir
         Remove-Item -LiteralPath $script:StateRuntimeDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     It 'writes gating into the state file when present' {
@@ -161,7 +161,7 @@ Describe 'Write-YurunaPoolState (gating round-trips through pool.state.json)' {
 
 Describe 'Sync-YurunaPoolConfiguration reads legacy pool operations' {
     BeforeAll {
-        $script:PriorSyncRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $script:PriorSyncRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     }
     BeforeEach {
         $script:SyncFixture = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
@@ -173,7 +173,7 @@ Describe 'Sync-YurunaPoolConfiguration reads legacy pool operations' {
         Mock -ModuleName Test.PoolSync Test-PoolConfigurationCloneOrigin { $true }
     }
     AfterAll {
-        $env:YURUNA_RUNTIME_DIR = $script:PriorSyncRuntimeDir
+        Restore-YurunaTestEnvironment -Saved $script:PriorSyncRuntimeDir
     }
     It 'honors <Operation> from schemaVersion <Version> and publishes canonical state' -ForEach @(
         @{ Version = 2; Operation = 'paused' }

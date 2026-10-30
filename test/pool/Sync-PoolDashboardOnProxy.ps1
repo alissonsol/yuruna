@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 422ccca9-b2ae-4944-9d17-c8d6f481d268
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     caching-proxy service VM, so a dashboard correction lands without a VM
     rebuild.
 .DESCRIPTION
-    See https://yuruna.link/42010605-0004.
+    See https://yuruna.link/42010605-0097.
 .PARAMETER ProxyAddress
     Proxy host/IP to push to. Omitted, the address is resolved the way the rest
     of the harness resolves it (Resolve-CachingProxyServiceEndpoint over

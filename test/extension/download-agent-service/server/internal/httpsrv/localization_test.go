@@ -5,8 +5,11 @@
 package httpsrv
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"download-agent-service/internal/catalog"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -108,4 +111,29 @@ func deliveredNonDefaultLocales() []string {
 		}
 	}
 	return out
+}
+
+// The catalog a localized page names is the embedded web/assets file for its
+// locale, served byte for byte: that file is the binary's one copy of the table.
+func TestLocalizedPageCatalogIsTheEmbeddedAsset(t *testing.T) {
+	pages := prepareLocalizedPages("auto", true)
+	s := &Server{pages: pages}
+	for _, tag := range deliveredNonDefaultLocales() {
+		want, err := webFS.ReadFile("web/assets/" + tag + ".download.js")
+		if err != nil {
+			t.Fatalf("delivered locale %s has no embedded catalog asset: %v", tag, err)
+		}
+		name := fmt.Sprintf("locale.%x.js", sha256.Sum256(want))
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.Header.Set("Accept-Language", tag)
+		w := httptest.NewRecorder()
+		s.servePage("index.html")(w, r)
+		if !strings.Contains(w.Body.String(), `<script src="/assets/`+name+`"></script>`) {
+			t.Fatalf("%s page does not load the catalog %s built from its embedded asset", tag, name)
+		}
+		served := httptest.NewRecorder()
+		if !pages.ServeAsset(served, httptest.NewRequest(http.MethodGet, "/assets/"+name, nil), name) || !bytes.Equal(served.Body.Bytes(), want) {
+			t.Fatalf("%s catalog %s is not served as the embedded asset bytes", tag, name)
+		}
+	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -222,6 +222,8 @@ $HeartbeatFile     = Join-Path $env:YURUNA_RUNTIME_DIR "runner.heartbeat"
 # See https://yuruna.link/4213a0b3-0016
 $StepHeartbeatFile = Join-Path $env:YURUNA_RUNTIME_DIR "runner.stepHeartbeat"
 # See https://yuruna.link/4213a0b3-0017
+# Chaos tests only (Test.FaultInjection): a fault before the inner records itself.
+if ($env:YURUNA_FAULT_POINTS) { Import-Module (Join-Path $PSScriptRoot 'Test.FaultInjection.psm1') -DisableNameChecking; Invoke-YurunaFaultPoint -Name 'before-inner-pid' }
 $null = Write-YurunaProcessStartRecord -Path (Join-Path $env:YURUNA_RUNTIME_DIR 'inner.start') -Confirm:$false
 $innerPidWritten = Write-YurunaStateFile -Path $InnerPidFile -Content ([string]$PID) -Confirm:$false
 if (-not $innerPidWritten) {
@@ -290,6 +292,8 @@ if (Test-Path $yurunaRetryModule) {
 # See https://yuruna.link/4213a0b3-0019
 
 $global:VerbosePreference = $savedVerbose
+# Chaos tests only (Test.FaultInjection): a fault once the module set loaded.
+if ($env:YURUNA_FAULT_POINTS) { Import-Module (Join-Path $PSScriptRoot 'Test.FaultInjection.psm1') -DisableNameChecking; Invoke-YurunaFaultPoint -Name 'inner-import' }
 
 # --- REGION: Bootstrap status.json from template if missing
 # A preflight inner writes no status document: the dashboard keeps the last
@@ -446,7 +450,14 @@ if (Get-Command Update-StashServiceMarkerAddress -ErrorAction SilentlyContinue) 
 }
 
 Write-RunnerPhase -Phase 'host-conditions'
-if (-not (Assert-HostConditionSet -HostType $HostType)) { exit $ExitFailure }
+$hostConditionVerdict = Get-HostConditionVerdict -HostType $HostType
+if (-not $hostConditionVerdict.Passed) {
+    # The failure record names the refused condition: an exit code alone
+    # leaves the outer loop scoring an unrecorded outcome.
+    Write-CycleInfraFailure -Stage 'HostCondition' -FailureClass $hostConditionVerdict.FailureClass -HostType $HostType `
+        -Severity 'hard' -GuestKey '(host)' -ErrorMessage $hostConditionVerdict.Message
+    exit $ExitFailure
+}
 
 # --- REGION: Concurrent-VM admission
 # See https://yuruna.link/4213a0b3-001b
@@ -459,216 +470,13 @@ if (-not $admissionStep.Ok) {
 # --- REGION: Cycle-start host guest-network gate
 # See https://yuruna.link/4213a0b3-001c
 Write-RunnerPhase -Phase 'host-network'
-# Consecutive total-loss observations required before refusing. The inner runs
-# one cycle per process, so the counter is file-backed alongside
-# runner.gating.json; a process-local one would reset every cycle and never
-# reach the threshold. Why a streak at all: a NIC renegotiating link 30-60s
-# after the very reboot that started the runner is indistinguishable from a
-# dead uplink at this instant, and darkening an unattended host over a
-# transient costs physical console access to undo.
-$HostNetworkTotalLossCycles = 3
-# runner.hostNetwork.json carries ONE thing: the consecutive TOTAL-LOSS streak
-# that arms the refusal below. The degraded-host pair written further down
-# (host-network.txt / host-network.json) describes a different condition -- a
-# host that lost a bridge but still has a path -- and the two counts must never
-# share a file, or a merely degraded host would walk itself toward a refusal.
-$HostNetworkStateFile       = Join-Path $env:YURUNA_RUNTIME_DIR "runner.hostNetwork.json"
-$hostNetwork                = Test-HostGuestNetworkHealth -HostType $HostType
-$hostNetworkStreak          = 0
-$hostNetworkSweptUtc        = ''
-if ($hostNetwork.Healthy) {
-    Write-Verbose "Host guest-network: path '$($hostNetwork.Path)'. $($hostNetwork.Reason)"
-    Remove-Item -LiteralPath $HostNetworkStateFile -Force -ErrorAction SilentlyContinue
-} else {
-    if (Test-Path $HostNetworkStateFile) {
-        try {
-            $priorHostNetwork  = Get-Content -Raw -LiteralPath $HostNetworkStateFile | ConvertFrom-Json
-            $hostNetworkStreak = [int]$priorHostNetwork.consecutiveTotalLoss
-            if ($priorHostNetwork.PSObject.Properties['sweptUtc']) { $hostNetworkSweptUtc = [string]$priorHostNetwork.sweptUtc }
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a45d371d59f46ba6' -Arguments @{ hostNetworkStateFile = "$HostNetworkStateFile"; message = "$($_.Exception.Message)" })
-        }
-    }
-    $hostNetworkStreak++
-    [void](Write-YurunaStateFileJson -Path $HostNetworkStateFile -InputObject @{
-        consecutiveTotalLoss = $hostNetworkStreak
-        path                 = [string]$hostNetwork.Path
-        reason               = [string]$hostNetwork.Reason
-        observedUtc          = [DateTime]::UtcNow.ToString('o')
-        sweptUtc             = $hostNetworkSweptUtc
-    } -Confirm:$false)
-}
-if ($hostNetwork.Degraded -and $hostNetwork.Healthy) {
-    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_cdaca8b5f8db383b' -Arguments @{ path = "$($hostNetwork.Path)"; reason = "$($hostNetwork.Reason)" })
-}
-
-# --- REGION: Degraded-host pair -> runtime/host-network.txt + host-network.json
-# See https://yuruna.link/4213a0b3-001d
-$HostNetworkBannerFile = Join-Path $env:YURUNA_RUNTIME_DIR "host-network.txt"
-$HostNetworkRecordFile = Join-Path $env:YURUNA_RUNTIME_DIR "host-network.json"
-$hostNetworkDegradedSwitch  = $null
-$hostNetworkDegradedVerdict = $null
-# Name order so a multi-switch host names the same switch every cycle instead
-# of whichever one enumeration happened to yield first -- a banner that
-# alternates between two broken switches reads as two separate faults.
-foreach ($verdictRecord in @($hostNetwork.Verdicts | Sort-Object -Property { "$($_.Switch)" })) {
-    $switchVerdict = "$($verdictRecord.Verdict)"
-    if ($switchVerdict -in @('healthy', 'unknown')) { continue }
-    $hostNetworkDegradedSwitch  = "$($verdictRecord.Switch)"
-    $hostNetworkDegradedVerdict = $switchVerdict
-    break
-}
-# A transition (appeared, changed switch/verdict, or cleared) is the only case
-# worth re-advertising: the registration record was written before this gate
-# ran, so without this a repaired host keeps publishing the fault it no longer
-# has until the next cycle -- a quarter of an hour of wrong.
-$hostNetworkTransition = $false
-# A host with NO usable guest path at all reaches here with an empty verdict
-# list -- the External block is skipped entirely on an uplink Hyper-V will not
-# bridge, so there is no switch to name. That is the worst state this gate can
-# observe, and keying the banner solely on a named switch would clear it in the
-# same pass that arms the refusal streak, leaving the dashboard blank exactly
-# when it has the most to say.
-$hostNetworkNoPath = ("$($hostNetwork.Path)" -eq 'none')
-if ($hostNetworkDegradedSwitch -or $hostNetworkNoPath) {
-    # Normalized to strings before any identity test: a no-switch observation
-    # carries $null here, and `'' -eq $null` is false in PowerShell, so an
-    # un-normalized compare would read every cycle as a fresh transition and
-    # the count could never advance past one.
-    $hostNetworkDegradedSwitch  = "$hostNetworkDegradedSwitch"
-    $hostNetworkDegradedVerdict = "$hostNetworkDegradedVerdict"
-    $hostNetworkSinceUtc = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-    $hostNetworkCycles   = 1
-    if (Test-Path -LiteralPath $HostNetworkRecordFile) {
-        try {
-            $priorDegraded = Get-Content -Raw -LiteralPath $HostNetworkRecordFile | ConvertFrom-Json -ErrorAction Stop
-            if ($priorDegraded.degraded -and
-                "$($priorDegraded.externalSwitch)" -eq $hostNetworkDegradedSwitch -and
-                "$($priorDegraded.verdict)"        -eq $hostNetworkDegradedVerdict) {
-                # Same switch, same verdict: one continuing condition, so the
-                # count advances and the first observation time is preserved.
-                # ConvertFrom-Json turns an ISO-8601 timestamp into a [datetime]
-                # in LOCAL time, so echoing it back with a plain string cast
-                # would rewrite the record with a locale-formatted, zone-less
-                # value that drifts one conversion further every cycle.
-                if ($priorDegraded.sinceUtc -is [DateTime]) {
-                    $hostNetworkSinceUtc = ([DateTime]$priorDegraded.sinceUtc).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-                } elseif ($priorDegraded.sinceUtc) {
-                    $hostNetworkSinceUtc = [string]$priorDegraded.sinceUtc
-                }
-                $hostNetworkCycles = [Math]::Max(1, [int]$priorDegraded.consecutiveCycles + 1)
-            } else {
-                $hostNetworkTransition = $true
-            }
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cc161913a057897a' -Arguments @{ hostNetworkRecordFile = "$HostNetworkRecordFile"; message = "$($_.Exception.Message)" })
-            $hostNetworkTransition = $true
-        }
-    } else {
-        $hostNetworkTransition = $true
-    }
-    # Which topology the guests actually get this cycle, taken from the same
-    # record the verdict came from rather than assumed -- another External
-    # switch, the Default Switch, or nothing at all are three different
-    # instructions to whoever reads the banner.
-    $hostNetworkFallbackText = switch ("$($hostNetwork.Path)") {
-        'external'       { 'guests take another External switch this cycle.' }
-        'default-switch' { 'guests run on the Default Switch (NAT + DHCP) and reach the LAN through host port-forwarders.' }
-        default          { 'no usable guest-network path remains on this host.' }
-    }
-    # The switch name is operator-chosen free text and the status page injects
-    # this string with .innerHTML, so it is escaped at the writer.
-    $switchHtml  = $hostNetworkDegradedSwitch  -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;'
-    $verdictHtml = $hostNetworkDegradedVerdict -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;'
-    $streakText  = if ($hostNetworkCycles -eq 1) { '1 cycle' } else { "$hostNetworkCycles cycles" }
-    # No switch to name means the External block never ran, so the banner says
-    # what was observed rather than quoting an empty switch name at the reader.
-    $bannerHtml  = if ($hostNetworkDegradedSwitch) {
-        'Host network: <strong>degraded</strong> -- External switch "' + $switchHtml +
-        '" reports ' + $verdictHtml + ' (' + $streakText + '); ' + $hostNetworkFallbackText
-    } else {
-        'Host network: <strong>degraded</strong> -- no usable External vSwitch (' +
-        $streakText + '); ' + $hostNetworkFallbackText
-    }
-    [void](Write-YurunaStateFile -Path $HostNetworkBannerFile -Content $bannerHtml -Confirm:$false)
-    [void](Write-YurunaStateFileJson -Path $HostNetworkRecordFile -InputObject ([ordered]@{
-        externalSwitch    = $hostNetworkDegradedSwitch
-        verdict           = $hostNetworkDegradedVerdict
-        degraded          = $true
-        sinceUtc          = $hostNetworkSinceUtc
-        consecutiveCycles = $hostNetworkCycles
-    }) -Confirm:$false)
-    if ($hostNetworkDegradedSwitch) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_612dcd1868df2ca1' -Arguments @{ hostNetworkDegradedSwitch = "$hostNetworkDegradedSwitch"; hostNetworkDegradedVerdict = "$hostNetworkDegradedVerdict"; streakText = "$streakText"; hostNetworkFallbackText = "$hostNetworkFallbackText"; hostNetworkBannerFile = "$HostNetworkBannerFile" })
-    } else {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_acea7366671e16ac' -Arguments @{ streakText = "$streakText"; hostNetworkFallbackText = "$hostNetworkFallbackText"; hostNetworkBannerFile = "$HostNetworkBannerFile" })
-    }
-} elseif ("$($hostNetwork.Path)" -ne 'unknown') {
-    # Only a host whose probe actually ran may clear the pair. 'unknown' is "no
-    # opinion" -- not Windows, no Hyper-V cmdlets, no classifier loaded, a probe
-    # that threw -- and clearing on no opinion silently retracts a real finding.
-    if (Test-Path -LiteralPath $HostNetworkRecordFile) { $hostNetworkTransition = $true }
-    Remove-Item -LiteralPath $HostNetworkBannerFile -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $HostNetworkRecordFile -Force -ErrorAction SilentlyContinue
-}
-if ($hostNetworkTransition -and (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue)) {
-    try {
-        $null = Write-HostRegistrationRecord -HostType $HostType -RepoRoot $RepoRoot
-    } catch {
-        Write-Verbose "Registration refresh after a host-network transition: $($_.Exception.Message)"
-    }
-}
-if (-not $hostNetwork.Healthy) {
-    if ($hostNetworkStreak -lt $HostNetworkTotalLossCycles) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8f0a9afe5b056fbf' -Arguments @{ reason = "$($hostNetwork.Reason)"; hostNetworkStreak = "$hostNetworkStreak"; hostNetworkTotalLossCycles = "$HostNetworkTotalLossCycles" })
-    } else {
-        Write-Warning "========"
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ee4abed5e7b99f8a')
-        Write-Warning " $($hostNetwork.Reason)"
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_cff5fb33306a5066' -Arguments @{ hostNetworkStreak = "$hostNetworkStreak" })
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_77a92c1797d58532')
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7cca750082a38685')
-        Write-Warning ""
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c3f47c04f41d8b32')
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_937f393383f53958' -Arguments @{ hostNetworkStateFile = "$HostNetworkStateFile" })
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_371e8101f5a8b5d7')
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_622d686388181455')
-        Write-Warning "========"
-        # Leave the host no dirtier than a normal cycle start: the sweep that
-        # removes VMs stranded by the previous cycle lives inside the cycle
-        # body, which this refusal skips. Not while a host refresh holds the
-        # host: the sweep is a VM mutation the refresh has not released.
-        # Once per loss: no cycle runs between two refusals, so nothing new
-        # can be stranded, and the state file of the streak remembers the
-        # sweep. In a bounded process of its own: a hypervisor that stopped
-        # answering would otherwise hold the refusal until the preamble
-        # watchdog killed it.
-        if ($hostNetworkSweptUtc) {
-            Write-Verbose "The stranded-VM sweep already ran during this loss of the guest network ($hostNetworkSweptUtc)."
-        } elseif (Test-YurunaRefreshSpawnAllowed -RuntimeDir $env:YURUNA_RUNTIME_DIR) {
-            try {
-                $sweep = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) -TimeoutSeconds 300 `
-                    -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', (Join-Path $TestRoot 'Remove-TestVMFiles.ps1'), '-Quiet')
-                foreach ($line in @(Get-BoundedNativeOutputLine -Result $sweep -IncludeError)) { Write-Output $line }
-                if ($sweep.TimedOut) {
-                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.host_network_sweep_timed_out' -Arguments @{ seconds = '300' })
-                } elseif ([int]$sweep.ExitCode -ne 0) {
-                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_80e0664397f67e27' -Arguments @{ value = "exit $($sweep.ExitCode)" })
-                }
-            } catch {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_80e0664397f67e27' -Arguments @{ value = "$_" })
-            }
-            [void](Write-YurunaStateFileJson -Path $HostNetworkStateFile -InputObject @{
-                consecutiveTotalLoss = $hostNetworkStreak
-                path                 = [string]$hostNetwork.Path
-                reason               = [string]$hostNetwork.Reason
-                observedUtc          = [DateTime]::UtcNow.ToString('o')
-                sweptUtc             = [DateTime]::UtcNow.ToString('o')
-            } -Confirm:$false)
-        }
-        exit $ExitFailure
-    }
-}
+$hostNetworkGate = Invoke-CycleHostNetworkGate -HostType $HostType -RuntimeDir $env:YURUNA_RUNTIME_DIR -TestRoot $TestRoot -RepoRoot $RepoRoot
+foreach ($line in $hostNetworkGate.SweepOutput) { Write-Output $line }
+if (-not $hostNetworkGate.Ok) { exit $ExitFailure }
+# The vSwitch repair below clears the same three files when it heals the switch.
+$HostNetworkStateFile  = $hostNetworkGate.StateFile
+$HostNetworkBannerFile = $hostNetworkGate.BannerFile
+$HostNetworkRecordFile = $hostNetworkGate.RecordFile
 
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_71bb57cd92796a43' -Arguments @{ dIR = "$env:YURUNA_RUNTIME_DIR" })
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4a30dc2d3855f67b' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
@@ -689,192 +497,19 @@ Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -F
 # --- REGION: Cycle-start service-VM restore
 # See https://yuruna.link/4213a0b3-0020
 Write-RunnerPhase -Phase 'service-vm-restore'
-if (Get-Command Restore-YurunaServiceVM -ErrorAction SilentlyContinue) {
-    $serviceRestore = @()
-    try {
-        $serviceRestore = @(Restore-YurunaServiceVM -Confirm:$false)
-        Write-YurunaServiceVmRestoreReport -Result $serviceRestore
-    } catch {
-        # Never fatal: a host that cannot check its service VMs still runs the
-        # cycle, and the gates below report what is actually reachable.
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_96a9c1c4155d58e1' -Arguments @{ message = "$($_.Exception.Message)" })
-    }
-    # Automatic host-refresh evidence for the outer: the per-service probe
-    # reasons of this restore, tagged with the generation the outer issued for
-    # this cycle so the loop never counts a sidecar from another cycle. Written
-    # even when the cycle later passes, and never allowed to change the cycle.
-    if ($env:YURUNA_CYCLE_GENERATION) {
-        try {
-            if (-not (Get-Command Write-HostRefreshAutoEvidence -ErrorAction SilentlyContinue)) {
-                $triggerModule = Join-Path $ModulesDir 'Test.HostRefreshTrigger.psm1'
-                if (Test-Path -LiteralPath $triggerModule) { Import-Module $triggerModule -Global -ErrorAction SilentlyContinue }
-            }
-            if (Get-Command Write-HostRefreshAutoEvidence -ErrorAction SilentlyContinue) {
-                $null = Write-HostRefreshAutoEvidence -RuntimeDir $env:YURUNA_RUNTIME_DIR -Generation $env:YURUNA_CYCLE_GENERATION `
-                    -Phase 'service-vm-restore' -ServiceRestoreResult $serviceRestore -HostType $HostType `
-                    -HostId ([string]$global:__YurunaHostId) -Confirm:$false
-            }
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.refresh_trigger_call_failed' -Arguments @{ site = 'service-vm-restore'; message = "$($_.Exception.Message)" })
-        }
-    }
-}
+$null = Invoke-CycleServiceVmRestore -HostType $HostType -RuntimeDir $env:YURUNA_RUNTIME_DIR
 
 # --- REGION: Cycle-start External vSwitch repair (Hyper-V only)
 # See https://yuruna.link/4213a0b3-0021
-if (Get-Command Repair-YurunaExternalSwitch -ErrorAction SilentlyContinue) {
-    $switchRepairOk = $false
-    try { $switchRepairOk = [bool](Repair-YurunaExternalSwitch -Confirm:$false) } catch {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c3f68b5f80163e1f' -Arguments @{ message = "$($_.Exception.Message)" })
-    }
-    # See https://yuruna.link/4213a0b3-0022
-    if ($switchRepairOk -and (Test-Path -LiteralPath $HostNetworkRecordFile)) {
-        $afterRepair = Test-HostGuestNetworkHealth -HostType $HostType
-        if ($afterRepair.Healthy -and -not $afterRepair.Degraded) {
-            Remove-Item -LiteralPath $HostNetworkBannerFile -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $HostNetworkRecordFile -Force -ErrorAction SilentlyContinue
-            # The total-loss streak was armed by the same stale observation.
-            Remove-Item -LiteralPath $HostNetworkStateFile  -Force -ErrorAction SilentlyContinue
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ebd1a9555df545ac' -Arguments @{ path = "$($afterRepair.Path)" }) -InformationAction Continue
-            if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
-                try {
-                    $null = Write-HostRegistrationRecord -HostType $HostType -RepoRoot $RepoRoot
-                } catch {
-                    Write-Verbose "Registration refresh after the vSwitch repair: $($_.Exception.Message)"
-                }
-            }
-        }
-    }
-}
+$null = Invoke-CycleExternalSwitchRepair -HostType $HostType -RepoRoot $RepoRoot `
+    -StateFile $HostNetworkStateFile -BannerFile $HostNetworkBannerFile -RecordFile $HostNetworkRecordFile
 
 # --- REGION: Cycle-start caching-proxy-service gate
 # See https://yuruna.link/4213a0b3-0023
 Write-RunnerPhase -Phase 'caching-proxy-gate'
-$envCacheIp    = if ($env:YURUNA_CACHING_PROXY_SERVICE_IP) { $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() } else { '' }
-$configCacheIp = ''
-if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIp')) {
-    $configCacheIp = "$($Config.vmStart.cachingProxyIp)".Trim()
-}
-if ($envCacheIp -or $configCacheIp) {
-    # Shared probe-and-clear (Test.CachingProxyService) so Debug-TestSequence applies
-    # the identical acceptance policy, not a weaker Test-IpAddress-only
-    # promotion. Emits the console lines here (the resolver returns them so
-    # it stays side-effect-free apart from the env write below).
-    $endpoint = Resolve-CachingProxyServiceEndpoint -EnvIp $envCacheIp -ConfigIp $configCacheIp
-    foreach ($line in $endpoint.Lines) { Write-Output $line }
-    # Publish the effective IP (or clear if no candidate had a reachable
-    # :3128) so the rest of the cycle sees a coherent view via
-    # $env:YURUNA_CACHING_PROXY_SERVICE_IP. A reachable config IP therefore
-    # overwrites an operator-exported env IP for the rest of THIS cycle;
-    # the outer runner re-asserts the launch-shell value before the next
-    # cycle, so the env candidate is re-offered as fallback every cycle.
-    $env:YURUNA_CACHING_PROXY_SERVICE_IP = $endpoint.EffectiveIp
-}
-
-# Proxy-cache detection lives in Test.CachingProxyService.psm1 so Start-StatusService
-# shares the same probe -- console banner here and the status-page banner
-# (via $env:YURUNA_RUNTIME_DIR/caching-proxy-service.txt) stay in lockstep with the
-# URL injected into autoinstall user-data by guest.ubuntu.server.24/New-VM.ps1.
-$cachingProxyUrl = Test-CachingProxyServiceAvailable
-
-# See https://yuruna.link/4213a0b3-0024
-$cpPortLock = if (Get-Command Enter-CachingProxyServiceLock -ErrorAction SilentlyContinue) {
-    Enter-CachingProxyServiceLock -RuntimeDir $env:YURUNA_RUNTIME_DIR -Role 'portmap' -TimeoutSeconds 0
-} else { @{ Acquired = $true; PidPath = $null } }
-if (-not $cpPortLock.Acquired) {
-    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_f5d13a74fd026605')
-} else {
-    try {
-# See https://yuruna.link/4213a0b3-0025
-if ($cachingProxyUrl) {
-    $vmIp = if ($cachingProxyUrl -match '^http://([0-9.]+):') { $matches[1] } else { $null }
-    $isExternal = [bool]$Env:YURUNA_CACHING_PROXY_SERVICE_IP
-    if ($isExternal -and $vmIp) {
-        # See https://yuruna.link/4213a0b3-0026
-        $ownVerdict = Get-HostOwnIpVerdict -IpAddress $vmIp
-        if ($ownVerdict -ne 'nonlocal') {
-            Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_76d8c741d7d223ad' -Arguments @{ vmIp = "$vmIp"; ownVerdict = "$ownVerdict" })
-            $isExternal = $false
-        }
-    }
-    $mapOk  = $false
-    $bestIp = $null
-    if ($isExternal) {
-        [void](Remove-PortMap -Confirm:$false)
-        $mapOk  = $true
-        $bestIp = $vmIp
-    } elseif ($vmIp) {
-        # On macOS the detection URL is the VZ gateway (192.168.64.1),
-        # not the cache VM's real IP. Get-CachingProxyServiceVmIp reads the
-        # yuruna-caching-proxy-service state file for the real IP so forwarders
-        # tunnel to squid rather than looping back. On Windows the URL
-        # already carries the cache VM IP.
-        $portMapIp = Get-CachingProxyServiceVmIp
-        if (-not $portMapIp) { $portMapIp = $vmIp }
-
-        $cacheOnExternalSwitch = [bool](Test-CacheVMOnExternalNetwork)
-        if ($cacheOnExternalSwitch) {
-            [void](Remove-PortMap -Confirm:$false)
-            $mapOk  = $true
-            $bestIp = $vmIp
-        } elseif (Test-HostOwnIpAddress -IpAddress $portMapIp) {
-            # The target resolved no further than one of this host's own
-            # addresses (no recorded cache-VM IP to tunnel to): a forwarder
-            # aimed there would loop each port back onto its own listener.
-            # Keep the port map that is currently serving traffic instead
-            # of replacing it with a loop.
-            $mapOk  = $true
-            $bestIp = Get-BestHostIp
-            if (-not $bestIp) { $bestIp = $vmIp }
-        } else {
-            $cacheHttpPort  = Get-CachingProxyServicePort -Scheme http
-            $cacheHttpsPort = Get-CachingProxyServicePort -Scheme https
-            # See https://yuruna.link/4213a0b3-0027
-            $CachingProxyServiceExposedPorts = if ($IsMacOS) { @(80, 3000) } else { Get-CachingProxyServiceExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
-            $portMapArgs = @{
-                VMIp      = $portMapIp
-                Port      = $CachingProxyServiceExposedPorts
-                PortRemap = @{ 8022 = 22 }
-            }
-            if ($IsMacOS) {
-                $portMapArgs.PortRemap[$cacheHttpPort]  = 3138
-                $portMapArgs.PortRemap[$cacheHttpsPort] = 3139
-                $portMapArgs.ProxyProtocolPort          = @($cacheHttpPort, $cacheHttpsPort)
-            }
-            $mapResult = Add-PortMap @portMapArgs -Confirm:$false
-            $mapOk     = [bool]$mapResult
-            $bestIp    = Get-BestHostIp
-            if (-not $bestIp) { $bestIp = $vmIp }  # no routable iface -- fall back
-        }
-    }
-    if ($mapOk) {
-        $dashboardUrl   = "http://${bestIp}:3000/d/yuruna-squid/caching-proxy-service-yuruna?orgId=1&from=now-2h&to=now&timezone=browser&refresh=1m"
-        $esc            = [char]27
-        $label          = if ($isExternal) { "detected (external: $vmIp)" } else { "detected" }
-        $linkedDetected = "${esc}]8;;${dashboardUrl}${esc}\${label}${esc}]8;;${esc}\"
-        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_39426f6aa7b04537' -Arguments @{ linkedDetected = "$linkedDetected" })
-    } else {
-        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1d66dd0d87cb6777')
-    }
-} else {
-    Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_fe40f9dec8593d1a')
-    # A probe can miss for one cycle (cold socket-activated forwarder,
-    # momentary host contention) while the cache behind this host's own
-    # forwarders is perfectly healthy. When the operator's env still
-    # names this host (or the ownership can't be positively ruled out),
-    # removing the port map here strands guests on refused proxy ports
-    # until a later cycle rebuilds it -- keep the forwarders instead.
-    $envCacheIp = [string]$Env:YURUNA_CACHING_PROXY_SERVICE_IP
-    if ($envCacheIp -and ((Get-HostOwnIpVerdict -IpAddress $envCacheIp) -ne 'nonlocal')) {
-        Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_32de3de6b68e1ac1' -Arguments @{ envCacheIp = "$envCacheIp" })
-    } else {
-        [void](Remove-PortMap -Confirm:$false)
-    }
-}
-    } finally {
-        if (Get-Command Exit-CachingProxyServiceLock -ErrorAction SilentlyContinue) { [void](Exit-CachingProxyServiceLock -Handle $cpPortLock) }
-    }
-}
+$cachingProxyGate = Invoke-CycleCachingProxyGate -Config $Config -RuntimeDir $env:YURUNA_RUNTIME_DIR
+foreach ($line in $cachingProxyGate.Output) { Write-Output $line }
+$cachingProxyUrl = $cachingProxyGate.CachingProxyUrl
 
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"

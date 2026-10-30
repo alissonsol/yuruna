@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f19503-4d18-8300-0c4e-b20b03572b60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -215,26 +215,6 @@
         }
     )
     'exceptions.host_56dd0a83b1740c20' = 'Disable-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux.'
-    'exceptions.host_5e82d7a32d22a269' = @(
-        'HTTP '
-        @{
-            'arg' = 'status'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' '
-        @{
-            'arg' = 'reasonPhrase'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' para '
-        @{
-            'arg' = 'uri'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
     'exceptions.host_5fbd4e8bd8efc5cc' = @(
         'Arquitetura não suportada para a imagem base do serviço de extensão: '
         @{

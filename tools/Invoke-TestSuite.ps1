@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,6 +62,19 @@
     recorded cost and more than -SlowdownAllowanceSeconds over it is listed as
     a warning and in suite-results.json `slowdowns`, so a feedback loop that
     grows slower is seen before the suite reaches its kill cap.
+
+    A suite that fails in the parallel run is run once more, alone, after it
+    (up to ten suites, never under -FailFast or a throttle of 1). Its row and
+    problem line say whether it then passed (`alone: passed`, listed in
+    `loadSensitive`: its timing margins do not hold under load) or failed
+    again. The verdict is the first run's either way; the alone run's result
+    is nunit-<suite>.alone.xml.
+
+    A process a suite leaves running after its own process exits is stopped
+    and listed as a warning and in suite-results.json `leftovers`; it does not
+    change the verdict. Leftovers are found by the suite's temp folder in
+    their environment, on Linux and macOS. A worker that fails reports its
+    suite as incomplete (rc 126) instead of stopping the run.
 
     A baseline row is `total`, `skipped` and `seconds`, recorded by
     -UpdateBaseline on the reference host, plus three optional fields that are
@@ -537,6 +550,50 @@ function Test-ForegroundRun {
     return $false
 }
 
+function Get-SuiteLeftoverProcess {
+    <#
+    .SYNOPSIS
+        The processes a finished suite left running: every process whose
+        environment names that suite's own temp folder.
+    .DESCRIPTION
+        Every process a suite starts inherits YURUNA_TEST_TEMP_ROOT naming the
+        suite's folder, so a process still carrying it once the suite process
+        has exited is one the suite started and left behind, however it was
+        detached. Linux reads /proc/<pid>/environ and macOS asks ps -E; Windows
+        offers no read of another process's environment, so nothing is found
+        there. A process started with a scrubbed environment is not found.
+    #>
+    param([Parameter(Mandatory)][string]$Marker)
+    $entry = "YURUNA_TEST_TEMP_ROOT=$Marker"
+    if ($IsLinux) {
+        foreach ($directory in [IO.Directory]::EnumerateDirectories('/proc')) {
+            $id = 0
+            if (-not [int]::TryParse([IO.Path]::GetFileName($directory), [ref]$id) -or $id -eq $PID) { continue }
+            $environment = $null
+            try { $environment = [Text.Encoding]::Latin1.GetString([IO.File]::ReadAllBytes("$directory/environ")) } catch { continue }
+            if (-not ($environment.StartsWith($entry + [char]0, [StringComparison]::Ordinal) -or
+                    $environment.Contains([char]0 + $entry + [char]0, [StringComparison]::Ordinal))) { continue }
+            $name = ''
+            try { $name = ([IO.File]::ReadAllText("$directory/comm")).Trim() } catch { $name = '' }
+            [pscustomobject]@{ Pid = $id; Name = $name }
+        }
+    } elseif ($IsMacOS) {
+        $info = [Diagnostics.ProcessStartInfo]::new('ps')
+        foreach ($argument in @('-E', '-ww', '-x', '-o', 'pid=', '-o', 'comm=', '-o', 'command=')) { $info.ArgumentList.Add($argument) }
+        $info.RedirectStandardOutput = $true
+        $info.UseShellExecute = $false
+        $ps = [Diagnostics.Process]::Start($info)
+        $listing = $ps.StandardOutput.ReadToEndAsync()
+        if (-not $ps.WaitForExit(5000)) { try { $ps.Kill() } catch { $null = $_ }; return }
+        foreach ($line in ($listing.Result -split "`n")) {
+            if ($line -notmatch '^\s*(\d+)\s+(\S+)\s') { continue }
+            $id = [int]$Matches[1]
+            if ($id -eq $PID) { continue }
+            if ($line.Contains("$entry ") -or $line.TrimEnd().EndsWith($entry)) { [pscustomobject]@{ Pid = $id; Name = [IO.Path]::GetFileName($Matches[2]) } }
+        }
+    }
+}
+
 function Get-NUnitCount {
     param([Parameter(Mandatory)][string]$Path)
     $document = [xml](Get-Content -LiteralPath $Path -Raw -ErrorAction Stop)
@@ -785,6 +842,7 @@ try {
             Context = $impact.Context; Zone = $impact.Zone; Ignore = $ignore }
     } else { $null }
     $foregroundCheck = if ($Background) { ${function:Test-ForegroundRun}.ToString() } else { $null }
+    $leftoverFinder = ${function:Get-SuiteLeftoverProcess}.ToString()
 
     if (-not $Quiet) {
         $reusedText = if ($reused.Count) { " ($($reused.Count) more reused from recorded passes)" } else { '' }
@@ -807,272 +865,336 @@ try {
 
     $sw = [Diagnostics.Stopwatch]::StartNew()
     if (-not $Quiet) { $InformationPreference = 'Continue' }
-    $results = $ordered | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
+    # A worker reports its own failure as a row, and its error records are kept
+    # rather than stopping the run: under this script's Stop preference one
+    # worker's error would otherwise stop every other worker mid-suite and leave
+    # their suite processes running. The Parallel parameter set takes no
+    # -ErrorAction, so the preference is relaxed around the call instead.
+    $suiteWorker = {
         $rel     = $_
-        $root    = $using:RepoRoot
-        $shim    = $using:Shim
-        $outDir  = $using:ResultsPath
-        $logs    = $using:logDir
-        $runTempRoot = $using:runTemp
-        $caps    = $using:timeoutFor
-        $signal  = $using:failureSignal
-        $timeout = if ($caps.ContainsKey($rel)) { $caps[$rel] } else { $using:TimeoutSeconds }
-        $recording = $using:recording
-        $whyRun = ($using:whyRun)[$rel]
-        $impactNote = $whyRun
-        $foregroundCheck = $using:foregroundCheck
-        if ($foregroundCheck -and (& ([scriptblock]::Create($foregroundCheck)) -Directory $using:foregroundDirectory)) {
-            $reason = 'not launched: a foreground run is active on this clone'
-            return [pscustomobject]@{
-                path = $rel; rc = 125; haveXml = $false; total = 0; failed = 0; errors = 0; skipped = 0
-                seconds = 0; message = $reason; stdoutLog = $null; stderrLog = $null; impact = $reason
+        $p = $null
+        $leftovers = @()
+        try {
+            $root    = $using:RepoRoot
+            $shim    = $using:Shim
+            $outDir  = $using:ResultsPath
+            $logs    = $using:logDir
+            $runTempRoot = $using:runTemp
+            $caps    = $using:timeoutFor
+            $signal  = $using:failureSignal
+            $timeout = if ($caps.ContainsKey($rel)) { $caps[$rel] } else { $using:TimeoutSeconds }
+            $recording = $using:workerRecording
+            $whyRun = ($using:whyRun)[$rel]
+            $impactNote = $whyRun
+            $foregroundCheck = $using:foregroundCheck
+            if ($foregroundCheck -and (& ([scriptblock]::Create($foregroundCheck)) -Directory $using:foregroundDirectory)) {
+                $reason = 'not launched: a foreground run is active on this clone'
+                return [pscustomobject]@{
+                    path = $rel; rc = 125; haveXml = $false; total = 0; failed = 0; errors = 0; skipped = 0
+                    seconds = 0; message = $reason; stdoutLog = $null; stderrLog = $null; impact = $reason
+                }
             }
-        }
-        if (-not $using:Quiet) {
-            $shownLimit = if ($recording) { "${timeout}s, x4 while traced" } else { "${timeout}s" }
-            Write-Information "Starting $rel (limit $shownLimit)" -InformationAction Continue
-        }
-
-        $xml = Join-Path $outDir ('nunit-' + ($rel -replace '[\\/]', '_') + '.xml')
-        # Clear only this suite's stale XML; a filtered run must preserve other
-        # suites' evidence. The directory lock protects the whole publication.
-        if (Test-Path -LiteralPath $xml) { Remove-Item -LiteralPath $xml -Force }
-        $stdoutLog = Join-Path $logs ([IO.Path]::GetFileNameWithoutExtension($xml) + '.stdout.log')
-        $stderrLog = Join-Path $logs ([IO.Path]::GetFileNameWithoutExtension($xml) + '.stderr.log')
-        if ($using:FailFast -and $signal.IsSet) {
-            $reason = 'not launched after another suite failed (FailFast)'
-            [IO.File]::WriteAllText($stdoutLog, '', [Text.UTF8Encoding]::new($false))
-            [IO.File]::WriteAllText($stderrLog, $reason, [Text.UTF8Encoding]::new($false))
-            return [pscustomobject]@{
-                path = $rel; rc = 125; haveXml = $false; total = 0; failed = 0; errors = 0; skipped = 0
-                seconds = 0; message = $reason; stdoutLog = $stdoutLog; stderrLog = $stderrLog; impact = $impactNote
-            }
-        }
-        # Each suite gets a temp folder of its own under the run's master
-        # folder. Every process the suite starts inherits it through TMPDIR
-        # (Unix) and TMP/TEMP (Windows), so a test that leaks, a child that is
-        # killed mid-write and Pester's own TestDrive all land in a folder the
-        # run removes. The folder is kept after the worker exits, including
-        # after a timeout or cancellation kill: a cygwin process started later
-        # in the run would otherwise inherit a dangling /tmp. The master is
-        # removed when the run ends. /tmp rather than a long $TMPDIR on Unix: the
-        # runtime's sockets live in this folder and a Unix socket path is capped
-        # near 104 bytes on macOS. DOTNET_EnableDiagnostics=0 stops every .NET
-        # child from creating the debugger FIFOs and diagnostic socket at all;
-        # nobody attaches a debugger to a suite worker.
-        $suiteTemp = Join-Path $runTempRoot ('yrn-suite-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
-        $null = New-Item -ItemType Directory -Force -Path $suiteTemp
-
-        # A traced suite that does not pass runs again untraced, and that run
-        # decides. ptrace changes how a traced process dies -- a killed child
-        # stays visible until strace reaps it -- so a test that bounds a process
-        # kill, or a stop strace cannot follow, can fail only because it was
-        # traced. A suite that fails that way twice in the context's day runs
-        # untraced for the rest of it; one such failure can be a load flake,
-        # which tracing makes likelier.
-        $trace = [bool]$recording
-        $untraceableMark = $null
-        $untraceable = $false
-        $tracedFailures = 0
-        if ($recording) {
-            $untraceableMark = Join-Path $recording.Cache ('untraceable/' +
-                [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($rel))).Substring(0, 32).ToLowerInvariant())
-            if ([IO.File]::Exists($untraceableMark)) {
-                $mark = [IO.File]::ReadAllLines($untraceableMark)
-                if ($mark.Count -ge 2 -and $mark[0] -ceq $recording.Context) { $null = [int]::TryParse($mark[1], [ref]$tracedFailures) }
-            }
-            if ($tracedFailures -ge 2) {
-                $trace = $false
-                $untraceable = $true
-            }
-        }
-        $tracedFailure = $null
-        while ($true) {
-            $psi = [Diagnostics.ProcessStartInfo]::new()
-            $psi.FileName               = (Get-Process -Id $PID).Path
-            $psi.RedirectStandardOutput = $true
-            $psi.RedirectStandardError  = $true
-            $psi.UseShellExecute        = $false
-            $psi.WorkingDirectory       = $root
-            foreach ($name in 'TMPDIR', 'TMP', 'TEMP', 'YURUNA_TEST_TEMP_ROOT') { $psi.Environment[$name] = $suiteTemp }
-            $psi.Environment['DOTNET_EnableDiagnostics'] = '0'
-            # .NET's startup JIT profile is shared by concurrent pwsh processes.
-            # Disable both playback and recording before startup, including in
-            # nested shells: https://github.com/dotnet/runtime/issues/121977.
-            $psi.Environment['DOTNET_MultiCoreJitProfile'] = '(D)'
-            # NonInteractive is process-local; every nested launcher must set it so
-            # an unexpected host prompt fails instead of waiting on the operator.
-            foreach ($a in @('-NoProfile', '-NonInteractive', '-File', $shim, '-Suite', (Join-Path $root $rel), '-Xml', $xml)) {
-                $psi.ArgumentList.Add($a)
-            }
-            $observations = $null
-            if ($trace) {
-                # The same suite process, started by the recorder under strace.
-                $observations = Join-Path $suiteTemp 'observations.json'
-                $traced = [Collections.Generic.List[string]]::new()
-                $traced.AddRange([string[]]@($recording.Tool, 'run', '--strace', $recording.Tracer, '--out', $observations))
-                foreach ($zone in $recording.Zone) { $traced.AddRange([string[]]@('--zone', $zone)) }
-                foreach ($skip in @($recording.Ignore) + $runTempRoot) { $traced.AddRange([string[]]@('--ignore', $skip)) }
-                $traced.Add('--')
-                $traced.Add($psi.FileName)
-                $traced.AddRange([string[]]@($psi.ArgumentList))
-                $psi.ArgumentList.Clear()
-                foreach ($a in $traced) { $psi.ArgumentList.Add($a) }
-                $psi.FileName = $recording.Python
+            if (-not $using:Quiet) {
+                $shownLimit = if ($recording) { "${timeout}s, x4 while traced" } else { "${timeout}s" }
+                Write-Information "Starting $rel (limit $shownLimit)" -InformationAction Continue
             }
 
-            $limit = if ($trace) { 4 * $timeout } else { $timeout }
-            $t0 = [Diagnostics.Stopwatch]::StartNew()
-            $p  = [Diagnostics.Process]::Start($psi)
-            # Drain both streams before waiting: a suite that fills a 64 KB pipe buffer
-            # would otherwise block forever and be killed as a false timeout. Pester
-            # writes internal reporting errors to stdout, so retain both streams even
-            # when the child exits successfully. Logs stay quiet unless evidence fails.
-            $stdout = $p.StandardOutput.ReadToEndAsync()
-            $stderr = $p.StandardError.ReadToEndAsync()
-            $cancelled = $false
-            if ($using:FailFast -or -not $using:Quiet) {
-                $waitClock = [Diagnostics.Stopwatch]::StartNew()
-                $timedOut = $false
-                $nextProgress = 30
-                while ($true) {
-                    $remaining = [Math]::Max(1, [int][Math]::Ceiling($limit * 1000 - $waitClock.Elapsed.TotalMilliseconds))
-                    if ($p.WaitForExit([Math]::Min(1000, $remaining))) { break }
-                    if ($using:FailFast -and $signal.IsSet) { $cancelled = $true; break }
-                    if ($waitClock.Elapsed.TotalSeconds -ge $limit) { $timedOut = $true; break }
-                    if (-not $using:Quiet -and $waitClock.Elapsed.TotalSeconds -ge $nextProgress) {
-                        Write-Information ("Still running {0}: {1:n0}s elapsed, limit {2}s" -f $rel,
-                            $waitClock.Elapsed.TotalSeconds, $limit) -InformationAction Continue
-                        $nextProgress += 30
+            $xml = Join-Path $outDir ('nunit-' + ($rel -replace '[\\/]', '_') + $using:aloneSuffix + '.xml')
+            # Clear only this suite's stale XML; a filtered run must preserve other
+            # suites' evidence. The directory lock protects the whole publication.
+            if (Test-Path -LiteralPath $xml) { Remove-Item -LiteralPath $xml -Force }
+            # An alone run's result from an earlier run says nothing about this one.
+            $staleAlone = [IO.Path]::ChangeExtension($xml, '.alone.xml')
+            if (-not $using:aloneSuffix -and (Test-Path -LiteralPath $staleAlone)) { Remove-Item -LiteralPath $staleAlone -Force }
+            $stdoutLog = Join-Path $logs ([IO.Path]::GetFileNameWithoutExtension($xml) + '.stdout.log')
+            $stderrLog = Join-Path $logs ([IO.Path]::GetFileNameWithoutExtension($xml) + '.stderr.log')
+            if ($using:FailFast -and $signal.IsSet) {
+                $reason = 'not launched after another suite failed (FailFast)'
+                [IO.File]::WriteAllText($stdoutLog, '', [Text.UTF8Encoding]::new($false))
+                [IO.File]::WriteAllText($stderrLog, $reason, [Text.UTF8Encoding]::new($false))
+                return [pscustomobject]@{
+                    path = $rel; rc = 125; haveXml = $false; total = 0; failed = 0; errors = 0; skipped = 0
+                    seconds = 0; message = $reason; stdoutLog = $stdoutLog; stderrLog = $stderrLog; impact = $impactNote
+                }
+            }
+            # Each suite gets a temp folder of its own under the run's master
+            # folder. Every process the suite starts inherits it through TMPDIR
+            # (Unix) and TMP/TEMP (Windows), so a test that leaks, a child that is
+            # killed mid-write and Pester's own TestDrive all land in a folder the
+            # run removes. The folder is kept after the worker exits, including
+            # after a timeout or cancellation kill: a cygwin process started later
+            # in the run would otherwise inherit a dangling /tmp. The master is
+            # removed when the run ends. /tmp rather than a long $TMPDIR on Unix: the
+            # runtime's sockets live in this folder and a Unix socket path is capped
+            # near 104 bytes on macOS. DOTNET_EnableDiagnostics=0 stops every .NET
+            # child from creating the debugger FIFOs and diagnostic socket at all;
+            # nobody attaches a debugger to a suite worker.
+            $suiteTemp = Join-Path $runTempRoot ('yrn-suite-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+            $null = New-Item -ItemType Directory -Force -Path $suiteTemp
+
+            # A traced suite that does not pass runs again untraced, and that run
+            # decides. ptrace changes how a traced process dies -- a killed child
+            # stays visible until strace reaps it -- so a test that bounds a process
+            # kill, or a stop strace cannot follow, can fail only because it was
+            # traced. A suite that fails that way twice in the context's day runs
+            # untraced for the rest of it; one such failure can be a load flake,
+            # which tracing makes likelier.
+            $trace = [bool]$recording
+            $untraceableMark = $null
+            $untraceable = $false
+            $tracedFailures = 0
+            if ($recording) {
+                $untraceableMark = Join-Path $recording.Cache ('untraceable/' +
+                    [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($rel))).Substring(0, 32).ToLowerInvariant())
+                if ([IO.File]::Exists($untraceableMark)) {
+                    $mark = [IO.File]::ReadAllLines($untraceableMark)
+                    if ($mark.Count -ge 2 -and $mark[0] -ceq $recording.Context) { $null = [int]::TryParse($mark[1], [ref]$tracedFailures) }
+                }
+                if ($tracedFailures -ge 2) {
+                    $trace = $false
+                    $untraceable = $true
+                }
+            }
+            $tracedFailure = $null
+            while ($true) {
+                $psi = [Diagnostics.ProcessStartInfo]::new()
+                $psi.FileName               = (Get-Process -Id $PID).Path
+                $psi.RedirectStandardOutput = $true
+                $psi.RedirectStandardError  = $true
+                $psi.UseShellExecute        = $false
+                $psi.WorkingDirectory       = $root
+                foreach ($name in 'TMPDIR', 'TMP', 'TEMP', 'YURUNA_TEST_TEMP_ROOT') { $psi.Environment[$name] = $suiteTemp }
+                $psi.Environment['DOTNET_EnableDiagnostics'] = '0'
+                # .NET's startup JIT profile is shared by concurrent pwsh processes.
+                # Disable both playback and recording before startup, including in
+                # nested shells: https://github.com/dotnet/runtime/issues/121977.
+                $psi.Environment['DOTNET_MultiCoreJitProfile'] = '(D)'
+                # NonInteractive is process-local; every nested launcher must set it so
+                # an unexpected host prompt fails instead of waiting on the operator.
+                foreach ($a in @('-NoProfile', '-NonInteractive', '-File', $shim, '-Suite', (Join-Path $root $rel), '-Xml', $xml)) {
+                    $psi.ArgumentList.Add($a)
+                }
+                $observations = $null
+                if ($trace) {
+                    # The same suite process, started by the recorder under strace.
+                    $observations = Join-Path $suiteTemp 'observations.json'
+                    $traced = [Collections.Generic.List[string]]::new()
+                    $traced.AddRange([string[]]@($recording.Tool, 'run', '--strace', $recording.Tracer, '--out', $observations))
+                    foreach ($zone in $recording.Zone) { $traced.AddRange([string[]]@('--zone', $zone)) }
+                    foreach ($skip in @($recording.Ignore) + $runTempRoot) { $traced.AddRange([string[]]@('--ignore', $skip)) }
+                    $traced.Add('--')
+                    $traced.Add($psi.FileName)
+                    $traced.AddRange([string[]]@($psi.ArgumentList))
+                    $psi.ArgumentList.Clear()
+                    foreach ($a in $traced) { $psi.ArgumentList.Add($a) }
+                    $psi.FileName = $recording.Python
+                }
+
+                $limit = if ($trace) { 4 * $timeout } else { $timeout }
+                $t0 = [Diagnostics.Stopwatch]::StartNew()
+                $p  = [Diagnostics.Process]::Start($psi)
+                # Drain both streams before waiting: a suite that fills a 64 KB pipe buffer
+                # would otherwise block forever and be killed as a false timeout. Pester
+                # writes internal reporting errors to stdout, so retain both streams even
+                # when the child exits successfully. Logs stay quiet unless evidence fails.
+                $stdout = $p.StandardOutput.ReadToEndAsync()
+                $stderr = $p.StandardError.ReadToEndAsync()
+                $cancelled = $false
+                if ($using:FailFast -or -not $using:Quiet) {
+                    $waitClock = [Diagnostics.Stopwatch]::StartNew()
+                    $timedOut = $false
+                    $nextProgress = 30
+                    while ($true) {
+                        $remaining = [Math]::Max(1, [int][Math]::Ceiling($limit * 1000 - $waitClock.Elapsed.TotalMilliseconds))
+                        if ($p.WaitForExit([Math]::Min(1000, $remaining))) { break }
+                        if ($using:FailFast -and $signal.IsSet) { $cancelled = $true; break }
+                        if ($waitClock.Elapsed.TotalSeconds -ge $limit) { $timedOut = $true; break }
+                        if (-not $using:Quiet -and $waitClock.Elapsed.TotalSeconds -ge $nextProgress) {
+                            Write-Information ("Still running {0}: {1:n0}s elapsed, limit {2}s" -f $rel,
+                                $waitClock.Elapsed.TotalSeconds, $limit) -InformationAction Continue
+                            $nextProgress += 30
+                        }
+                    }
+                } else { $timedOut = -not $p.WaitForExit($limit * 1000) }
+                if ($timedOut -or $cancelled) {
+                    # Only this worker's owned child and its descendants are stopped.
+                    # A failed stop cannot turn timeout or cancellation into a passing row.
+                    try { $p.Kill($true) } catch { Write-Debug "kill after timeout failed: $($_.Exception.Message)" }
+                    $null = $p.WaitForExit(5000)
+                }
+                $t0.Stop()
+                # A process the suite started and left running outlives the
+                # suite's own tree; it is stopped here and named in the row.
+                foreach ($left in @(& ([scriptblock]::Create($using:leftoverFinder)) -Marker $suiteTemp)) {
+                    try { [Diagnostics.Process]::GetProcessById([int]$left.Pid).Kill($true) } catch { Write-Debug "leftover stop failed: $($_.Exception.Message)" }
+                    $leftovers += "$($left.Pid) $($left.Name)"
+                }
+
+                $rc  = if ($timedOut) { 124 } elseif ($cancelled) { 125 } else { $p.ExitCode }
+                $out = if ($stdout.Wait(5000)) { $stdout.Result } else { '[stdout did not close after process exit or timeout]' }
+                $err = if ($stderr.Wait(5000)) { $stderr.Result } else { '[stderr did not close after process exit or timeout]' }
+                [IO.File]::WriteAllText($stdoutLog, $out, [Text.UTF8Encoding]::new($false))
+                [IO.File]::WriteAllText($stderrLog, $err, [Text.UTF8Encoding]::new($false))
+                $p.Dispose()
+                $p = $null
+                $err = $err.Trim()
+                if ($timedOut) { $err = "timed out after ${limit}s`n$err".Trim() }
+                if ($cancelled) { $err = "cancelled after another suite failed (FailFast)`n$err".Trim() }
+
+                $total = $failed = $skipped = $errors = 0
+                $haveXml = Test-Path -LiteralPath $xml -PathType Leaf
+                if ($haveXml) {
+                    try {
+                        $document = [xml](Get-Content -LiteralPath $xml -Raw -ErrorAction Stop)
+                        # NUnit's name attribute shadows Name in PowerShell's XML adapter.
+                        if ($document.DocumentElement.LocalName -cne 'test-results') { throw 'Expected an NUnit test-results root element.' }
+                        $r = $document.'test-results'
+                        $total   = [int]$r.total
+                        $failed  = [int]$r.failures
+                        $errors  = [int]$r.errors
+                        $skipped = [int]$r.skipped + [int]$r.ignored + [int]$r.'not-run'
+                    } catch {
+                        $haveXml = $false
+                        $err = "unreadable result file: $($_.Exception.Message)`n$err".Trim()
                     }
                 }
-            } else { $timedOut = -not $p.WaitForExit($limit * 1000) }
-            if ($timedOut -or $cancelled) {
-                # Only this worker's owned child and its descendants are stopped.
-                # A failed stop cannot turn timeout or cancellation into a passing row.
-                try { $p.Kill($true) } catch { Write-Debug "kill after timeout failed: $($_.Exception.Message)" }
-                $null = $p.WaitForExit(5000)
-            }
-            $t0.Stop()
 
-            $rc  = if ($timedOut) { 124 } elseif ($cancelled) { 125 } else { $p.ExitCode }
-            $out = if ($stdout.Wait(5000)) { $stdout.Result } else { '[stdout did not close after process exit or timeout]' }
-            $err = if ($stderr.Wait(5000)) { $stderr.Result } else { '[stderr did not close after process exit or timeout]' }
-            [IO.File]::WriteAllText($stdoutLog, $out, [Text.UTF8Encoding]::new($false))
-            [IO.File]::WriteAllText($stderrLog, $err, [Text.UTF8Encoding]::new($false))
-            $p.Dispose()
-            $err = $err.Trim()
-            if ($timedOut) { $err = "timed out after ${limit}s`n$err".Trim() }
-            if ($cancelled) { $err = "cancelled after another suite failed (FailFast)`n$err".Trim() }
-
-            $total = $failed = $skipped = $errors = 0
-            $haveXml = Test-Path -LiteralPath $xml -PathType Leaf
-            if ($haveXml) {
-                try {
-                    $document = [xml](Get-Content -LiteralPath $xml -Raw -ErrorAction Stop)
-                    # NUnit's name attribute shadows Name in PowerShell's XML adapter.
-                    if ($document.DocumentElement.LocalName -cne 'test-results') { throw 'Expected an NUnit test-results root element.' }
-                    $r = $document.'test-results'
-                    $total   = [int]$r.total
-                    $failed  = [int]$r.failures
-                    $errors  = [int]$r.errors
-                    $skipped = [int]$r.skipped + [int]$r.ignored + [int]$r.'not-run'
-                } catch {
-                    $haveXml = $false
-                    $err = "unreadable result file: $($_.Exception.Message)`n$err".Trim()
+                if ($haveXml -and ($failed -gt 0 -or $errors -gt 0)) {
+                    # Worker verbosity is quiet; NUnit is the authority for both the
+                    # verdict and the assertion that explains it to the operator.
+                    $failures = @($document.SelectNodes('//test-case[failure] | //test-suite[failure]'))
+                    $details = [Collections.Generic.List[string]]::new()
+                    foreach ($failure in ($failures | Select-Object -First 10)) {
+                        $details.Add("FAIL  $($failure.GetAttribute('name'))")
+                        foreach ($field in 'message', 'stack-trace') {
+                            $node = $failure.SelectSingleNode("failure/$field")
+                            if ($node -and $node.InnerText) {
+                                $text = $node.InnerText.Trim()
+                                if ($text.Length -gt 2000) { $text = $text.Substring(0, 2000) + ' [truncated; see NUnit results]' }
+                                $details.Add($text)
+                            }
+                        }
+                    }
+                    if ($failures.Count -gt 10) { $details.Add("... $($failures.Count - 10) more failure(s); see NUnit results.") }
+                    $details.Add("NUnit results: $xml")
+                    $details.Add("Worker logs: $stdoutLog ; $stderrLog")
+                    $err = (@($err, ($details -join "`n")) | Where-Object { $_ }) -join "`n"
                 }
+
+                if (-not $haveXml) {
+                    # A zero process exit cannot prove tests passed without their results.
+                    # Keep Pester's original diagnostic, which can be emitted only on stdout.
+                    $err = (@($err, $out.Trim(), "Worker logs: $stdoutLog ; $stderrLog") | Where-Object { $_ }) -join "`n"
+                }
+                $passed = $rc -eq 0 -and $haveXml -and $total -gt 0 -and $failed -eq 0 -and $errors -eq 0
+                if ($trace -and -not $passed -and -not $cancelled) {
+                    $tracedFailure = (@(($err -split "`n") | Where-Object { $_.Trim() }) + "rc=$rc")[0].Trim()
+                    if ($tracedFailure.Length -gt 200) { $tracedFailure = $tracedFailure.Substring(0, 200) + '...' }
+                    if (Test-Path -LiteralPath $xml) { Remove-Item -LiteralPath $xml -Force }
+                    $trace = $false
+                    # A folder of its own for the second run too, so nothing the
+                    # traced run left behind can reach it.
+                    $suiteTemp = Join-Path $runTempRoot ('yrn-suite-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+                    $null = New-Item -ItemType Directory -Force -Path $suiteTemp
+                    continue
+                }
+                break
+            }
+            if ($using:FailFast -and ($rc -ne 0 -or -not $haveXml -or $total -eq 0 -or $failed -gt 0 -or $errors -gt 0)) {
+                $signal.Set()
             }
 
-            if ($haveXml -and ($failed -gt 0 -or $errors -gt 0)) {
-                # Worker verbosity is quiet; NUnit is the authority for both the
-                # verdict and the assertion that explains it to the operator.
-                $failures = @($document.SelectNodes('//test-case[failure] | //test-suite[failure]'))
-                $details = [Collections.Generic.List[string]]::new()
-                foreach ($failure in ($failures | Select-Object -First 10)) {
-                    $details.Add("FAIL  $($failure.GetAttribute('name'))")
-                    foreach ($field in 'message', 'stack-trace') {
-                        $node = $failure.SelectSingleNode("failure/$field")
-                        if ($node -and $node.InnerText) {
-                            $text = $node.InnerText.Trim()
-                            if ($text.Length -gt 2000) { $text = $text.Substring(0, 2000) + ' [truncated; see NUnit results]' }
-                            $details.Add($text)
+            if ($recording) {
+                $outcome = 'not recorded: the suite did not pass'
+                if ($passed -and $untraceable) {
+                    $outcome = 'not recorded: it failed under strace twice today, so it ran untraced'
+                } elseif ($passed -and $tracedFailure) {
+                    $outcome = "not recorded: it failed only under strace ($tracedFailure)"
+                    try {
+                        $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $untraceableMark)
+                        [IO.File]::WriteAllText($untraceableMark, "$($recording.Context)`n$($tracedFailures + 1)`n", [Text.UTF8Encoding]::new($false))
+                    } catch { Write-Debug "untraceable mark not written: $($_.Exception.Message)" }
+                } elseif ($passed -and $observations) {
+                    $outcome = 'not recorded: the traced run wrote no observations'
+                    if (Test-Path -LiteralPath $observations) {
+                        $answer = & $recording.Python $recording.Tool commit --candidate $observations --cache $recording.Cache `
+                            --suite $rel --context $recording.Context --xml $xml --total $total --skipped $skipped `
+                            --seconds ([math]::Round($t0.Elapsed.TotalSeconds, 2)) 2>&1
+                        try {
+                            $verdict = ($answer -join "`n") | ConvertFrom-Json
+                            $outcome = if ($verdict.recorded) { 'recorded' } else { "not recorded: $($verdict.reason)" }
+                        } catch {
+                            $outcome = "not recorded: $(($answer | Out-String).Trim())"
                         }
                     }
                 }
-                if ($failures.Count -gt 10) { $details.Add("... $($failures.Count - 10) more failure(s); see NUnit results.") }
-                $details.Add("NUnit results: $xml")
-                $details.Add("Worker logs: $stdoutLog ; $stderrLog")
-                $err = (@($err, ($details -join "`n")) | Where-Object { $_ }) -join "`n"
+                $impactNote = (@($whyRun, $outcome) | Where-Object { $_ }) -join '; '
             }
 
-            if (-not $haveXml) {
-                # A zero process exit cannot prove tests passed without their results.
-                # Keep Pester's original diagnostic, which can be emitted only on stdout.
-                $err = (@($err, $out.Trim(), "Worker logs: $stdoutLog ; $stderrLog") | Where-Object { $_ }) -join "`n"
+            if (-not $using:Quiet) {
+                Write-Information ("Finished {0} in {1:n1}s: rc={2}, tests={3}, failed={4}, errors={5}, XML={6}" -f
+                    $rel, $t0.Elapsed.TotalSeconds, $rc, $total, $failed, $errors, $haveXml) -InformationAction Continue
             }
-            $passed = $rc -eq 0 -and $haveXml -and $total -gt 0 -and $failed -eq 0 -and $errors -eq 0
-            if ($trace -and -not $passed -and -not $cancelled) {
-                $tracedFailure = (@(($err -split "`n") | Where-Object { $_.Trim() }) + "rc=$rc")[0].Trim()
-                if ($tracedFailure.Length -gt 200) { $tracedFailure = $tracedFailure.Substring(0, 200) + '...' }
-                if (Test-Path -LiteralPath $xml) { Remove-Item -LiteralPath $xml -Force }
-                $trace = $false
-                # A folder of its own for the second run too, so nothing the
-                # traced run left behind can reach it.
-                $suiteTemp = Join-Path $runTempRoot ('yrn-suite-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
-                $null = New-Item -ItemType Directory -Force -Path $suiteTemp
-                continue
+            [pscustomobject]@{
+                path    = $rel
+                rc      = $rc
+                haveXml = $haveXml
+                total   = $total
+                failed  = $failed
+                errors  = $errors
+                skipped = $skipped
+                seconds = [math]::Round($t0.Elapsed.TotalSeconds, 2)
+                message = $err
+                stdoutLog = $stdoutLog
+                stderrLog = $stderrLog
+                impact  = $impactNote
+                leftovers = @($leftovers)
             }
-            break
+        } catch {
+            $failure = "suite worker failed: $($_.Exception.Message)"
+            [pscustomobject]@{
+                path = $rel; rc = 126; haveXml = $false; total = 0; failed = 0; errors = 0; skipped = 0
+                seconds = 0; message = $failure; stdoutLog = $null; stderrLog = $null; impact = $null; leftovers = @()
+            }
+        } finally {
+            # A stopped run (Ctrl+C, a failed sibling under -ErrorAction Stop
+            # elsewhere) still stops the suite process this worker started.
+            if ($p) { try { if (-not $p.HasExited) { $p.Kill($true) } } catch { Write-Debug "worker cleanup: $($_.Exception.Message)" } }
         }
-        if ($using:FailFast -and ($rc -ne 0 -or -not $haveXml -or $total -eq 0 -or $failed -gt 0 -or $errors -gt 0)) {
-            $signal.Set()
-        }
+    }
+    $workerRecording = $recording
+    $aloneSuffix = ''
+    $savedErrorPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $workerOutput = @($ordered | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel $suiteWorker 2>&1) }
+    finally { $ErrorActionPreference = $savedErrorPreference }
+    $workerErrors = @($workerOutput | Where-Object { $_ -is [Management.Automation.ErrorRecord] })
+    $results = @($workerOutput | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] })
 
-        if ($recording) {
-            $outcome = 'not recorded: the suite did not pass'
-            if ($passed -and $untraceable) {
-                $outcome = 'not recorded: it failed under strace twice today, so it ran untraced'
-            } elseif ($passed -and $tracedFailure) {
-                $outcome = "not recorded: it failed only under strace ($tracedFailure)"
-                try {
-                    $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $untraceableMark)
-                    [IO.File]::WriteAllText($untraceableMark, "$($recording.Context)`n$($tracedFailures + 1)`n", [Text.UTF8Encoding]::new($false))
-                } catch { Write-Debug "untraceable mark not written: $($_.Exception.Message)" }
-            } elseif ($passed -and $observations) {
-                $outcome = 'not recorded: the traced run wrote no observations'
-                if (Test-Path -LiteralPath $observations) {
-                    $answer = & $recording.Python $recording.Tool commit --candidate $observations --cache $recording.Cache `
-                        --suite $rel --context $recording.Context --xml $xml --total $total --skipped $skipped `
-                        --seconds ([math]::Round($t0.Elapsed.TotalSeconds, 2)) 2>&1
-                    try {
-                        $verdict = ($answer -join "`n") | ConvertFrom-Json
-                        $outcome = if ($verdict.recorded) { 'recorded' } else { "not recorded: $($verdict.reason)" }
-                    } catch {
-                        $outcome = "not recorded: $(($answer | Out-String).Trim())"
-                    }
-                }
-            }
-            $impactNote = (@($whyRun, $outcome) | Where-Object { $_ }) -join '; '
-        }
-
-        if (-not $using:Quiet) {
-            Write-Information ("Finished {0} in {1:n1}s: rc={2}, tests={3}, failed={4}, errors={5}, XML={6}" -f
-                $rel, $t0.Elapsed.TotalSeconds, $rc, $total, $failed, $errors, $haveXml) -InformationAction Continue
-        }
-        [pscustomobject]@{
-            path    = $rel
-            rc      = $rc
-            haveXml = $haveXml
-            total   = $total
-            failed  = $failed
-            errors  = $errors
-            skipped = $skipped
-            seconds = [math]::Round($t0.Elapsed.TotalSeconds, 2)
-            message = $err
-            stdoutLog = $stdoutLog
-            stderrLog = $stderrLog
-            impact  = $impactNote
-        }
+    # A suite that failed among parallel siblings runs once more, alone, after
+    # them. Timing margins that hold on an idle host can fail under the load of
+    # a parallel run, so the second run labels the failure load-sensitive or
+    # not. It never changes the verdict: the first result stays the evidence,
+    # and the alone run writes beside it (.alone.xml). Not traced, and not
+    # under -FailFast, whose point is to stop early.
+    $aloneLimit = 10
+    $failedRows = @($results | Where-Object { $_.rc -notin @(125, 126) -and ($_.rc -eq 124 -or ($_.haveXml -and ($_.failed -gt 0 -or $_.errors -gt 0))) } | Sort-Object path)
+    $aloneRuns = @{}
+    if ($failedRows.Count -and -not $FailFast -and $ThrottleLimit -gt 1) {
+        $workerRecording = $null
+        $aloneSuffix = '.alone'
+        $ErrorActionPreference = 'Continue'
+        try { $aloneOutput = @(@($failedRows | Select-Object -First $aloneLimit | ForEach-Object path) | ForEach-Object -ThrottleLimit 1 -Parallel $suiteWorker 2>&1) }
+        finally { $ErrorActionPreference = $savedErrorPreference }
+        $workerErrors += @($aloneOutput | Where-Object { $_ -is [Management.Automation.ErrorRecord] })
+        foreach ($alone in @($aloneOutput | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] })) { $aloneRuns[$alone.path] = $alone }
+    }
+    foreach ($row in $failedRows) {
+        $alone = $aloneRuns[$row.path]
+        $label = if (-not $alone) { 'not-rerun' }
+            elseif ($alone.rc -eq 0 -and $alone.haveXml -and $alone.total -gt 0 -and $alone.failed -eq 0 -and $alone.errors -eq 0) { 'passed' }
+            else { 'failed' }
+        $row | Add-Member -NotePropertyName alone -NotePropertyValue $label -Force
     }
     $sw.Stop()
 
@@ -1080,16 +1202,26 @@ try {
     $results = @(@($reused) + @($results | Where-Object { $null -ne $_ }) | Sort-Object path)
     $problems = [Collections.Generic.List[string]]::new()
     $skipGrowth = [Collections.Generic.List[string]]::new()
+    # An error a worker wrote without throwing is a defect in the runner, not in
+    # a suite; it fails the run without having stopped it.
+    foreach ($record in @($workerErrors)) { $problems.Add("suite worker error: $($record.Exception.Message)") }
 
     # Report the originating failure before its canceled siblings.
     foreach ($r in ($results | Sort-Object @{ Expression = { $_.rc -eq 125 } }, path)) {
-        if ($r.rc -ne 0) { $problems.Add("$($r.path): suite process exited with rc=$($r.rc)") }
+        $aloneNote = if (-not $r.PSObject.Properties['alone']) { '' } else {
+            switch ($r.alone) {
+                'passed' { ' -- passed when run alone after the parallel run: load-sensitive' }
+                'failed' { ' -- failed again when run alone' }
+                default { '' }
+            }
+        }
+        if ($r.rc -ne 0) { $problems.Add("$($r.path): suite process exited with rc=$($r.rc)$(if ($r.rc -eq 124) { $aloneNote })") }
         if (-not $r.haveXml) {
             $problems.Add("$($r.path): produced no result file (rc=$($r.rc))$(if ($r.message) { " -- $($r.message)" })")
             continue
         }
         if ($r.failed -gt 0 -or $r.errors -gt 0) {
-            $problems.Add("$($r.path): $($r.failed) failed, $($r.errors) error(s)$(if ($r.message) { "`n$($r.message)" })")
+            $problems.Add("$($r.path): $($r.failed) failed, $($r.errors) error(s)$aloneNote$(if ($r.message) { "`n$($r.message)" })")
         }
         if ($r.total -eq 0) {
             $problems.Add("$($r.path): discovered 0 tests")
@@ -1123,6 +1255,12 @@ try {
             }
         }
     }
+
+    # Processes a suite left running were stopped by its worker. They are
+    # reported, never adjudicated: the suite's own result stays its verdict.
+    $leftoverRows = @(foreach ($r in $results) {
+            if ($r.PSObject.Properties['leftovers'] -and @($r.leftovers).Count) { [pscustomobject]@{ path = $r.path; processes = @($r.leftovers) } }
+        })
 
     # A reused suite did not run, so its seconds say nothing about this run.
     $slowdowns = @(foreach ($r in $results) {
@@ -1183,6 +1321,8 @@ try {
         skipGrowthAllowed = [bool]$AllowSkipGrowth
         skipGrowth    = @($skipGrowth)
         slowdowns     = @($slowdowns)
+        leftovers     = @($leftoverRows)
+        loadSensitive = @($results | Where-Object { $_.PSObject.Properties['alone'] -and $_.alone -eq 'passed' } | ForEach-Object path)
         suites        = $results
     }
     $run | ConvertTo-Json -Depth 6 |
@@ -1299,6 +1439,9 @@ try {
     }
     if (@($slowdowns).Count -gt 5) {
         Write-Warning "$(@($slowdowns).Count - 5) more suite(s) ran far longer than recorded; see slowdowns in suite-results.json"
+    }
+    foreach ($left in $leftoverRows) {
+        Write-Warning ("{0} left {1} process(es) running after it exited, now stopped: {2}" -f $left.path, @($left.processes).Count, (@($left.processes) -join ', '))
     }
 
     # Keep the report beside its logs so a later run does not erase the link

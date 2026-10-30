@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42008bcd-66da-4584-84a4-c4454a7f8958
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,9 +21,10 @@
     Inverse of Start-CachingProxyServiceVM.ps1 -- stops the yuruna-caching-proxy-service
     VM and removes its disk/bundle + stashed password. Base image is
     KEPT so the next start doesn't re-download ~600 MB. Safe to re-run.
-    Remove-PortMap tears down EVERY yuruna-managed host port forward
-    (80, 3000, 3128, 3129, 9302, 8022, ...) -- no port-list change is
-    needed when a new forwarded port is added on the Start side.
+    Remove-PortMap -Owner caching-proxy-service tears down every host port
+    forward the cache holds (80, 3000, 3128, 3129, 9302, 8022, ...) -- no
+    port-list change is needed when a new forwarded port is added on the
+    Start side -- and leaves the forwards other services hold.
 
 .PARAMETER VMName
     Name of the cache VM. Default: yuruna-caching-proxy-service.
@@ -184,7 +185,7 @@ if ($IsMacOS) {
         }
     }
     Write-Output "  Tearing down any legacy host-side forwarders..."
-    [void](Remove-PortMap -Confirm:$false)
+    [void](Remove-PortMap -Owner 'caching-proxy-service' -Confirm:$false)
 
     # The host contract removes registration and private VM files; keep the base image.
     # See https://yuruna.link/42e220c4-0004
@@ -215,7 +216,7 @@ if ($IsMacOS) {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
-    [void](Remove-PortMap -Confirm:$false)
+    [void](Remove-PortMap -Owner 'caching-proxy-service' -Confirm:$false)
 
     # (Get-VMHost) loads the Hyper-V module on first use; fails cleanly if
     # Hyper-V isn't installed -- same dependency Start-CachingProxyServiceVM.ps1 has.
@@ -258,7 +259,7 @@ if ($IsMacOS) {
     # can't outlive the VM and tunnel LAN traffic into a black hole.
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
-    [void](Remove-PortMap -Confirm:$false)
+    [void](Remove-PortMap -Owner 'caching-proxy-service' -Confirm:$false)
 
     # The host contract removes registration and private VM files; keep the base image.
     # See https://yuruna.link/42e220c4-0004

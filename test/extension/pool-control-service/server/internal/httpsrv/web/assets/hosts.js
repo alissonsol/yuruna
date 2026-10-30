@@ -59,8 +59,9 @@
 
   // The pool's separate question -- can this MEMBER read what its pool assigned
   // -- is answered in the host's registration record, and denied is the one
-  // value that needs an operator. It rides the project cell's tooltip: the
-  // column itself shows what the host holds, which is a different fact.
+  // value that needs an operator. It rides the project cell's explanation
+  // (Y.explain): the column itself shows what the host holds, which is a
+  // different fact.
   // Keyed by the state the host reported, so the words are chosen by a value
   // rather than matched from one.
   var POOL_ACCESS_KEY = {
@@ -139,20 +140,23 @@
       // is, not one assembled around the word for it. A sentence built by
       // dropping a noun into a slot cannot be reordered by a translator, and
       // several languages need to reorder it.
-      return repoEl(url, {
-        title: t('pool.repo_denied_detail', { repo: what }) + where
-      }, Y.el('strong', { text: t('pool.repo_no_access') }));
+      // What to fix is the reason this cell exists, so it is reachable by
+      // keyboard and touch as well as by hover.
+      return Y.explain(repoEl(url, {}, Y.el('strong', { text: t('pool.repo_no_access') })),
+        t('pool.repo_denied_detail', { repo: what }) + where);
     }
     if (value) {
-      return repoEl(url, {
-        title: (poolHint ? poolHint + ' ' : '') + t('pool.repo_held_detail', { repo: what }) + where
-      }, Y.bidiIsolate(value));
+      var held = (poolHint ? poolHint + ' ' : '') + t('pool.repo_held_detail', { repo: what }) + where;
+      // Only a pool-access problem needs an operator; otherwise the tooltip is
+      // a reading aid and stays one.
+      if (poolHint) { return Y.explain(repoEl(url, {}, Y.bidiIsolate(value)), held); }
+      return repoEl(url, { title: held }, Y.bidiIsolate(value));
     }
-    return Y.el('span', {
-      class: 'muted', text: '--',
-      title: poolHint || (error ? Y.bidiIsolate(error) : '') ||
-        t('pool.repo_unconfigured_detail', { repo: what })
-    });
+    var blank = Y.el('span', { class: 'muted', text: '--' });
+    var why = poolHint || (error ? Y.bidiIsolate(error) : '') || t('pool.repo_unconfigured_detail', { repo: what });
+    if (poolHint) { return Y.explain(blank, why); }
+    blank.setAttribute('title', why);
+    return blank;
   }
 
   // Two different blanks, and they need different answers from the operator:
@@ -293,7 +297,7 @@
         link,
         Y.el('span', { class: 'mono', title: window.YurunaI18n.t("pool.the_id_that_answers_at_this_address_now") },
           Y.shortHost(h.supersededBy)),
-        Y.el('span', { class: 'badge rekeyed', text: window.YurunaI18n.t("pool.re_keyed"), title: REKEY_HINT }),
+        Y.explain(Y.el('span', { class: 'badge rekeyed', text: window.YurunaI18n.t("pool.re_keyed") }), REKEY_HINT),
         adoptEl(h)
       ]);
     }
@@ -367,7 +371,9 @@
       sel.title = window.YurunaI18n.t("pool.this_host_has_not_reported_an_id_so_it_cannot_be_assigned_to_a_po");
     }
 
-    var control = Y.el('span', { text: Y.displayState(h.control), title: CONTROL_HINT[h.control] || '' });
+    // Each control state names its own fix (enroll, re-enroll, fix the clock),
+    // so the hint is reachable by keyboard and touch, not only by hover.
+    var control = Y.explain(Y.el('span', { text: Y.displayState(h.control) }), CONTROL_HINT[h.control] || '');
     var f = facts[factKey(h)];
     var factErr = f && !f.ok ? (f.error || '') : '';
     return Y.el('tr', { 'data-host-id': h.hostId || '' }, [

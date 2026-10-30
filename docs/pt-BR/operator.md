@@ -758,6 +758,18 @@ compartilhamento `yuruna.stash` de
 então prepare isso primeiro. Sem login; apenas redes confiáveis. Guia
 do usuário: [stash-guide.md](../stash-guide.md).
 
+Executá-lo de novo, ou executar os scripts de pool-control e do agente de
+download, mantém uma VM que serve a compilação atual ou que ainda a está
+compilando, avaliada no endereço que o driver do host resolve agora;
+`-ForceRebuild` recompila mesmo assim, e uma VM em serviço compilada a
+partir de outro snapshot do framework é recompilada. Uma recompilação
+primeiro executa o compilador com `-PlanOnly`, de modo que uma chave SSH,
+senha do cofre, modelo de seed ou rede de convidado ausente a interrompe
+enquanto a VM em funcionamento ainda é anunciada. A compilação em si é
+limitada (`YURUNA_SERVICE_VM_BUILD_TIMEOUT_SECONDS`, 90 minutos por
+padrão; a do proxy de cache também), e um valor de seed que ela precisou gravar vazio é relatado como
+uma inicialização degradada em vez de uma limpa.
+
 <a id="42ad660e-001f"></a>
 
 ### B.10 Executar um ciclo de teste
@@ -947,6 +959,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.26
+Última revisão: 2026.10.30
 
 Voltar para [Yuruna](../../README.md)

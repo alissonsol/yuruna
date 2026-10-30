@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 426638a9-3c83-4796-8371-fa8298592238
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,7 +65,7 @@ AfterAll {
 
 Describe 'macOS driver contract coverage' {
     It 'defines, exports and declares every contract verb exactly once' {
-        $text = Get-Content -Raw -LiteralPath $script:DriverPath
+        $text = Get-YurunaTestSourceText -Path $script:DriverPath
         $ast = [Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
         $exportText = [regex]::Match($text, '(?ms)^Export-ModuleMember -Function.*?(?=^\s*$)').Value
         $declared = [regex]::Match($text, '(?ms)Assert-YurunaHostContractCoverage -HostType ''macos\.utm''.*?^\)').Value

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,10 @@ BeforeAll {
     $script:SqlCssRegionBlankPattern = '(?m)^[ \t]*(?:--[ \t]+---[ \t]+REGION:[^\r\n]*|/\*[ \t]*REGION:[^\r\n]*)\r?\n[ \t]*\r?\n'
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
+    # Aligned copies keep their own identities; the comparisons mask them the
+    # way the metadata gate reads them.
+    Import-Module (Join-Path $script:RepoRoot 'tools/Source.Identity.psm1') -Force
+    Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.DriverSource.psm1') -Force -DisableNameChecking
     Import-Module powershell-yaml
 
     # The parity tests that call this read a sibling checkout itself. A
@@ -72,14 +76,13 @@ BeforeAll {
 
     function Get-NormalizedSource {
         param([string]$Path)
-        (Get-Content -LiteralPath $Path -Raw) -replace '\r\n', "`n" -replace
-            'ubuntu\.server\.(24|26)', 'ubuntu.server.VERSION' -replace '(?m)^# GUID: .+$', '# GUID: ID'
+        Hide-SourceIdentity -Text ((Get-Content -LiteralPath $Path -Raw) -replace '\r\n', "`n" -replace
+            'ubuntu\.server\.(24|26)', 'ubuntu.server.VERSION')
     }
 
     function Get-NormalizedUbuntuSequence {
         param([string]$Path, [int]$VersionTimeout = 0, [int]$TimeoutIndent = 0, [switch]$AsObject)
         $text = Get-NormalizedSource -Path $Path
-        $text = $text -replace '(?m)^sequenceGuid: .+$', 'sequenceGuid: ID'
         $text = $text -replace '(?m)^sequenceRevision: .+$', 'sequenceRevision: REVISION'
         $text = $text -replace 'Ubuntu Server (?:24|26)\.04', 'Ubuntu Server VERSION'
         $text = $text -replace 'Ubuntu (?:24|26)', 'Ubuntu VERSION'
@@ -429,14 +432,17 @@ Describe 'KVM replacement ordering' {
         $remove | Should -Not -BeNullOrEmpty
         $remove.Extent.StartOffset | Should -BeGreaterThan $gate.Extent.EndOffset
         $writes = @($commands | Where-Object {
-            $_.GetCommandName() -in @('Copy-Item', 'Set-Content', 'New-CloudInitUserData') -or
+            # Rendering user-data in memory writes nothing and belongs to the
+            # plan, before teardown; only an -OutputPath render writes a file.
+            $_.GetCommandName() -in @('Copy-Item', 'Set-Content') -or
+            ($_.GetCommandName() -eq 'New-CloudInitUserData' -and $_.Extent.Text -match '-OutputPath') -or
             $_.Extent.Text -match '^&?\s*qemu-img (create|convert|resize)\b'
         })
         $writes.Count | Should -BeGreaterThan 0
         foreach ($write in $writes) {
             $write.Extent.StartOffset | Should -BeGreaterThan $remove.Extent.EndOffset
         }
-        $driver = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'))
+        $driver = Get-YurunaDriverText -Driver ubuntu.kvm
         $driver | Should -Match "(?s)function Remove-KvmDomainDefinition.*?'destroy'.*?'undefine'.*?'list', '--all', '--name'"
         $driver | Should -Match '(?s)function Remove-KvmDomainDefinition.*?Test-DriverNativeResultComplete.*?ExitCode -ne 0.*?throw'
 
@@ -518,7 +524,7 @@ Describe 'VM seed overlay contracts' {
             $seed.runcmd | Should -Contain 'systemctl start qemu-guest-agent.service || true'
             $builder = Get-Content (Join-Path $script:RepoRoot "host/ubuntu.kvm/guest.$service/New-VM.ps1") -Raw
             $builder | Should -Match 'New-KvmServiceDomain'
-            $driver = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'))
+            $driver = Get-YurunaDriverText -Driver ubuntu.kvm
             $driver | Should -Match 'org\.qemu\.guest_agent\.0'
         }
     }
@@ -527,7 +533,7 @@ Describe 'VM seed overlay contracts' {
         foreach ($platform in 'hyperv', 'kvm', 'utm') {
             $expected = $null
             foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service') {
-                $text = (Get-Content (Join-Path $script:SeedRoot "$service.$platform.overlay.yml") -Raw).Replace($service, 'SERVICE') -replace '(?m)^# GUID: .+$', '# GUID: ID'
+                $text = Hide-SourceIdentity -Text (Get-Content (Join-Path $script:SeedRoot "$service.$platform.overlay.yml") -Raw).Replace($service, 'SERVICE')
                 if ($null -eq $expected) { $expected = $text }
                 $text | Should -BeExactly $expected
             }
@@ -616,8 +622,8 @@ Describe 'Project workload parity' {
         Confirm-SiblingCheckout -Path $script:ProjectRoot
         $first = Get-Content (Join-Path $script:ProjectRoot "example/website/$Website") -Raw
         $second = Get-Content (Join-Path $script:ProjectRoot "example/text-to-sql/$TextToSql") -Raw
-        $first = $first.Replace('website', 'PROJECT') -replace '(?m)^(\.GUID |# GUID: ).*$', '$1ID'
-        $second = $second.Replace('text-to-sql-ui', 'PROJECT').Replace('text-to-sql', 'PROJECT') -replace '(?m)^(\.GUID |# GUID: ).*$', '$1ID'
+        $first = Hide-SourceIdentity -Text $first.Replace('website', 'PROJECT')
+        $second = Hide-SourceIdentity -Text $second.Replace('text-to-sql-ui', 'PROJECT').Replace('text-to-sql', 'PROJECT')
         ($second -replace '\r\n', "`n") | Should -BeExactly ($first -replace '\r\n', "`n") -Because "$Family has the same contract in both examples"
     }
 
@@ -653,7 +659,7 @@ Describe 'Shared source regions' {
             foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service', 'caching-proxy-service') {
                 $path = Join-Path $script:RepoRoot "host/$hostKind/guest.$service/Get-Image.ps1"
                 $text = Get-ConsistencyWorkflowSource -Path $path
-                $text = $text -replace '(?m)^\.GUID .+$', '.GUID ID' -replace '(?m)^\.TAGS.*$', '.TAGS'
+                $text = (Hide-SourceIdentity -Text $text) -replace '(?m)^\.TAGS.*$', '.TAGS'
                 $text = $text -replace 'host\.operator_[0-9a-f]+', 'host.operator_KEY'
                 foreach ($name in 'stash-service', 'pool-control-service', 'download-agent-service', 'caching-proxy-service') {
                     $text = $text.Replace($name, 'SERVICE')
@@ -741,6 +747,11 @@ Describe 'Shared source regions' {
                 $runtime | Should -BeGreaterThan $confirm
             }
         }
+        $statusStop = Get-ConsistencyWorkflowSource -Path (Join-Path $script:RepoRoot 'test/service/Stop-StatusService.ps1')
+        $confirm = $statusStop.IndexOf('# --- REGION: Confirm the service operation', [StringComparison]::Ordinal)
+        $confirm | Should -BeGreaterOrEqual 0 -Because 'Stop-StatusService.ps1 follows the same lifecycle opening'
+        $statusStop.IndexOf('# --- REGION: Initialize service runtime', [StringComparison]::Ordinal) | Should -BeGreaterThan $confirm
+        $statusStop.IndexOf('Remove-Item -LiteralPath $ServiceMarkerFile', [StringComparison]::Ordinal) | Should -BeGreaterThan $confirm -Because 'the marker is removed only after the stop is confirmed'
     }
 
     It 'keeps the service VM bring-up phases in the common order' {
@@ -748,8 +759,9 @@ Describe 'Shared source regions' {
         # still appear once each, in this order, in every VM-backed service.
         $phases = @('Confirm the service operation', 'Initialize service runtime',
             'Storage preflight', 'Resolve the VM builder', 'Start the host status service',
-            'Verify the framework source', 'Create the VM', 'Configure Shared NAT forwarding',
+            'Verify the framework source', 'Adopt a running VM', 'Create the VM', 'Configure Shared NAT forwarding',
             'Probe service readiness', 'Recover the VM address', 'Evaluate service readiness',
+            'Report the deployed source', 'Decide the start outcome',
             'Publish service readiness', 'Collect failure diagnostics')
         foreach ($service in 'Stash', 'PoolControl', 'DownloadAgent') {
             $path = Join-Path $script:RepoRoot "test/service/Start-${service}ServiceVM.ps1"
@@ -797,7 +809,7 @@ Describe 'Shared source regions' {
             'Networking', 'Caching-proxy service', 'Host configuration', 'Exports')
         $expected = $null
         foreach ($hostKind in 'windows.hyper-v', 'macos.utm', 'ubuntu.kvm') {
-            $text = Get-Content (Join-Path $script:RepoRoot "host/$hostKind/modules/Yuruna.Host.psm1") -Raw
+            $text = Get-YurunaDriverText -Driver $hostKind
             $regions = @([regex]::Matches($text, '(?m)^# --- REGION: ([^\r\n]+)') |
                 ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -in $names })
             $regions.Count | Should -Be $names.Count

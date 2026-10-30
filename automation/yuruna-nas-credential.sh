@@ -1,5 +1,5 @@
 #!/bin/sh
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42f6780f-6201-4bb8-94a5-7862ef198dac
@@ -11,13 +11,26 @@
 # the seed media and is never written anywhere but the 0600 file the mount
 # reads.
 #
-# Usage: yuruna-nas-credential.sh <stash|pool> <credentials-file>
-# Exit 0 when the file was written; 1 otherwise, with the reason on stderr.
-# The caller's mount then fails the way an absent share already does, so a
-# host without a running config service degrades instead of blocking boot.
+# Usage: yuruna-nas-credential.sh <stash|pool> <credentials-file> [<mount-point>]
+# Exit 0 when the file was written (or, with a mount point, is current); 1
+# otherwise, with the reason on stderr. The caller's mount then fails the way an
+# absent share already does, so a host without a running config service
+# degrades instead of blocking boot.
+#
+# With a mount point the script is the periodic refresh: a rotated NAS password
+# would otherwise reach the guest only through a rebuild, and the kernel keeps
+# the password a share was mounted with, so every reconnect after a rotation
+# fails. A changed credential replaces the file; an unchanged one is left alone.
+# A share that is mounted is remounted in place when the credential changed or
+# when it no longer answers, so the kernel takes the current password: it
+# accepts a new one while the session needs to reconnect, which is what a
+# rotation causes. The share is never unmounted, and one that is not mounted
+# stays so: the services decided at boot whether to use it, and anything they
+# wrote to the bare mount point would be shadowed by a later mount.
 set -u
 NAME="${1:-}"
 CRED="${2:-}"
+MOUNT="${3:-}"
 CDIR="${YURUNA_HOST_CONFIG_DIR:-/etc/yuruna/host-config}"
 HOST_ENV="${YURUNA_HOST_ENV_FILE:-/etc/yuruna/host.env}"
 ATTEMPTS="${YURUNA_NAS_CREDENTIAL_ATTEMPTS:-5}"
@@ -60,6 +73,23 @@ print(p)
 ' 2>/dev/null) || fail "the config service returned no usable credential"
 NAS_USER=$(printf '%s\n' "$FIELDS" | sed -n 1p)
 NAS_PASS=$(printf '%s\n' "$FIELDS" | sed -n 2p)
+# remount_share: in place, with the credentials file the share's fstab entry names.
+remount_share() {
+  if timeout 60 mount -o remount "$MOUNT"; then
+    echo "yuruna-nas-credential: $NAME: $MOUNT remounted with the current credentials"
+  else
+    fail "$MOUNT could not be remounted; it keeps its previous session until the guest is rebuilt or the share is remounted by hand"
+  fi
+}
+if [ -n "$MOUNT" ] && [ -f "$CRED" ] && \
+   [ "$(cat "$CRED" 2>/dev/null)" = "$(printf 'username=%s\npassword=%s' "$NAS_USER" "$NAS_PASS")" ]; then
+  if mountpoint -q "$MOUNT" 2>/dev/null && ! timeout 15 stat -f "$MOUNT" >/dev/null 2>&1; then
+    echo "yuruna-nas-credential: $NAME: $MOUNT does not answer; remounting it"
+    remount_share
+  fi
+  echo "yuruna-nas-credential: $NAME: credentials in $CRED are current"
+  exit 0
+fi
 umask 077
 TMP="$CRED.tmp.$$"
 # printf %s writes the password literally, so vault special characters reach
@@ -70,4 +100,7 @@ if ! { chmod 600 "$TMP" && mv -f "$TMP" "$CRED"; }; then
   fail "could not install $CRED"
 fi
 echo "yuruna-nas-credential: $NAME: credentials written to $CRED"
+if [ -n "$MOUNT" ] && mountpoint -q "$MOUNT" 2>/dev/null; then
+  remount_share
+fi
 exit 0

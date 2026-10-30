@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42cd0b83-20cb-4b99-b723-7848da5d9f53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,9 +16,11 @@ BeforeAll {
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Save-StatusServiceErrorLog'
     }, $true)
     . ([scriptblock]::Create($definition.Extent.Text))
-    $text = [IO.File]::ReadAllText($script:ServicePath)
-    $writer = [regex]::Match($text, '(?ms)^function Write-ServerErr \{.*?^\}').Value.Replace('`$', '$')
-    . ([scriptblock]::Create($writer))
+    $runtimeAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '../service/Invoke-StatusServiceRuntime.ps1'), [ref]$null, [ref]$null)
+    $writer = $runtimeAst.Find({ param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-ServerErr'
+    }, $true)
+    . ([scriptblock]::Create($writer.Extent.Text))
 }
 
 Describe 'listener error evidence survives a new launch' {

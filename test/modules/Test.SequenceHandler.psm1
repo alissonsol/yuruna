@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -819,24 +819,14 @@ function Save-VmNotStoppedEvidence {
         [Parameter(Mandatory)][string]$RequestedAtUtc
     )
     $frame = Save-GuestConsoleFrame -Context $Context -Label "$Action gave up"
-    if ($frame -and $frame.Text) {
-        $tail = [string]$frame.Text
-        $script:Fail.WaitForTextOcrTail = if ($tail.Length -le 1200) { $tail } else { $tail.Substring($tail.Length - 1200) }
-        try {
-            $logDir = $Context.LogDir
-            if ($logDir) {
-                Copy-Item -LiteralPath $frame.Path -Destination (Join-Path $logDir "failure_screenshot_$($Context.VMName).png") -Force -ErrorAction SilentlyContinue
-                Set-Content -LiteralPath (Join-Path $logDir "failure_ocr_$($Context.VMName).txt") -Value $tail -Force -ErrorAction SilentlyContinue
-            }
-        } catch { Write-Verbose "      failure frame copy skipped: $($_.Exception.Message)" }
-    }
-    if (Get-Command Get-GuestLivelockVerdict -ErrorAction SilentlyContinue) {
-        $verdict = Get-GuestLivelockVerdict -VMName $Context.VMName -Since ([DateTime]::UtcNow.AddSeconds(-1 * [Math]::Max(60, $Wait.WaitedSeconds)))
-        if ($verdict) {
-            $script:Fail.WaitForTextGuestLivelock = $verdict
-            $script:Fail.WaitForTextGuestLivelocked = ($verdict.Verdict -eq 'livelocked')
-        }
-    }
+    $verdict = if (Get-Command Get-GuestLivelockVerdict -ErrorAction SilentlyContinue) {
+        Get-GuestLivelockVerdict -VMName $Context.VMName -Since ([DateTime]::UtcNow.AddSeconds(-1 * [Math]::Max(60, $Wait.WaitedSeconds)))
+    } else { $null }
+    # The frame is evidence only when it was read: an unread capture is not
+    # what the guest showed when the wait gave up.
+    $readFrame = $frame -and $frame.Text
+    Save-WaitFailureEvidence -State $script:Fail -LogDir $Context.LogDir -VMName $Context.VMName `
+        -CapturePath $(if ($readFrame) { [string]$frame.Path } else { '' }) -OcrText $(if ($readFrame) { [string]$frame.Text } else { '' }) -LivelockVerdict $verdict
     $script:Fail.StepVmNotStopped = @{
         observedState  = [string]$Wait.ObservedState
         waitedSeconds  = [int]$Wait.WaitedSeconds
@@ -1194,6 +1184,8 @@ Register-SequenceAction -Name 'saveDiskSnapshot' -ReplaySafety 'state-changing' 
         }
         if ($ok -and $c.VMName -ne $snapId) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7db15dd3eb273c11' -Arguments @{ vMName = "$($c.VMName)"; snapId = "$snapId" }) -InformationAction Continue
+            # The guest keeps its SSH host keys under the new name.
+            if (Get-Command Move-GuestHostKeyPin -ErrorAction SilentlyContinue) { Move-GuestHostKeyPin -VMName $c.VMName -NewVMName $snapId -Confirm:$false }
             $c.NewVMName = $snapId
         }
         # Manifest sidecar. Written right after the hypervisor
@@ -2422,6 +2414,12 @@ function Save-FetchExecutionEvidence {
                         if (Get-Command Get-GuestRecorderClockAnalysis -ErrorAction SilentlyContinue) {
                             $recorder.clockAnalysis=Get-GuestRecorderClockAnalysis -Path $artifact
                         }
+                        # The first stall report the guest froze during the step,
+                        # read the way the host reads the serial console.
+                        if (Get-Command Get-GuestRecorderKernelStall -ErrorAction SilentlyContinue) {
+                            $kernelStall=Get-GuestRecorderKernelStall -Path $artifact
+                            if ($kernelStall) { $recorder.kernelStall=$kernelStall }
+                        }
                     } else { $recorder.reasonCode='recorder-invocation-mismatch' }
                 }
                 $Context.ExecutionProfile.recorder=$recorder
@@ -2630,13 +2628,10 @@ Register-SequenceAction -Name 'sshWaitReady' -ReplaySafety 'observe' -HostIORequ
         # failure label (same contract as Wait-ForText). The cause slots are
         # populated ONLY at the failure branch below, so a successful wait leaves
         # them empty and cannot leak its sought-pattern set forward.
-        $script:Fail.WaitForTextMatchedFailurePattern = $null
-        $script:Fail.WaitForTextOcrTail        = $null
-        $script:Fail.WaitForTextPatternsSought = [string[]]@()
-        $script:Fail.WaitForTextFreshWindowNearMiss = [string[]]@()
-        # No closest-line scan on this path at all, so $null rather than an
-        # empty list, which would credit the record with a reading of the screen.
-        $script:Fail.WaitForTextClosestOnScreen = $null
+        # No closest-line scan runs on this path, and the declared default of
+        # that slot is $null rather than an empty list, which would credit the
+        # record with a reading of the screen.
+        Reset-SequenceFailureSlot -Lifetime wait -State $script:Fail
 
         # See https://yuruna.link/4213a0b3-0160
         Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1') -Force -Global -DisableNameChecking -ErrorAction SilentlyContinue -Verbose:$false
@@ -2686,27 +2681,13 @@ Register-SequenceAction -Name 'sshWaitReady' -ReplaySafety 'observe' -HostIORequ
             if (-not $matchedPattern) { $matchedPattern = $installerFailPatterns[0] }
             $script:Fail.WaitForTextMatchedFailurePattern = $matchedPattern
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5eefabfaa35c260f' -Arguments @{ matchedPattern = "$matchedPattern" })
-            $failScreenPath = Join-Path $logDir "failure_screenshot_$($c.VMName).png"
-            Copy-Item -Path $rawScreenPath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b24a2d8bfa724905' -Arguments @{ failScreenPath = "$failScreenPath"; screensDir = "$screensDir" })
-            if ($result.AnyText) {
-                $failOcrPath = Join-Path $logDir "failure_ocr_$($c.VMName).txt"
-                Set-Content -Path $failOcrPath -Value $result.AnyText -Force -ErrorAction SilentlyContinue
-                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ae9f061222f374f7' -Arguments @{ failOcrPath = "$failOcrPath" })
-                # Bounded tail + the sought patterns into causeDetail (set on
-                # failure only, so a successful wait can't leak them).
-                $script:Fail.WaitForTextOcrTail = if ($result.AnyText.Length -le 1200) { $result.AnyText } else { $result.AnyText.Substring($result.AnyText.Length - 1200) }
-                $script:Fail.WaitForTextPatternsSought = [string[]]@($installerFailPatterns)
-            }
             # The host recording's view of the processors over this wait, so a
             # matched installer failure carries the same evidence as a timeout.
-            if (Get-Command Get-GuestLivelockVerdict -ErrorAction SilentlyContinue) {
-                $patternVerdict = Get-GuestLivelockVerdict -VMName $c.VMName -Since $deadlineUtc.AddSeconds(-1 * $timeout)
-                if ($patternVerdict) {
-                    $script:Fail.WaitForTextGuestLivelock = $patternVerdict
-                    $script:Fail.WaitForTextGuestLivelocked = ($patternVerdict.Verdict -eq 'livelocked')
-                }
-            }
+            $patternVerdict = if (Get-Command Get-GuestLivelockVerdict -ErrorAction SilentlyContinue) {
+                Get-GuestLivelockVerdict -VMName $c.VMName -Since $deadlineUtc.AddSeconds(-1 * $timeout)
+            } else { $null }
+            Save-WaitFailureEvidence -State $script:Fail -LogDir $logDir -VMName $c.VMName -CapturePath $rawScreenPath -OcrText $result.AnyText `
+                -Pattern $installerFailPatterns -LivelockVerdict $patternVerdict
             return $false
         }
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bd38b0b11908de53' -Arguments @{ timeout = "${timeout}" })
@@ -3110,6 +3091,11 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                         'independent static-guest verdict is missing'
                     } else { '' }
                 }
+                # A send the host can never make fails identically on the next
+                # attempt, so the attempt would only repeat it.
+                if (-not $retrySuppressionReason -and (Test-StepHostInputFaultDeterministic -State $script:Fail)) {
+                    $retrySuppressionReason = 'deterministic-input-fault'
+                }
                 if ($retrySuppressionReason) {
                     # Missing or live-frame evidence is not permission to cut
                     # power. End this specialized retry without replaying input.
@@ -3203,7 +3189,9 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
             # record is: the verb's registered class describes another failure.
             $innerThrew = $script:Fail.StepHandlerError -and
                 [string]$script:Fail.StepHandlerError['stepInvocationId'] -ceq [string]$script:Fail.LastFailedStepInvocationId
-            $script:Fail.LastInnerFailureClass        = if ($innerVerbEntry -and -not $innerThrew) { [string]$innerVerbEntry.FailureClass } else { 'unknown' }
+            $innerInputDeterministic = (-not $innerThrew) -and (Test-StepHostInputFaultDeterministic -State $script:Fail)
+            $script:Fail.LastInnerFailureClass        = if ($innerInputDeterministic) { 'plan_invalid' }
+                elseif ($innerVerbEntry -and -not $innerThrew) { [string]$innerVerbEntry.FailureClass } else { 'unknown' }
             $script:Fail.LastInnerSeverity            = if ($innerVerbEntry) { [string]$innerVerbEntry.Severity }     else { 'unknown' }
             # [string[]] cast prevents the single-element unwrap so a
             # downstream consumer of $script:Fail.LastInnerSuggestedRecoveries
@@ -3212,7 +3200,9 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
             # SuggestedRecoveries does not collapse to $null via the
             # if-pipeline flatten.
             $script:Fail.LastInnerSuggestedRecoveries = [string[]]@()
-            if ($innerVerbEntry -and $null -ne $innerVerbEntry.SuggestedRecoveries) {
+            if ($innerInputDeterministic) {
+                $script:Fail.LastInnerSuggestedRecoveries = [string[]]@('pause_and_inspect')
+            } elseif ($innerVerbEntry -and $null -ne $innerVerbEntry.SuggestedRecoveries) {
                 $script:Fail.LastInnerSuggestedRecoveries = [string[]]@($innerVerbEntry.SuggestedRecoveries)
             }
             # Retry ladder exhausted -- emit a structured terminal record carrying

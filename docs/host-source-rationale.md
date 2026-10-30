@@ -489,8 +489,9 @@ With bridged networking the cache VM is reachable directly at its
 LAN IP -- no host:port forwarder layer needed. Any leftover pwsh
 forwarders from a prior shared-NAT cycle would now bind ports that
 the operator expects to be free, and would tunnel to a stale IP.
-Remove-PortMap clears every Yuruna-managed forwarder symmetrically
-with Stop-CachingProxyServiceVM.ps1; on a fresh install this is a no-op.
+Remove-PortMap -Owner caching-proxy-service clears every forwarder the
+cache owns, symmetrically with Stop-CachingProxyServiceVM.ps1, and leaves
+the forwarders other services own; on a fresh install this is a no-op.
 
 KVM/libvirt: guest.caching-proxy-service/New-VM.ps1 already calls virt-install
 with --import and blocks until the VM has an IP AND squid is

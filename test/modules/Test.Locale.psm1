@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4263c64f-234d-45a4-b9c8-83aed05f27d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -307,8 +307,24 @@ function Get-CatalogProvenance {
             $sha = [Security.Cryptography.SHA256]::Create()
             try { $result.Hash = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant() }
             finally { $sha.Dispose() }
-            $doc = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false).GetString($bytes))
-            $result.Version = [string]$doc.compilerVersion
+            # The set manifest lists every input, translation and artifact, so it
+            # runs to megabytes, and this reads one string from it on the first
+            # render of every process. ConvertFrom-Json would build an object for
+            # each of its entries, which costs that render several hundred
+            # milliseconds; a JSON document validates the same bytes without
+            # building them. Comments and trailing commas stay accepted, as
+            # ConvertFrom-Json accepts them.
+            $options = [Text.Json.JsonDocumentOptions]@{
+                CommentHandling = [Text.Json.JsonCommentHandling]::Skip; AllowTrailingCommas = $true }
+            $doc = [Text.Json.JsonDocument]::Parse([ReadOnlyMemory[byte]]::new($bytes), $options)
+            try {
+                # Typed, so the out parameter of TryGetProperty binds.
+                $version = [Text.Json.JsonElement]::new()
+                if ($doc.RootElement.ValueKind -eq [Text.Json.JsonValueKind]::Object -and
+                    $doc.RootElement.TryGetProperty('compilerVersion', [ref]$version)) {
+                    $result.Version = if ($version.ValueKind -eq [Text.Json.JsonValueKind]::String) { $version.GetString() } else { $version.GetRawText() }
+                }
+            } finally { $doc.Dispose() }
         } catch {
             Write-Verbose "Catalog provenance unreadable at '$Path': $($_.Exception.Message)"
         }

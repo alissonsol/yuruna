@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d41f07-9c3b-4a15-8e62-5b0f3ca9d7e1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -262,7 +262,7 @@ Describe 'the host-settings sweep' {
         if ($IsWindows) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
         Import-Module (Join-Path $here 'Test.MacUtmFakeHost.psm1') -Force -Global -DisableNameChecking
         $fake = New-MacUtmFakeHost -Root (Join-Path ([IO.Path]::GetTempPath()) ("yrn-macgrant-" + [guid]::NewGuid().ToString('N')))
-        $savedNonInteractive = $env:YURUNA_NONINTERACTIVE
+        $savedNonInteractive = Save-YurunaTestEnvironment -Name 'YURUNA_NONINTERACTIVE'
         Enter-MacUtmFakeHost -FakeHost $fake
         try {
             $env:YURUNA_NONINTERACTIVE = '1'
@@ -280,8 +280,7 @@ Describe 'the host-settings sweep' {
             Assert-True (@(Get-MacUtmFakeCall -FakeHost $fake -Tool 'utmctl').Count -ge 1) 'the prompting path does ask'
         } finally {
             Exit-MacUtmFakeHost -FakeHost $fake
-            if ($null -eq $savedNonInteractive) { Remove-Item -Path 'Env:YURUNA_NONINTERACTIVE' -ErrorAction SilentlyContinue }
-            else { $env:YURUNA_NONINTERACTIVE = $savedNonInteractive }
+            Restore-YurunaTestEnvironment -Saved $savedNonInteractive
             Remove-MacUtmFakeHost -FakeHost $fake
         }
     }

@@ -82,12 +82,14 @@ func (s *Server) deleteOnShare(k pathKey) error {
 	return nil
 }
 
-// deleteStatus maps a delete failure onto its HTTP status and message. Both
-// "nothing there" shapes -- the local index's sql.ErrNoRows and the share's
-// os.ErrNotExist -- are the same answer to the caller.
-func deleteStatus(err error) (int, string) {
+// deleteStatus maps a delete failure onto its HTTP status and message code.
+// Both "nothing there" shapes -- the local index's sql.ErrNoRows and the
+// share's os.ErrNotExist -- are the same answer to the caller. Any other cause
+// names share paths, so it goes to the log and the reply carries only the code.
+func deleteStatus(k pathKey, err error) (int, string) {
 	if errors.Is(err, sql.ErrNoRows) || errors.Is(err, os.ErrNotExist) {
-		return http.StatusNotFound, "stash not found"
+		return http.StatusNotFound, "stash.api_stash_not_found"
 	}
-	return http.StatusInternalServerError, "delete: " + err.Error()
+	log.Printf("delete: host=%s id=%s: %v", k.hostID, k.id, err)
+	return http.StatusInternalServerError, "stash.api_delete_failed"
 }

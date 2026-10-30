@@ -203,26 +203,6 @@ const DataenUSexceptions = `{
     }
   ],
   "exceptions.host_56dd0a83b1740c20": "Disable-TestAutomation.ps1 (host/ubuntu.kvm) only runs on Linux.",
-  "exceptions.host_5e82d7a32d22a269": [
-    "HTTP ",
-    {
-      "arg": "status",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ",
-    {
-      "arg": "reasonPhrase",
-      "type": "detail",
-      "trust": "external"
-    },
-    " for ",
-    {
-      "arg": "uri",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
   "exceptions.host_5fbd4e8bd8efc5cc": [
     "Unsupported architecture for the extension-service base image: ",
     {

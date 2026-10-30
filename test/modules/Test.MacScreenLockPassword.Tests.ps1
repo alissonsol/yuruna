@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e93b58-71a4-4c60-b3d7-2f8a1e604c93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,14 +97,14 @@ Describe 'Set-MacScreenLockState' {
         # Distinct from a refused password: one needs an operator at the
         # machine, the other needs a different password. Collapsing them sends
         # the reader to the wrong remedy.
-        $saved = $env:YURUNA_NONINTERACTIVE
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_NONINTERACTIVE'
         try {
             $env:YURUNA_NONINTERACTIVE = '1'
             $r = Set-MacScreenLockState -State 'off'
             Assert-False $r.Attempted 'an unattended run must not claim it tried'
             Assert-Match 'person' $r.Output 'the reason has to say what is missing'
         } finally {
-            $env:YURUNA_NONINTERACTIVE = $saved
+            Restore-YurunaTestEnvironment -Saved $saved
         }
     }
 }

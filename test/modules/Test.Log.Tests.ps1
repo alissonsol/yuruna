@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4246d32b-8525-4736-8ed7-b3883787ca97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,13 +40,11 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 # --- REGION: Fixture helpers
 # See https://yuruna.link/42e220c4-0014
 function New-ArchiveFixture {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test must seed/save the Yuruna.Log cross-module globals Stop-LogFile reads.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: temp dir + seed files + saves globals; no production state.')]
     [OutputType([hashtable])]
     param([string]$RootFailureJson)
-    $saved = @{ Cycle = $global:__YurunaCycleFolder; LogFile = $global:__YurunaLogFile; LogDir = $env:YURUNA_LOG_DIR; RunId = $global:__YurunaRunId }
+    $saved = @{ Globals = (Save-YurunaTestGlobal -Name '__YurunaCycleFolder', '__YurunaLogFile', '__YurunaRunId'); Environment = (Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR') }
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-archive-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
     $env:YURUNA_LOG_DIR = $tmp
@@ -55,12 +53,10 @@ function New-ArchiveFixture {
     }
     $cycle = Join-Path $tmp '000001.2026-06-08.00-00-00.4253419c1f0b45a08260f36a1521a857.incomplete'
     New-Item -ItemType Directory -Path $cycle -Force | Out-Null
-    $global:__YurunaCycleFolder = $cycle
-    $global:__YurunaLogFile = $null
-    # The remediation archive matches on this, so a fixture without one cannot
-    # tell "produced by this cycle" from "left by an earlier one".
+    # The remediation archive matches on the run id, so a fixture without one
+    # cannot tell "produced by this cycle" from "left by an earlier one".
     $runId = [guid]::NewGuid().ToString()
-    $global:__YurunaRunId = $runId
+    Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $cycle; __YurunaLogFile = $null; __YurunaRunId = $runId }
     return @{ Tmp = $tmp; Saved = $saved; Cycle = $cycle; Final = ($cycle -replace '\.incomplete$', ''); RunId = $runId }
 }
 
@@ -68,43 +64,27 @@ function New-ArchiveFixture {
 # "no handle" branch means unsetting it; that is the only reason to touch the
 # global outside the fixture pair.
 function Clear-CycleFolderHandle {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test must clear the Yuruna.Log cross-module cycle-folder handle to reach the no-handle branch.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test helper: clears one in-memory global that Restore-ArchiveFixture puts back; no production state.')]
     param()
-    $global:__YurunaCycleFolder = $null
+    Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $null }
 }
 
 # The failure index skips a root record older than the cycle start, so its
 # tests set and restore the start handle Start-LogFile publishes.
-function Get-CycleStartHandle {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test reads the Yuruna.Log cross-module cycle-start handle to restore it afterwards.')]
-    [OutputType([string])]
-    param()
-    return [string]$global:__YurunaCycleStartUtc
-}
-
 function Set-CycleStartHandle {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test sets the Yuruna.Log cross-module cycle-start handle the failure index reads.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test helper: sets an in-process handle; no system state.')]
     param([AllowEmptyString()][AllowNull()][string]$Value)
-    $global:__YurunaCycleStartUtc = $Value
+    Set-YurunaTestGlobal -Value @{ __YurunaCycleStartUtc = $Value }
 }
 
 function Restore-ArchiveFixture {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test teardown: restores the Yuruna.Log cross-module globals it saved.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test teardown: restores saved globals/env and removes the temp dir.')]
     param([Parameter(Mandatory)][hashtable]$Fixture)
-    $global:__YurunaCycleFolder = $Fixture.Saved.Cycle
-    $global:__YurunaLogFile     = $Fixture.Saved.LogFile
-    $global:__YurunaRunId       = $Fixture.Saved.RunId
-    $env:YURUNA_LOG_DIR         = $Fixture.Saved.LogDir
+    Restore-YurunaTestGlobal -Saved $Fixture.Saved.Globals
+    Restore-YurunaTestEnvironment -Saved $Fixture.Saved.Environment
     if ($Fixture.Tmp) { Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
@@ -277,7 +257,7 @@ Describe 'Stop-LogFile last_failure.json archiving' {
 # the recovery decision read nothing, or a later guest's record.
 Describe 'The cycle failure index' {
     BeforeEach {
-        $script:SavedIndexEnv = @{ Generation = $env:YURUNA_CYCLE_GENERATION; CycleStart = (Get-CycleStartHandle) }
+        $script:SavedIndexEnv = @{ Generation = $env:YURUNA_CYCLE_GENERATION; Globals = (Save-YurunaTestGlobal -Name '__YurunaCycleStartUtc') }
         $env:YURUNA_CYCLE_GENERATION = ('a' * 32) + ':7'
         Set-CycleStartHandle -Value ([datetime]::UtcNow.AddMinutes(-1).ToString('o'))
         $script:WriteRoot = {
@@ -288,7 +268,7 @@ Describe 'The cycle failure index' {
     }
     AfterEach {
         $env:YURUNA_CYCLE_GENERATION = $script:SavedIndexEnv.Generation
-        Set-CycleStartHandle -Value $script:SavedIndexEnv.CycleStart
+        Restore-YurunaTestGlobal -Saved $script:SavedIndexEnv.Globals
     }
 
     It 'keeps every failing guest in the order it failed, after the root record is cleared' {
@@ -503,18 +483,16 @@ Describe 'Add-OcrHistoryFrame keeps the earliest frames of a guest' {
             Add-OcrHistoryFrame -Queue $Queue -Path $path -Limit 2 -KeepEarliest $KeepEarliest
         }
         function Invoke-InCycleFolder {
-            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-                Justification = 'Test must seed and restore the cycle-folder global Save-StepFailureEvidence reads.')]
             param([string]$CycleFolder, [string]$LogDir, [scriptblock]$Action)
-            $saved = @{ Cycle = $global:__YurunaCycleFolder; LogDir = $env:YURUNA_LOG_DIR }
+            $saved = @{ Globals = (Save-YurunaTestGlobal -Name '__YurunaCycleFolder'); Environment = (Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR') }
             try {
-                $global:__YurunaCycleFolder = $CycleFolder
+                Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $CycleFolder }
                 $env:YURUNA_LOG_DIR = $LogDir
                 $null = New-Item -ItemType Directory $LogDir -Force
                 & $Action
             } finally {
-                $global:__YurunaCycleFolder = $saved.Cycle
-                $env:YURUNA_LOG_DIR = $saved.LogDir
+                Restore-YurunaTestGlobal -Saved $saved.Globals
+                Restore-YurunaTestEnvironment -Saved $saved.Environment
             }
         }
     }

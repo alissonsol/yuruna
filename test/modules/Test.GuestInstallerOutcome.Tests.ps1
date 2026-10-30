@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427c26ad-413b-4523-82d5-2c48297ba74d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,9 +24,26 @@ BeforeAll {
     if ($start -lt 0 -or $end -lt 0) { throw 'JDK installer phase was not found' }
     $script:JdkPhase = $source.Substring($start, $end - $start)
     $start = $source.IndexOf('# --- REGION: Install .NET SDK')
-    $end = $source.IndexOf("[Environment]::SetEnvironmentVariable('DOTNET_ROOT'", $start)
+    $end = $source.IndexOf('# Register machine-wide PATH and DOTNET_ROOT after the SDK installation succeeds.', $start)
     if ($start -lt 0 -or $end -lt 0) { throw '.NET installer outcome boundary was not found' }
     $script:DotnetPhase = $source.Substring($start, $end - $start)
+    # The fixture serves its own installer, so the phase runs with that file's
+    # digest in place of the shipped pin; the comparison itself is unchanged.
+    $script:DotnetPayload = @"
+[CmdletBinding()]
+param([string]`$Channel, [string]`$InstallDir)
+if (`$Channel -ne 'LTS' -or `$InstallDir -ne (Join-Path `$env:ProgramFiles 'dotnet')) { throw 'SDK install contract changed' }
+@{ Channel=`$Channel; Directory=`$InstallDir; PriorExitCode=`$global:LASTEXITCODE } | ConvertTo-Json -Compress | Set-Content -LiteralPath `$env:YURUNA_INSTALL_LAUNCH
+switch (`$env:YURUNA_INSTALL_MODE) {
+    'exit-error' { exit 17 }
+    'launch-error' { throw 'fixture SDK installer threw' }
+    'command-error' { Write-Error 'fixture SDK installer command failed'; return }
+    'explicit-success' { exit 0 }
+}
+"@
+    $payloadSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.UTF8Encoding]::new($false).GetBytes($script:DotnetPayload))).ToLowerInvariant()
+    $script:DotnetPhase = $script:DotnetPhase -replace "(?m)^(\s*\`$dotnetInstallSha256 = ')[0-9a-f]{64}(')", "`${1}$payloadSha`${2}"
+    if ($script:DotnetPhase -notmatch [regex]::Escape($payloadSha)) { throw '.NET installer digest pin was not found' }
 
     # --- REGION: Invoke-JdkOutcomeFixture
     function Invoke-JdkOutcomeFixture {
@@ -114,16 +131,12 @@ Write-Output 'would-install-next-package'
 $ErrorActionPreference = 'Continue'
 $global:LASTEXITCODE = 73
 $script:Calls = [ordered]@{ downloads=0; uri=''; downloadErrorAction='' }
-function Get-Item {
+function Get-FileHash {
     [CmdletBinding()]
-    param([string]$LiteralPath)
-    $item = Microsoft.PowerShell.Management\Get-Item -LiteralPath $LiteralPath -ErrorAction Stop
-    if ($env:YURUNA_INSTALL_MODE -eq 'missing-launch') {
-        $length = $item.Length
-        Remove-Item -LiteralPath $LiteralPath -Force -ErrorAction Stop
-        return [pscustomobject]@{ Length=$length }
-    }
-    return $item
+    param([string]$Algorithm, [string]$LiteralPath)
+    $hash = Microsoft.PowerShell.Utility\Get-FileHash -Algorithm $Algorithm -LiteralPath $LiteralPath -ErrorAction Stop
+    if ($env:YURUNA_INSTALL_MODE -eq 'missing-launch') { Remove-Item -LiteralPath $LiteralPath -Force -ErrorAction Stop }
+    return $hash
 }
 function Invoke-WebRequest {
     [CmdletBinding()]
@@ -134,18 +147,8 @@ function Invoke-WebRequest {
     if (Test-Path -LiteralPath $OutFile) { throw 'Stale installer was not removed before transfer' }
     if ($env:YURUNA_INSTALL_MODE -eq 'missing-download') { return }
     if ($env:YURUNA_INSTALL_MODE -eq 'empty-download') { [IO.File]::WriteAllText($OutFile, ''); return }
-    $payload = @"
-[CmdletBinding()]
-param([string]`$Channel, [string]`$InstallDir)
-if (`$Channel -ne 'LTS' -or `$InstallDir -ne (Join-Path `$env:ProgramFiles 'dotnet')) { throw 'SDK install contract changed' }
-@{ Channel=`$Channel; Directory=`$InstallDir; PriorExitCode=`$global:LASTEXITCODE } | ConvertTo-Json -Compress | Set-Content -LiteralPath `$env:YURUNA_INSTALL_LAUNCH
-switch (`$env:YURUNA_INSTALL_MODE) {
-    'exit-error' { exit 17 }
-    'launch-error' { throw 'fixture SDK installer threw' }
-    'command-error' { Write-Error 'fixture SDK installer command failed'; return }
-    'explicit-success' { exit 0 }
-}
-"@
+    $payload = [IO.File]::ReadAllText($env:YURUNA_INSTALL_PAYLOAD)
+    if ($env:YURUNA_INSTALL_MODE -eq 'tampered-download') { $payload += "`nWrite-Output 'tampered'`n" }
     [IO.File]::WriteAllText($OutFile, $payload)
     if ($env:YURUNA_INSTALL_MODE -eq 'download-error') { Write-Error 'fixture SDK transfer failed after bytes'; return }
 }
@@ -158,9 +161,11 @@ Write-Output '<<< .NET SDK installation complete.'
         $entry = Join-Path $fixture 'fixture.ps1'
         $callsPath = Join-Path $fixture 'calls.json'
         $launchPath = Join-Path $fixture 'launch.json'
+        $payloadPath = Join-Path $fixture 'payload.ps1'
+        [IO.File]::WriteAllText($payloadPath, $script:DotnetPayload, [Text.UTF8Encoding]::new($false))
         Set-Content -LiteralPath $entry -Value ($prefix + "`ntry {`n" + $script:DotnetPhase + "`n" + $suffix) -Encoding utf8NoBOM
         $result = Invoke-BoundedNativeCommand -FilePath $script:Pwsh -ArgumentList @('-NoProfile', '-File', $entry) -TimeoutSeconds 15 `
-            -Environment @{ TEMP=$guestTemp; ProgramFiles=$fixture; YURUNA_INSTALL_MODE=$Mode; YURUNA_INSTALL_RESULT=$callsPath; YURUNA_INSTALL_LAUNCH=$launchPath }
+            -Environment @{ TEMP=$guestTemp; ProgramFiles=$fixture; YURUNA_INSTALL_MODE=$Mode; YURUNA_INSTALL_RESULT=$callsPath; YURUNA_INSTALL_LAUNCH=$launchPath; YURUNA_INSTALL_PAYLOAD=$payloadPath }
         $launch = if (Test-Path -LiteralPath $launchPath) { Get-Content -LiteralPath $launchPath -Raw | ConvertFrom-Json } else { $null }
         [pscustomobject]@{ Process=$result; Calls=(Get-Content -LiteralPath $callsPath -Raw | ConvertFrom-Json); Installer=$installer; Launch=$launch }
     }
@@ -397,7 +402,7 @@ Describe 'Windows guest SDK completion follows the downloaded installer outcome'
         $result.Process.ExitCode | Should -Be 0
         $result.Process.StdOut | Should -Match 'would-register-machine-environment'
         $result.Process.StdOut | Should -Match '<<< \.NET SDK installation complete\.'
-        $result.Calls.uri | Should -BeExactly 'https://dot.net/v1/dotnet-install.ps1'
+        $result.Calls.uri | Should -Match '^https://raw\.githubusercontent\.com/dotnet/install-scripts/[0-9a-f]{40}/src/dotnet-install\.ps1$'
         $result.Calls.downloadErrorAction | Should -BeExactly 'Stop'
         $result.Launch.Channel | Should -BeExactly 'LTS'
         $result.Launch.PriorExitCode | Should -Be 0
@@ -419,8 +424,9 @@ Describe 'Windows guest SDK completion follows the downloaded installer outcome'
 
     It 'rejects a <Mode> before invoking the downloaded SDK script' -ForEach @(
         @{ Mode='download-error'; Message='SDK transfer failed' }
-        @{ Mode='missing-download'; Message='nonempty installer' }
-        @{ Mode='empty-download'; Message='nonempty installer' }
+        @{ Mode='missing-download'; Message='did not produce an installer file' }
+        @{ Mode='empty-download'; Message='Refusing to run it' }
+        @{ Mode='tampered-download'; Message='Refusing to run it' }
     ) {
         $result = Invoke-DotnetOutcomeFixture -Mode $Mode
         $result.Process.ExitCode | Should -Not -Be 0
@@ -725,5 +731,30 @@ sudo() {
         @($result.Calls | Where-Object { $_ -like 'systemctl *' }) | Should -BeNullOrEmpty
         $result.Process.StdOut | Should -Not -Match 'would-report-summary'
         Test-Path -LiteralPath (Join-Path $result.Data 'PG_VERSION') | Should -BeFalse
+    }
+}
+
+Describe 'Windows workloads leave an irm | iex console open when they refuse to run' {
+    # guest/windows.11/README.md runs every workload as `irm ... | iex`. An exit
+    # statement inside Invoke-Expression ends the operator's PowerShell host, so
+    # the refusal text printed just before it closes with the window; a throw
+    # keeps the console and still fails a -File or -Command run.
+    It '<Name> holds no exit statement' -ForEach @(
+        Get-ChildItem -LiteralPath (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'guest/windows.11') -Filter 'windows.11.*.ps1' |
+            ForEach-Object { @{ Name = $_.Name; Path = $_.FullName } }
+    ) {
+        $tokens = $null; $errors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors)
+        $errors | Should -HaveCount 0
+        $exits = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.ExitStatementAst] }, $true))
+        ($exits | ForEach-Object { "line $($_.Extent.StartLineNumber): $($_.Extent.Text)" }) | Should -BeNullOrEmpty
+    }
+
+    It 'a refusal by throw keeps the invoking session alive and a -Command run non-zero' {
+        $script = "Write-Output 'refusing'; throw 'This script requires elevation (Run as Administrator).'"
+        $interactive = & $script:Pwsh -NoProfile -Command "try { Invoke-Expression `"$script`" } catch { Write-Output ('caught: ' + `$_.Exception.Message) }; Write-Output 'console still open'"
+        $interactive | Should -Contain 'console still open'
+        & $script:Pwsh -NoProfile -Command $script *> $null
+        $LASTEXITCODE | Should -Not -Be 0
     }
 }

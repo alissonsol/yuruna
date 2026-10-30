@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 428a8fea-36e6-48a4-aa62-2004e6035a54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,13 +33,13 @@
 #>
 
 BeforeAll {
-$script:SavedOcrCombine = $env:YURUNA_OCR_COMBINE
-$script:SavedOcrEngines = $env:YURUNA_OCR_ENGINES
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+$script:SavedOcrCombine = Save-YurunaTestEnvironment -Name 'YURUNA_OCR_COMBINE'
+$script:SavedOcrEngines = Save-YurunaTestEnvironment -Name 'YURUNA_OCR_ENGINES'
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.OcrMatch.psm1') -Force -DisableNameChecking
 $script:OcrFixtureDir = Join-Path $here '../fixtures/ocr'
 
-Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 }
 
 # Fixtures live at FILE scope, above the first Describe. A Describe body runs
@@ -318,8 +318,7 @@ Describe 'Bounded prompt matching' {
 
 Describe 'Get-OcrCombineMode' {
     AfterAll {
-        if ($null -eq $script:SavedOcrCombine) { Remove-Item Env:\YURUNA_OCR_COMBINE -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_OCR_COMBINE = $script:SavedOcrCombine }
+        Restore-YurunaTestEnvironment -Saved $script:SavedOcrCombine
     }
     It 'defaults to Or when the environment variable is unset or empty' {
         Remove-Item Env:\YURUNA_OCR_COMBINE -ErrorAction SilentlyContinue
@@ -373,10 +372,8 @@ Describe 'Test-CombinedOcrMatch' {
         Clear-EnabledOcrProviderCache
     }
     AfterAll {
-        if ($null -eq $script:SavedOcrEngines) { Remove-Item Env:\YURUNA_OCR_ENGINES -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_OCR_ENGINES = $script:SavedOcrEngines }
-        if ($null -eq $script:SavedOcrCombine) { Remove-Item Env:\YURUNA_OCR_COMBINE -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_OCR_COMBINE = $script:SavedOcrCombine }
+        Restore-YurunaTestEnvironment -Saved $script:SavedOcrEngines
+        Restore-YurunaTestEnvironment -Saved $script:SavedOcrCombine
         Remove-Item Env:\YURUNA_TEST_OCR_A, Env:\YURUNA_TEST_OCR_B, Env:\YURUNA_TEST_OCR_CALLS -ErrorAction SilentlyContinue
         Clear-EnabledOcrProviderCache
     }
@@ -716,5 +713,104 @@ Describe 'Get-OcrFreshWindowNearMiss' {
     It 'tolerates a null engine map' {
         $hits = @(Get-OcrFreshWindowNearMiss -EngineResult $null -Pattern @('x') -FreshMatchTailLines 12)
         Assert-Equal -Expected 0 -Actual $hits.Count
+    }
+}
+
+Describe 'Test-CombinedOcrMatch -FallbackReuse' {
+    # The first engine costs milliseconds and a fallback such as tesseract
+    # seconds of CPU; a console parked on a screen the wait is not looking for
+    # was read by the fallback on every poll.
+    BeforeAll {
+        Register-OcrProvider -Name 'unit-fake-a' -Invoke {
+            param([string]$ImagePath)
+            $null = $ImagePath
+            $env:YURUNA_TEST_OCR_CALLS = "$($env:YURUNA_TEST_OCR_CALLS),unit-fake-a".Trim(',')
+            $env:YURUNA_TEST_OCR_A
+        } -IsAvailable { $true }
+        Register-OcrProvider -Name 'unit-fake-b' -Invoke {
+            param([string]$ImagePath)
+            $null = $ImagePath
+            $env:YURUNA_TEST_OCR_CALLS = "$($env:YURUNA_TEST_OCR_CALLS),unit-fake-b".Trim(',')
+            if ($env:YURUNA_TEST_OCR_B_DELAY_MS) { Start-Sleep -Milliseconds ([int]$env:YURUNA_TEST_OCR_B_DELAY_MS) }
+            $env:YURUNA_TEST_OCR_B
+        } -IsAvailable { $true }
+        function Get-FallbackRunCount { @(($env:YURUNA_TEST_OCR_CALLS -split ',') | Where-Object { $_ -eq 'unit-fake-b' }).Count }
+    }
+    AfterAll {
+        Restore-YurunaTestEnvironment -Saved $script:SavedOcrEngines
+        Restore-YurunaTestEnvironment -Saved $script:SavedOcrCombine
+        Remove-Item Env:\YURUNA_TEST_OCR_A, Env:\YURUNA_TEST_OCR_B, Env:\YURUNA_TEST_OCR_CALLS, Env:\YURUNA_TEST_OCR_B_DELAY_MS -ErrorAction SilentlyContinue
+        Clear-EnabledOcrProviderCache
+    }
+    BeforeEach {
+        $env:YURUNA_OCR_ENGINES = 'unit-fake-a,unit-fake-b'
+        $env:YURUNA_OCR_COMBINE = 'Or'
+        $env:YURUNA_TEST_OCR_A = 'a parked console'
+        $env:YURUNA_TEST_OCR_B = 'a parked console, read by the fallback'
+        $env:YURUNA_TEST_OCR_CALLS = ''
+        Remove-Item Env:\YURUNA_TEST_OCR_B_DELAY_MS -ErrorAction SilentlyContinue
+        Clear-EnabledOcrProviderCache
+    }
+
+    It 'runs the fallback once every three frames while the first engine reads the screen unchanged' {
+        $state = New-OcrFallbackReuseState
+        $reusedFlags = foreach ($frame in 1..6) {
+            $r = Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'login:' -FallbackReuse $state
+            Assert-False $r.Match "frame $frame must not match"
+            [bool]$r.EngineResults['unit-fake-b'].Reused
+        }
+        Assert-Equal -Expected 2 -Actual (Get-FallbackRunCount) -Because 'frames 1 and 4 read it; 2, 3, 5 and 6 reuse its read'
+        Assert-Equal -Expected 'False,True,True,False,True,True' -Actual ($reusedFlags -join ',')
+    }
+
+    It 'runs the fallback on the next frame whose first-engine text changed' {
+        $state = New-OcrFallbackReuseState
+        $null = Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'login:' -FallbackReuse $state
+        $env:YURUNA_TEST_OCR_A = 'the console moved'
+        $r = Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'login:' -FallbackReuse $state
+        Assert-False ([bool]$r.EngineResults['unit-fake-b'].Reused) 'a changed screen is read by every engine'
+        Assert-Equal -Expected 2 -Actual (Get-FallbackRunCount)
+    }
+
+    It 'never reuses across a blank first-engine read, and finds a fallback-only match within the bound' {
+        $state = New-OcrFallbackReuseState
+        $env:YURUNA_TEST_OCR_A = ''
+        foreach ($frame in 1..3) { $null = Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'login:' -FallbackReuse $state }
+        Assert-Equal -Expected 3 -Actual (Get-FallbackRunCount) -Because 'a blank read is not evidence of an unchanged screen'
+        $env:YURUNA_TEST_OCR_CALLS = ''
+        $env:YURUNA_TEST_OCR_A = 'host login prompt, misread'
+        $null = Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'login:' -FallbackReuse $state
+        $env:YURUNA_TEST_OCR_B = 'host login: _'
+        $matchedAt = 0
+        foreach ($frame in 2..4) {
+            if ((Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'login:' -FallbackReuse $state).Match) { $matchedAt = $frame; break }
+        }
+        Assert-Equal -Expected 4 -Actual $matchedAt -Because 'the fallback is read again within MaxReuse + 1 frames'
+    }
+
+    It 'leaves every other caller, and And mode, reading every engine on every frame' {
+        foreach ($frame in 1..3) { $null = Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'login:' }
+        Assert-Equal -Expected 3 -Actual (Get-FallbackRunCount)
+        $env:YURUNA_TEST_OCR_CALLS = ''
+        $env:YURUNA_OCR_COMBINE = 'And'
+        $env:YURUNA_TEST_OCR_A = 'host login: _'
+        $state = New-OcrFallbackReuseState
+        foreach ($frame in 1..3) { $null = Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'nothing here' -FallbackReuse $state }
+        $env:YURUNA_TEST_OCR_CALLS = ''
+        foreach ($frame in 1..3) { $null = Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'login:' -FallbackReuse $state }
+        Assert-Equal -Expected 3 -Actual (Get-FallbackRunCount) -Because 'And mode runs the second engine whenever the first matched'
+    }
+
+    It 'measures the saving with a slow stand-in fallback' {
+        $env:YURUNA_TEST_OCR_B_DELAY_MS = '100'
+        $every = [Diagnostics.Stopwatch]::StartNew()
+        foreach ($frame in 1..9) { $null = Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'login:' }
+        $every.Stop()
+        $state = New-OcrFallbackReuseState
+        $reuse = [Diagnostics.Stopwatch]::StartNew()
+        foreach ($frame in 1..9) { $null = Test-CombinedOcrMatch -ImagePath 'unused.png' -Pattern 'login:' -FallbackReuse $state }
+        $reuse.Stop()
+        Write-Information "nine static frames with a 100 ms fallback: $([int]$every.ElapsedMilliseconds) ms reading every engine, $([int]$reuse.ElapsedMilliseconds) ms with reuse" -InformationAction Continue
+        Assert-True ($reuse.ElapsedMilliseconds -lt $every.ElapsedMilliseconds) 'three fallback reads instead of nine'
     }
 }

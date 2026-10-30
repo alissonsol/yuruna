@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42064213-0b2d-4567-9d5d-580219d8c1fb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -10,6 +10,7 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.CachingProxyService.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1') -Force
     Import-Module powershell-yaml -Force
@@ -46,8 +47,7 @@ BeforeAll {
         [OutputType([string])]
         param([Parameter(Mandatory)][string]$Remote)
         $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
-        $null = & git init --quiet $path 2>&1
-        $null = & git -C $path -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit --quiet --allow-empty -m seed 2>&1
+        $null = New-YurunaTestGitRepository -Path $path -CommitMessage 'seed'
         $null = & git -C $path remote add origin $Remote 2>&1
         if ($LASTEXITCODE -ne 0) { throw "could not create the seed checkout for $Remote" }
         return $path
@@ -119,11 +119,11 @@ Describe 'Own proxy enrollment during setup' {
 
 Describe 'Read-only persisted mirror endpoint discovery' {
     BeforeEach {
-        $script:savedDiscoveryRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:savedDiscoveryRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'endpoint-runtime'
         Mock Read-CachingProxyServiceState -ModuleName Test.CachingProxyService { throw 'mutating state reader must not run before the first pull' }
     }
-    AfterEach { $env:YURUNA_RUNTIME_DIR = $script:savedDiscoveryRuntime }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:savedDiscoveryRuntime }
 
     It 'does not create a runtime directory when state is absent' {
         Get-CachingProxyServiceStateIp -ReadOnly | Should -BeExactly ''
@@ -183,7 +183,7 @@ if path.endswith(('signing-key.pem', '/credentials')):
     }
 
     BeforeEach {
-        $script:oldRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:oldRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         Mock Get-EffectiveUser -ModuleName Test.CachingProxyService { @{vaultKey=''} }
         Mock Test-VaultEntry -ModuleName Test.CachingProxyService { $false }
@@ -191,7 +191,7 @@ if path.endswith(('signing-key.pem', '/credentials')):
         Mock Set-Password -ModuleName Test.CachingProxyService { }
         Mock Set-UserVaultKey -ModuleName Test.CachingProxyService { $true }
     }
-    AfterEach { $env:YURUNA_RUNTIME_DIR = $script:oldRuntime }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:oldRuntime }
 
     It 'mints a signing key once but never generates an optional GitHub token' {
         $result = Get-CachingProxyGitMirrorSeedSetting -RepoRoot $script:repo -Config @{}

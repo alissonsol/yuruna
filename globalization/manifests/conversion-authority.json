@@ -56,11 +56,5 @@
       "sha256": "77743029b57f756f4ae9d0e39a20da1ae309c99d09ed962db95ffbad665dbdb9"
     }
   ],
-  "generatedPowerShell": [
-    {
-      "path": "test/service/Start-StatusService.ps1",
-      "variable": "$serverScript",
-      "reason": "Deployment emits this here-string as .status-service.ps1; scan its parsed runtime code, excluding comments and preserving quoted protocol conditions."
-    }
-  ]
+  "generatedPowerShell": []
 }

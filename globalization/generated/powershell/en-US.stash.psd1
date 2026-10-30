@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42032533-f42d-2a28-6797-9020555cc3d4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,21 +23,8 @@
     'stash.all_hosts' = 'All hosts'
     'stash.all_types' = 'All types'
     'stash.api_could_not_parse_form' = 'could not parse form'
-    'stash.api_create_detail' = @(
-        'create: '
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
-    'stash.api_detail' = @(
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
+    'stash.api_create_failed' = 'the stash could not be stored; the service log has the cause'
+    'stash.api_delete_failed' = 'the stash could not be deleted; the service log has the cause'
     'stash.api_invalid_host' = 'invalid host'
     'stash.api_invalid_json_body' = 'invalid JSON body'
     'stash.api_invalid_stash_path' = 'invalid stash path'
@@ -46,25 +33,12 @@
     'stash.api_not_an_archive' = 'not an archive'
     'stash.api_not_found' = 'not found'
     'stash.api_nothing_to_store_provide_text_or_files' = 'nothing to store: provide text or files'
-    'stash.api_open_archive_detail' = @(
-        'open archive: '
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
+    'stash.api_open_archive_failed' = 'the archive could not be opened; the service log has the cause'
     'stash.api_open_artifact' = 'open artifact'
     'stash.api_open_upload' = 'open upload'
     'stash.api_open_uploads' = 'open uploads'
-    'stash.api_search_detail' = @(
-        'search: '
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
+    'stash.api_resolve_failed' = 'the stash could not be looked up; the service log has the cause'
+    'stash.api_search_failed' = 'the stash index could not be searched; the service log has the cause'
     'stash.api_stash_not_found' = 'stash not found'
     'stash.api_stat_artifact' = 'stat artifact'
     'stash.api_too_many_files_in_one_upload' = 'too many files in one upload'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 420b9d4a-e9ff-472b-9afa-d978ada39114
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,29 @@
     and no browser-automation package -- matching Invoke-JsTest.ps1, which
     already reports SKIPPED rather than success on a host without node.
 
+    Firefox runs the same probes where it is installed. It no longer speaks
+    the DevTools Protocol, so it is driven over WebDriver BiDi, the same kind of
+    JSON-over-WebSocket exchange, through the same client. Its color scheme and
+    pointer type are preferences read at launch, so each scheme and pointer
+    combination gets a browser of its own; desktop Firefox also ignores the
+    viewport meta, so the layout-viewport check below is Chrome's alone.
+
+    A desktop window never evaluates a `(pointer: coarse)` rule, so every
+    phone rule in the stylesheets would pass unmeasured. Each page is therefore
+    also measured as a phone: a mobile viewport with touch emulation, upright
+    and on its side. A phone browser that finds no width=device-width viewport
+    meta lays the page out 980px wide and scales it down, which reads as
+    reflow-clean while the text is unreadably small, so a phone view whose
+    layout viewport is wider than its screen is a finding of its own.
+
+    A page is measured in more than its first state. Where the page has the
+    controls for them, the menu is opened and the unlock prompt is shown, and
+    each such state is measured like a page of its own. A state that a page
+    offers but that does not open is a finding, so a broken menu cannot pass
+    by never being drawn. The populated dashboards come from
+    Export-GeneratedPages.ps1, which serves fixture data at the relative URLs
+    the pages read.
+
     In -Serve mode (the default) the pages are served from the working tree by
     an in-process HttpListener, so the gate measures the CSS as edited rather
     than whatever a deployed VM is still serving. Pages that fetch their data
@@ -60,8 +83,22 @@
     Directories to serve and measure. Defaults to the four service web roots
     and the host status pages.
 .PARAMETER Width
-    Viewport widths in CSS pixels. Defaults to 320 (the WCAG 1.4.10 reflow
-    width, which is also 1280 at 400% zoom) and 1280.
+    Desktop viewport widths in CSS pixels, measured with a fine pointer.
+    Defaults to 320 (the WCAG 1.4.10 reflow width, which is also 1280 at 400%
+    zoom), 768 and 1024 (the tablet breakpoints) and 1280.
+.PARAMETER Phone
+    Phone viewports as WIDTHxHEIGHT in CSS pixels, measured as a mobile
+    viewport with touch emulation. Defaults to 360x780 and 844x390, one phone
+    upright and on its side. Pass @() to measure desktop widths only.
+.PARAMETER Browser
+    Browsers to measure in. Defaults to chrome and firefox. Chrome is required
+    whenever it is listed. Firefox in the default list is measured where it is
+    installed and reported SKIPPED where it is not; named alone, it is
+    required.
+.PARAMETER State
+    Page states to measure: default (the page as it loads), menu-open and
+    unlock. Defaults to all three. A state is measured only on pages that have
+    its control; -Url pages are measured in every state they offer.
 .PARAMETER Scheme
     Color schemes to measure. Defaults to both, because a token defined once
     in the light block is exactly the defect this catches.
@@ -97,7 +134,9 @@
 .NOTES
     Exits 0 when every page is clean, 1 when any check fails, and 2 when the
     run could not happen (no browser). Exit 2 is never success: a host without
-    Chrome must not report a green accessibility gate.
+    Chrome must not report a green accessibility gate. iOS Safari and Android
+    Chrome stay documented manual device checks (docs/accessibility.md); the
+    phone views here measure the layout rules, not those engines.
 #>
 
 [CmdletBinding()]
@@ -112,9 +151,15 @@ param(
     [string[]]$Url,
     [Parameter()]
     [string[]]$Serve,
-    [int[]]$Width = @(320, 1280),
+    [int[]]$Width = @(320, 768, 1024, 1280),
+    [ValidatePattern('^\d{3,4}x\d{3,4}$')]
+    [string[]]$Phone = @('360x780', '844x390'),
     [ValidateSet('light', 'dark')]
     [string[]]$Scheme = @('light', 'dark'),
+    [ValidateSet('chrome', 'firefox')]
+    [string[]]$Browser = @('chrome', 'firefox'),
+    [ValidateSet('default', 'menu-open', 'unlock')]
+    [string[]]$State = @('default', 'menu-open', 'unlock'),
     [string]$PageFilter = '*.html',
     [switch]$RequireDirection,
     [string]$ExpectedLanguage,
@@ -141,7 +186,10 @@ function Start-A11yBrowserProcess {
         Justification = 'Starts only the explicitly discovered browser for this diagnostic and returns its exact process handle.')]
     param(
         [Parameter(Mandatory)][string]$FilePath,
-        [Parameter(Mandatory)][string[]]$ArgumentList
+        [Parameter(Mandatory)][string[]]$ArgumentList,
+        # Firefox writes the console messages of the pages it renders to its
+        # standard output, which would otherwise land in this gate's report.
+        [switch]$DiscardStandardOutput
     )
 
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
@@ -149,11 +197,13 @@ function Start-A11yBrowserProcess {
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardError = $true
+    $startInfo.RedirectStandardOutput = [bool]$DiscardStandardOutput
     foreach ($argument in $ArgumentList) { [void]$startInfo.ArgumentList.Add($argument) }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     try {
         if (-not $process.Start()) { throw "Browser process did not start: $FilePath" }
+        if ($DiscardStandardOutput) { $null = $process.StandardOutput.ReadToEndAsync() }
         return [pscustomobject]@{
             Process = $process
             StandardErrorTask = $process.StandardError.ReadToEndAsync()
@@ -167,7 +217,8 @@ function Start-A11yBrowserProcess {
 # Chrome started from an elevated process on Windows starts itself again without
 # elevation, and the process that was started exits. The browser that is
 # measured is then one this script never held, so the profile directory on its
-# command line is all that identifies it.
+# command line is all that identifies it: --user-data-dir=<dir> for Chrome,
+# --profile <dir> for Firefox.
 function Stop-A11yBrowserProfile {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Stops only browsers running on the throwaway profile directory this diagnostic created.')]
@@ -180,12 +231,19 @@ function Stop-A11yBrowserProfile {
         # Linux and macOS: the same identity, read from the process table. A
         # browser that relaunched itself, or a helper the tree kill missed,
         # keeps writing into the profile the caller is about to remove.
-        $ownedArg = '(?:^|\s)--user-data-dir=' + [regex]::Escape($ProfileDirectory) + '(?:\s|$)'
+        $ownedArg = '(?:^|\s)(?:--user-data-dir=|--profile\s+)' + [regex]::Escape($ProfileDirectory) + '(?:\s|$)'
         $stopped = 0
         $deadline = [DateTime]::UtcNow.AddSeconds(5)
         do {
+            # The id is taken before the arguments are matched: a second -match
+            # replaces $Matches, and [int] of the group it no longer holds is 0
+            # -- and Stop-Process -Id 0 on Linux signals this script's own
+            # process group, which takes down whatever runner started it.
             $running = @(& ps -eo 'pid=,args=' 2>$null | ForEach-Object {
-                    if ("$_" -match '^\s*(\d+)\s+(.*)$' -and [int]$Matches[1] -ne $PID -and $Matches[2] -match $ownedArg) { [int]$Matches[1] }
+                    if ("$_" -match '^\s*(\d+)\s+(.*)$') {
+                        $candidate = [int]$Matches[1]
+                        if ($candidate -gt 0 -and $candidate -ne $PID -and $Matches[2] -match $ownedArg) { $candidate }
+                    }
                 })
             foreach ($processId in $running) {
                 try { Stop-Process -Id $processId -Force -ErrorAction Stop; $stopped++ } catch { Write-Verbose "browser stop: $($_.Exception.Message)" }
@@ -195,7 +253,7 @@ function Stop-A11yBrowserProfile {
         return $stopped
     }
     $image = [IO.Path]::GetFileName($FilePath).Replace("'", "''")
-    $owned = '--user-data-dir="?' + [regex]::Escape($ProfileDirectory) + '(?:"|\s|$)'
+    $owned = '(?:--user-data-dir=|--profile\s+)"?' + [regex]::Escape($ProfileDirectory) + '(?:"|\s|$)'
     $stopped = 0
     # Asked again until nothing answers: a child process outlives its browser
     # for a moment, and the profile directory is removed next, which stays
@@ -254,6 +312,12 @@ if (-not $Serve -and -not $Url) {
         throw "The generated-page exporter named no output directory, so its pages cannot be measured."
     }
     $Serve += $generatedRoot
+    # A populated dashboard reads its fixture data from the relative URLs the
+    # page fetches (runtime/status.json, control/perf-aggregates), so each one
+    # is exported into a folder of its own and served as a root of its own.
+    foreach ($folder in (Get-ChildItem -LiteralPath $generatedRoot -Directory | Sort-Object Name)) {
+        if (Get-ChildItem -LiteralPath $folder.FullName -Filter '*.html' -File) { $Serve += $folder.FullName }
+    }
 }
 
 $roots = @()
@@ -290,42 +354,92 @@ if ($pages.Count -eq 0) {
     exit 2
 }
 
+# --- REGION: browsers
 $chrome = $null
-foreach ($n in @('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'chrome')) {
-    $c = Get-Command $n -ErrorAction SilentlyContinue
-    if ($c) { $chrome = $c.Source; break }
+$browserVersion = $null
+if ('chrome' -in $Browser) {
+    $chrome = $null
+    foreach ($n in @('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'chrome')) {
+        $c = Get-Command $n -ErrorAction SilentlyContinue
+        if ($c) { $chrome = $c.Source; break }
+    }
+    if (-not $chrome -and $IsMacOS) {
+        $mac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+        if (Test-Path -LiteralPath $mac) { $chrome = $mac }
+    }
+    if (-not $chrome -and $IsWindows) {
+        foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
+            if (-not $base) { continue }
+            $candidate = Join-Path $base 'Google/Chrome/Application/chrome.exe'
+            if (Test-Path -LiteralPath $candidate) { $chrome = $candidate; break }
+        }
+    }
+    if (-not $chrome) {
+        if (-not $Quiet) { foreach ($p in $pages) { Write-Line "SKIPPED $($p.Label)" } }
+        Write-Line ("{0} page(s), 0 measured -- SKIPPED: no Chrome or Chromium on PATH" -f $pages.Count)
+        exit 2
+    }
+    if ($IsWindows) {
+        # chrome.exe is a GUI-subsystem program: asked for --version it prints
+        # nothing and opens an ordinary browser on the operator's own profile, and
+        # with no browser already running that call does not return until the
+        # window is closed. The version lives in the file's own metadata.
+        $browserVersion = [string](Get-Item -LiteralPath $chrome).VersionInfo.ProductVersion
+        $global:LASTEXITCODE = 0
+    } else {
+        $browserVersion = (& $chrome --version 2>&1 | Out-String).Trim()
+    }
+    if ($LASTEXITCODE -ne 0 -or $browserVersion -notmatch '\d+(?:\.\d+){1,3}') {
+        Write-Line ("{0} page(s), 0 measured -- SKIPPED: browser version could not be established" -f $pages.Count)
+        exit 2
+    }
+    Write-Line "browser: $browserVersion"
 }
-if (-not $chrome -and $IsMacOS) {
-    $mac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-    if (Test-Path -LiteralPath $mac) { $chrome = $mac }
-}
-if (-not $chrome -and $IsWindows) {
-    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
-        if (-not $base) { continue }
-        $candidate = Join-Path $base 'Google/Chrome/Application/chrome.exe'
-        if (Test-Path -LiteralPath $candidate) { $chrome = $candidate; break }
+
+# Firefox is measured where it is installed: in the default list a missing
+# Firefox is reported and the run goes on, and only a run that named Firefox
+# alone needs it.
+$firefox = $null
+$firefoxVersion = $null
+$firefoxSkip = $null
+if ('firefox' -in $Browser) {
+    foreach ($n in @('firefox', 'firefox-esr')) {
+        $c = Get-Command $n -ErrorAction SilentlyContinue
+        if ($c) { $firefox = $c.Source; break }
+    }
+    if (-not $firefox -and $IsMacOS) {
+        $mac = '/Applications/Firefox.app/Contents/MacOS/firefox'
+        if (Test-Path -LiteralPath $mac) { $firefox = $mac }
+    }
+    if (-not $firefox -and $IsWindows) {
+        foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+            if (-not $base) { continue }
+            $candidate = Join-Path $base 'Mozilla Firefox/firefox.exe'
+            if (Test-Path -LiteralPath $candidate) { $firefox = $candidate; break }
+        }
+    }
+    if (-not $firefox) {
+        $firefoxSkip = 'no Firefox on PATH'
+    } else {
+        # firefox.exe is a GUI-subsystem program like chrome.exe: its version is
+        # read from the file, never by asking it.
+        if ($IsWindows) {
+            $firefoxVersion = 'Mozilla Firefox ' + [string](Get-Item -LiteralPath $firefox).VersionInfo.ProductVersion
+        } else {
+            $firefoxVersion = (& $firefox --version 2>&1 | Out-String).Trim()
+        }
+        if ($firefoxVersion -notmatch '\d+(?:\.\d+){1,3}') {
+            $firefoxSkip = 'browser version could not be established'
+            $firefox = $null
+        } else {
+            Write-Line "browser: $firefoxVersion"
+        }
+    }
+    if ($firefoxSkip -and 'chrome' -notin $Browser) {
+        Write-Line ("{0} page(s), 0 measured -- SKIPPED: {1}" -f $pages.Count, $firefoxSkip)
+        exit 2
     }
 }
-if (-not $chrome) {
-    if (-not $Quiet) { foreach ($p in $pages) { Write-Line "SKIPPED $($p.Label)" } }
-    Write-Line ("{0} page(s), 0 measured -- SKIPPED: no Chrome or Chromium on PATH" -f $pages.Count)
-    exit 2
-}
-if ($IsWindows) {
-    # chrome.exe is a GUI-subsystem program: asked for --version it prints
-    # nothing and opens an ordinary browser on the operator's own profile, and
-    # with no browser already running that call does not return until the
-    # window is closed. The version lives in the file's own metadata.
-    $browserVersion = [string](Get-Item -LiteralPath $chrome).VersionInfo.ProductVersion
-    $global:LASTEXITCODE = 0
-} else {
-    $browserVersion = (& $chrome --version 2>&1 | Out-String).Trim()
-}
-if ($LASTEXITCODE -ne 0 -or $browserVersion -notmatch '\d+(?:\.\d+){1,3}') {
-    Write-Line ("{0} page(s), 0 measured -- SKIPPED: browser version could not be established" -f $pages.Count)
-    exit 2
-}
-Write-Line "browser: $browserVersion"
 
 # --- REGION: Page measurement
 # One expression, evaluated in the page after load. It returns findings, never
@@ -373,8 +487,13 @@ $probe = @'
   }
 
   var de = document.documentElement;
-  out.reflow = { scrollWidth: de.scrollWidth, innerWidth: window.innerWidth };
-  if (de.scrollWidth > window.innerWidth + 1) {
+  // The layout viewport is the root's client width. innerWidth is the visual
+  // viewport, which a phone browser widens to show content that overflows (a
+  // page 1200px wide reads 1208 there, and by that measure scrolls nowhere),
+  // and which also holds a classic scrollbar that the page cannot use.
+  var viewportWidth = de.clientWidth || window.innerWidth;
+  out.reflow = { scrollWidth: de.scrollWidth, clientWidth: viewportWidth, innerWidth: window.innerWidth };
+  if (de.scrollWidth > viewportWidth + 1) {
     // Naming the widest element is the difference between a finding somebody
     // can act on and one they have to re-derive by hand in devtools.
     // An element wider than the viewport is NOT the cause when an ancestor
@@ -416,12 +535,12 @@ $probe = @'
       if (!e) { return; }
       var r = e.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) { return; }
-      if (r.right <= window.innerWidth + 1) { return; }
+      if (r.right <= viewportWidth + 1) { return; }
       if (clipped(e)) { return; }
       if (!widest || r.right > widest.right) { widest = { right: r.right, width: r.width, el: e }; }
     });
     var who = widest ? (' widest: ' + sel(widest.el) + ' reaches ' + Math.round(widest.right) + 'px (' + Math.round(widest.width) + 'px wide)') : '';
-    add('reflow', 'document scrolls in two dimensions: scrollWidth ' + de.scrollWidth + ' > viewport ' + window.innerWidth + '.' + who);
+    add('reflow', 'document scrolls in two dimensions: scrollWidth ' + de.scrollWidth + ' > viewport ' + viewportWidth + '.' + who);
   }
 
   var language = document.documentElement.getAttribute('lang') || '';
@@ -545,6 +664,13 @@ $probe = @'
           ' = ' + r2.toFixed(2) + ':1, under ' + floor + ':1 (' + px + 'px/' + weight + ')');
     }
   }
+  // The further states this page offers, read from its own controls: the
+  // page menu, and an unlock prompt (a #login section, or Y.unlock where the
+  // service builds its prompt on demand).
+  out.states = {
+    'menu-open': !!document.getElementById('menu-button'),
+    'unlock': !!document.getElementById('login') || !!(window.Y && typeof window.Y.unlock === 'function')
+  };
   return JSON.stringify(out);
 })()
 '@
@@ -560,6 +686,13 @@ $probe = $probe.Replace('__EXPECTED_DIRECTION__', (ConvertTo-Json -InputObject (
 # stylesheet, and the gate measures three services against a fourth service's
 # CSS -- a false pass, which is the one failure mode a gate must not have. So
 # each root gets its own port, and `/assets/...` resolves inside it.
+#
+# A service answers an /assets/<name> that its own folder lacks from the SDK's
+# shared folder, which is where the runtime every extension page loads first
+# (yuruna.core.js) lives. Served without that fallback, an extension page loads
+# no script at all: it is measured as bare markup, its menu never opens and its
+# tables never fill, and the gate reports that shell clean.
+$sharedAssets = Join-Path $RepoRoot 'test/extension/extension-sdk/webui/assets'
 $listener = $null
 $serverRunspace = $null
 $rootPort = @{}
@@ -574,7 +707,7 @@ if ($roots.Count -gt 0) {
     $listener.Start()
 
     $serve = {
-        param($listener, $rootPort)
+        param($listener, $rootPort, $sharedAssets)
 
         $mime = @{
             '.html' = 'text/html; charset=utf-8'; '.css' = 'text/css; charset=utf-8'
@@ -604,6 +737,10 @@ if ($roots.Count -gt 0) {
                     if ($full.StartsWith($prefix, $comparison) -and
                         (Test-Path -LiteralPath $full -PathType Leaf)) {
                         $file = $full
+                    } elseif ($rel -match '^assets/([A-Za-z0-9._-]+)$') {
+                        # A flat name only, as the services' own fallback takes.
+                        $shared = Join-Path $sharedAssets $Matches[1]
+                        if (Test-Path -LiteralPath $shared -PathType Leaf) { $file = $shared }
                     }
                 }
                 if ($file) {
@@ -622,33 +759,126 @@ if ($roots.Count -gt 0) {
     # one listener; each only reads the port map.
     $serverRunspace = @(foreach ($worker in 1..([Math]::Min($Concurrency, 4))) {
             $ps = [PowerShell]::Create()
-            $null = $ps.AddScript($serve).AddArgument($listener).AddArgument($rootPort)
+            $null = $ps.AddScript($serve).AddArgument($listener).AddArgument($rootPort).AddArgument($sharedAssets)
             $null = $ps.BeginInvoke()
             $ps
         })
 }
 
-# --- REGION: CDP
-$socket = $null
-$chromeProc = $null
-$chromeErrorTask = $null
-$profileDir = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-a11y-" + [Guid]::NewGuid().ToString('N').Substring(0, 12))
-$chromeLog = Join-Path -Path ([IO.Path]::GetTempPath()) -ChildPath 'yuruna-a11y-chrome.log'
-$nextId = 0
+# --- REGION: page states
+# Each script puts a loaded page into one further state and returns '' when it
+# got there, or the reason it did not. A state the page offers but that does
+# not open is a finding: a menu that never opens must not pass by never being
+# drawn. The error text is a fixture, so its contrast is measured.
+$stateSetup = @{
+    'menu-open' = @'
+(function () {
+  var button = document.getElementById('menu-button');
+  if (!button) { return 'the page has no #menu-button'; }
+  button.click();
+  var panel = document.getElementById(button.getAttribute('aria-controls') || 'menu-panel');
+  if (!panel || panel.hidden || getComputedStyle(panel).display === 'none') { return 'the menu panel did not open'; }
+  if (button.getAttribute('aria-expanded') !== 'true') { return 'the menu button did not report aria-expanded="true"'; }
+  return '';
+})()
+'@
+    'unlock' = @'
+(function () {
+  var sample = 'That code is not the current lab token.';
+  var section = document.getElementById('login');
+  if (section) {
+    section.hidden = false;
+    var error = document.getElementById('login-error');
+    if (error && !error.textContent) { error.textContent = sample; }
+    return getComputedStyle(section).display === 'none' ? 'the #login prompt did not show' : '';
+  }
+  if (!(window.Y && typeof window.Y.unlock === 'function')) { return 'the page has no unlock prompt'; }
+  window.Y.unlock();
+  var overlay = document.getElementById('yuruna-unlock');
+  if (!overlay || getComputedStyle(overlay).display === 'none') { return 'Y.unlock() did not open its prompt'; }
+  var message = overlay.querySelector('[role="alert"]');
+  if (message) { message.hidden = false; message.textContent = sample; }
+  return '';
+})()
+'@
+}
+
+# Installed before any page script runs, in every tab of both browsers.
+$cspWatch = @'
+window.__yurunaCspViolations = [];
+window.addEventListener('securitypolicyviolation', function (event) {
+  window.__yurunaCspViolations.push(
+    'blocked ' + (event.blockedURI || 'inline') + ' by ' + (event.effectiveDirective || event.violatedDirective || 'unknown directive'));
+});
+'@
+
+# --- REGION: views
+# A profile is one viewport and pointer: the desktop widths with a fine
+# pointer, the phones as a mobile viewport with touch.
+$profiles = [Collections.Generic.List[object]]::new()
+foreach ($w in $Width) {
+    $profiles.Add([pscustomobject]@{ Name = "$($w)px"; Width = $w; Height = 900; Mobile = $false })
+}
+foreach ($size in $Phone) {
+    $wh = $size.Split('x')
+    $profiles.Add([pscustomobject]@{ Name = "phone $size"; Width = [int]$wh[0]; Height = [int]$wh[1]; Mobile = $true })
+}
+
+# The states measured after the first pass, and whether that pass is reported.
+$furtherStates = @($State | Where-Object { $_ -ne 'default' })
+$reportDefault = 'default' -in $State
+
+function Get-A11yViewTag {
+    param([string]$Label, [string]$Engine, [pscustomobject]$ViewProfile, [string]$ViewScheme, [string]$ViewState)
+    $parts = @()
+    if ($Engine -eq 'firefox') { $parts += 'firefox' }
+    $parts += @($ViewProfile.Name, $ViewScheme)
+    $suffix = if ($ViewState -ne 'default') { ", $ViewState" } else { '' }
+    return "$Label [$($parts -join ' ')$suffix]"
+}
+
+# The first pass measures every page as it loads, and also learns which further
+# states each page offers. Without 'default' in -State that pass still runs, but
+# only to learn the states; its findings are not reported.
+function Get-A11yDefaultView {
+    param([Parameter(Mandatory)][string]$Engine, [Parameter(Mandatory)][object[]]$ViewProfile, [Parameter(Mandatory)][string[]]$ViewScheme)
+    foreach ($page in $pages) {
+        $pageUrl = if ($null -eq $page.Root) { $page.File } else { "http://127.0.0.1:$($rootPort[$page.Root])/$($page.File)" }
+        foreach ($vp in $ViewProfile) {
+            foreach ($sch in $ViewScheme) {
+                [pscustomobject]@{
+                    Url = $pageUrl; Label = $page.Label; Profile = $vp; Scheme = $sch; State = 'default'
+                    Report = $reportDefault
+                    Tag = (Get-A11yViewTag -Label $page.Label -Engine $Engine -ViewProfile $vp -ViewScheme $sch -ViewState 'default')
+                }
+            }
+        }
+    }
+}
+
+# --- REGION: browser protocols
 $findings = [Collections.Generic.List[string]]::new()
 $measured = 0
-$browserReady = $false
-$browserPrerequisiteFailure = $null
+$nextId = 0
 
-function Send-Cdp {
-    param([string]$Method, [hashtable]$Params = @{}, [string]$SessionId)
+# One request and its reply over the browser's WebSocket. The DevTools Protocol
+# and WebDriver BiDi share the shape: an id that the reply echoes, with events
+# on the same socket read past until that reply arrives. Their errors differ: an
+# object with a message, or a code beside a separate message.
+function Send-A11yMessage {
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Engine,
+        [Parameter(Mandatory)][string]$Method,
+        [hashtable]$Params = @{},
+        [string]$SessionId
+    )
     $script:nextId++
     $msg = @{ id = $script:nextId; method = $Method; params = $Params }
     if ($SessionId) { $msg.sessionId = $SessionId }
     $json = $msg | ConvertTo-Json -Depth 10 -Compress
     $buf = [ArraySegment[byte]]::new([Text.Encoding]::UTF8.GetBytes($json))
-    if (-not $socket.SendAsync($buf, 'Text', $true, [Threading.CancellationToken]::None).Wait(15000)) {
-        throw "CDP send timed out: $Method"
+    if (-not $Engine.Socket.SendAsync($buf, 'Text', $true, [Threading.CancellationToken]::None).Wait(15000)) {
+        throw "$($Engine.Protocol) send timed out: $Method"
     }
     $want = $script:nextId
     $seg = [ArraySegment[byte]]::new([byte[]]::new(262144))
@@ -656,194 +886,386 @@ function Send-Cdp {
     while ([DateTime]::UtcNow -lt $deadline) {
         $sb = [Text.StringBuilder]::new()
         do {
-            $t = $socket.ReceiveAsync($seg, [Threading.CancellationToken]::None)
-            if (-not $t.Wait(20000)) { throw "CDP receive timed out: $Method" }
+            $t = $Engine.Socket.ReceiveAsync($seg, [Threading.CancellationToken]::None)
+            if (-not $t.Wait(20000)) { throw "$($Engine.Protocol) receive timed out: $Method" }
             $null = $sb.Append([Text.Encoding]::UTF8.GetString($seg.Array, 0, $t.Result.Count))
         } while (-not $t.Result.EndOfMessage)
         $obj = $sb.ToString() | ConvertFrom-Json
-        # Events share the socket with replies; keep reading until the id matches.
         if ($obj.id -eq $want) {
-            if ($obj.error) { throw "CDP error on ${Method}: $($obj.error.message)" }
+            if ($obj.error) {
+                $why = if ($obj.error.message) { $obj.error.message } else { "$($obj.error): $($obj.message)" }
+                throw "$($Engine.Protocol) error on ${Method}: $why"
+            }
             return $obj.result
         }
     }
-    throw "CDP reply never arrived: $Method"
+    throw "$($Engine.Protocol) reply never arrived: $Method"
 }
 
-try {
-    # Chrome selects and owns its DevTools port atomically. The chosen port is
-    # reported through DevToolsActivePort below; pre-allocating then releasing
-    # a port leaves a race in which another process can impersonate Chrome.
-    $chromeArgs = @(
-        '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-        '--hide-scrollbars', '--force-device-scale-factor=1',
-        "--user-data-dir=$profileDir", '--remote-debugging-port=0', 'about:blank'
-    )
-    # Local -Serve pages may call their repository APIs without CORS headers.
-    # Live -Url checks stay inside the browser security model.
-    if ($roots.Count -gt 0) { $chromeArgs = @('--disable-web-security') + $chromeArgs }
-    # Disabling Chrome's sandbox is an explicit opt-in for a constrained CI
-    # environment; it is never inferred merely from the operating system.
-    if ($env:YURUNA_A11Y_NO_SANDBOX -eq '1') { $chromeArgs = @('--no-sandbox') + $chromeArgs }
-    $launch = Start-A11yBrowserProcess -FilePath $chrome -ArgumentList $chromeArgs
-    $chromeProc = $launch.Process
-    $chromeErrorTask = $launch.StandardErrorTask
+# The value of a script that returns a string, in either browser. A script
+# that throws is the probe's own defect, never a page finding.
+function Invoke-A11yTabScript {
+    param([Parameter(Mandatory)][pscustomobject]$Engine, [Parameter(Mandatory)][pscustomobject]$Tab, [Parameter(Mandatory)][string]$Expression)
+    if ($Engine.Kind -eq 'chrome') {
+        $res = Send-A11yMessage -Engine $Engine -Method 'Runtime.evaluate' -SessionId $Tab.Session -Params @{
+            expression = $Expression; returnByValue = $true; awaitPromise = $false }
+        if ($res.exceptionDetails) { throw "probe threw: $($res.exceptionDetails.text)" }
+        return $res.result.value
+    }
+    $res = Send-A11yMessage -Engine $Engine -Method 'script.evaluate' -Params @{
+        expression = $Expression; target = @{ context = $Tab.Context }; awaitPromise = $false; resultOwnership = 'none' }
+    if ($res.type -eq 'exception') { throw "probe threw: $($res.exceptionDetails.text)" }
+    return $res.result.value
+}
 
-    $wsUrl = $null
-    $dbgPort = 0
-    $activePortPath = Join-Path $profileDir 'DevToolsActivePort'
-    for ($i = 0; $i -lt 80; $i++) {
-        try {
-            if (Test-Path -LiteralPath $activePortPath -PathType Leaf) {
-                $active = [IO.File]::ReadAllLines($activePortPath)
-                $parsedPort = 0
-                if ($active.Count -ge 1 -and [int]::TryParse($active[0], [ref]$parsedPort) -and
-                    $parsedPort -ge 1 -and $parsedPort -le 65535) {
-                    $dbgPort = $parsedPort
-                    $ver = Invoke-RestMethod "http://127.0.0.1:$dbgPort/json/version" -TimeoutSec 2
-                    $candidateWs = [uri]$ver.webSocketDebuggerUrl
-                    if ($candidateWs.Scheme -eq 'ws' -and $candidateWs.Host -in @('127.0.0.1', 'localhost') -and
-                        $candidateWs.Port -eq $dbgPort) { $wsUrl = $candidateWs.AbsoluteUri; break }
+function Open-A11yTab {
+    param([Parameter(Mandatory)][pscustomobject]$Engine, [Parameter(Mandatory)][pscustomobject]$Tab)
+    $view = $Tab.View
+    if ($Engine.Kind -eq 'chrome') {
+        $Tab.Target = (Send-A11yMessage -Engine $Engine -Method 'Target.createTarget' -Params @{ url = 'about:blank' }).targetId
+        $Tab.Session = (Send-A11yMessage -Engine $Engine -Method 'Target.attachToTarget' -Params @{ targetId = $Tab.Target; flatten = $true }).sessionId
+        Send-A11yMessage -Engine $Engine -Method 'Emulation.setDeviceMetricsOverride' -SessionId $Tab.Session -Params @{
+            width = $view.Profile.Width; height = $view.Profile.Height; deviceScaleFactor = 1; mobile = $view.Profile.Mobile } | Out-Null
+        if ($view.Profile.Mobile) {
+            Send-A11yMessage -Engine $Engine -Method 'Emulation.setTouchEmulationEnabled' -SessionId $Tab.Session -Params @{
+                enabled = $true; maxTouchPoints = 5 } | Out-Null
+        }
+        Send-A11yMessage -Engine $Engine -Method 'Emulation.setEmulatedMedia' -SessionId $Tab.Session -Params @{
+            features = @(@{ name = 'prefers-color-scheme'; value = $view.Scheme }) } | Out-Null
+        Send-A11yMessage -Engine $Engine -Method 'Page.addScriptToEvaluateOnNewDocument' -SessionId $Tab.Session -Params @{ source = $cspWatch } | Out-Null
+        Send-A11yMessage -Engine $Engine -Method 'Page.navigate' -SessionId $Tab.Session -Params @{ url = $view.Url } | Out-Null
+        return
+    }
+    $Tab.Context = (Send-A11yMessage -Engine $Engine -Method 'browsingContext.create' -Params @{ type = 'tab' }).context
+    Send-A11yMessage -Engine $Engine -Method 'browsingContext.setViewport' -Params @{
+        context = $Tab.Context; viewport = @{ width = $view.Profile.Width; height = $view.Profile.Height } } | Out-Null
+    Send-A11yMessage -Engine $Engine -Method 'browsingContext.navigate' -Params @{ context = $Tab.Context; url = $view.Url; wait = 'none' } | Out-Null
+}
+
+function Close-A11yTab {
+    param([Parameter(Mandatory)][pscustomobject]$Engine, [Parameter(Mandatory)][pscustomobject]$Tab)
+    if ($Engine.Kind -eq 'chrome') {
+        if ($Tab.Target) { Send-A11yMessage -Engine $Engine -Method 'Target.closeTarget' -Params @{ targetId = $Tab.Target } | Out-Null }
+    } elseif ($Tab.Context) {
+        Send-A11yMessage -Engine $Engine -Method 'browsingContext.close' -Params @{ context = $Tab.Context } | Out-Null
+    }
+}
+
+# A background tab may run its timers and paint late, so in Firefox each tab is
+# brought to the front before it is put into a state or probed.
+function Enter-A11yTab {
+    param([Parameter(Mandatory)][pscustomobject]$Engine, [Parameter(Mandatory)][pscustomobject]$Tab)
+    if ($Engine.Kind -eq 'firefox') {
+        Send-A11yMessage -Engine $Engine -Method 'browsingContext.activate' -Params @{ context = $Tab.Context } | Out-Null
+    }
+}
+
+# --- REGION: batches
+# Page-views are measured a batch at a time, each in a tab of its own with its
+# own viewport and color scheme, so the browser renders a batch in parallel.
+# Each tab is probed only after its document finished loading and the batch
+# then settled for 1.6 s; a tab put into a further state settles 0.4 s more.
+function Measure-A11yBatch {
+    param([Parameter(Mandatory)][pscustomobject]$Engine, [Parameter(Mandatory)][object[]]$Batch)
+    $open = [Collections.Generic.List[object]]::new()
+    try {
+        foreach ($view in $Batch) {
+            $tab = [pscustomobject]@{ View = $view; Target = $null; Session = $null; Context = $null; StateError = '' }
+            $open.Add($tab)
+            Open-A11yTab -Engine $Engine -Tab $tab
+        }
+        # A tab still showing about:blank has not committed its navigation,
+        # and its blank document already reads complete.
+        foreach ($tab in $open) {
+            $loadDeadline = [DateTime]::UtcNow.AddSeconds(30)
+            do {
+                $loadState = (Invoke-A11yTabScript -Engine $Engine -Tab $tab -Expression 'JSON.stringify([document.readyState, location.href])') |
+                    ConvertFrom-Json
+                if ($loadState[0] -eq 'complete' -and $loadState[1] -ne 'about:blank') { break }
+                Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $loadDeadline)
+        }
+        Start-Sleep -Milliseconds 1600
+        $staged = $false
+        foreach ($tab in $open) {
+            if ($tab.View.State -eq 'default') { continue }
+            Enter-A11yTab -Engine $Engine -Tab $tab
+            $tab.StateError = [string](Invoke-A11yTabScript -Engine $Engine -Tab $tab -Expression $stateSetup[$tab.View.State])
+            $staged = $true
+        }
+        if ($staged) { Start-Sleep -Milliseconds 400 }
+        foreach ($tab in $open) {
+            Enter-A11yTab -Engine $Engine -Tab $tab
+            $data = (Invoke-A11yTabScript -Engine $Engine -Tab $tab -Expression $probe) | ConvertFrom-Json
+            $view = $tab.View
+            if ($view.State -eq 'default') {
+                if (-not $Engine.Offers.ContainsKey($view.Url)) { $Engine.Offers[$view.Url] = @{} }
+                foreach ($offered in @('menu-open', 'unlock')) {
+                    if ($data.states.$offered) { $Engine.Offers[$view.Url][$offered] = $true }
                 }
             }
-        } catch { Write-Verbose "DevTools endpoint probe: $($_.Exception.Message)" }
-        Start-Sleep -Milliseconds 250
-    }
-    if (-not $wsUrl) {
-        Write-Line ("{0} page(s), 0 measured -- SKIPPED: Chrome did not open a DevTools endpoint" -f $pages.Count)
-        exit 2
-    }
-
-    $socket = [Net.WebSockets.ClientWebSocket]::new()
-    if (-not $socket.ConnectAsync([Uri]$wsUrl, [Threading.CancellationToken]::None).Wait(15000)) {
-        throw 'could not connect to the DevTools endpoint'
-    }
-    $browserReady = $true
-
-    # Page-views are measured a batch at a time, each in a tab of its own with
-    # its own viewport and color scheme, so the browser renders a batch in
-    # parallel. Each tab is probed only after its document finished loading and
-    # the batch then settled for the same 1.6 s a lone page-view waited after
-    # navigating, so no view is measured earlier in its life than before.
-    $views = @(foreach ($page in $pages) {
-            $pageUrl = if ($null -eq $page.Root) { $page.File } else {
-                "http://127.0.0.1:$($rootPort[$page.Root])/$($page.File)"
+            if (-not $view.Report) { continue }
+            $script:measured++
+            $viewFindings = [Collections.Generic.List[object]]::new()
+            foreach ($f in @($data.findings)) { $viewFindings.Add($f) }
+            if ($tab.StateError) {
+                $viewFindings.Add([pscustomobject]@{ kind = 'state'; detail = "the $($view.State) state did not open: $($tab.StateError)" })
             }
-            foreach ($w in $Width) {
-                foreach ($sch in $Scheme) {
-                    [pscustomobject]@{ Url = $pageUrl; Width = $w; Scheme = $sch; Tag = "$($page.Label) [$($w)px $sch]" }
+            # A phone browser lays out a page without a width=device-width
+            # viewport meta 980px wide and scales it down: reflow-clean to the
+            # probe, unreadably small to the reader. Firefox on the desktop
+            # ignores the viewport meta, so only Chrome's mobile view can tell.
+            if ($Engine.Kind -eq 'chrome' -and $view.Profile.Mobile -and [int]$data.reflow.clientWidth -gt $view.Profile.Width + 1) {
+                $viewFindings.Add([pscustomobject]@{ kind = 'viewport'; detail = (
+                            'the layout viewport is {0}px on a {1}px-wide phone; the page needs <meta name="viewport" content="width=device-width, initial-scale=1">' -f
+                            $data.reflow.clientWidth, $view.Profile.Width) })
+            }
+            if ($viewFindings.Count -eq 0) {
+                if (-not $Quiet) { Write-Line "ok   $($view.Tag)" }
+            } else {
+                # Printed even when quiet. -Quiet silences the passing
+                # page-views, which are noise; a finding is the entire
+                # reason this ran, and every caller that passes -Quiet
+                # is the one whose operator has only this log to read.
+                # Reporting the count alone sends them to reproduce the
+                # run by hand to learn what it already knew.
+                Write-Line "FAIL $($view.Tag)"
+                foreach ($f in $viewFindings) {
+                    $line = "  {0,-22} {1}" -f $f.kind, $f.detail
+                    Write-Line $line
+                    $findings.Add("$($view.Tag): $($f.kind): $($f.detail)")
+                }
+            }
+        }
+    } finally {
+        foreach ($tab in $open) {
+            try { Close-A11yTab -Engine $Engine -Tab $tab }
+            catch { Write-Verbose "tab close failed: $($_.Exception.Message)" }
+        }
+    }
+}
+
+# Every page as it loads, then each further state on the pages that offer it.
+function Measure-A11yView {
+    param([Parameter(Mandatory)][pscustomobject]$Engine, [Parameter(Mandatory)][object[]]$View)
+    for ($start = 0; $start -lt $View.Count; $start += $Concurrency) {
+        Measure-A11yBatch -Engine $Engine -Batch @($View[$start..([Math]::Min($start + $Concurrency, $View.Count) - 1)])
+    }
+    $stateViews = @(foreach ($view in $View) {
+            foreach ($further in $furtherStates) {
+                if (-not ($Engine.Offers.ContainsKey($view.Url) -and $Engine.Offers[$view.Url][$further])) { continue }
+                [pscustomobject]@{
+                    Url = $view.Url; Label = $view.Label; Profile = $view.Profile; Scheme = $view.Scheme; State = $further
+                    Report = $true
+                    Tag = (Get-A11yViewTag -Label $view.Label -Engine $Engine.Kind -ViewProfile $view.Profile -ViewScheme $view.Scheme -ViewState $further)
                 }
             }
         })
-    for ($start = 0; $start -lt $views.Count; $start += $Concurrency) {
-        $batch = @($views[$start..([Math]::Min($start + $Concurrency, $views.Count) - 1)])
-        $open = [Collections.Generic.List[object]]::new()
-        try {
-            foreach ($view in $batch) {
-                $target = Send-Cdp -Method 'Target.createTarget' -Params @{ url = 'about:blank' }
-                $tab = [pscustomobject]@{ View = $view; Target = $target; Session = $null }
-                $open.Add($tab)
-                $tab.Session = (Send-Cdp -Method 'Target.attachToTarget' -Params @{ targetId = $target.targetId; flatten = $true }).sessionId
-                Send-Cdp -Method 'Emulation.setDeviceMetricsOverride' -SessionId $tab.Session -Params @{
-                    width = $view.Width; height = 900; deviceScaleFactor = 1; mobile = $false } | Out-Null
-                Send-Cdp -Method 'Emulation.setEmulatedMedia' -SessionId $tab.Session -Params @{
-                    features = @(@{ name = 'prefers-color-scheme'; value = $view.Scheme }) } | Out-Null
-                Send-Cdp -Method 'Page.addScriptToEvaluateOnNewDocument' -SessionId $tab.Session -Params @{
-                    source = @'
-window.__yurunaCspViolations = [];
-window.addEventListener('securitypolicyviolation', function (event) {
-  window.__yurunaCspViolations.push(
-    'blocked ' + (event.blockedURI || 'inline') + ' by ' + (event.effectiveDirective || event.violatedDirective || 'unknown directive'));
-});
-'@
-                } | Out-Null
-                Send-Cdp -Method 'Page.navigate' -SessionId $tab.Session -Params @{ url = $view.Url } | Out-Null
-            }
-            # A tab still showing about:blank has not committed its navigation,
-            # and its blank document already reads complete.
-            foreach ($tab in $open) {
-                $loadDeadline = [DateTime]::UtcNow.AddSeconds(30)
-                do {
-                    $state = (Send-Cdp -Method 'Runtime.evaluate' -SessionId $tab.Session -Params @{
-                            expression = 'JSON.stringify([document.readyState, location.href])'; returnByValue = $true }).result.value |
-                        ConvertFrom-Json
-                    if ($state[0] -eq 'complete' -and $state[1] -ne 'about:blank') { break }
-                    Start-Sleep -Milliseconds 100
-                } while ([DateTime]::UtcNow -lt $loadDeadline)
-            }
-            Start-Sleep -Milliseconds 1600
-            foreach ($tab in $open) {
-                $res = Send-Cdp -Method 'Runtime.evaluate' -SessionId $tab.Session -Params @{
-                    expression = $probe; returnByValue = $true; awaitPromise = $false }
-                if ($res.exceptionDetails) { throw "probe threw: $($res.exceptionDetails.text)" }
-                $data = $res.result.value | ConvertFrom-Json
-                $measured++
-                $tag = $tab.View.Tag
-                if ($data.findings.Count -eq 0) {
-                    if (-not $Quiet) { Write-Line "ok   $tag" }
-                } else {
-                    # Printed even when quiet. -Quiet silences the passing
-                    # page-views, which are noise; a finding is the entire
-                    # reason this ran, and every caller that passes -Quiet
-                    # is the one whose operator has only this log to read.
-                    # Reporting the count alone sends them to reproduce the
-                    # run by hand to learn what it already knew.
-                    Write-Line "FAIL $tag"
-                    foreach ($f in $data.findings) {
-                        $line = "  {0,-22} {1}" -f $f.kind, $f.detail
-                        Write-Line $line
-                        $findings.Add("${tag}: $($f.kind): $($f.detail)")
+    for ($start = 0; $start -lt $stateViews.Count; $start += $Concurrency) {
+        Measure-A11yBatch -Engine $Engine -Batch @($stateViews[$start..([Math]::Min($start + $Concurrency, $stateViews.Count) - 1)])
+    }
+}
+
+# --- REGION: Chrome
+$socket = $null
+$chromeProc = $null
+$chromeErrorTask = $null
+$profileDir = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-a11y-" + [Guid]::NewGuid().ToString('N').Substring(0, 12))
+$chromeLog = Join-Path -Path ([IO.Path]::GetTempPath()) -ChildPath 'yuruna-a11y-chrome.log'
+$browserReady = $false
+$browserPrerequisiteFailure = $null
+
+if ($chrome) {
+    try {
+        # Chrome selects and owns its DevTools port atomically. The chosen port is
+        # reported through DevToolsActivePort below; pre-allocating then releasing
+        # a port leaves a race in which another process can impersonate Chrome.
+        $chromeArgs = @(
+            '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+            '--hide-scrollbars', '--force-device-scale-factor=1',
+            "--user-data-dir=$profileDir", '--remote-debugging-port=0', 'about:blank'
+        )
+        # Local -Serve pages may call their repository APIs without CORS headers.
+        # Live -Url checks stay inside the browser security model.
+        if ($roots.Count -gt 0) { $chromeArgs = @('--disable-web-security') + $chromeArgs }
+        # Disabling Chrome's sandbox is an explicit opt-in for a constrained CI
+        # environment; it is never inferred merely from the operating system.
+        if ($env:YURUNA_A11Y_NO_SANDBOX -eq '1') { $chromeArgs = @('--no-sandbox') + $chromeArgs }
+        $launch = Start-A11yBrowserProcess -FilePath $chrome -ArgumentList $chromeArgs
+        $chromeProc = $launch.Process
+        $chromeErrorTask = $launch.StandardErrorTask
+
+        $wsUrl = $null
+        $dbgPort = 0
+        $activePortPath = Join-Path $profileDir 'DevToolsActivePort'
+        for ($i = 0; $i -lt 80; $i++) {
+            try {
+                if (Test-Path -LiteralPath $activePortPath -PathType Leaf) {
+                    $active = [IO.File]::ReadAllLines($activePortPath)
+                    $parsedPort = 0
+                    if ($active.Count -ge 1 -and [int]::TryParse($active[0], [ref]$parsedPort) -and
+                        $parsedPort -ge 1 -and $parsedPort -le 65535) {
+                        $dbgPort = $parsedPort
+                        $ver = Invoke-RestMethod "http://127.0.0.1:$dbgPort/json/version" -TimeoutSec 2
+                        $candidateWs = [uri]$ver.webSocketDebuggerUrl
+                        if ($candidateWs.Scheme -eq 'ws' -and $candidateWs.Host -in @('127.0.0.1', 'localhost') -and
+                            $candidateWs.Port -eq $dbgPort) { $wsUrl = $candidateWs.AbsoluteUri; break }
                     }
                 }
-            }
-        } finally {
-            foreach ($tab in $open) {
-                try { Send-Cdp -Method 'Target.closeTarget' -Params @{ targetId = $tab.Target.targetId } | Out-Null }
-                catch { Write-Verbose "closeTarget failed: $($_.Exception.Message)" }
-            }
+            } catch { Write-Verbose "DevTools endpoint probe: $($_.Exception.Message)" }
+            Start-Sleep -Milliseconds 250
+        }
+        if (-not $wsUrl) {
+            Write-Line ("{0} page(s), 0 measured -- SKIPPED: Chrome did not open a DevTools endpoint" -f $pages.Count)
+            exit 2
+        }
+
+        $socket = [Net.WebSockets.ClientWebSocket]::new()
+        if (-not $socket.ConnectAsync([Uri]$wsUrl, [Threading.CancellationToken]::None).Wait(15000)) {
+            throw 'could not connect to the DevTools endpoint'
+        }
+        $browserReady = $true
+        $chromeEngine = [pscustomobject]@{ Kind = 'chrome'; Protocol = 'CDP'; Socket = $socket; Offers = @{} }
+        Measure-A11yView -Engine $chromeEngine -View @(Get-A11yDefaultView -Engine 'chrome' -ViewProfile $profiles -ViewScheme $Scheme)
+    } catch {
+        if (-not $browserReady) {
+            $browserPrerequisiteFailure = $_
+        } else { throw }
+    } finally {
+        # Teardown runs after a failure as well as after a clean pass, so each step
+        # is independent: one that cannot complete must not strand the next one, and
+        # a teardown error must never replace the finding that caused it.
+        if ($socket) { try { $socket.Dispose() } catch { Write-Verbose "socket dispose: $($_.Exception.Message)" } }
+        if ($chromeProc -and -not $chromeProc.HasExited) {
+            # The whole tree: Chrome's renderer and GPU helpers outlive the
+            # launcher otherwise, and keep the profile locked against the removal
+            # below.
+            try { $chromeProc.Kill($true); [void]$chromeProc.WaitForExit(5000) }
+            catch { Write-Verbose "chrome kill: $($_.Exception.Message)" }
+        }
+        # Whatever still runs on this profile -- a relaunched browser, a helper the
+        # tree kill missed -- is stopped by the profile on its command line.
+        try { $null = Stop-A11yBrowserProfile -FilePath $chrome -ProfileDirectory $profileDir }
+        catch { Write-Verbose "chrome profile stop: $($_.Exception.Message)" }
+        # Chrome's stderr is evidence only when the browser never became usable;
+        # after a run that measured pages it is noise, and a stale copy from an
+        # earlier failure would mislead whoever opens it.
+        if ($chromeProc -and $chromeProc.HasExited -and $chromeErrorTask -and -not $browserReady) {
+            try {
+                $chromeError = $chromeErrorTask.GetAwaiter().GetResult()
+                [IO.File]::WriteAllText($chromeLog, $chromeError, [Text.UTF8Encoding]::new($false))
+            } catch { Write-Verbose "chrome stderr: $($_.Exception.Message)" }
+        } elseif ($browserReady) {
+            Remove-Item -LiteralPath $chromeLog -Force -ErrorAction SilentlyContinue
+        }
+        if ($chromeProc) { try { $chromeProc.Dispose() } catch { Write-Verbose "chrome dispose: $($_.Exception.Message)" } }
+        foreach ($attempt in 1..10) {
+            if (-not (Test-Path -LiteralPath $profileDir)) { break }
+            Remove-Item -LiteralPath $profileDir -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $profileDir) { Start-Sleep -Milliseconds 300 }
         }
     }
-} catch {
-    if (-not $browserReady) {
-        $browserPrerequisiteFailure = $_
-    } else { throw }
-} finally {
-    # Teardown runs after a failure as well as after a clean pass, so each step
-    # is independent: one that cannot complete must not strand the next one, and
-    # a teardown error must never replace the finding that caused it.
-    if ($socket) { try { $socket.Dispose() } catch { Write-Verbose "socket dispose: $($_.Exception.Message)" } }
-    if ($chromeProc -and -not $chromeProc.HasExited) {
-        # The whole tree: Chrome's renderer and GPU helpers outlive the
-        # launcher otherwise, and keep the profile locked against the removal
-        # below.
-        try { $chromeProc.Kill($true); [void]$chromeProc.WaitForExit(5000) }
-        catch { Write-Verbose "chrome kill: $($_.Exception.Message)" }
+}
+
+# --- REGION: Firefox
+# One browser per color scheme and pointer, because Firefox reads both from
+# preferences at launch: the scheme override (0 dark, 1 light) and the pointer
+# capabilities (1 a coarse pointer without hover, 6 a fine pointer with hover).
+# The listening port comes from WebDriverBiDiServer.json in the throwaway
+# profile, which Firefox writes after binding the port it chose, for the same
+# reason Chrome's DevToolsActivePort is read rather than a port chosen here.
+$firefoxLog = Join-Path -Path ([IO.Path]::GetTempPath()) -ChildPath 'yuruna-a11y-firefox.log'
+function Invoke-A11yFirefoxGroup {
+    param([Parameter(Mandatory)][string]$GroupScheme, [Parameter(Mandatory)][bool]$Touch, [Parameter(Mandatory)][object[]]$GroupProfile)
+    $ffProfile = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-a11y-" + [Guid]::NewGuid().ToString('N').Substring(0, 12))
+    $ffSocket = $null
+    $ffProc = $null
+    $ffErrorTask = $null
+    $ready = $false
+    try {
+        $null = New-Item -ItemType Directory -Path $ffProfile -Force
+        $pointer = if ($Touch) { 1 } else { 6 }
+        $override = if ($GroupScheme -eq 'dark') { 0 } else { 1 }
+        [IO.File]::WriteAllLines((Join-Path $ffProfile 'user.js'), [string[]]@(
+                "user_pref(`"layout.css.prefers-color-scheme.content-override`", $override);"
+                "user_pref(`"ui.primaryPointerCapabilities`", $pointer);"
+                "user_pref(`"ui.allPointerCapabilities`", $pointer);"
+                'user_pref("browser.shell.checkDefaultBrowser", false);'), [Text.UTF8Encoding]::new($false))
+        $launch = Start-A11yBrowserProcess -FilePath $firefox -DiscardStandardOutput -ArgumentList @(
+            '--headless', '--no-remote', '--profile', $ffProfile, '--remote-debugging-port=0', 'about:blank')
+        $ffProc = $launch.Process
+        $ffErrorTask = $launch.StandardErrorTask
+        $wsUrl = $null
+        $serverFile = Join-Path $ffProfile 'WebDriverBiDiServer.json'
+        for ($i = 0; $i -lt 120; $i++) {
+            try {
+                if (Test-Path -LiteralPath $serverFile -PathType Leaf) {
+                    $server = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($serverFile))
+                    $port = [int]$server.ws_port
+                    if ([string]$server.ws_host -in @('127.0.0.1', 'localhost') -and $port -ge 1 -and $port -le 65535) {
+                        $wsUrl = "ws://127.0.0.1:$port/session"; break
+                    }
+                }
+            } catch { Write-Verbose "BiDi endpoint probe: $($_.Exception.Message)" }
+            Start-Sleep -Milliseconds 250
+        }
+        if (-not $wsUrl) { throw 'Firefox did not open a WebDriver BiDi endpoint' }
+        $ffSocket = [Net.WebSockets.ClientWebSocket]::new()
+        if (-not $ffSocket.ConnectAsync([Uri]$wsUrl, [Threading.CancellationToken]::None).Wait(15000)) {
+            throw 'could not connect to the WebDriver BiDi endpoint'
+        }
+        $engine = [pscustomobject]@{ Kind = 'firefox'; Protocol = 'BiDi'; Socket = $ffSocket; Offers = @{} }
+        $session = Send-A11yMessage -Engine $engine -Method 'session.new' -Params @{ capabilities = @{} }
+        if ([string]$session.capabilities.browserName -ne 'firefox') {
+            throw "the WebDriver BiDi endpoint answered as '$($session.capabilities.browserName)', not firefox"
+        }
+        Send-A11yMessage -Engine $engine -Method 'script.addPreloadScript' -Params @{ functionDeclaration = "() => {`n$cspWatch`n}" } | Out-Null
+        $ready = $true
+        Measure-A11yView -Engine $engine -View @(Get-A11yDefaultView -Engine 'firefox' -ViewProfile $GroupProfile -ViewScheme @($GroupScheme))
+    } catch {
+        if ($ready) { throw }
+        return $_.Exception.Message
+    } finally {
+        if ($ffSocket) { try { $ffSocket.Dispose() } catch { Write-Verbose "socket dispose: $($_.Exception.Message)" } }
+        if ($ffProc -and -not $ffProc.HasExited) {
+            try { $ffProc.Kill($true); [void]$ffProc.WaitForExit(5000) }
+            catch { Write-Verbose "firefox kill: $($_.Exception.Message)" }
+        }
+        try { $null = Stop-A11yBrowserProfile -FilePath $firefox -ProfileDirectory $ffProfile }
+        catch { Write-Verbose "firefox profile stop: $($_.Exception.Message)" }
+        if ($ffProc -and $ffProc.HasExited -and $ffErrorTask -and -not $ready) {
+            try {
+                [IO.File]::WriteAllText($firefoxLog, $ffErrorTask.GetAwaiter().GetResult(), [Text.UTF8Encoding]::new($false))
+            } catch { Write-Verbose "firefox stderr: $($_.Exception.Message)" }
+        } elseif ($ready) {
+            Remove-Item -LiteralPath $firefoxLog -Force -ErrorAction SilentlyContinue
+        }
+        if ($ffProc) { try { $ffProc.Dispose() } catch { Write-Verbose "firefox dispose: $($_.Exception.Message)" } }
+        foreach ($attempt in 1..10) {
+            if (-not (Test-Path -LiteralPath $ffProfile)) { break }
+            Remove-Item -LiteralPath $ffProfile -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $ffProfile) { Start-Sleep -Milliseconds 300 }
+        }
     }
-    # Whatever still runs on this profile -- a relaunched browser, a helper the
-    # tree kill missed -- is stopped by the profile on its command line.
-    try { $null = Stop-A11yBrowserProfile -FilePath $chrome -ProfileDirectory $profileDir }
-    catch { Write-Verbose "chrome profile stop: $($_.Exception.Message)" }
-    # Chrome's stderr is evidence only when the browser never became usable;
-    # after a run that measured pages it is noise, and a stale copy from an
-    # earlier failure would mislead whoever opens it.
-    if ($chromeProc -and $chromeProc.HasExited -and $chromeErrorTask -and -not $browserReady) {
-        try {
-            $chromeError = $chromeErrorTask.GetAwaiter().GetResult()
-            [IO.File]::WriteAllText($chromeLog, $chromeError, [Text.UTF8Encoding]::new($false))
-        } catch { Write-Verbose "chrome stderr: $($_.Exception.Message)" }
-    } elseif ($browserReady) {
-        Remove-Item -LiteralPath $chromeLog -Force -ErrorAction SilentlyContinue
+    return $null
+}
+
+if ($firefox -and -not $browserPrerequisiteFailure) {
+    foreach ($sch in $Scheme) {
+        foreach ($touch in @($false, $true)) {
+            $groupProfiles = @($profiles | Where-Object { $_.Mobile -eq $touch })
+            if ($groupProfiles.Count -eq 0) { continue }
+            $failure = Invoke-A11yFirefoxGroup -GroupScheme $sch -Touch $touch -GroupProfile $groupProfiles
+            if ($failure) { $firefoxSkip = "browser launch/BiDi setup failed: $failure"; break }
+        }
+        if ($firefoxSkip) { break }
     }
-    if ($chromeProc) { try { $chromeProc.Dispose() } catch { Write-Verbose "chrome dispose: $($_.Exception.Message)" } }
-    if ($listener) { try { $listener.Stop(); $listener.Close() } catch { Write-Verbose "listener stop: $($_.Exception.Message)" } }
-    foreach ($runspace in @($serverRunspace)) {
-        if ($runspace) { try { $runspace.Dispose() } catch { Write-Verbose "runspace dispose: $($_.Exception.Message)" } }
-    }
-    foreach ($attempt in 1..10) {
-        if (-not (Test-Path -LiteralPath $profileDir)) { break }
-        Remove-Item -LiteralPath $profileDir -Recurse -Force -ErrorAction SilentlyContinue
-        if (Test-Path -LiteralPath $profileDir) { Start-Sleep -Milliseconds 300 }
-    }
+}
+
+# --- REGION: verdict
+if ($listener) { try { $listener.Stop(); $listener.Close() } catch { Write-Verbose "listener stop: $($_.Exception.Message)" } }
+foreach ($runspace in @($serverRunspace)) {
+    if ($runspace) { try { $runspace.Dispose() } catch { Write-Verbose "runspace dispose: $($_.Exception.Message)" } }
 }
 
 if ($browserPrerequisiteFailure) {
@@ -851,6 +1273,11 @@ if ($browserPrerequisiteFailure) {
         $pages.Count, $browserPrerequisiteFailure.Exception.Message)
     if (Test-Path -LiteralPath $chromeLog) { Write-Line ("Chrome's own error output: {0}" -f $chromeLog) }
     exit 2
+}
+if ($firefoxSkip) {
+    Write-Line ("{0} page(s), 0 measured in Firefox -- SKIPPED: {1}" -f $pages.Count, $firefoxSkip)
+    if (Test-Path -LiteralPath $firefoxLog) { Write-Line ("Firefox's own error output: {0}" -f $firefoxLog) }
+    if (-not $chrome) { exit 2 }
 }
 
 Write-Line ("{0} page-view(s) measured across {1} page(s), {2} finding(s)" -f $measured, $pages.Count, $findings.Count)

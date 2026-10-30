@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42dba0ee-ceaf-a7ec-5c0b-f7f0ef9d34c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -276,6 +276,33 @@
         }
         '）'
     )
+    'runner.cycle_over_budget' = @(
+        '周期 '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 以 '
+        @{
+            'arg' = 'minutes'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' 分钟通过，超过了学习得到的预算 '
+        @{
+            'arg' = 'budgetMinutes'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' 分钟（最近 '
+        @{
+            'arg' = 'samples'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 个通过周期第 90 百分位数的 1.5 倍）。该周期仍计为通过；test/status/perf/phases 下的阶段记录显示了哪一部分变长。'
+    )
     'runner.cycle_record_clear_action' = '删除已退出周期的运行器周期记录'
     'runner.cycle_record_write_action' = '写入运行器周期记录'
     'runner.cycle_result_missing' = '周期已返回，但未发布结果。将其记录为失败的周期（no-cycle-result），而非已完成的周期。'
@@ -343,6 +370,27 @@
             'trust' = 'internal'
         }
         '）。'
+    )
+    'runner.entry_point_module_missing' = @(
+        'Initialize-YurunaEntryPointModuleSet：在 '
+        @{
+            'arg' = 'modPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' 未找到 '
+        @{
+            'arg' = 'modName'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '（kind='
+        @{
+            'arg' = 'for'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）；缺少其模块集时入口点不会启动。请在此检出中恢复该文件后重新启动。'
     )
     'runner.failure_alert_state' = @{
         'kind' = 'select'
@@ -477,6 +525,120 @@
             'trust' = 'external'
         }
     )
+    'runner.framework_ring_follow' = @(
+        '此主机遵循其池的金丝雀环：正在安装框架修订版本 '
+        @{
+            'arg' = 'revision'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '，它有 '
+        @{
+            'arg' = 'passes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 次有效的金丝雀通过（已安装：'
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）。'
+    )
+    'runner.framework_ring_hold_newer' = @(
+        '环的合格修订版本 '
+        @{
+            'arg' = 'revision'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' 并不比已安装的 '
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 更新；框架保持在 '
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '。'
+    )
+    'runner.framework_ring_hold_not_in_history' = @(
+        '环的合格修订版本 '
+        @{
+            'arg' = 'revision'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' 不在此主机跟踪的框架上游的历史中；框架保持在 '
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '。'
+    )
+    'runner.framework_ring_hold_unqualified' = @(
+        '还没有任何框架修订版本获得 '
+        @{
+            'arg' = 'passes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 次有效的金丝雀通过；框架保持在 '
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '。'
+    )
+    'runner.framework_ring_hold_unreachable' = @(
+        '此主机遵循其池的金丝雀环，但池聚合器没有响应（'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）；框架保持在 '
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '。'
+    )
+    'runner.gallery_package_digest_mismatch' = @(
+        '拒绝安装 '
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' '
+        @{
+            'arg' = 'version'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '：下载的程序包的 SHA-512（'
+        @{
+            'arg' = 'actual'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '）与固定的摘要（'
+        @{
+            'arg' = 'expected'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）不匹配。'
+    )
     'runner.gate_evidence_save_failed' = @(
         '无法保存配置检查证据：'
         @{
@@ -529,6 +691,14 @@
         }
         '''  （本地修改仍保留在git stash list中）。'
     )
+    'runner.guest_channel_key_unreadable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' 处的来宾通道密钥不是 64 个小写十六进制字符，因此来宾无法验证此主机。请恢复该文件，或删除它并重建来宾以创建新密钥。'
+    )
     'runner.guest_folder_missing' = @(
         '找不到客户机文件夹：'
         @{
@@ -556,6 +726,21 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'runner.host_condition_probe_unanswered' = @(
+        '无法读取'
+        @{
+            'arg' = 'probe'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '：'
+        @{
+            'arg' = 'tool'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' 没有响应，因此该设置无法确定，不能视为安全。'
     )
     'runner.host_diagnostic_timeout' = '宿主机诊断在120s后超时；请查看先前的宿主机采样。'
     'runner.host_diagnostic_worker_failed' = @(
@@ -596,6 +781,20 @@
             'trust' = 'internal'
         }
         '个字符处截断]'
+    )
+    'runner.host_input_unmappable' = @(
+        @{
+            'arg' = 'transport'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '输入路径没有可输入文本中这些字符的按键：'
+        @{
+            'arg' = 'characters'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '。未输入任何内容；该步骤按现有写法无法在此主机上运行。'
     )
     'runner.host_network_sweep_timed_out' = @(
         '主机网络拒绝路径上的滞留VM清理未在'
@@ -1378,6 +1577,42 @@
             'trust' = 'internal'
         }
         '的待处理项。'
+    )
+    'runner.host_refresh_oneshot_active' = @(
+        'Invoke-HostRefresh：一次性运行（PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '，租约 '
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '）正在使用此运行时；在其持有租约期间不会执行任何修复步骤。'
+    )
+    'runner.host_refresh_oneshot_unconfirmed' = @(
+        'Invoke-HostRefresh：一次性租约 '
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' 指向 PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '，其身份无法确认（'
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）；仍继续修复。'
     )
     'runner.host_refresh_operator_instruction' = @(
         '  补救措施：'
@@ -7277,15 +7512,6 @@
         }
         "上运行`“pwsh tools/Update-TestConfigNaming.ps1`”以修正源配置，让所有其他使用方也能看到更新："
     )
-    'runner.operator_400de73dc7d7af50' = @(
-        "字符`“"
-        @{
-            'arg' = 'ch'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”没有对应的VNC键符号。正在跳过。"
-    )
     'runner.operator_40166e264a276e0a' = '应用后已验证扩展pmset防护设置。'
     'runner.operator_40a63b3866ac44bd' = @(
         '无法统计此周期内宿主机地址的变更次数（'
@@ -9869,27 +10095,6 @@
         }
     )
     'runner.operator_5ea26e2a1f29b25e' = '此检测结果未包含可接管所有权的目标目录。'
-    'runner.operator_5eb94d6047f29167' = @(
-        'Initialize-YurunaEntryPointModuleSet：未在'
-        @{
-            'arg' = 'modPath'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '找到'
-        @{
-            'arg' = 'modName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '（kind='
-        @{
-            'arg' = 'for'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '）；正在跳过。'
-    )
     'runner.operator_5ec100a74f28c9e9' = '触发角：未检测到危险绑定（屏幕保护程序 / 睡眠 / 锁屏）。'
     'runner.operator_5ee21a55ab02bc48' = @(
         'w32tm /resync失败：'
@@ -9953,21 +10158,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_5f9af4fdfbb52214' = @(
-        "字符`“"
-        @{
-            'arg' = 'ch'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”（0x"
-        @{
-            'arg' = 'x2'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '）没有扫描码。正在跳过。'
     )
     'runner.operator_5fa4b4be805499ca' = 'OCR等待循环通过WMI读取客户机帧缓冲区，不受影响。缩放通过vmconnect窗口影响OCR；tapOn始终捕获该窗口，而帧读取路径在WMI读取失败时会回退到该窗口。'
     'runner.operator_5fe7035d37195fae' = '递归删除'
@@ -19987,21 +20177,6 @@
     )
     'runner.operator_dfd19c97aaa9ff6e' = 'Invoke-HostRefresh：虚拟机监控程序响应正常，且运行器已存在——已验证无需操作。'
     'runner.operator_dfd80a749d4fee8f' = '  在该路径下添加Get-Image.ps1 + New-VM.ps1以启用此客户机，或'
-    'runner.operator_dfe205f918802162' = @(
-        "Send-TextKvm：字符`“"
-        @{
-            'arg' = 'ch'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        "`”（0x"
-        @{
-            'arg' = 'x2'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '）没有对应的键码。正在跳过。'
-    )
     'runner.operator_e00026446a75f063' = @(
         '在与并发的Start-TestRunner争用进程ID文件时未能取得该文件。请检查'
         @{
@@ -22874,6 +23049,21 @@
         }
         '）更新。请先更新此检出版本，再更改池配置。'
     )
+    'runner.pool_framework_ring_canary_not_member' = @(
+        '  pools.yml：池 '
+        @{
+            'arg' = 'poolId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' 在 frameworkRing.canaryMembers 中列出了 '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '，但该主机不是其成员，因此它的通过永远不会被计入。'
+    )
     'runner.pool_notifier_busy' = '此主机上另一个池通知程序运行持有其锁；本次运行未投递任何内容。'
     'runner.pool_notifier_spool_errors' = @(
         '[外部周期 '
@@ -22914,6 +23104,16 @@
         " 必须是不含空白字符或控制字符的非空 URL，且不得以`“-`”开头。"
     )
     'runner.pool_status_repositories_none' = '  仓库：（无）'
+    'runner.pool_storage_sudo_rule_stale' = '（sudo 拒绝了挂载，因此从未联系 NAS：已安装的 /etc/sudoers.d 配置片段没有列出此次挂载的确切命令，原因是该配置写入后共享或挂载点已更改，或者它是旧版本的宽泛授权 -- 请在交互式会话中运行 test/Test-Config.ps1 或 Sync-HostConfiguration 以安装当前规则）'
+    'runner.pool_storage_sudoers_word_unsupported' = @(
+        "存储路径`“"
+        @{
+            'arg' = 'word'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”无法准确写入 sudoers 规则（其中包含空白、引号或通配符）；请选择不含这些字符的共享和挂载点。"
+    )
     'runner.preflight_network_diagnostics' = @(
         '网络诊断：'
         @{
@@ -23735,6 +23935,72 @@
             'trust' = 'external'
         }
     )
+    'runner.service_adopted' = @(
+        '保留正在运行的 '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '''（'
+        @{
+            'arg' = 'address'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '，'
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '）；传入 -ForceRebuild 以重新构建。'
+    )
+    'runner.service_advertisement_withdrawn' = @(
+        '已在重建前撤回 '
+        @{
+            'arg' = 'area'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 通告；在新 VM 开始服务之前，此主机不会出现在 Extension hosts 中。'
+    )
+    'runner.service_build_plan_refused' = @(
+        ''''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' 的构建计划被拒绝（'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '）；正在运行的 VM 及其通告保持不变。上方的构建器输出指出了缺少的输入。'
+    )
+    'runner.service_build_timeout' = @(
+        ''''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' 的构建未在 '
+        @{
+            'arg' = 'seconds'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' 秒内完成，已被停止（终止失败：'
+        @{
+            'arg' = 'killFailed'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '）。如果链路较慢，请增大 YURUNA_SERVICE_VM_BUILD_TIMEOUT_SECONDS，或检查上方的构建器输出。'
+    )
     'runner.service_cachingproxy_utmctl_start_failed' = @(
         "`“utmctl start "
         @{
@@ -23792,6 +24058,36 @@
         '）；在修复或移走该记录之前，服务启动和停止脚本将拒绝执行。未做任何更改。'
     )
     'runner.service_census_update_should_process' = '将服务观测结果合并到服务普查记录'
+    'runner.service_hostproof_exited' = @(
+        '主机上的 pool-control 守护进程立即退出（退出代码 '
+        @{
+            'arg' = 'code'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '）；端口 '
+        @{
+            'arg' = 'port'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' 可能被其他进程占用。未通告任何内容。'
+    )
+    'runner.service_hostproof_previous_running' = @(
+        '无法停止主机上之前的 pool-control 守护进程（pid '
+        @{
+            'arg' = 'pid'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '）（'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '）；拒绝启动第二个。请先停止它，然后重新运行。'
+    )
     'runner.service_lockset_should_process' = @(
         '获取服务'
         @{
@@ -24125,6 +24421,36 @@
         }
         '）；未启动或重建该虚拟机。'
     )
+    'runner.service_start_degraded' = @(
+        ''''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' 使用降级的种子值构建：'
+        @{
+            'arg' = 'names'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '。服务可以运行，但在解析这些值并重新构建之前，来宾缺少它们。'
+    )
+    'runner.service_start_stop_requested' = @(
+        '此启动运行期间请求了停止 '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '''，因此不通告该服务。请再次运行 '
+        @{
+            'arg' = 'stopScript'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 以删除该 VM。'
+    )
     'runner.service_stop_final_state_unexpected' = @(
         "虚拟机`“"
         @{
@@ -24139,6 +24465,38 @@
             'trust' = 'internal'
         }
         '（移除后预期应不存在）。请使用宿主机工具检查，然后重新运行Stop-CachingProxyServiceVM.ps1。'
+    )
+    'runner.ssh_host_key_pin_mismatch' = @(
+        @{
+            'arg' = 'address'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        " 处的 SSH 主机密钥不是`“"
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        "`”首次连接时提供的密钥，因此未运行该命令：该地址可能由其他机器应答。如果`“"
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        "`”是在运行器之外重建的，请运行 Reset-GuestHostKeyPin -VMName "
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '（固定的密钥：'
+        @{
+            'arg' = 'pin'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '）。'
     )
     'runner.start_cycle_worker_cleanup_failed' = @(
         '启动周期'
@@ -24326,6 +24684,120 @@
             'trust' = 'internal'
         }
         '/status/ 将超时。'
+    )
+    'runner.status_listener_busy' = @(
+        '状态服务（PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）在端口 '
+        @{
+            'arg' = 'port'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 上 3 秒内未响应，但其存活租约显示它已处理 '
+        @{
+            'arg' = 'route'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' '
+        @{
+            'arg' = 'seconds'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 秒；保持其运行。'
+    )
+    'runner.status_listener_lease_verdict' = @(
+        '状态服务（PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）：存活租约 '
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '（'
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '，'
+        @{
+            'arg' = 'seconds'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 秒）。'
+    )
+    'runner.status_listener_replace_in_cycle' = @(
+        '主机地址信标：状态服务（PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）无响应，其租约显示已卡住（在 '''
+        @{
+            'arg' = 'route'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' 上 '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 已 '
+        @{
+            'arg' = 'seconds'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 秒）；替换启动的退出码为 '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '。'
+    )
+    'runner.status_listener_replaced' = @(
+        'Start-StatusService：正在停止卡住的状态服务（PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '，在 '''
+        @{
+            'arg' = 'route'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' 上 '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 已 '
+        @{
+            'arg' = 'seconds'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 秒）并启动新的服务。'
     )
     'runner.status_refresh_safe_existing_ready' = @(
         'Status service进程PID '
@@ -24585,6 +25057,44 @@
             'trust' = 'external'
         }
         '）。周期继续进行，删除操作仍会检查引用，下一个周期会再次尝试。'
+    )
+    'runner.wait_ended_on_kernel_stall' = @(
+        "等待文本`“"
+        @{
+            'arg' = 'patternLabel'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”在约"
+        @{
+            'arg' = 'waited'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's后结束（上限'
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's）：客户机内核在虚拟处理器'
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '上已有'
+        @{
+            'arg' = 'silentSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's未处理任何中断，其串行控制台报告了'
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.warm_resume_declined_unverified' = @(
         '  WARM-RESUME被拒绝：'''

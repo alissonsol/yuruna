@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a04c70-e7da-4354-977e-5dd4778e74a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -327,4 +327,4 @@ function Invoke-HostVmAdmission {
     return $admission
 }
 
-Export-ModuleMember -Function Get-HostType, Get-HostFolder, Invoke-LibvirtGroupReExecIfNeeded, Initialize-YurunaHost, Get-GuestList, Test-GuestFolder, Get-TestVMName, Test-ElevationRequired, Test-HostRequirement, Assert-HostConditionSet, Initialize-SudoCache, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacScreenLockIssue, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Set-WindowsHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Stop-ConcurrentVM, Get-VmAdmission, Write-VmAdmissionRecord, Invoke-HostVmAdmission, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Get-WindowsDisplayScaleSetting, Get-WindowsDisplayScaleIssue
+Export-ModuleMember -Function Get-HostType, Get-HostFolder, Invoke-LibvirtGroupReExecIfNeeded, Initialize-YurunaHost, Get-GuestList, Test-GuestFolder, Get-TestVMName, Test-ElevationRequired, Test-HostRequirement, Assert-HostConditionSet, Get-HostConditionVerdict, Initialize-SudoCache, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacScreenLockIssue, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Set-WindowsHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Stop-ConcurrentVM, Get-VmAdmission, Write-VmAdmissionRecord, Invoke-HostVmAdmission, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Get-WindowsDisplayScaleSetting, Get-WindowsDisplayScaleIssue

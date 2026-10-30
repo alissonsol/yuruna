@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e79a16-80d2-4aa2-9fd8-20b3b66b79ee
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,8 @@
     pseudo pages proved only their text. These fixtures come from the shipped
     builders and load the shipped generated assets, so each expanded and RTL
     state is measured for direction, visible catalog output, focus, contrast,
-    and reflow at 320 and 1280 CSS pixels in both palettes.
+    and reflow at 320 and 1280 CSS pixels and at both phone sizes, in both
+    palettes, as it loads and with its menu and unlock prompt open.
 
     Run: Invoke-Pester -Path test/modules/Test.ReferenceSliceMatrix.Tests.ps1
 #>
@@ -61,8 +62,13 @@ function Invoke-ReferenceA11y {
     $schemeLiteral = @($Scheme | ForEach-Object { "'$($_.Replace("'", "''"))'" }) -join ','
     $focusTargets = if ($CheckFocusTargets) { ' -CheckFocusTargets' } else { '' }
     $quiet = if ($Detailed) { '' } else { ' -Quiet' }
+    # Chrome alone: the slices are a locale and direction matrix, and the default
+    # gate run measures the same pages in Firefox.
+    # -Command turns any failing script into exit 1, so the gate's own code is
+    # passed on: it tells a finding (1) from a host without Chrome (2).
     $command = "& '$quotedTool' -Serve '$quotedServe' -PageFilter '$quotedFilter' " +
-        "-Width @($widthLiteral) -Scheme @($schemeLiteral) -RequireDirection$focusTargets$quiet"
+        "-Width @($widthLiteral) -Scheme @($schemeLiteral) -Browser chrome -RequireDirection$focusTargets$quiet; " +
+        'exit $LASTEXITCODE'
     $text = & pwsh -NoProfile -Command $command 2>&1 | Out-String
     return @{ Code = $LASTEXITCODE; Output = $text }
 }
@@ -97,7 +103,7 @@ Describe 'the two shipped globalization slices form one UI matrix' {
         Assert-NoFinding $findings 'the composed reference matrix is incomplete'
     }
 
-    It 'passes pseudo text, RTL, focus-target, contrast, and 320px reflow checks together' {
+    It 'passes pseudo text, RTL, focus-target, contrast, and reflow checks together, at both phone sizes and with the menu and unlock prompt open' {
         $result = Invoke-ReferenceA11y -Serve $script:Output `
             -Filter '*-reference-qps-*.html' -CheckFocusTargets
         if ($result.Code -eq 2) {
@@ -106,8 +112,11 @@ Describe 'the two shipped globalization slices form one UI matrix' {
         }
         Assert-Equal -Expected 0 -Actual $result.Code `
             "the composed status/pool matrix failed:`n$($result.Output)"
-        Assert-Match '16 page-view\(s\) measured across 4 page\(s\), 0 finding\(s\)' $result.Output `
-            'the matrix did not measure every slice/locale/width/palette row'
+        # 4 pages x (2 widths + 2 phones) x 2 palettes as they load (32), the
+        # menu open on all four (32) and the unlock prompt on the two pool
+        # pages (16).
+        Assert-Match '80 page-view\(s\) measured across 4 page\(s\), 0 finding\(s\)' $result.Output `
+            'the matrix did not measure every slice/locale/size/palette/state row'
     }
 
     It 'fails when the server-owned direction is wrong or the pseudo catalog disappears' {

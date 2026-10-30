@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d67854-78e5-47cc-bb39-1453d818809f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,7 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -Force -DisableNameChecking
     $script:Sha = 'a' * 40
     $script:ReceiptFixture = Get-Content -Raw (Join-Path $PSScriptRoot '../extension/caching-proxy-service/testdata/git-mirror/receipts/vectors.json') | ConvertFrom-Json -AsHashtable
@@ -26,9 +27,7 @@ BeforeAll {
 
     function Invoke-MirrorFixtureGit {
         param([string]$Path, [string[]]$Arguments)
-        $output = @(& git -C $Path @Arguments 2>&1)
-        if ($LASTEXITCODE -ne 0) { throw "Fixture Git failed: $($output -join ' ')" }
-        return ($output -join "`n").Trim()
+        return ((Invoke-YurunaTestGit -Path $Path -Argument $Arguments) -join "`n").Trim()
     }
 
     function New-LiveMirrorFixture {
@@ -38,9 +37,7 @@ BeforeAll {
         $root = Join-Path $TestDrive ([Guid]::NewGuid().ToString('N'))
         $upstream = Join-Path $root upstream
         [IO.Directory]::CreateDirectory($upstream) | Out-Null
-        $null = Invoke-MirrorFixtureGit $upstream @('init', '--quiet', '--initial-branch=main')
-        $null = Invoke-MirrorFixtureGit $upstream @('config', 'user.name', 'fixture')
-        $null = Invoke-MirrorFixtureGit $upstream @('config', 'user.email', 'fixture@example.invalid')
+        $null = New-YurunaTestGitRepository -Path $upstream
         [IO.File]::WriteAllText((Join-Path $upstream source.txt), 'first source')
         $null = Invoke-MirrorFixtureGit $upstream @('add', '.')
         $null = Invoke-MirrorFixtureGit $upstream @('commit', '--quiet', '-m', 'first')

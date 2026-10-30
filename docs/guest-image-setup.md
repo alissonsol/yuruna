@@ -521,6 +521,11 @@ drivers, so a fix lands in one place instead of drifting between
 Holds the `New-VM` child-process runner and the `Get-Image` console +
 HTML-log line writer. A fix to the child-arg forwarding, the
 %-complete line filter, or the log-line HTML encoding lands here once.
+It also holds the three pieces of the host contract every driver shares:
+the stage result record (`Write-YurunaProvisionResult`), the transactional
+disk snapshot save (`Invoke-YurunaDiskSnapshotSave`), and the port-map
+ownership record (`Set-YurunaPortMapOwner`); see
+[Host provisioning](source-consistency.md#42e220c4-0004).
 
 The **only** platform variable in the New-VM runner is the host
 subdirectory string literal, so it is a plain `-HostSubdir` parameter
@@ -559,9 +564,26 @@ outage.
 
 Holds the shared Squid caching-proxy-service download stack:
 `Test-DownloadAlreadyCurrent`, `Get-CacheProxyForHostDownload`,
-`Save-CachedHttpUri`, `Invoke-HttpsViaSquidBump`, and the TCP port
-probe. Centralizing them means a hardening fix to the X509
-chain-validation callback cannot drift between drivers.
+`Save-CachedHttpUri`, `Invoke-HttpsViaSquidBump`, the resumable download
+engine `Invoke-YurunaResumableDownload`, and the TCP port probe.
+Centralizing them means a hardening fix to the X509 chain-validation
+callback cannot drift between drivers.
+
+Every image path -- direct to the origin, through Squid's HTTP port,
+through its SSL-bump port, and from a download agent -- runs on the one
+resumable engine. Bytes land in `<file>.partial`, beside a
+`<file>.partial.json` record of the URI, the server's validator (a strong
+ETag, else Last-Modified) and the full length. A later attempt for the
+same URI asks for the rest with `Range` and `If-Range`; an answer that is
+not a 206 continuing at the staged offset (a server that ignored the
+range, or an entity that changed under its validator) starts the file
+again from zero. A transfer whose server sent no validator is never
+resumed, except from a download agent, whose artifacts are content-named.
+Only a complete transfer takes the destination name, so a download that
+outlives one attempt, retry budget or cycle (the step watchdog) resumes
+at the next one instead of starting over. An HTTP 4xx other than 408, 425
+and 429 is not retried, and its status stays in the message for the
+callers that classify it.
 
 The one platform-specific piece -- discovering the cache VM's IP -- stays
 per-driver as `Resolve-CacheHostIp` and is **injected** as a
@@ -582,7 +604,7 @@ one. A stale address or stopped cache therefore permits a direct download.
 
 UTM next tries the address recorded by `Start-CachingProxyServiceVM.ps1` in
 `<track>/yuruna-caching-proxy-service.yml`. A directly reachable guest exposes
-`:80` for the CA and `:3129` for SSL bump as well as `:3128`. Its final fallback
+`:80` for the CA and `:3129` for SSL-bump as well as `:3128`. Its final fallback
 is the host's `127.0.0.1:3128` forwarder, which carries HTTP only. Separate
 `:3129` probes prevent HTTPS downloads from using that incomplete path.
 
@@ -604,8 +626,8 @@ from each per-host `Yuruna.Host.psm1` driver. With the driver imported,
 `Save-UbuntuServerImage` routes downloads through the Squid cache --
 HTTPS via the SSL-bump port with per-process trust of
 the freshly-fetched yuruna CA, HTTP via the proxy port, falling through
-to a direct `Invoke-WebRequest` when no cache is reachable -- and
-reads/writes the shared 4-line sentinel. A bare caller that imports
+to a direct download on the same resumable engine when no cache is
+reachable -- and reads/writes the shared 4-line sentinel. A bare caller that imports
 only this module, with no host driver, falls back to a direct
 `Invoke-WebRequest` with the inline 3-line same-source guard.
 
@@ -626,7 +648,9 @@ that does not import this module never consults an agent and every
 `Get-Image.ps1` behaves exactly as it does in a lab with none. The
 module deliberately exports only its own uniquely-named functions and
 imports nothing globally itself, so it cannot displace the driver's
-cache-injecting `Save-CachedHttpUri` wrapper.
+cache-injecting `Save-CachedHttpUri` wrapper. Its artifact fetch runs on
+`Yuruna.HostDownload.psm1`'s resumable engine, which it imports into its
+own scope only when no driver has made it available.
 
 The shared `Invoke-DownloadAgentFirst` helper keeps all hosts' provenance
 handling aligned. When a downloaded artifact has no origin `sourceUrl`, it
@@ -671,6 +695,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

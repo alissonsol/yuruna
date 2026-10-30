@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 423f54e6-56bb-471f-b619-23c0a5564178
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,7 +66,7 @@ Describe 'the launcher still relaunches on stale code or a dead server, which is
         $text | Should -Match ([regex]::Escape('if ($currentSha -and $persistedSha -and ($currentSha -eq $persistedSha))'))
     }
     It 'still imports Test.Config.psm1, so an operator edit to test.config.yml needs no restart either' {
-        $text = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'test/service/Start-StatusService.ps1')
+        $text = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'test/service/Invoke-StatusServiceRuntime.ps1')
         $text | Should -Match "Import-Module \(Join-Path .*RepoRoot 'test/modules/Test\.Config\.psm1'\)"
     }
 }

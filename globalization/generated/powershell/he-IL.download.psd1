@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42be2c81-f6b4-2787-805c-6982c101641c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,14 @@
     'download.actions' = 'פעולות'
     'download.actions_need_the_internal_authentication_key_as_a_bearer' = 'פעולות דורשות את מפתח האימות הפנימי כאסימון bearer'
     'download.api_arch_query_parameter_is_required_amd64_or_arm64' = 'פרמטר השאילתה arch נדרש (amd64 או arm64)'
+    'download.api_delete_refused_reason' = @(
+        'המחיקה נדחתה: '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'download.api_detail' = @(
         @{
             'arg' = 'detail'
@@ -42,6 +50,14 @@
     'download.api_no_image_store_configured' = 'לא הוגדר אחסון לדמויות מערכת'
     'download.api_pool_refresh_refused_reason' = @(
         'רענון המאגר נדחה: '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'download.api_prune_refused_reason' = @(
+        'הגיזום נדחה: '
         @{
             'arg' = 'reason'
             'type' = 'detail'

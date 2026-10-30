@@ -5,8 +5,10 @@
 package imagestore
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -200,16 +202,23 @@ func (a *Agent) manualFallback(id ImageID) *ManualFallback {
 // cannot get this, here are the bytes", so re-running a resolve that just
 // refused would spend a session to arrive at the same answer.
 //
-// Only a best-effort family is adopted. Everything else has a resolver that
-// works, and a hand-placed copy of it would be replaced by the next scan anyway
-// -- silently, which is the surprise this refuses to create.
+// Only a family with a documented hand-download path is adopted, the same set
+// manualPass creates drop folders for. Everything else has a resolver of its
+// own -- virtio-win too, best effort though it is -- and a hand-placed copy of
+// it would be published with no source and replaced by the next resolve,
+// silently, which is the surprise this refuses to create.
 func (a *Agent) adoptManual(ctx context.Context, id ImageID, p *Progress) (bool, error) {
-	if !IsBestEffort(id.ImageKey) {
+	if a.manualFallback(id) == nil {
 		return false, nil
 	}
 	path, info, ok := a.store.ManualCandidate(id, a.now())
 	if !ok {
 		return false, nil
+	}
+	// The settle delay sees a copy that paused as one that finished, so the
+	// image's own structure has the last word before anything is hashed.
+	if err := checkDroppedISO(path, info.Size()); err != nil {
+		return false, fmt.Errorf("manual drop %s: %w", path, err)
 	}
 
 	p.SetPhase(PhaseAdopting)
@@ -258,6 +267,81 @@ func (a *Agent) adoptManual(ctx context.Context, id ImageID, p *Progress) (bool,
 	a.audit("adopt", id, "ok", name)
 	a.logf("adopted hand-placed %s for %s", name, id)
 	return true, nil
+}
+
+// isoSector is the logical sector size of ISO 9660 and of the UDF volumes on
+// installation media.
+const isoSector = 2048
+
+// checkDroppedISO reports why a dropped file is not yet a whole ISO image, or
+// nil when it is. A copy writes front to back, so a copy that has not finished
+// -- including one that stalled past the settle delay -- ends before the volume
+// its first sectors declare. The ISO 9660 primary volume descriptor at sector
+// 16 records the volume's size; a UDF volume, which Windows media carry beside
+// ISO 9660, must also end with an anchor descriptor in its last sector or 256
+// sectors before it (ECMA-167 places the anchor in two of sectors 256, N-256
+// and N), which catches a copy tool that set the full length before writing
+// the bytes.
+func checkDroppedISO(path string, size int64) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	sector := func(n int64) ([]byte, error) {
+		b := make([]byte, isoSector)
+		if _, err := f.ReadAt(b, n*isoSector); err != nil {
+			return nil, err
+		}
+		return b, nil
+	}
+	if size < 17*isoSector {
+		return fmt.Errorf("%d byte(s) is too short for an ISO image", size)
+	}
+	pvd, err := sector(16)
+	if err != nil {
+		return err
+	}
+	if pvd[0] != 1 || string(pvd[1:6]) != "CD001" {
+		return fmt.Errorf("no ISO 9660 volume descriptor at sector 16; the file is not an ISO image")
+	}
+	declared := int64(binary.LittleEndian.Uint32(pvd[80:84])) * int64(binary.LittleEndian.Uint16(pvd[128:130]))
+	if size < declared {
+		return fmt.Errorf("the file ends at byte %d of the %d its ISO volume declares; the copy has not finished", size, declared)
+	}
+	udf := false
+	for n := int64(17); n < 17+32 && (n+1)*isoSector <= size; n++ {
+		b, err := sector(n)
+		if err != nil {
+			return err
+		}
+		id := b[1:6]
+		if bytes.Equal(id, []byte("NSR02")) || bytes.Equal(id, []byte("NSR03")) {
+			udf = true
+			break
+		}
+		if bytes.Equal(id, []byte{0, 0, 0, 0, 0}) {
+			break
+		}
+	}
+	if !udf {
+		return nil
+	}
+	last := size/isoSector - 1
+	for _, n := range []int64{last, last - 256} {
+		if n <= 256 {
+			continue
+		}
+		b, err := sector(n)
+		if err != nil {
+			return err
+		}
+		// Tag identifier 2 is the anchor volume descriptor pointer.
+		if binary.LittleEndian.Uint16(b[0:2]) == 2 {
+			return nil
+		}
+	}
+	return fmt.Errorf("its UDF volume has no closing anchor descriptor; the copy has not finished")
 }
 
 // windows11SourceURL is the provenance an adopted artifact carries: the page it

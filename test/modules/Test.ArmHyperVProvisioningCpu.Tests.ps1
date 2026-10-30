@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ee3a5e-8d68-44a7-b9d5-2584bc194d84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,7 +66,7 @@ Describe 'Ubuntu 26 ARM64 Hyper-V processor phases' {
     }
 
     It 'changes processors only on ARM64 and only while Hyper-V reports Off' {
-        $src = Get-Content -Raw -LiteralPath $script:hostPath
+        $src = Get-YurunaTestSourceText -Path $script:hostPath
         Assert-True ($src -match 'function Set-HyperVArm64LinuxGuestProcessorCount') 'the host helper must exist'
         Assert-True ($src -match 'OSArchitecture\s+-ne\s+\[System\.Runtime\.InteropServices\.Architecture\]::Arm64') `
             'AMD64 must retain its normal VM sizing'

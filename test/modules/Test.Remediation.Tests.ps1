@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42430431-3a59-45e7-9caa-8e653f023904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,8 @@
 #>
 
 BeforeAll {
-$script:PriorRemediationLog = $env:YURUNA_LOG_DIR
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+$script:PriorRemediationLog = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
 $env:YURUNA_LOG_DIR = Join-Path $TestDrive 'remediation-log'
 $null = New-Item -ItemType Directory -Path $env:YURUNA_LOG_DIR -Force
 $here       = Split-Path -Parent $PSCommandPath
@@ -35,13 +36,11 @@ Import-Module (Join-Path $here 'Test.FailureTaxonomy.psm1') -Force -DisableNameC
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
 if (Get-Command Register-BuiltinRecoveryHandler -ErrorAction SilentlyContinue) { Register-BuiltinRecoveryHandler }
 
-Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 
 AfterAll {
-    if ($null -eq $script:PriorRemediationLog) { Remove-Item -LiteralPath Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue }
-    else { $env:YURUNA_LOG_DIR = $script:PriorRemediationLog }
+    Restore-YurunaTestEnvironment -Saved $script:PriorRemediationLog
 }
 
 Describe 'Invoke-Remediation inner-cause routing' {
@@ -95,7 +94,7 @@ Describe 'Invoke-Remediation persists last_remediation.json' {
     It 'writes the durable decision record into YURUNA_LOG_DIR' {
         $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-remediation-$([guid]::NewGuid().ToString('N'))"
         $null = New-Item -ItemType Directory -Path $tmp -Force
-        $savedLogDir = $env:YURUNA_LOG_DIR
+        $savedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         try {
             $env:YURUNA_LOG_DIR = $tmp
             $rec = @{
@@ -115,14 +114,14 @@ Describe 'Invoke-Remediation persists last_remediation.json' {
             $bytes = [System.IO.File]::ReadAllBytes($path)
             Assert-True ($bytes[0] -ne 0xEF) 'record is written without a UTF-8 BOM'
         } finally {
-            $env:YURUNA_LOG_DIR = $savedLogDir
+            Restore-YurunaTestEnvironment -Saved $savedLogDir
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
     It 'records the outer class when routing past a retry wrapper' {
         $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-remediation-$([guid]::NewGuid().ToString('N'))"
         $null = New-Item -ItemType Directory -Path $tmp -Force
-        $savedLogDir = $env:YURUNA_LOG_DIR
+        $savedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         try {
             $env:YURUNA_LOG_DIR = $tmp
             $null = Invoke-Remediation -FailureRecord @{ failureClass = 'retry_exhausted'; severity = 'hard'; innerFailureClass = 'ocr_timeout'; stepNumber = 3 }
@@ -130,7 +129,7 @@ Describe 'Invoke-Remediation persists last_remediation.json' {
             Assert-Equal -Expected 'ocr_timeout' -Actual $doc.failureClass -Because 'routed inner class recorded'
             Assert-Equal -Expected 'retry_exhausted' -Actual $doc.outerFailureClass -Because 'masked outer class preserved in the record'
         } finally {
-            $env:YURUNA_LOG_DIR = $savedLogDir
+            Restore-YurunaTestEnvironment -Saved $savedLogDir
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -148,6 +147,47 @@ Describe 'Invoke-Remediation quotes the fields the producers record' {
         $r = Invoke-Remediation -FailureRecord @{ failureClass = 'dhcp_identity_unbounded'; severity = 'hard'; previousAddress = '192.0.2.10'; currentAddress = '192.0.2.11' }
         $r.Rationale | Should -Match '192\.0\.2\.10'
         $r.Rationale | Should -Match '192\.0\.2\.11'
+    }
+}
+
+Describe 'Invoke-Remediation tells a wedged guest kernel from a stalled mirror' {
+    BeforeAll {
+        function New-FetchTimeoutRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: returns an in-memory failure record.')]
+            [OutputType([hashtable])]
+            param([string[]]$KernelFaults = @(), [string[]]$SilentProcessors = @())
+            return @{
+                failureClass = 'wait_timeout'; severity = 'hard'; actionVerb = 'fetchAndExecute'; vmName = 'test-guest-01'
+                context = @{ causeDetail = @{
+                    progressAdvisory = @{ verdict = 'progress-suspect'; kernelFaults = $KernelFaults }
+                    guestLivelock = @{ verdict = 'not-livelocked'; processorWindow = @{ NoInterruptsServicedProcessors = $SilentProcessors } }
+                } }
+            }
+        }
+    }
+
+    It 'names the kernel''s reports and the silent processors instead of the package mirror' {
+        $r = Invoke-Remediation -FailureRecord (New-FetchTimeoutRecord -KernelFaults @('rcu-stall', 'hung-task') -SilentProcessors @('0', '1'))
+        $r.Recommendation | Should -Be 'retry_with_backoff' -Because 'only the text changes; the next cycle builds a new guest either way'
+        $r.Rationale | Should -Match 'rcu-stall, hung-task'
+        $r.Rationale | Should -Match 'serviced no interrupt: 0, 1'
+        $r.Rationale | Should -Not -Match 'most often blocked on a slow or stalled package mirror'
+        ($r.Actions -join ' ') | Should -Match 'serial-console\.log'
+        ($r.Actions -join ' ') | Should -Not -Match 'NETWORK section'
+    }
+
+    It 'takes a processor that serviced no interrupt as enough, with no kernel report on record' {
+        $r = Invoke-Remediation -FailureRecord (New-FetchTimeoutRecord -SilentProcessors @('0'))
+        $r.Rationale | Should -Match 'kernel reports: -;'
+        $r.Rationale | Should -Match 'serviced no interrupt: 0\)'
+    }
+
+    It 'keeps the mirror advice for a timeout whose record shows neither' {
+        $r = Invoke-Remediation -FailureRecord (New-FetchTimeoutRecord)
+        $r.Recommendation | Should -Be 'retry_with_backoff'
+        $r.Rationale | Should -Match 'package mirror'
+        ($r.Actions -join ' ') | Should -Match 'NETWORK section'
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b84cc3-7873-4cc2-800e-3d90a4776081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,11 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
     Import-Module $_logLevelMod -Global
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+
+# --- REGION: Failure records
+# A failure this script can name is recorded for the runner before it exits:
+# https://yuruna.link/42820e91-000a
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.HostProvision.psm1') -DisableNameChecking
 
 # --- REGION: Platform guard
 if (-not $IsMacOS) {
@@ -59,7 +64,9 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e39505c185df23e7'
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_26ff901dc61a1c4c' -Arguments @{ downloadDir = "$downloadDir" })
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 if (!(Test-Path -Path $downloadDir)) {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_140ee0a4d13c6e47' -Arguments @{ downloadDir = "$downloadDir" })
+    $message = Format-YurunaOperatorMessage -Key 'host.operator_140ee0a4d13c6e47' -Arguments @{ downloadDir = "$downloadDir" }
+    Write-YurunaProvisionResult -Kind tool -Message $message
+    Write-Output $message
     exit 1
 }
 
@@ -80,7 +87,7 @@ if (Test-Path -Path $baseImageFile) {
     $windowsOk = $true
 } else {
     # --- REGION: https://yuruna.link/42e220c4-0003
-    # Check if a Windows 11 ARM64 ISO was placed in the download directory with any name
+    # Require ARM media on the Apple silicon host; adopt it from the download directory under any name.
     $existingIso = Get-ChildItem -Path $downloadDir -Filter "*.iso" -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match 'Win11.*ARM|Windows.*11.*ARM|ARM.*Win.*11' } |
         Select-Object -First 1
@@ -92,7 +99,9 @@ if (Test-Path -Path $baseImageFile) {
         try {
             $keptPrevious = Publish-YurunaBaseImage -DownloadFile $existingIsoOriginalPath -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $existingIso.Length -Confirm:$false
         } catch {
-            Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+            $message = Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" }
+            Write-YurunaProvisionResult -Kind tool -Message $message
+            Write-Error $message
             exit 1
         }
         if ($keptPrevious) {
@@ -143,7 +152,9 @@ if (-not $windowsOk) {
                     $stagedSize = (Get-Item -LiteralPath $agentStagingFile -ErrorAction Stop).Length
                     $keptPrevious = Publish-YurunaBaseImage -DownloadFile $agentStagingFile -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $stagedSize -Confirm:$false
                 } catch {
-                    Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+                    $message = Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" }
+                    Write-YurunaProvisionResult -Kind tool -Message $message
+                    Write-Error $message
                     exit 1
                 }
                 if ($keptPrevious) {
@@ -269,7 +280,8 @@ if (-not $windowsOk) {
         $windowsOk = $true
 
     } catch {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a1f938bc4fb29457' -Arguments @{ value = "$_" })
+        $fidoFailure = Format-YurunaOperatorMessage -Key 'host.operator_a1f938bc4fb29457' -Arguments @{ value = "$_" }
+        Write-Warning $fidoFailure
         if ($downloadFile -and (Test-Path $downloadFile)) {
             Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
         }
@@ -351,5 +363,7 @@ if ($windowsOk) {
     exit 0
 } else {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_76d9904f0f26416c')
+    # Only the operator can supply the ISO now, so no retry of this stage helps.
+    Write-YurunaProvisionResult -Kind unsupported -Message $(if ($fidoFailure) { $fidoFailure } else { $baseImageFile })
     exit 1
 }

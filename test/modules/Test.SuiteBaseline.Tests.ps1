@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b8e14c-5d27-4a93-8c60-71fe2a0db339
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -228,5 +228,71 @@ Describe 'the tracked suite baseline protects what actually runs' {
             'the gate has to ask the runner what it discovers'
         Assert-Match '-ListOnly' $source `
             'discovery only: a gate that ran the suite would turn one full run into several'
+    }
+}
+
+Describe 'the commit gate judges what is staged' {
+    BeforeAll {
+        # A scratch repository whose index the gate reads through GIT_DIR, so
+        # neither this checkout's index nor its working tree is involved.
+        function New-StagedFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Creates a disposable git repository below Pester TestDrive.')]
+            param()
+            $repo = Join-Path $TestDrive ('staged-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+            $null = New-Item -ItemType Directory -Path (Join-Path $repo 'test/modules') -Force
+            & git init -q $repo
+            foreach ($name in 'Alpha', 'Beta') { [IO.File]::WriteAllText((Join-Path $repo "test/modules/$name.Tests.ps1"), "Describe '$name' { It 'runs' { } }") }
+            $record = [ordered]@{
+                suites = [ordered]@{
+                    'test/modules/Alpha.Tests.ps1' = [ordered]@{ total = 1; skipped = 0; seconds = 0.1 }
+                    'test/modules/Beta.Tests.ps1' = [ordered]@{ total = 1; skipped = 0; seconds = 0.1 }
+                }
+                totals = [ordered]@{ suites = 2; tests = 2; skipped = 0; failed = 0 }
+            }
+            [IO.File]::WriteAllText((Join-Path $repo 'test/modules/suite-baseline.json'), (ConvertTo-Json -InputObject $record -Depth 6))
+            & git -C $repo add -A
+            return $repo
+        }
+        function Invoke-StagedGate {
+            param([string]$Repository)
+            $saved = $env:GIT_DIR
+            try {
+                $env:GIT_DIR = Join-Path $Repository '.git'
+                $output = & $script:Pwsh -NoProfile -File $script:Tool -Root $script:RepoRoot -Staged -Quiet 2>&1 | Out-String
+                return @{ Code = $LASTEXITCODE; Output = (ConvertTo-PlainDetail -Text $output) }
+            } finally { $env:GIT_DIR = $saved }
+        }
+    }
+
+    It 'passes a consistent index whatever the working tree holds' {
+        $repo = New-StagedFixture
+        # Not staged, so not part of the commit.
+        [IO.File]::WriteAllText((Join-Path $repo 'test/modules/Gamma.Tests.ps1'), "Describe 'Gamma' { It 'runs' { } }")
+        Remove-Item -LiteralPath (Join-Path $repo 'test/modules/Beta.Tests.ps1')
+        $run = Invoke-StagedGate -Repository $repo
+        Assert-Equal -Expected 0 -Actual $run.Code -Because $run.Output
+    }
+
+    It 'fails a staged suite the staged baseline does not record' {
+        $repo = New-StagedFixture
+        [IO.File]::WriteAllText((Join-Path $repo 'test/modules/Gamma.Tests.ps1'), "Describe 'Gamma' { It 'runs' { } }")
+        & git -C $repo add 'test/modules/Gamma.Tests.ps1'
+        $run = Invoke-StagedGate -Repository $repo
+        Assert-Equal -Expected 1 -Actual $run.Code -Because $run.Output
+        Assert-Match 'Gamma\.Tests\.ps1 runs but is not in the baseline' $run.Output
+    }
+
+    It 'fails a staged deletion of a recorded suite' {
+        $repo = New-StagedFixture
+        & git -C $repo rm -q --cached 'test/modules/Beta.Tests.ps1'
+        $run = Invoke-StagedGate -Repository $repo
+        Assert-Equal -Expected 1 -Actual $run.Code -Because $run.Output
+        Assert-Match 'Beta\.Tests\.ps1 is in the baseline but no longer discovered' $run.Output
+    }
+
+    It 'refuses -BaselinePath beside -Staged as unable to reach a verdict' {
+        $output = & $script:Pwsh -NoProfile -File $script:Tool -Root $script:RepoRoot -Staged -BaselinePath $script:BaselinePath -Quiet 2>&1 | Out-String
+        Assert-Equal -Expected 2 -Actual $LASTEXITCODE -Because $output
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4229d039-c021-419e-a736-76c0a2f58264
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,8 +65,8 @@ Describe 'the framework archive a service VM extracts is the seeded commit' {
     BeforeAll {
         $script:Repo = Join-Path $TestDrive 'repo'
         $null = New-Item -ItemType Directory -Path (Join-Path $script:Repo 'docs') -Force
-        $git = { param([Parameter(ValueFromRemainingArguments)]$GitArgs) & git -C $script:Repo -c user.name=fixture -c user.email=fixture@example.invalid @GitArgs 2>&1 | Out-Null }
-        & git init -q $script:Repo
+        $git = { param([Parameter(ValueFromRemainingArguments)]$GitArgs) & git -C $script:Repo @GitArgs 2>&1 | Out-Null }
+        $null = New-YurunaTestGitRepository -Path $script:Repo
         Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '1' -NoNewline
         Set-Content -LiteralPath (Join-Path $script:Repo 'docs/private.md') -Value 'not shipped' -NoNewline
         & $git add -A; & $git commit -q -m one
@@ -97,7 +97,7 @@ Describe 'the framework archive a service VM extracts is the seeded commit' {
         Get-YurunaGitArchiveDigest -RepoDir $script:Repo -Commit ('0' * 40) | Should -Be ''
     }
     It 'is the construction the status service streams, selected by ?commit=' {
-        $source = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'test/service/Start-StatusService.ps1')
+        $source = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'test/service/Invoke-StatusServiceRuntime.ps1')
         $fn = [regex]::Match($source, '(?ms)^function Send-GitArchive \{.*?^\}').Value
         $fn | Should -Match 'Export-YurunaGitArchive -RepoDir'
         $fn | Should -Match "QueryString\['commit'\]"
@@ -113,7 +113,7 @@ Describe 'the framework archive a service VM extracts is the seeded commit' {
         $rendered | Should -Match (Get-YurunaGitArchiveDigest -RepoDir $script:RepoRoot -Commit $ref -ExcludePath (Get-YurunaFrameworkArchiveExcludePath))
     }
     It 'hashes the paths the framework route leaves out' {
-        $source = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'test/service/Start-StatusService.ps1')
+        $source = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'test/service/Invoke-StatusServiceRuntime.ps1')
         $route = [regex]::Match($source, "-ErrorLabel 'yuruna-archive' -ExcludePath @\(([^)]*)\)")
         $route.Success | Should -BeTrue
         $served = @([regex]::Matches($route.Groups[1].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
@@ -279,7 +279,7 @@ Describe 'the proxy CA is trusted by fingerprint' {
     }
     It 'records the fingerprint with the CA it caches, so the next fetch is pinned' {
         $runtime = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
-        $previous = $env:YURUNA_RUNTIME_DIR
+        $previous = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $runtime
         try {
             $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script:CaA))
@@ -287,7 +287,7 @@ Describe 'the proxy CA is trusted by fingerprint' {
             (Read-CachingProxyServiceState).caCertSha256 | Should -Be (Get-YurunaCertificateSha256 -Pem $script:CaA)
             Mock -ModuleName Test.CachingProxyService Get-YurunaBumpCa { $null }
             (Resolve-YurunaPinnedProxyCa -Pem $script:CaB -CacheHost '192.0.2.42').Reason | Should -Be 'pin-mismatch'
-        } finally { $env:YURUNA_RUNTIME_DIR = $previous }
+        } finally { Restore-YurunaTestEnvironment -Saved $previous }
     }
     It 'trusts a discovered proxy on first use although this host owns another CA' {
         # The recorded proxy address can be a proxy another host built, found by
@@ -840,5 +840,82 @@ cp '$($script:Dir)/served.pem' "`$dest"
         $out = Invoke-SelfHeal -Pin $script:Sha -ProbeAfterInstall '0'
         $out | Should -Match 'already trusted'
         Get-Content -Raw -LiteralPath $script:Anchor | Should -Be $script:CaA
+    }
+}
+
+Describe 'seed values cannot change the syntax around their placeholders' {
+    # Substitution is a literal replace into shell, YAML and env-file text, so a
+    # value is held to what its surroundings can carry and the render refuses
+    # the rest, naming the placeholder and line but never the value.
+    BeforeAll {
+        $script:CannotPlace = '*seed value for {0} cannot be placed*'
+    }
+
+    It 'refuses <Name>' -ForEach @(
+        @{ Name = 'a single quote inside single quotes'; Template = "    printf '%s' 'GH_TOKEN_PLACEHOLDER' > f"; Value = "ab'; reboot; '" }
+        @{ Name = 'a newline in an inline value'; Template = '  hostname: HOSTNAME_PLACEHOLDER'; Value = "host`nruncmd: [reboot]" }
+        @{ Name = 'a command substitution in an unquoted env line'; Template = '      YURUNA_PROJECT_URL=YURUNA_PROJECT_URL_PLACEHOLDER'; Value = 'file:///x$(reboot)' }
+        @{ Name = 'a space in an unquoted env line the guest sources'; Template = '      YURUNA_PROJECT_URL=YURUNA_PROJECT_URL_PLACEHOLDER'; Value = 'file:///home/a b/project' }
+        @{ Name = 'a dollar sign inside shell double quotes'; Template = '      PROXY_URL="CACHING_PROXY_URL_PLACEHOLDER"'; Value = 'http://$(id)/' }
+        @{ Name = 'a double quote inside a YAML double-quoted value'; Template = '    password: "HASH_PLACEHOLDER"'; Value = 'x" ; y' }
+        @{ Name = 'a leading YAML indicator in a plain value'; Template = '    plain_text_passwd: PASSWORD_PLACEHOLDER'; Value = '@secret' }
+        @{ Name = 'a comment marker in a plain value'; Template = '    plain_text_passwd: PASSWORD_PLACEHOLDER'; Value = 'abc #def' }
+    ) {
+        $placeholder = ([regex]::Match($Template, '[A-Z][A-Z0-9_]*_PLACEHOLDER')).Value
+        $err = { Resolve-CloudInitPlaceholder -TemplateContent $Template -Replacement @{ $placeholder = $Value } } |
+            Should -Throw -PassThru -ExpectedMessage ($script:CannotPlace -f $placeholder)
+        $err.Exception.Message | Should -Match 'template line 1'
+        $err.Exception.Message.Contains($Value) | Should -BeFalse -Because 'a seed value can be a secret'
+    }
+
+    It 'accepts <Name>' -ForEach @(
+        @{ Name = 'a caller-built block on its own line'; Template = "write_files:`nAPT_PROXY_BLOCK_PLACEHOLDER`nruncmd: []"; Value = "  - path: /etc/apt/x`n    content: |`n      y" }
+        @{ Name = 'a password hash in a YAML double-quoted value'; Template = '    password: "HASH_PLACEHOLDER"'; Value = '$6$saltsalt$Hh0/.abcDEF123' }
+        @{ Name = 'a UNC path in an env line that is read with sed'; Template = '      YURUNA_POOL_NETWORK_PATH=POOL_NAS_NETWORK_PATH_PLACEHOLDER'; Value = '\\192.168.1.10\share' }
+        @{ Name = 'a generated password in a plain YAML value'; Template = '    plain_text_passwd: PASSWORD_PLACEHOLDER'; Value = 'aB3!@#$%^&*()-_=+' }
+        @{ Name = 'base64 in a plain YAML value'; Template = '    content: YURUNA_FAE_BASE64_PLACEHOLDER'; Value = '+/AbC9=' }
+        @{ Name = 'an empty value'; Template = "      YURUNA_CA_SHA256=YURUNA_CA_SHA256_PLACEHOLDER"; Value = '' }
+    ) {
+        $placeholder = ([regex]::Match($Template, '[A-Z][A-Z0-9_]*_PLACEHOLDER')).Value
+        $out = Resolve-CloudInitPlaceholder -TemplateContent $Template -Replacement @{ $placeholder = $Value }
+        $out | Should -BeExactly $Template.Replace($placeholder, $Value)
+    }
+
+    It 'reports every refused occurrence in its count' {
+        $template = "  hostname: HOSTNAME_PLACEHOLDER`n    printf '%s' 'GH_TOKEN_PLACEHOLDER'"
+        { Resolve-CloudInitPlaceholder -TemplateContent $template -Replacement @{ HOSTNAME_PLACEHOLDER = "a`nb"; GH_TOKEN_PLACEHOLDER = "x'y" } } |
+            Should -Throw -ExpectedMessage '*2 placeholder occurrence(s)*'
+    }
+
+    It 'raises nothing for the shipped templates rendered with representative values' {
+        # Values shaped like what the callers pass, including the characters the
+        # vault's password alphabet and the operator's NAS paths really contain,
+        # so a rule that would refuse a working seed fails here first.
+        $sample = @{
+            PASSWORD = 'aB3!@#$%^&*()-_=+'; PLAINTEXT_PASSWORD = 'aB3!@#$%^&*()-_=+'; HASH = '$6$saltsalt$Hh0/.abcDEF123'
+            USERNAME = 'yuruna'; HOSTNAME = 'yuruna-guest-01'; INSTANCE_ID = 'iid-yuruna-01'; GH_TOKEN = 'ghp_ABCdef0123456789'
+            SSH_AUTHORIZED_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFake+key/abc= yuruna'
+            YURUNA_STATUS_SERVICE_IP = '192.168.1.20'; YURUNA_STATUS_SERVICE_PORT = '8080'; YURUNA_HOST_ID = '42deadbeef0123456789abcdef012345'
+            YURUNA_FRAMEWORK_URL = 'https://github.com/alissonsol/yuruna.git'; YURUNA_PROJECT_URL = 'file:///home/yuruna/git/yuruna-project'
+            POOL_NAS_NETWORK_PATH = '\\192.168.1.10\share'; YPOOL_NAS_NETWORK_PATH = '//192.168.1.10/share'; YSTASH_NAS_NETWORK_PATH = '//nas/stash'
+            CACHING_PROXY_URL = 'http://192.168.1.30:3128'; YURUNA_AGGREGATOR_URL = 'http://192.168.1.30:9400'
+            YURUNA_BRAND_NAME = 'Yuruna Lab'; YURUNA_DOCKERHUB_TOKEN = 'dckr_pat_AbC-123_x'; SQUID_CACHE_MEM = '512 MB'
+        }
+        $files = @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'host/vmconfig') -File |
+                Where-Object { $_.Name -match '\.(user-data|meta-data|network-config|yml)$' })
+        $files.Count | Should -BeGreaterThan 10
+        foreach ($file in $files) {
+            $text = [IO.File]::ReadAllText($file.FullName)
+            $replacement = @{}
+            foreach ($m in [regex]::Matches($text, '\b([A-Z][A-Z0-9_]*)_PLACEHOLDER\b')) {
+                $stem = $m.Groups[1].Value
+                $replacement[$m.Value] = if ($sample.ContainsKey($stem)) { $sample[$stem] } elseif ($stem -match 'BASE64') { 'QUJD+/9=' } elseif ($stem -match 'SHA256') { 'a' * 64 } else { 'value-1.2_3' }
+            }
+            $violations = InModuleScope Yuruna.CloudInitTemplate -Parameters @{ Text = $text; Replacement = $replacement } {
+                param($Text, $Replacement)
+                Get-CloudInitValueContextViolation -TemplateContent $Text -Replacement $Replacement
+            }
+            ($violations | ForEach-Object { "$($file.Name):$($_.Line) $($_.Placeholder) [$($_.Context)] $($_.Reason)" }) | Should -BeNullOrEmpty
+        }
     }
 }

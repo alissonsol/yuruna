@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b1ac37-5615-4bfc-a3de-731b717694e9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -109,11 +109,11 @@ Describe 'Ubuntu-KVM bridge backend: source keys the choice off NIC management' 
     # the daemon-running check, and must retain a netplan fallback. Read the source
     # INSIDE the It so the value survives Pester 5's discovery/run split.
     It 'New-YurunaExternalNetwork gates the nmcli path on Test-YurunaNicManagedByNetworkManager' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src -match 'Test-YurunaNicManagedByNetworkManager -Nic \$nic') 'the backend choice must check NIC management'
     }
     It 'still falls back to the netplan path when nmcli fails' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True (((Get-CatalogSourceMessage -Source $src) -join "`n") -match 'nmcli bridge build failed; falling back to the netplan') 'an nmcli failure must fall back to netplan, not straight to NAT'
     }
 }
@@ -162,44 +162,44 @@ Describe 'Ubuntu-KVM bridge lifecycle: half-built-state source guards' {
     # bridge bring-up reliable. Each literal below is load-bearing: if a
     # refactor drops it, one of the wedge states comes back.
     It 'build path sweeps residue before building' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src.Contains('Clear-YurunaExternalBridgeResidue -Nic $nic -BridgeName $BridgeName')) 'stale profiles/netplan/device must be swept before any backend builds'
     }
     It 'residue sweep removes a stale kernel bridge device' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src.Contains('ip link delete $BridgeName')) 'a stale same-named device is what makes nmcli fail with "no compatible device"'
     }
     It 'residue sweep refuses to touch a NIC that is itself a bridge' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src.Contains('/sys/class/net/$Nic/bridge')) 'deleting the bridge that holds the default route would cut the host off'
     }
     It 'nmcli build adds profiles with autoconnect no and the MAC pinned at add time' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src.Contains("'autoconnect', 'no'")) 'NM must not race ahead of the explicit activation order'
         Assert-True ($src.Contains("'bridge.mac-address', `$nicMac")) 'a MAC set by a later modify races device realization and fails activation'
     }
     It 'nmcli build defers boot persistence until the uplink is verified' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src.Contains('connection.autoconnect-slaves 1')) 'the bridge must pull its port up at boot'
     }
     It 'nmcli failure paths re-activate the original NIC connection' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src.Contains('nmcli device connect $Nic')) 'a failed build must never strand the host without networking'
     }
     It 'netplan build hands the NIC off from NetworkManager before apply' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src.Contains('nmcli device set $Nic managed no')) 'without the handoff NM and networkd fight for the NIC and the bridge stays uplink-less'
     }
     It 'netplan build verifies enslavement in /sys instead of trusting exit codes' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src.Contains('Wait-YurunaBridgeUplink -BridgeName $BridgeName -Nic $Nic')) 'netplan apply returns before networkd converges; only brif membership proves the uplink'
     }
     It 'reuse path rebuilds when the repair reports the bridge unrecoverable' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src.Contains("if (`$repair -ne 'rebuild') { return `$NetworkName }")) 'a wedged bridge must fall through to the build steps, not fast-return'
     }
     It 'Get-ExternalNetwork only offers ACTIVE libvirt networks to guests' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src -match '\$active\s+= Invoke-Virsh -VirshArgs @\(''net-list'', ''--name''\)') 'a defined-but-stopped network must never be handed to virt-install'
     }
     It 'caching-proxy-service New-VM refuses to create a VM on an uplink-less bridge -- but only for bridge-mode networks' {
@@ -209,15 +209,15 @@ Describe 'Ubuntu-KVM bridge lifecycle: half-built-state source guards' {
         Assert-True ($src -match "<forward\\s\+mode='bridge'") 'NAT/routed networks own a virbr bridge with no uplink by design; probing it would veto a working network'
     }
     It 'repair refuses to touch networks that are not host-bridge-backed' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src.Contains('Test-YurunaLibvirtNetworkIsBridgeMode')) 'rebuilding a libvirt-owned NAT bridge as a LAN bridge would put its dnsmasq on the LAN (rogue DHCP)'
     }
     It 'netplan build rollback re-applies netplan so the running daemons restore the NIC' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         Assert-True ($src -match '(?s)\$rollback = \{.{0,500}netplan apply') 'generate only rewrites /run; without apply a pure-networkd host is left addressless after a failed build'
     }
     It 'rebuild-flow bail-outs stop an already-defined network on an unusable bridge' {
-        $src = Get-Content -Raw -LiteralPath $modulePath
+        $src = Get-YurunaTestSourceText -Path $modulePath
         $stopCalls = ([regex]::Matches($src, 'Stop-YurunaUnusableExternalNetwork -NetworkName \$NetworkName')).Count
         Assert-True ($stopCalls -ge 5) "every pre-build failure exit must deactivate the dead network so guests fall back to NAT (found $stopCalls call sites)"
     }

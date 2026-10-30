@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,12 +94,12 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 # --- REGION: Elevation check
 # See https://yuruna.link/42e220c4-0008
 if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Verbose ""
+    Write-Output ""
     Write-Output "This script requires elevation (Run as Administrator)."
     Write-Output "Start-CachingProxyServiceVM needs an elevated session to:"
-    Write-Verbose "  * query Hyper-V for the VHD folder (Get-VMHost)"
-    Write-Verbose "  * create and remove the '$VMName' VM and its disk"
-    Write-Verbose "  * set the host proxy (WinINet) and netsh portproxy rules"
+    Write-Output "  * query Hyper-V for the VHD folder (Get-VMHost)"
+    Write-Output "  * create and remove the '$VMName' VM and its disk"
+    Write-Output "  * set the host proxy (WinINet) and netsh portproxy rules"
     Write-Output "Re-launch PowerShell as Administrator and run this script again."
     Write-Error "Start-CachingProxyServiceVM requires Administrator on Windows. Nothing was changed."
     exit 1
@@ -356,17 +356,18 @@ if (-not $ForceRebuild) {
         $cpAdoptConfig = Read-TestConfig -Path (Join-Path $PSScriptRoot '../test.config.yml')
         [void](Start-YurunaStatusServiceIfEnabled -Config $cpAdoptConfig -StartScript (Join-Path $PSScriptRoot 'Start-StatusService.ps1'))
         [void](Start-YurunaConfigServiceIfEnabled -Config $cpAdoptConfig -StartScript (Join-Path $PSScriptRoot 'Start-ConfigService.ps1'))
-        # Re-assert LAN exposure (idempotent, clear-all-first): LAN-direct
+        # Re-assert LAN exposure (idempotent; replaces the cache's own
+        # forwarders and no other owner's): LAN-direct
         # (bridged/external) needs no forwarder; a NAT'd cache gets host port maps.
         # Best-effort -- the per-cycle runner re-applies port maps regardless.
         try {
             if (Test-CacheVMOnExternalNetwork -VMName $VMName) {
                 Write-Verbose "  Cache VM is LAN-direct (bridged/external) -- no host port-forwarders needed."
-                [void](Remove-PortMap -Confirm:$false)
+                [void](Remove-PortMap -Owner 'caching-proxy-service' -Confirm:$false)
             } else {
                 $adoptHttpPort  = Get-CachingProxyServicePort -Scheme http
                 $adoptHttpsPort = Get-CachingProxyServicePort -Scheme https
-                [void](Add-PortMap -VMIp $cpAdopt.Ip `
+                [void](Add-PortMap -Owner 'caching-proxy-service' -VMIp $cpAdopt.Ip `
                         -Port (Get-CachingProxyServiceExposedPort -HttpPort $adoptHttpPort -HttpsPort $adoptHttpsPort) `
                         -PortRemap @{8022 = 22} -Confirm:$false)
                 Write-Verbose "  Re-applied host port-forwarders to the cache at $($cpAdopt.Ip)."
@@ -374,8 +375,10 @@ if (-not $ForceRebuild) {
         } catch {
             Write-Warning "  Port-map refresh on adopt failed: $($_.Exception.Message). The per-cycle runner re-applies port maps, so this is non-fatal."
         }
-        # Refresh the recorded IP (unchanged, but keeps the state file current).
+        # Record the live address: unchanged in the usual case, and a repair
+        # when DHCP moved the proxy since the record was written.
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
+        if ($cpAdopt.Moved) { Write-Warning "  $($cpAdopt.Reason): the recorded caching-proxy address is updated to $($cpAdopt.Ip)." }
         [void](Save-CachingProxyServiceState -IpAddress $cpAdopt.Ip -Confirm:$false)
         Write-Verbose ""
         Write-Verbose "========"
@@ -401,6 +404,18 @@ if (-not $ForceRebuild) {
 # or built for a request that no longer stands (the outer finally reports the
 # newer one).
 if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) { exit 1 }
+
+# --- REGION: Check the build plan
+# The builder's plan runs while the working proxy is still in place, so a
+# refused input (SSH key, vault password, seed templates, guest network) stops
+# the rebuild before Step 1 tears anything down.
+Import-Module (Join-Path $ModulesDir 'Test.ServiceVm.psm1') -Global -DisableNameChecking -Verbose:$false
+$cpPlan = Test-YurunaServiceVmBuildPlan -BuilderPath $NewVMScript -VMName $VMName -AllowPseudoLocale:$AllowPseudoLocale
+if (-not $cpPlan.Ok) {
+    Write-Error $cpPlan.Error -ErrorAction Continue
+    exit 1
+}
+$cpBuildDegraded = @()
 
 # --- REGION: Remove existing VM
 Write-Verbose ""
@@ -445,7 +460,7 @@ if ($IsMacOS) {
     try {
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.HostContract.psm1') -Force
         [void](Initialize-YurunaHost -RepoRoot (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
-        [void](Remove-PortMap -Confirm:$false)
+        [void](Remove-PortMap -Owner 'caching-proxy-service' -Confirm:$false)
     } catch {
         Write-Warning "  Remove-PortMap (legacy forwarder cleanup) failed: $($_.Exception.Message). Cleanup will continue."
     }
@@ -603,42 +618,36 @@ if ($cpConfigDecision.ShouldStart) {
 # --- REGION: Create the VM
 Write-Verbose ""
 Write-Verbose "== Step 3: create VM '$VMName' =="
-$global:LASTEXITCODE = $null
 # See https://yuruna.link/42e220c4-0008
-$newVmParams = @{ VMName = $VMName; AllowPseudoLocale = $AllowPseudoLocale }
-if ($MacAddress) { $newVmParams.MacAddress = $MacAddress }
+# Each builder parameter is a separate string after its name, so the child's
+# command line binds it by name.
+$newVmArgs = [Collections.Generic.List[string]]::new()
+if ($MacAddress) { $newVmArgs.AddRange([string[]]@('-MacAddress', $MacAddress)) }
 # Both or neither: the profile is the only place these two are chosen, so a
 # caller cannot shrink the VM and leave squid budgeted for the larger one.
 # Imported here rather than relying on the -MacAddress branch above, which only
 # loads the module when the operator pinned a MAC.
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $cacheProfile = Get-CachingProxyMemoryProfile -Lab:$Lab
-$newVmParams.MemoryMb      = $cacheProfile.VmMemoryMb
-$newVmParams.SquidCacheMem = $cacheProfile.SquidCacheMem
+$newVmArgs.AddRange([string[]]@('-MemoryMb', [string]$cacheProfile.VmMemoryMb, '-SquidCacheMem', [string]$cacheProfile.SquidCacheMem))
 Write-Verbose ("  Cache VM sizing: {0} MB RAM, squid cache_mem {1} ({2} profile)." -f `
     $cacheProfile.VmMemoryMb, $cacheProfile.SquidCacheMem, $(if ($Lab) { 'lab' } else { 'standalone' }))
-& $NewVMScript @newVmParams
-# $? must be captured on the VERY next statement; any intervening command
-# overwrites it.
-$newVmInvokeOk = $?
-# Same $LASTEXITCODE-reliability guard as Get-Image above: a child .ps1 that ends
-# on a cmdlet leaves it unset, so only a REAL non-zero is a failure. New-VM.ps1 is
-# the real gate -- it builds and (Hyper-V/KVM) starts the VM and blocks on :3128,
-# exiting non-zero or throwing on failure (a throw terminates this script before
-# the check); the UTM branch's registration check below is a further gate.
-if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
-    Write-Error "New-VM.ps1 failed (exit $LASTEXITCODE)."
-    exit 1
+# The rebuilt guest has new SSH host keys; forget the pinned one.
+Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -DisableNameChecking -WarningAction SilentlyContinue
+Reset-GuestHostKeyPin -VMName $VMName -Confirm:$false
+# The builder runs as a bounded child, as the other service builders do: run in
+# this process, a wedged hypervisor call or download would hold the service
+# lock, and every Stop queued behind it, for as long as it lasted. The child's
+# lines are relayed, the seed values it baked empty are collected, and a
+# builder that never ran (a parse or binding failure) exits non-zero. New-VM.ps1
+# is the real gate: it builds and (Hyper-V/KVM) starts the VM and blocks on
+# :3128; the UTM branch's registration check below is a further gate.
+$cpBuild = Invoke-YurunaServiceVmBuilderRun -BuilderPath $NewVMScript -VMName $VMName -BuilderArgument $newVmArgs.ToArray() -AllowPseudoLocale:$AllowPseudoLocale
+if (-not $cpBuild.Ok) {
+    Write-Error $cpBuild.Error -ErrorAction Continue
+    exit $cpBuild.ExitCode
 }
-# $LASTEXITCODE cannot see a child that never RAN: a parameter-binding or
-# parse failure surfaces only as a non-terminating error on the invocation
-# ($? = $false) and leaves $LASTEXITCODE $null -- without this check the
-# run would sail on to discovery and print a false "READY" banner over a
-# VM that was never created.
-if (-not $newVmInvokeOk) {
-    Write-Error "New-VM.ps1 did not run to completion (invocation failed -- e.g. parameter-binding or parse error; see the error above)."
-    exit 1
-}
+$cpBuildDegraded = @($cpBuild.Degraded)
 
 # --- REGION: Register and start the UTM VM
 # (Hyper-V's New-VM.ps1 already starts the VM and waits for :3128.)
@@ -800,7 +809,7 @@ if ($IsMacOS) {
                     & sudo -v
                 }
             }
-            $cacheForwarded = [bool](Add-PortMap -VMIp $cacheIp `
+            $cacheForwarded = [bool](Add-PortMap -Owner 'caching-proxy-service' -VMIp $cacheIp `
                     -Port (Get-CachingProxyServiceExposedPort -HttpPort $httpPort -HttpsPort $httpsPort) `
                     -PortRemap @{8022 = 22} -Confirm:$false)
             if ($cacheForwarded) {
@@ -863,7 +872,7 @@ if ($IsMacOS) {
     if ($cacheIp) {
         Write-Verbose ""
         Write-Verbose "== Step 6: tear down any legacy host-side forwarders (bridged cache is LAN-direct) =="
-        [void](Remove-PortMap -Confirm:$false)
+        [void](Remove-PortMap -Owner 'caching-proxy-service' -Confirm:$false)
 
         # See https://yuruna.link/42e5cdfd-0039
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
@@ -897,7 +906,7 @@ if ($IsMacOS) {
         [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
         if (Test-CacheVMOnExternalNetwork -VMName $VMName) {
             Write-Verbose "  Cache VM is on a bridged libvirt network (LAN-direct, real client IPs preserved). Skipping host portproxy."
-            [void](Remove-PortMap -Confirm:$false)
+            [void](Remove-PortMap -Owner 'caching-proxy-service' -Confirm:$false)
             $cacheLanIp = $cacheIp
         } else {
             $hPort  = Get-CachingProxyServicePort -Scheme http
@@ -905,7 +914,7 @@ if ($IsMacOS) {
             # Port set: squid (3128 / 3129), Apache CA cert (80),
             # Grafana (3000), caching-proxy-parser-service (9302),
             # pool-aggregator-service (9400), SSH remap 8022 -> 22 for jump-host access.
-            $cacheForwarded = [bool](Add-PortMap -VMIp $cacheIp `
+            $cacheForwarded = [bool](Add-PortMap -Owner 'caching-proxy-service' -VMIp $cacheIp `
                     -Port (Get-CachingProxyServiceExposedPort -HttpPort $hPort -HttpsPort $hsPort) `
                     -PortRemap @{8022 = 22} -Confirm:$false)
             if ($cacheForwarded) {
@@ -964,14 +973,14 @@ if ($IsMacOS) {
         # See https://yuruna.link/42e5cdfd-003b
         if (Test-CacheVMOnExternalNetwork -VMName $VMName) {
             Write-Verbose "  Cache VM is on an External vSwitch (LAN-direct, real client IPs preserved). Skipping host portproxy."
-            [void](Remove-PortMap -Confirm:$false)
+            [void](Remove-PortMap -Owner 'caching-proxy-service' -Confirm:$false)
         } else {
             $hPort  = Get-CachingProxyServicePort -Scheme http
             $hsPort = Get-CachingProxyServicePort -Scheme https
             # 9302: caching-proxy-parser-service endpoint (see
             # test/extension/caching-proxy-parser-service/). Reached directly via
             # netsh portproxy along with squid/Apache/Grafana.
-            [void](Add-PortMap -VMIp $cacheIp `
+            [void](Add-PortMap -Owner 'caching-proxy-service' -VMIp $cacheIp `
                     -Port (Get-CachingProxyServiceExposedPort -HttpPort $hPort -HttpsPort $hsPort) `
                     -PortRemap @{8022 = 22} -Confirm:$false)
         }
@@ -983,6 +992,12 @@ if ($IsMacOS) {
 # A successful bring-up must record the guest address before releasing its lock.
 if (-not $cacheIp) {
     Write-Output "== caching-proxy-service is NOT READY -- '$VMName' =="
+    exit 1
+}
+# A stop requested while this rebuild ran wins: its CA is not pushed to the
+# pool, and the start is not confirmed.
+if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_start_stop_requested' -Arguments @{ vmName = $VMName; stopScript = 'Stop-CachingProxyServiceVM.ps1' })
     exit 1
 }
 try {
@@ -1021,6 +1036,9 @@ Write-Verbose "========"
 # otherwise -- so READY is a claim this can still make truthfully.
 Write-Output "== caching-proxy-service is READY -- '$VMName' =="
 Write-Verbose "========"
+if ($cpBuildDegraded.Count -gt 0) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_start_degraded' -Arguments @{ vmName = $VMName; names = ($cpBuildDegraded -join ', ') })
+}
 if ($cacheIp) {
     Write-Output "  VM IP:       $cacheIp"
     $summaryHttpPort  = Get-CachingProxyServicePort -Scheme http

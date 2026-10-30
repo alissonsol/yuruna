@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4296f1a1-76e4-44f9-8c28-9bc89641228f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,5 +115,33 @@ Describe 'New-YurunaRegistry reports the live store comparer' {
             $dir = Get-Variable -Name '__YurunaRegistryDirectory' -Scope Global -ValueOnly -ErrorAction SilentlyContinue
             if ($dir) { [void]$dir.Remove($nm) }
         }
+    }
+}
+
+Describe 'New-YurunaRegistry under an entry point''s -WhatIf' {
+    It 'builds and indexes the store, which is process memory, when imported with WhatIfPreference set' {
+        # A child process, so the probe's global anchors and preference never
+        # reach this session: -Command runs in the global scope, as an entry
+        # point invoked with -WhatIf imports its modules before it asks.
+        $probe = @"
+`$WhatIfPreference = `$true
+Import-Module '$($mod -replace "'", "''")' -DisableNameChecking
+`$r = New-YurunaRegistry -Name 'whatif-probe' -AnchorVar 'Test_WhatIfProbe'
+& `$r.Register 'k' 'v'
+`$WhatIfPreference = `$false
+[pscustomobject]@{
+    Anchor  = [bool](Get-Variable -Name 'Test_WhatIfProbe' -Scope Global -ErrorAction SilentlyContinue)
+    Indexed = [bool]((Get-YurunaRegistryDirectory)['whatif-probe'])
+    Value   = (& `$r.Get 'k')
+} | ConvertTo-Json -Compress
+"@
+        $stderrPath = Join-Path $TestDrive 'whatif-probe.err'
+        $out = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -Command $probe 2> $stderrPath
+        $stderr = [IO.File]::ReadAllText($stderrPath)
+        $stderr | Should -BeNullOrEmpty -Because 'importing and registering under -WhatIf raises no error'
+        $result = (@($out) | Where-Object { "$_".StartsWith('{') } | Select-Object -Last 1) | ConvertFrom-Json
+        $result.Anchor | Should -BeTrue
+        $result.Indexed | Should -BeTrue
+        $result.Value | Should -Be 'v'
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c12fdb-b2fc-4001-bd06-428aef0695a7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Prepare THIS host to run yuruna automated VM tests, whatever host it is.
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-006e.
 .PARAMETER RemainingArguments
     Anything not declared here is forwarded to the per-host script verbatim
     (-WhatIf among them), so a parameter added there needs no edit here.
@@ -49,7 +49,7 @@ Use-LogLevelFromEnv
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 
 # --- REGION: Common-parameter relay
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-006d
 $extra = @()
 if ($PSBoundParameters.ContainsKey('Verbose') -or $VerbosePreference -eq 'Continue') { $extra += '-Verbose' }
 

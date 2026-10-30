@@ -22,7 +22,7 @@ drift on a correctly provisioned machine every time.
 
 <a id="4213a0b3-0003"></a>
 
-## automation/Set-HostAlias.ps1: 2. Elevation / root assertion
+## automation/Set-HostAlias.ps1: 3. Resolver-cache invalidation
 
 Writing the file is not the end of the change. The operating system
 resolves names out of an in-memory cache that goes on answering with the
@@ -293,7 +293,7 @@ manual run cannot archive under different rules than the runner would.
 
 <a id="4213a0b3-0013"></a>
 
-## test/modules/Invoke-TestCycleRunner.ps1: Host-refresh transport
+## test/modules/Invoke-TestCycleRunner.ps1: Run one cycle
 
 Invoked without capturing the success stream; the typed outcome is read through
 `Get-LastOuterCycleResult`, leaving the cycle's output on the operator's console.
@@ -324,7 +324,7 @@ inner process, so source changes propagate without a mid-cycle refresh loop.
 
 <a id="4213a0b3-0015"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Resolve paths
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Single-instance guard
 
 Defensive: if another Start-TestRunner.ps1 (the outer) is running,
 stop it and wipe stranded test VMs. The normal call path is the
@@ -375,7 +375,7 @@ checks before it may reclaim this inner.
 
 <a id="4213a0b3-0018"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Inner PID + heartbeat
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Unattended contract
 
 The cycle worker spawns this inner with `Process.Start` and no standard-stream
 redirection, so the inner inherits the launch terminal. Any prompt it raises therefore blocks the entire host until
@@ -408,7 +408,7 @@ up source changes without an in-process refresh loop.
 
 <a id="4213a0b3-001a"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Read config (syncs against template first)
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Pre-cycle config gate
 
 One gate, at the front of the cycle, before any host work: the outer runner
 gates once at startup, but it then runs cycles for days, so a startup-only
@@ -428,7 +428,7 @@ the same chain seconds earlier, and the first ordinary cycle gates again.
 
 <a id="4213a0b3-001b"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Held-control barrier
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Concurrent-VM admission
 
 Two cycles on one VM set corrupt each other, so a cycle starts only on a host
 it has positively found free of other guests. On some macOS versions
@@ -446,7 +446,7 @@ the reason in vm-admission.json for the outer runner to name.
 
 <a id="4213a0b3-001c"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Concurrent-VM admission
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start host guest-network gate
 
 A virtual-switch object outlives its uplink binding across a host reboot, so
 the object's survival is not evidence that the bridge still carries traffic:
@@ -474,7 +474,7 @@ watchdog kills it.
 
 <a id="4213a0b3-001d"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start host guest-network gate
+## test/modules/Test.RunnerInnerLoop.psm1: Degraded-host pair -> runtime/host-network.txt + host-network.json
 
 host-network.txt is ready-to-embed HTML the status page appends verbatim;
 host-network.json is the machine-readable twin Write-HostRegistrationRecord
@@ -489,7 +489,7 @@ consumer that only tests for existence.
 
 <a id="4213a0b3-001e"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Degraded-host pair -> runtime/host-network.txt + host-network.json
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Stale cycle-restart flag sweep
 
 control.cycle-restart is written by the worker behind the status service's
 /control/start-cycle endpoint. The inter-cycle delay loop consumes it on its next tick;
@@ -521,7 +521,7 @@ after its own Initialize-YurunaHost.
 
 <a id="4213a0b3-0020"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Stale cycle-restart flag sweep
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start service-VM restore
 
 A host reboot leaves every service VM registered with the hypervisor and
 powered OFF, and nothing else in the cycle turns them back on. The two
@@ -540,7 +540,7 @@ and discards a warm squid cache; a start is seconds and keeps it.
 
 <a id="4213a0b3-0021"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start service-VM restore
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start External vSwitch repair (Hyper-V only)
 
 HERE, and nowhere else in the cycle. A rebind takes carrier from every guest
 on the switch and drops host networking on the target NIC for a moment -- both
@@ -558,7 +558,7 @@ been doing; the repair only tries to win back the bridged path.
 
 <a id="4213a0b3-0022"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start External vSwitch repair (Hyper-V only)
+## test/modules/Test.RunnerInnerLoop.psm1: Invoke-CycleExternalSwitchRepair
 
 The gate above wrote the degraded pair from a probe taken BEFORE this
 repair ran, so a switch fixed here would keep advertising a fault it no
@@ -573,7 +573,7 @@ not pay for a second probe every cycle.
 
 <a id="4213a0b3-0023"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start External vSwitch repair (Hyper-V only)
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start caching-proxy-service gate
 
 Probe the two operator sources in priority order (persistent
 vmStart.cachingProxyIp config key, then the session env var) --
@@ -591,7 +591,7 @@ Naming the phase puts 'caching-proxy-gate' in the watchdog's kill line.
 
 <a id="4213a0b3-0024"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start caching-proxy-service gate
+## test/modules/Test.RunnerInnerLoop.psm1: Invoke-CycleCachingProxyGate
 
 Port-map dispatch (external / Yuruna-External fast path /
 Default-Switch fallback) and the Windows-vs-macOS port-list shape:
@@ -606,7 +606,7 @@ degrades to the unlocked behavior instead of erroring.
 
 <a id="4213a0b3-0025"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start caching-proxy-service gate
+## test/modules/Test.RunnerInnerLoop.psm1: Invoke-CycleCachingProxyGate
 
 There is deliberately NO sudo prime here any more. Elevation for an
 unattended host is a launch-time concern (Assert-RunnerElevation, run once by
@@ -623,7 +623,7 @@ never happens.
 
 <a id="4213a0b3-0026"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start caching-proxy-service gate
+## test/modules/Test.RunnerInnerLoop.psm1: Invoke-CycleCachingProxyGate
 
 External handling below removes this host's forwarders,
 so it may only run when the endpoint is POSITIVELY not this
@@ -637,12 +637,12 @@ re-asserts a port map -- so unknown must land on the local side.
 
 <a id="4213a0b3-0027"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Cycle-start caching-proxy-service gate
+## test/modules/Test.RunnerInnerLoop.psm1: Invoke-CycleCachingProxyGate
 
 The exposed-port set (incl. 9302 caching-proxy-parser-service live tail)
 comes from Get-CachingProxyServiceExposedPort so it cannot drift from
-Start-CachingProxyServiceVM's install list; Add-PortMap is clear-all-first,
-so a dropped port goes dark on reinstall. macOS re-maps only the two
+Start-CachingProxyServiceVM's install list; Add-PortMap replaces the cache's
+forwarders with this set, so a dropped port goes dark on reinstall. macOS re-maps only the two
 ports an operator opens by hand: Grafana, and 80 -- which is where
 the caching-proxy VM's landing page lives, and therefore where the
 host status pages' Dashboards link points. Without 80 that link
@@ -852,7 +852,7 @@ nothing: every snapshot miss already falls through to a full YAML parse.
 
 <a id="4213a0b3-0034"></a>
 
-## test/modules/Test.ConfigNaming.psm1: Test-RetiredConfigKeyLine answers "does this FILE still say it the old way",
+## test/modules/Test.ConfigNaming.psm1: Structural migration (parsed config, not raw text)
 
 Test-RetiredConfigKeyLine answers "does this FILE still say it the old way",
 which is what a local reconcile needs. A config fetched from another host
@@ -961,7 +961,7 @@ strip-headers -> base64 -> DER reconstruction.)
 
 <a id="4213a0b3-003b"></a>
 
-## test/modules/Test.ConfigServiceSync.psm1: Pure conversion helpers (no I/O; unit-tested directly)
+## test/modules/Test.ConfigServiceSync.psm1: Shared-token credential envelope (client + server sides)
 
 Both ends hold the internal authentication key; nothing else is shared.
 The request carries an HMAC proof-of-knowledge (the token itself never
@@ -1046,7 +1046,7 @@ here, for a share this host used to serve itself.
 
 <a id="4213a0b3-0041"></a>
 
-## test/modules/Test.ConfigServiceSync.psm1: Sync-HostConfiguration
+## test/modules/Test.ConfigServiceSync.psm1: Retired key spellings on the reference
 
 Rewrite them onto the current paths BEFORE anything reads the config.
 Every consumer downstream looks up current names only, so a value parked
@@ -1068,7 +1068,8 @@ everyone else until it is reconciled.
 ## test/modules/Test.ConfigServiceSync.psm1: Sync-HostConfiguration
 
 On Linux the poolStorage mount runs `sudo -n mount/mkdir/umount`, which
-fails without an /etc/sudoers.d drop-in granting those NOPASSWD -- the
+fails without an /etc/sudoers.d drop-in granting those exact command lines
+NOPASSWD (see docs/pool-storage.md) -- the
 WARN the operator saw at the end of validation, after which the runner
 buffers locally. The unattended runner cannot self-elevate, but THIS is
 an interactive operator session, so offer to install the drop-in now
@@ -1106,7 +1107,7 @@ across files.
 
 <a id="4213a0b3-0045"></a>
 
-## test/modules/Test.ConfigSync.psm1: Update-TestConfigFromTemplate
+## test/modules/Test.ConfigSync.psm1: Schema migration (shape departed)
 
 The on-disk file no longer matches the template's nested shape (the schema
 changed). Back the previous file up, then write the value-preserving merge
@@ -1697,7 +1698,7 @@ never fire on the cold path.
 
 <a id="4213a0b3-0069"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: UTM ships its command-line interface INSIDE the app bundle, and no installer
+## test/modules/Test.HostCondition.Mac.psm1: utmctl on PATH
 
 UTM ships its command-line interface INSIDE the app bundle, and no installer
 -- neither the cask nor the .dmg -- puts that directory on anyone's PATH.
@@ -1710,7 +1711,7 @@ listed in the stock /etc/paths, which means a login shell, a LaunchAgent and an
 
 <a id="4213a0b3-006a"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet
+## test/modules/Test.HostCondition.Mac.psm1: Elevation check
 
 Every privileged block below probes `sudo -n true` immediately before it
 writes, and every write goes out with -n. The two facts an environment
@@ -1730,7 +1731,7 @@ cover a host where root is not reachable.
 
 <a id="4213a0b3-006b"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet
+## test/modules/Test.HostCondition.Mac.psm1: System sleep + disk sleep -> Never (requires sudo)
 
 Display-sleep alone isn't enough: system sleep -> display locks on
 wake regardless of screensaver settings. Disk sleep is the same story --
@@ -1777,7 +1778,7 @@ running keeps its old behavior until it is next started.
 
 <a id="4213a0b3-006e"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet
+## test/modules/Test.HostCondition.Mac.psm1: sysadminctl unified screen lock (Ventura+)
 
 `sysadminctl -screenLock` is the modern (macOS 13+) unified control
 that System Settings > Lock Screen > "Require password after screen
@@ -1810,7 +1811,7 @@ a prompt in the session's terminal.
 
 <a id="4213a0b3-0070"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet
+## test/modules/Test.HostCondition.Mac.psm1: Auto-logout after inactivity (Security -> Advanced)
 
 `com.apple.autologout.AutoLogOutDelay` (system-level) is the
 "Log out after N minutes of inactivity" toggle in Lock Screen /
@@ -1824,7 +1825,7 @@ see, and on a host that cannot elevate it would hide the state entirely.
 
 <a id="4213a0b3-0071"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet
+## test/modules/Test.HostCondition.Mac.psm1: Spaces "switch to a Space with open windows" toggle
 
 When the harness calls `tell application "UTM" to activate` (the
 AVF-guest keystroke fallback in Send-KeyUTM / Send-TextUTM), macOS
@@ -1838,7 +1839,7 @@ the change to take effect.
 
 <a id="4213a0b3-0072"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Host clock
+## test/modules/Test.HostCondition.Mac.psm1: Operator grants (macOS privacy permissions)
 
 Permissions the harness cannot run without and that NO amount of root can
 supply. macOS keeps them in the TCC databases, System Integrity Protection
@@ -1910,7 +1911,7 @@ See docs/host-hyperv.md.
 
 <a id="4213a0b3-0076"></a>
 
-## test/modules/Test.HostCondition.Windows.psm1: Install-YurunaVirtualDisplay
+## test/modules/Test.HostCondition.Windows.psm1: Mirror the main monitor, pin the virtual as primary, enforce
 
 the OCR resolution floor.
 The virtual display must DUPLICATE (not extend) the physical one and be the
@@ -1925,7 +1926,7 @@ monitor status.
 
 <a id="4213a0b3-0077"></a>
 
-## test/modules/Test.HostCondition.Windows.psm1: Set-YurunaDisplayCloneAndResolution
+## test/modules/Test.HostCondition.Windows.psm1: Physical + virtual attached -> DUPLICATE (clone), always
 
 The VIRTUAL display is made the primary so the surface the runner
 captures is anchored to the always-present display; unplugging the
@@ -1956,7 +1957,7 @@ removed it).
 
 <a id="4213a0b3-0079"></a>
 
-## test/modules/Test.HostCondition.Windows.psm1: Set-WindowsHostConditionSet
+## test/modules/Test.HostCondition.Windows.psm1: Host metrics exporter
 
 A refused VM memory allocation is decided by the host's commit charge
 against its commit limit at that instant, and neither number survives in
@@ -2106,7 +2107,7 @@ primed there) and cached to runtime/host.hwid.json; the drain reads the cache.
 
 <a id="4213a0b3-0083"></a>
 
-## test/modules/Test.HostIdentity.psm1: Invoke-PoolStorageSetupAndReclaim
+## test/modules/Test.HostIdentity.psm1: Already configured -- ask nothing
 
 A config sync from a reference host writes all three pool values and
 stores the matching vault credential. Asking for them again after that is
@@ -2349,7 +2350,7 @@ wait from ever returning.
 
 <a id="4213a0b3-008f"></a>
 
-## test/modules/Test.KeyCodeRegistry.psm1: Maps owned by this module
+## test/modules/Test.KeyCodeRegistry.psm1: Modifier chords
 
 Control chords need their own map family: the *-Named maps hold a SCALAR
 code per name and every backend dereferences them as a scalar, so an array
@@ -2535,7 +2536,7 @@ been generating and storing lab credentials, so an unnamed
 
 <a id="4213a0b3-0098"></a>
 
-## test/modules/Test.LocalLabStorage.psm1: A machine that served its own shares and now consumes a lab's has to stop
+## test/modules/Test.LocalLabStorage.psm1: Standing local storage back down
 
 A machine that served its own shares and now consumes a lab's has to stop
 being a storage server, and every step above needs an inverse for that. They
@@ -2719,7 +2720,7 @@ likewise not ours.
 
 <a id="4213a0b3-00a3"></a>
 
-## test/modules/Test.Log.psm1: Telemetry is best-effort by design: a cycle never fails because an event could
+## test/modules/Test.Log.psm1: Event delivery ledger
 
 Telemetry is best-effort by design: a cycle never fails because an event could
 not be written. That policy hides one thing every consumer needs -- whether the
@@ -2895,7 +2896,7 @@ lines about a provider that can't run.
 
 <a id="4213a0b3-00ad"></a>
 
-## test/modules/Test.OcrEngine.psm1: Provider registry
+## test/modules/Test.OcrEngine.psm1: Built-in provider: Tesseract
 
 -Global is mandatory: a bare -Force re-import of an already-global
 Test.Tesseract yanks it out of the global session into this module's
@@ -2982,7 +2983,7 @@ secret into a terminal that has not switched off echo yet.
 
 <a id="4213a0b3-00b3"></a>
 
-## test/modules/Test.OcrMatch.psm1: Test-OCRMatch
+## test/modules/Test.OcrMatch.psm1: Strategy 3: Segment match (handles OCR word reordering)
 
 OCR may reorder parts of a line (e.g. "[ec2-user@test-amazon-linux01 ~]$"
 becomes "test-amazon-I inux01 login: ecZ-user").  Split the original pattern
@@ -3577,7 +3578,7 @@ branch never fires for them.
 
 <a id="4213a0b3-00da"></a>
 
-## test/modules/Test.Remediation.psm1: WHICH failures the runner may retry without an operator, and HOW MANY times.
+## test/modules/Test.Remediation.psm1: Auto-remediation policy
 
 WHICH failures the runner may retry without an operator, and HOW MANY times.
 The list lives here, beside the registry that classifies failures, because
@@ -3689,7 +3690,7 @@ cycle and false-kill the weekly base-image download at ~10 minutes.
 
 <a id="4213a0b3-00e1"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: /yuruna-archive.tar.gz and /yuruna-project-archive.tar.gz are built via
+## test/modules/Test.RunnerInnerLoop.psm1: Cycle-start guard: warn on working-tree drift vs HEAD
 
 /yuruna-archive.tar.gz and /yuruna-project-archive.tar.gz are built via
 `git archive HEAD`, so guests only ever see COMMITTED content. If the host
@@ -3702,7 +3703,7 @@ so this surfaces regardless of test.config.yml's logLevel setting.
 
 <a id="4213a0b3-00e2"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Cycle-start guard: warn on working-tree drift vs HEAD
+## test/modules/Test.RunnerInnerLoop.psm1: Helper: pre-step caching-proxy-service reachability check
 
 Background: a real-world failure mode is the host's Wi-Fi roaming to a
 different SSID/subnet mid-cycle. The caching-proxy-service VM is on the host's
@@ -3964,7 +3965,7 @@ before the notification so its EventData picks up the real class.
 
 <a id="4213a0b3-00f2"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Pooled repos override
 
 When this host is in a pool that carries repositories
 (runtime/pool.manifest.json, written by the outer loop's
@@ -3978,7 +3979,7 @@ possibly fail on) an assignment that no longer applies.
 
 <a id="4213a0b3-00f3"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Assigned-project access probe
 
 A pool can hand this host a projectUrl its credential cannot read. Without
 this probe that surfaces only when the clone below fails, mid-cycle, as a
@@ -4033,7 +4034,7 @@ fires notifications on the same threshold as any other failure.
 
 <a id="4213a0b3-00f7"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Orchestration top-level (InvokeTestSequence playbook)
 
 A test.runner.yml entry can be an orchestration sequence (no resource:/
 baseline; steps are InvokeTestSequence). It contributes no per-guest plan
@@ -4046,7 +4047,7 @@ legacy guestSequence does NOT bring up a phantom guest.
 
 <a id="4213a0b3-00f8"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Initialize status for this cycle
 
 Assign the helper's result DIRECTLY -- do NOT wrap the call in @(). The unary
 comma inside New-CycleGitCommitList already emits the whole list as one
@@ -4064,7 +4065,7 @@ orchestrator then clobbers. $CycleStartUtc/$LogFile stay empty; the guest loop
 
 <a id="4213a0b3-00f9"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Start log file (transcript captures all console output)
 
 CycleNumber is read AFTER Initialize-StatusDocument so it sees the
 incremented value (1, 2, 3, ...). Drives the 6-digit prefix in the
@@ -4130,7 +4131,7 @@ alert ships that payload without deciding again.
 
 <a id="4213a0b3-00fd"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Cycle-restart abort (expected)
 
 Invoke-Sequence's per-step gate throws "YurunaCycleRestart: ..." when
 /control/start-cycle requests an abort mid-cycle. This is the
@@ -4186,6 +4187,13 @@ merged; an early throw before that point would leave it null.
 Fall back to the script param so the inter-cycle wait is still
 respected on the rare crash-before-config path.
 
+The wait paces the resident loop's next cycle, so a cycle whose runtime a
+one-shot entry point (Invoke-TestProject) holds through its one-shot lease
+skips it (Get-InterCycleDelay): no cycle follows, and the wait would
+only delay the run's verdict by testCycle.cycleDelaySeconds. The configured
+value is left as it is, and a lease whose holder cannot be identified keeps
+the wait.
+
 <a id="4213a0b3-0100"></a>
 
 ## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
@@ -4218,7 +4226,7 @@ helper is invoked as a statement, not captured).
 
 <a id="4213a0b3-0102"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-GuestProvisionIteration
+## test/modules/Test.RunnerInnerLoop.psm1: Clean up stale per-VM failure artifacts from prior cycles
 
 failure_screenshot_<VM>.png and failure_ocr_<VM>.txt still live
 at the YURUNA_LOG_DIR root (shared across cycles, keyed only by
@@ -4234,7 +4242,7 @@ needed for it here.
 
 <a id="4213a0b3-0103"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-GuestProvisionIteration
+## test/modules/Test.RunnerInnerLoop.psm1: Constrained-host guest serialization
 
 On hosts with only a few hardware threads, guests still running
 from earlier sequences compete with this guest's OS install: vCPU
@@ -4321,7 +4329,7 @@ stopped / can't-tell) proceeds.
 
 <a id="4213a0b3-0108"></a>
 
-## test/modules/Test.RunnerOuterLoop.psm1: Forward-env helper
+## test/modules/Test.RunnerOuterLoop.psm1: Main loop
 
 Every Invoke-RunnerOuterCycle return also updates the module's last-result slot,
 so Invoke-TestCycleRunner.ps1 can read the typed outcome without capturing the
@@ -4384,7 +4392,7 @@ host/*/Enable-TestAutomation.ps1).
 
 <a id="4213a0b3-010c"></a>
 
-## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
+## test/modules/Test.RunnerOuterLoop.psm1: Pre-spawn pool-storage space check (move mode only)
 
 Deliberately AFTER the last_failure.json wipe. The failure pause classifies
 from that file, so a check placed before the wipe would leave the PREVIOUS
@@ -4428,7 +4436,7 @@ later INTERACTIVE run in this shell silently refuse to prompt.
 
 <a id="4213a0b3-010f"></a>
 
-## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
+## test/modules/Test.RunnerOuterLoop.psm1: Pool-storage archiving, COPY mode (best-effort, DETACHED)
 
 Fire the backlog-draining archiver in its OWN detached process so a
 slow/absent NAS can NEVER delay the next cycle. The drain self-dedupes
@@ -4444,7 +4452,7 @@ a detached copy running beside it would race it for the same folders.
 
 <a id="4213a0b3-0110"></a>
 
-## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
+## test/modules/Test.RunnerOuterLoop.psm1: Move mode: let the forwarder finish reading before anything is deleted
 
 Wait on the forwarder PROCESS, not on its lock file. The lock is created
 well into the child's own startup -- after module imports, the vault token,
@@ -4461,7 +4469,7 @@ host's mount fallback.
 
 <a id="4213a0b3-0111"></a>
 
-## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
+## test/modules/Test.RunnerOuterLoop.psm1: Pool alert notifier (best-effort, BOUNDED cycle-end hook)
 
 On the ONE host the operator configured the pool.alert transport, deliver the
 aggregator's ADVISORY pool-degraded alerts: read the latched yuruna_pool_alert_
@@ -4483,6 +4491,14 @@ keeps the resident's run and a cycle's run apart, so an alert edge is read and
 queued once; only a live holder makes a run step aside, so a lock that cannot be
 created never silences delivery.
 
+Every host also queues its own notice on the same spool when its automatic
+recovery is disabled (`recovery.health.json`, written by
+`Set-RecoveryLedgerHealth`), before the election: the elected host delivers it
+under `pool.alert`, and a host that is not elected has no other way to reach the
+operator. Each episode, named by its state and `sinceUtc`, is queued once;
+`pool.notifier.state.json` keeps the last one queued and forgets it when the
+marker is removed, so a later episode is queued again.
+
 <a id="4213a0b3-0112"></a>
 
 ## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
@@ -4490,9 +4506,9 @@ created never silences delivery.
 Watchdog-kill detection: when the inner exits non-zero AND
 the last step heartbeat is older than the threshold, the
 cause was almost certainly the watchdog (the exit code is
-whatever Stop-Process -Force happened to deliver; the
-application-level failure path can't run after a SIGKILL/
-TerminateProcess). Tag the situation so the operator doesn't
+whatever its tree kill's TERM or KILL happened to deliver;
+the application-level failure path can't run after a
+SIGKILL/TerminateProcess). Tag the situation so the operator doesn't
 waste time hunting an application-level failure that never
 happened.
 
@@ -4654,7 +4670,7 @@ cycle can't short-circuit this wait.
 
 <a id="4213a0b3-011d"></a>
 
-## test/modules/Test.SequenceEngine.psm1: Invoke-Sequence's body and Wait-ForText / Invoke-TapOn call
+## test/modules/Test.SequenceEngine.psm1: Wire the host driver
 
 Invoke-Sequence's body and Wait-ForText / Invoke-TapOn call
 contract functions (Get-VMScreenshot, Restart-VMConsole) that live in
@@ -4705,7 +4721,7 @@ it as "unset".
 
 <a id="4213a0b3-0120"></a>
 
-## test/modules/Test.SequenceEngine.psm1: Action: type / typeAndEnter
+## test/modules/Test.SequenceEngine.psm1: Action: tapOn -- OCR-located mouse click
 
 Button-focus navigation via Tab keystrokes is brittle: initial focus depends
 on splash animation state, async-loaded widgets, and installer redesigns,
@@ -5209,7 +5225,7 @@ each entry's real path with a local StartStep/StopStep window.
 
 <a id="4213a0b3-013f"></a>
 
-## test/modules/Test.SequenceEngine.psm1: Invoke-Sequence
+## test/modules/Test.SequenceEngine.psm1: Recursive step executor
 
 Wrapped as a script-block so the `retry` action case (below) can call
 it on its inner `steps:` array, reusing the full per-step
@@ -5410,7 +5426,7 @@ pause-and-inspect.
 
 <a id="4213a0b3-014c"></a>
 
-## test/modules/Test.SequenceEngine.psm1: Recursive step executor
+## test/modules/Test.SequenceEngine.psm1: Host I/O provider registrations
 
 Registered in per-host singular-noun modules:
   Test.HostIO.HyperV.psm1   host.windows.hyper-v
@@ -5426,7 +5442,7 @@ wired on the current host before the cycle starts. See docs/host-io.md.
 
 <a id="4213a0b3-014d"></a>
 
-## test/modules/Test.SequenceEngine.psm1: Host I/O provider registrations
+## test/modules/Test.SequenceEngine.psm1: Sequence action metadata registrations
 
 Failure-label scriptblock convention: $Context carries Step (parsed YAML
 step), Vars (variable scope), and ExpandVariable (live reference to
@@ -5852,7 +5868,7 @@ visibility.
 
 <a id="4213a0b3-0166"></a>
 
-## test/modules/Test.SequenceResolve.psm1: A snippet is a named, reusable list of steps spliced into a sequence wherever
+## test/modules/Test.SequenceResolve.psm1: Step-snippet library
 
 A snippet is a named, reusable list of steps spliced into a sequence wherever
 a `{ snippet: <name> }` step appears (including inside retry.steps), so common
@@ -5868,7 +5884,7 @@ windows) sees the already-spliced steps with no per-call-site wiring.
 
 <a id="4213a0b3-0167"></a>
 
-## test/modules/Test.SequenceRunner.psm1: Resolve-TestSequencePlan
+## test/modules/Test.SequenceRunner.psm1: requiresSnapshot warm-path probe
 
 When the top-level sequence declares `requiresSnapshot: { id: <X> }`,
 the chain ends in a saveDiskSnapshot that renames `test-<guestKey>`
@@ -6218,7 +6234,7 @@ the one in hand.
 
 <a id="4213a0b3-017a"></a>
 
-## test/modules/Test.Start-GuestOS.psm1: Generic dispatcher that runs a caller-supplied list of sequence names
+## test/modules/Test.Start-GuestOS.psm1: Start-GuestOS dispatcher
 
 Generic dispatcher that runs a caller-supplied list of sequence names
 via Invoke-SequenceByName -- one entry point regardless of the guest
@@ -6315,7 +6331,7 @@ shape; -Depth 10 matches the document nesting.
 
 <a id="4213a0b3-0180"></a>
 
-## test/modules/Test.Status.psm1: A Debug-TestSequence run either OWNS status.json (standalone, or the outermost
+## test/modules/Test.Status.psm1: Nested-cycle support
 
 A Debug-TestSequence run either OWNS status.json (standalone, or the outermost
 orchestration) or runs NESTED inside another run's process tree -- a
@@ -6396,7 +6412,7 @@ already reported above -- as the one the caller sees.
 
 <a id="4213a0b3-0185"></a>
 
-## test/modules/Test.Transport.psm1: UTM keystroke transport: AppleScript chords + JXA/CGEvent text
+## test/modules/Test.Transport.psm1: libvirt KVM keystroke transport: virsh send-key
 
 VNC (Connect-VNC + Send-TextVNC, the path UTM uses) does not work here.
 Empirically, libvirt-managed QEMU on Ubuntu 24.04 accepts our TCP connect
@@ -6606,7 +6622,7 @@ check declines warm resume instead of replaying onto the failed attempt's residu
 
 <a id="4213a0b3-0192"></a>
 
-## test/modules/Test.WarmResume.psm1: Replaying the failed step in place puts a second run on top of whatever the
+## test/modules/Test.WarmResume.psm1: Replay safety
 
 Replaying the failed step in place puts a second run on top of whatever the
 first one left: a fetched script installed packages and initialized tool
@@ -6826,7 +6842,7 @@ before any link was made, still resolves one.
 
 <a id="4213a0b3-019d"></a>
 
-## install/setup.ps1: Resolving the log level before anything is written
+## install/setup.ps1: Log level from environment
 
 The cascade every yuruna entry point shares -- command line beats
 test.config.yml beats 'Information'. See docs/loglevels.md.
@@ -6842,7 +6858,7 @@ builders those start in turn.
 
 <a id="4213a0b3-019e"></a>
 
-## install/setup.ps1: The run log and the child transcripts
+## install/setup.ps1: Run log
 
 Every question asked, every answer taken and every message printed also lands
 in `test/status/log/setup.<yyyy.MM.dd.HH.mm>.log`. A setup run is long, mostly
@@ -7010,7 +7026,7 @@ the second one names the pool, which is not what is wrong.
 
 <a id="4213a0b3-01a7"></a>
 
-## install/setup.ps1: Asking about state a previous sudo run left behind
+## install/setup.ps1: Root-artifact scan
 
 Read-only here; the chown / umount / kill that acts on these answers is a step
 further down, where the run holds the credential it needs.
@@ -7026,7 +7042,7 @@ preview, and a preview must not start asking about the machine's contents.
 
 <a id="4213a0b3-01a8"></a>
 
-## install/setup.ps1: Clearing state a previous sudo run left behind
+## install/setup.ps1: 1b. Root-artifact clearing
 
 BEFORE anything is written, because two of the things this finds are what makes
 the writing fail. Refusing to run as root (earlier in the run) stops the next root run; it
@@ -7058,7 +7074,7 @@ host. Every other non-zero is a real failure and still throws.
 
 <a id="4213a0b3-01aa"></a>
 
-## install/setup.ps1: Storage is critical, and later steps read its recorded fact
+## install/setup.ps1: 5. Storage
 
 CRITICAL whenever storage was asked for. Everything after it either needs the
 shares (the stash and download-agent services, a lab's pool) or writes host
@@ -7089,7 +7105,7 @@ evidence that this machine is the one answering.
 
 <a id="4213a0b3-01ac"></a>
 
-## install/setup.ps1: Standalone hosts own the pool and stash aliases
+## install/setup.ps1: 5b. Hosts aliases -- standalone
 
 Standalone is the mode where nothing else owns these lines. A lab always stands
 up storage, and the local-storage script writes the aliases as part of it; a
@@ -7129,7 +7145,7 @@ not-rebuilding case passes no argument.
 
 <a id="4213a0b3-01ae"></a>
 
-## install/setup.ps1: The dashboard alias
+## install/setup.ps1: 8b. Dashboard alias -- standalone
 
 The dashboard is the one URL an operator types by hand and returns to, and it
 is addressed by a DHCP lease: a bookmark saved today is wrong after the cache
@@ -7264,7 +7280,7 @@ its /private symlink and no longer matches what was asked for.
 
 <a id="4213a0b3-01b6"></a>
 
-## install/ubuntu.kvm.sh: virt-manager is installed with its recommended packages
+## install/ubuntu.kvm.sh: virt-manager
 
 Its own apt call WITH Recommends, unlike the main package set: the widgets
 virt-manager renders a domain's screen with live in GObject-introspection
@@ -7307,7 +7323,7 @@ that belongs in the closing summary, not in an aborted run.
 
 <a id="4213a0b3-01b9"></a>
 
-## install/windows.hyper-v.ps1: The installation summary is gated on the run outcome
+## install/windows.hyper-v.ps1: Installation summary
 
 The last thing printed before the transcript closes. Everything above
 scrolls; this does not -- including the outcome banner, which the floor check

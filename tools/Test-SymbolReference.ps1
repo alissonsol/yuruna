@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42550c03-bbdb-4270-97dd-067cdbeba71a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,7 @@
     of modules the running host may lack (Hyper-V, SMB, local accounts),
     optional hooks the code calls when a module provides them, and illustrative
     names in examples, each with its reason. A function a script defines inside
-    a here-string (the status service's runtime) counts as defined too.
+    a here-string (a script it writes out and runs) counts as defined too.
 
     Checked: the tracked and untracked (not ignored) Markdown, and the comments
     of the PowerShell, of each root, except dev-only/ (designs name commands

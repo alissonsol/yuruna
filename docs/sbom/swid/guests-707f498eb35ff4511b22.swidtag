@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="FiloSottile/mkcert" tagId="urn:uuid:50ebc043-46d8-5ab5-900a-50950044f3cb" version="1.4.4" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+  <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
+  <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="guests" sbom:inventory-kind="declared-source" sbom:declaration="{&quot;completeness&quot;: &quot;source-declared&quot;, &quot;ecosystem&quot;: &quot;generic&quot;, &quot;evidence&quot;: [{&quot;detail&quot;: &quot;target=shared-or-configured; Central guest provisioning declaration YURUNA_MKCERT_VERSION; exact installer pin&quot;, &quot;line&quot;: 35, &quot;path&quot;: &quot;automation/yuruna-versions.sh&quot;}], &quot;group&quot;: &quot;yuruna:guests:shared-or-configured&quot;, &quot;notes&quot;: [&quot;Conditional source declaration; installed state and transitive dependencies are not resolved.&quot;], &quot;scope&quot;: &quot;runtime&quot;}" />
+</SoftwareIdentity>

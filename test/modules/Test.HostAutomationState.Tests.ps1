@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e5dbd9-8c32-496e-ab48-855a0584ae9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,10 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    # The module under test fills an absent YURUNA_RUNTIME_DIR with the
+    # repository's own runtime folder, so the suite puts back what the process held.
+    $script:SuiteEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     $script:ModulesDir  = $PSScriptRoot
     $script:CaptureSrc  = Get-Content -LiteralPath (Join-Path $ModulesDir 'Test.HostAutomationState.psm1') -Raw
     $script:MacSrc      = Get-Content -LiteralPath (Join-Path $ModulesDir 'Test.HostCondition.Mac.psm1') -Raw
@@ -218,11 +222,12 @@ Describe 'the capture file contract' {
         Import-Module (Join-Path $PSScriptRoot 'Test.HostAutomationState.psm1') -Force -DisableNameChecking
         $script:RuntimeDir = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-capture-contract-$PID"
         New-Item -ItemType Directory -Path $RuntimeDir -Force | Out-Null
+        $script:ContractEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $RuntimeDir
     }
     AfterAll {
         Remove-Item -LiteralPath $RuntimeDir -Recurse -Force -ErrorAction SilentlyContinue
-        $env:YURUNA_RUNTIME_DIR = $null
+        Restore-YurunaTestEnvironment -Saved $script:ContractEnvironment
     }
 
     It 'refuses to overwrite an existing capture' {
@@ -368,3 +373,5 @@ Describe 'the teardown steps every host shares' {
         }
     }
 }
+
+AfterAll { Restore-YurunaTestEnvironment -Saved $script:SuiteEnvironment }

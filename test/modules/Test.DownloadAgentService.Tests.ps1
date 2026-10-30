@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421157f0-4a70-494a-a09e-b13c89c002b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,12 +37,14 @@
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 
 # --- REGION: https://yuruna.link/42d38664-000a
 # The runtime dir is named from $PID and held in an UNQUALIFIED file-scope
 # variable. Both are load-bearing -- see the doc before changing either.
 $AgentTestRuntime = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-dlagent-$PID"
+$script:SuiteEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
 $env:YURUNA_RUNTIME_DIR = $AgentTestRuntime
 Remove-Item -LiteralPath $AgentTestRuntime -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $AgentTestRuntime | Out-Null
@@ -60,7 +62,6 @@ Import-Module $AgentClientModule -Force -DisableNameChecking
 # tested against the shipping implementation rather than a restatement of it.
 Import-Module (Join-Path $AgentRepoRoot 'host' -AdditionalChildPath 'modules', 'Yuruna.HostDownload.psm1') -Force -DisableNameChecking
 
-Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-DownloadAgentScratchDir {
     <#
@@ -515,26 +516,26 @@ Describe 'Test.DownloadAgentService published address' {
 
 Describe 'Test.DownloadAgentService readiness' {
     It 'defaults the readiness budget to the slow-first-build value and honors a sane override' {
-        $saved = $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS'
         try {
             $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = ''
             Assert-StringEqual 2700 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because 'a first boot installs a Go toolchain and compiles the daemon in-guest, which runs to roughly half an hour on a slow arch against a cold mirror'
             $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = '120'
             Assert-StringEqual 120 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because 'a quick re-check can shorten the wait'
         } finally {
-            $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = $saved
+            Restore-YurunaTestEnvironment -Saved $saved
         }
     }
 
     It 'ignores an override that is not a positive integer instead of failing instantly' {
-        $saved = $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS'
         try {
             foreach ($bad in @('abc', '0', '-30', '90s')) {
                 $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = $bad
                 Assert-StringEqual 2700 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because "'$bad' is not a usable budget, so the default stands"
             }
         } finally {
-            $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = $saved
+            Restore-YurunaTestEnvironment -Saved $saved
         }
     }
 
@@ -570,16 +571,16 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
     It 'takes the operator pin ahead of anything it could discover' {
         $plan = Get-FakeAgentPlan
         $agent = Get-FakeAgent -Plan $plan
-        $savedPin = $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE
-        $savedCache = $env:YURUNA_CACHING_PROXY_SERVICE_IP
+        $savedPin = Save-YurunaTestEnvironment -Name 'YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE'
+        $savedCache = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
         try {
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $agent.BaseUrl
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
             Assert-StringEqual $agent.BaseUrl (Resolve-DownloadAgentEndpoint -Refresh) -Because 'the pin is the operator escape hatch and must win'
             Assert-True (@($plan.Requests) -contains 'GET /healthz') 'the pinned candidate is proved with a /healthz probe, not believed'
         } finally {
-            $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $savedPin
-            $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedCache
+            Restore-YurunaTestEnvironment -Saved $savedPin
+            Restore-YurunaTestEnvironment -Saved $savedCache
             Close-FakeAgent -Agent $agent
         }
     }
@@ -587,7 +588,7 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
     It 'accepts a bare address and a published non-default port alike' {
         $plan = Get-FakeAgentPlan
         $agent = Get-FakeAgent -Plan $plan
-        $savedPin = $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE
+        $savedPin = Save-YurunaTestEnvironment -Name 'YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE'
         try {
             # A Shared-NAT Mac publishes http://<mac-lan-ip>:8082/, so the port
             # has to survive normalization; a driver's Get-VMIp hands over a bare
@@ -596,7 +597,7 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = "http://127.0.0.1:$port/"
             Assert-StringEqual "http://127.0.0.1:$port" (Resolve-DownloadAgentEndpoint -Refresh) -Because 'a trailing slash is trimmed, the port is kept'
         } finally {
-            $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $savedPin
+            Restore-YurunaTestEnvironment -Saved $savedPin
             Close-FakeAgent -Agent $agent
         }
     }
@@ -605,8 +606,8 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
         $plan = Get-FakeAgentPlan
         $plan.HealthStatus = 503
         $agent = Get-FakeAgent -Plan $plan
-        $savedPin = $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE
-        $savedCache = $env:YURUNA_CACHING_PROXY_SERVICE_IP
+        $savedPin = Save-YurunaTestEnvironment -Name 'YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE'
+        $savedCache = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
         try {
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $agent.BaseUrl
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
@@ -615,15 +616,15 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
             # a service that cannot answer.
             Assert-StringEqual '' (Resolve-DownloadAgentEndpoint -Refresh) -Because 'a listening socket is not an agent'
         } finally {
-            $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $savedPin
-            $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedCache
+            Restore-YurunaTestEnvironment -Saved $savedPin
+            Restore-YurunaTestEnvironment -Saved $savedCache
             Close-FakeAgent -Agent $agent
         }
     }
 
     It 'collapses every failure shape to an empty string instead of throwing' {
-        $savedPin = $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE
-        $savedCache = $env:YURUNA_CACHING_PROXY_SERVICE_IP
+        $savedPin = Save-YurunaTestEnvironment -Name 'YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE'
+        $savedCache = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
         try {
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
 
@@ -651,16 +652,16 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = '127.0.0.1'
             Assert-StringEqual '' (Resolve-DownloadAgentEndpoint -Refresh) -Because 'an aggregator that is not there contributes nothing'
         } finally {
-            $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $savedPin
-            $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedCache
+            Restore-YurunaTestEnvironment -Saved $savedPin
+            Restore-YurunaTestEnvironment -Saved $savedCache
         }
     }
 
     It 'memoizes the answer for the process and re-walks the ladder only on -Refresh' {
         $plan = Get-FakeAgentPlan
         $agent = Get-FakeAgent -Plan $plan
-        $savedPin = $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE
-        $savedCache = $env:YURUNA_CACHING_PROXY_SERVICE_IP
+        $savedPin = Save-YurunaTestEnvironment -Name 'YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE'
+        $savedCache = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
         try {
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $agent.BaseUrl
@@ -673,8 +674,8 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
 
             Assert-StringEqual '' (Resolve-DownloadAgentEndpoint -Refresh) -Because '-Refresh is what re-resolves'
         } finally {
-            $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $savedPin
-            $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedCache
+            Restore-YurunaTestEnvironment -Saved $savedPin
+            Restore-YurunaTestEnvironment -Saved $savedCache
             Close-FakeAgent -Agent $agent
         }
     }
@@ -694,8 +695,8 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
             source = 'announce'
         } | ConvertTo-Json -Compress)
         $aggregator = Get-FakeAgent -Plan $aggregatorPlan -Port 9400
-        $savedPin = $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE
-        $savedCache = $env:YURUNA_CACHING_PROXY_SERVICE_IP
+        $savedPin = Save-YurunaTestEnvironment -Name 'YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE'
+        $savedCache = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
         try {
             if ($null -eq $aggregator) {
                 Set-ItResult -Skipped -Because 'port 9400 is already in use; the pool lookup fixture cannot bind'
@@ -709,8 +710,8 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
             Assert-True (@($aggregatorPlan.Requests) -contains 'GET /api/v1/extension-hosts?area=download-agent-service') `
                 "the pool is asked by area; saw: $(@($aggregatorPlan.Requests) -join ' | ')"
         } finally {
-            $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $savedPin
-            $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedCache
+            Restore-YurunaTestEnvironment -Saved $savedPin
+            Restore-YurunaTestEnvironment -Saved $savedCache
             Close-FakeAgent -Agent $aggregator
             Close-FakeAgent -Agent $agent
         }
@@ -1302,4 +1303,5 @@ AfterAll {
     if ((Split-Path -Leaf $dir) -like 'yrn-dlagent-client-*') {
         Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
     }
+    Restore-YurunaTestEnvironment -Saved $script:SuiteEnvironment
 }

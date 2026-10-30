@@ -3,6 +3,16 @@
   "domain": "automation",
   "locale": "he-IL",
   "messages": {
+    "automation.deploy_phase_reused": {
+      "sourceHash": "21524b0a7bc92d3bb53acf3dc81019c396a437ef4ee4d1344a03b6b400e29d79",
+      "origin": "machine",
+      "message": "השלב {phase} דולג: הוא עבר עם הקלטים האלה לפני שהשלב {failedPhase} נכשל, והפלטים שלו עדיין במקומם. מחקו את {ledgerPath} כדי להריץ שוב את כל השלבים."
+    },
+    "automation.deploy_tool_deadline": {
+      "sourceHash": "858e0954c9babd7dee62c7b11c87b94dfad8569fc38cc6cdbe5b9dc3a8d36113",
+      "origin": "machine",
+      "message": "{label} לא הסתיים בתוך {seconds} שניות ונעצר. הדבר נחשב כחריגת זמן, ומה שביצע לפני שנעצר אינו ידוע."
+    },
     "automation.diagnostic_checkout_unavailable": {
       "sourceHash": "ed5c11965d58f8769fe9ac82189b07c39cd138aa9d63506b313cff90fb8deba9",
       "message": "(לא רלוונטי: הראיות מתיקיית המאגר אינן זמינות; יש להעביר -CheckoutRoot כדי להשתמש בעותק קיים של Yuruna)"
@@ -979,6 +989,11 @@
       "sourceHash": "3e4584678e786e27c2740f29cc9b3e575a59b27eac9cc8ac1a1f6e7f66da5099",
       "origin": "machine",
       "message": "kubectl config use-context נכשל (קוד יציאה {lASTEXITCODE}) עבור: {sourceContext}"
+    },
+    "automation.seed_value_unsafe": {
+      "sourceHash": "5bb725712c4b727a0a165554eaf4299e0ad53320027e2b1f65c4d768d89cb950",
+      "origin": "machine",
+      "message": "לא ניתן למקם את ערך ה-seed עבור {placeholder} בהקשר {context} שלו (שורה {line} בתבנית): הוא מכיל {reason}. שנה את הערך; בסך הכול נדחו {count} מופעים של placeholder."
     },
     "automation.setup_service_vm_reason_intended_stopped": {
       "sourceHash": "0f4f4341aa4acaa76174d52f298cd050a8463677845b44eb47413b835f36502f",
@@ -2131,6 +2146,11 @@
       "origin": "machine",
       "message": "שטח פנוי בקובץ ההחלפה  : {kB}"
     },
+    "automation.memory_commit_charge": {
+      "sourceHash": "9cce29800c97f42aa662b9e56cbd5080174e740b27c17cebc4b55a821e5d4927",
+      "origin": "machine",
+      "message": "Commit : {charged} מתוך {limit} מחויבים, {uncharged} פנויים (הפעלת VM מחויבת כנגד מגבלה זו, לא כנגד הזיכרון הפיזי הפנוי)"
+    },
     "automation.operator_bf1c637eb978cee4": {
       "sourceHash": "c315ded28236f22804403f1bf0c378f55336cedf6364453291259b5305689e50",
       "origin": "machine",
@@ -3022,6 +3042,11 @@
       "origin": "machine",
       "message": "10 המובילים לפי שימוש בזיכרון"
     },
+    "automation.top_processes_private_bytes": {
+      "sourceHash": "3eea0843e4d78da78987a8e5f27583dc48905e1d915de8e1a60d7f1f677975ea",
+      "origin": "machine",
+      "message": "10 המובילים לפי בתים פרטיים (חיוב commit)"
+    },
     "automation.operator_f30d376c3b6737d6": {
       "sourceHash": "d524887221c7192aabd7711264442952f67fcc8aa3d9caab0dc1dee8e1f596b5",
       "origin": "machine",
@@ -3336,6 +3361,11 @@
       "sourceHash": "18bd4a43a0d47fff905474f7045f807d4d78723af8edd7b060ba970a3d3623f7",
       "origin": "machine",
       "message": "נתיב ברירת מחדל"
+    },
+    "automation.network_dhcp_lease": {
+      "sourceHash": "e3fed3af94b40ff73b8ccd7040c5582e53e1273474880b09817dc5006b919b5f",
+      "origin": "machine",
+      "message": "חכירת DHCP בהתקן של נתיב ברירת המחדל ({device})"
     },
     "automation.operator_d9c1fd0b30efa8fb": {
       "sourceHash": "4d7e94c53974fdc24e406ba66b276ee6c5e05e3a3c31e4b3d809134c00f07a45",

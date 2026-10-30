@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,6 +99,30 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 $virshUri = 'qemu:///system'
 Remove-KvmDomainDefinition -VMName $VMName -Confirm:$false
+
+# --- REGION: New-PrivateBackingImage
+# A hard link keeps the base image's current bytes reachable for as long as this
+# guest's directory holds it, at no copy cost; a replacement published by rename
+# leaves the linked inode untouched. A file system that cannot link falls back to
+# a full copy, which is slower but equally private.
+function New-PrivateBackingImage {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$BaseImageFile,
+        [Parameter(Mandatory)][string]$VMDirectory
+    )
+    $backing = Join-Path $VMDirectory 'base.qcow2'
+    if (-not $PSCmdlet.ShouldProcess($backing, 'Link the base image for this guest')) { return $backing }
+    if (Test-Path -LiteralPath $backing) { Remove-Item -Force -LiteralPath $backing }
+    try {
+        $null = New-Item -ItemType HardLink -Path $backing -Target $BaseImageFile -ErrorAction Stop
+    } catch {
+        Write-Verbose "hard link to the base image failed ($($_.Exception.Message)); copying it instead"
+        Copy-Item -LiteralPath $BaseImageFile -Destination $backing -ErrorAction Stop
+    }
+    return $backing
+}
 
 # --- REGION: Create copies and files for VM
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
@@ -203,13 +227,17 @@ try {
     # See https://yuruna.link/42e220c4-0004
     # Delay destructive replacement until the seed preflight succeeds.
     if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
+    # The overlay backs onto this guest's own name for the base image, never the
+    # shared path: Get-Image publishes a new base by renaming it over that path,
+    # and an overlay whose backing file changed under it reads corrupt blocks.
+    $backingImg = New-PrivateBackingImage -BaseImageFile $baseImageFile -VMDirectory $vmDir
     # An overlay must never be smaller than its backing disk; retain the 16 GiB floor.
-    $baseInfo = (& qemu-img info --output=json -- $baseImageFile | ConvertFrom-Json)
+    $baseInfo = (& qemu-img info --output=json -- $backingImg | ConvertFrom-Json)
     if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_411b830ef7e4b606' -Arguments @{ baseImageFile = "$baseImageFile" }); exit 1 }
     $baseVirtualBytes = [int64]$baseInfo.'virtual-size'
     $overlayBytes = [int64]16 * 1024 * 1024 * 1024  # 16 GiB minimum
     if ($baseVirtualBytes -gt $overlayBytes) { $overlayBytes = $baseVirtualBytes }
-    & qemu-img create -f qcow2 -F qcow2 -b $baseImageFile $diskImg $overlayBytes | Out-Null
+    & qemu-img create -f qcow2 -F qcow2 -b $backingImg $diskImg $overlayBytes | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_919e5b9a9a611298'); exit 1 }
 
     # --- REGION: https://yuruna.link/42d69dfa-0008
@@ -259,14 +287,17 @@ try {
 
     Write-Verbose "virt-install $($installArgs -join ' ')"
     # See https://yuruna.link/42e220c4-0004
-    $virtInstallOutput = & virt-install @installArgs 2>&1
-    $virtInstallExit = $LASTEXITCODE
+    $installed = Invoke-BoundedNativeCommand -FilePath 'virt-install' -ArgumentList $installArgs -TimeoutSeconds 300
+    $virtInstallOutput = @(Get-BoundedNativeOutputLine -Result $installed -IncludeError)
+    $virtInstallExit = if (Test-BoundedNativeResultComplete -Result $installed) { $installed.ExitCode } else { -1 }
     $virtInstallOutput | ForEach-Object { Write-Verbose "$_" }
     if ($virtInstallExit -ne 0) {
         # Surface the captured output on failure so the operator has
         # something to debug from without re-running with -Verbose.
         $virtInstallOutput | ForEach-Object { Write-Output "$_" }
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d74692e9db12304f' -Arguments @{ virtInstallExit = "$virtInstallExit" })
+        $message = Format-YurunaOperatorMessage -Key 'host.operator_d74692e9db12304f' -Arguments @{ virtInstallExit = "$virtInstallExit" }
+        Write-YurunaProvisionResult -Kind $(if ($installed.Started -and $virtInstallExit -eq -1) { 'unresponsive' } else { 'tool' }) -Message $message
+        Write-Error $message
         exit 1
     }
 } finally {

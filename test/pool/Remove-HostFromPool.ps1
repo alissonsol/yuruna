@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e5b8b9-d9cd-4ae5-92e1-a3fd96227e6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,6 +100,7 @@ foreach ($pool in $selectedPools) {
         $pool['members'] = @($members | Where-Object { $_ -ne $HostId })
         $changed = $true
     }
+    if (Update-YurunaPoolRingCanary -Pool $pool -HostId $HostId) { $changed = $true }
 }
 if ($Exclude) {
     if ($doc['autoEnrollment'] -isnot [System.Collections.IDictionary]) { $doc['autoEnrollment'] = [ordered]@{} }

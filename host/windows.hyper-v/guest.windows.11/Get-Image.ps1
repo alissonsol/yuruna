@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a337f9-dcb7-4dfa-9c51-9ddba462035e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,11 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
     Import-Module $_logLevelMod -Global
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+
+# --- REGION: Failure records
+# A failure this script can name is recorded for the runner before it exits:
+# https://yuruna.link/42820e91-000a
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.HostProvision.psm1') -DisableNameChecking
 
 # --- REGION: Platform guard
 if (-not $IsWindows) {
@@ -50,7 +55,9 @@ switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
         $downloadButton  = 'ARM64 Download'
     }
     default {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f5a3a41f93d6b9f' -Arguments @{ oSArchitecture = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" })
+        $message = Format-YurunaOperatorMessage -Key 'host.operator_1f5a3a41f93d6b9f' -Arguments @{ oSArchitecture = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" }
+        Write-YurunaProvisionResult -Kind unsupported -Message $message
+        Write-Error $message
         exit 1
     }
 }
@@ -100,8 +107,10 @@ $defaultBaseFile = Join-Path $defaultDownloadDir "$baseImageName.iso"
 # Unelevated calls print the same manual-download guidance as the test runner.
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3e3de8bf7b8f6ba1')
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_93759b73418bf09d' -Arguments @{ defaultDownloadDir = "$defaultDownloadDir" })
+    $message = Format-YurunaOperatorMessage -Key 'host.operator_93759b73418bf09d' -Arguments @{ defaultDownloadDir = "$defaultDownloadDir" }
+    Write-Warning $message
     Show-ManualDownloadInstruction -TargetPath $defaultBaseFile -TargetDir $defaultDownloadDir
+    Write-YurunaProvisionResult -Kind unsupported -Message $message
     exit 1
 }
 
@@ -109,15 +118,19 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 try {
     $downloadDir = (Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
 } catch {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_5874e8355455ba51' -Arguments @{ message = "$($_.Exception.Message)" })
+    $message = Format-YurunaOperatorMessage -Key 'host.operator_5874e8355455ba51' -Arguments @{ message = "$($_.Exception.Message)" }
+    Write-YurunaProvisionResult -Kind unsupported -Message $message
+    Write-Warning $message
     exit 1
 }
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e30f6e2006f710fa' -Arguments @{ downloadDir = "$downloadDir" })
 if (!(Test-Path -Path $downloadDir)) {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c9c60711aada785b' -Arguments @{ downloadDir = "$downloadDir" })
+    $message = Format-YurunaOperatorMessage -Key 'host.operator_c9c60711aada785b' -Arguments @{ downloadDir = "$downloadDir" }
+    Write-Warning $message
     Show-ManualDownloadInstruction -TargetPath $baseImageFile -TargetDir $downloadDir
+    Write-YurunaProvisionResult -Kind unsupported -Message $message
     exit 1
 }
 
@@ -150,7 +163,9 @@ if ($existingIso) {
     try {
         $keptPrevious = Publish-YurunaBaseImage -DownloadFile $existingIsoOriginalPath -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $existingIso.Length -Confirm:$false
     } catch {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+        $message = Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" }
+        Write-YurunaProvisionResult -Kind tool -Message $message
+        Write-Error $message
         exit 1
     }
     if ($keptPrevious) {
@@ -206,7 +221,9 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
                 $stagedSize = (Get-Item -LiteralPath $agentStagingFile -ErrorAction Stop).Length
                 $keptPrevious = Publish-YurunaBaseImage -DownloadFile $agentStagingFile -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $stagedSize -Confirm:$false
             } catch {
-                Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+                $message = Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" }
+                Write-YurunaProvisionResult -Kind tool -Message $message
+                Write-Error $message
                 exit 1
             }
             if ($keptPrevious) {
@@ -334,7 +351,8 @@ try {
     exit 0
 
 } catch {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a1f938bc4fb29457' -Arguments @{ value = "$_" })
+    $fidoFailure = Format-YurunaOperatorMessage -Key 'host.operator_a1f938bc4fb29457' -Arguments @{ value = "$_" }
+    Write-Warning $fidoFailure
     Write-Output ""
     if ($downloadFile -and (Test-Path $downloadFile)) {
         Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
@@ -346,4 +364,6 @@ try {
 # --- REGION: Fallback: manual download instructions
 Show-ManualDownloadInstruction -TargetPath $baseImageFile -TargetDir $downloadDir
 # --- REGION: Completion
+# Only the operator can supply the ISO now, so no retry of this stage helps.
+Write-YurunaProvisionResult -Kind unsupported -Message $(if ($fidoFailure) { $fidoFailure } else { $baseImageFile })
 exit 1

@@ -8,16 +8,6 @@
       "origin": "machine",
       "message": "לא ניתן לפענח את הטופס"
     },
-    "stash.api_create_detail": {
-      "sourceHash": "11bf29c6749b924268d3f95ca50449a9565a56c24d32e4c73fd09d66b2668a61",
-      "origin": "machine",
-      "message": "יצירה: {detail}"
-    },
-    "stash.api_detail": {
-      "sourceHash": "998309e9e4adad3b79a9519e4c01e5734b6c080e030b16df935415b7f54ff89a",
-      "origin": "machine",
-      "message": "{detail}"
-    },
     "stash.api_invalid_host": {
       "sourceHash": "8666c31cf405efccba3b4ff6ad452bebff49c32075908f12b5bab462be317f0d",
       "origin": "machine",
@@ -53,11 +43,6 @@
       "origin": "machine",
       "message": "אין מה לאחסן: ספקו טקסט או קבצים"
     },
-    "stash.api_open_archive_detail": {
-      "sourceHash": "78169c2132248f9dbf5edaf2c8291d8094cea3cfa8a42d54164c9e20b133cbc2",
-      "origin": "machine",
-      "message": "פתיחת ארכיון: {detail}"
-    },
     "stash.api_open_artifact": {
       "sourceHash": "a40326db506f38070964a52f576c6c495b1e3cd2ef01cfc3bd66dcdc8b809e6f",
       "origin": "machine",
@@ -72,11 +57,6 @@
       "sourceHash": "2a2ef9a00daaf6c9c8960177fca27412ca1795a7c5cd236d2edd34c505a508d1",
       "origin": "machine",
       "message": "פתיחת העלאות"
-    },
-    "stash.api_search_detail": {
-      "sourceHash": "f9388d6822494eb86b344580187b9de81563b671d3eab75ac18948b03a1f1ee1",
-      "origin": "machine",
-      "message": "חיפוש: {detail}"
     },
     "stash.api_stash_not_found": {
       "sourceHash": "e1bbd266b514f6af02d4008f45c9b70058845ccc9291895d50c7107e6791f1d3",
@@ -704,6 +684,31 @@
       "sourceHash": "9fae303d1dc73a579c935787a8546a6a423c033f799ecd1660d0a4321268bd9d",
       "origin": "machine",
       "message": "טקסט גדול אחר נשמר כעת; נסו שוב בעוד רגע"
+    },
+    "stash.api_search_failed": {
+      "sourceHash": "401ccc2451aa0f517dd77acc93ce5e007910ad541f16b460c95195d58fdec474",
+      "origin": "machine",
+      "message": "לא ניתן היה לחפש באינדקס ה-stash; יומן השירות מכיל את הסיבה"
+    },
+    "stash.api_resolve_failed": {
+      "sourceHash": "6e6bbb785739ed84e28c15942d1a269511dd1c0c996dfc7dfdcc665b089b2cf8",
+      "origin": "machine",
+      "message": "לא ניתן היה לאתר את ה-stash; יומן השירות מכיל את הסיבה"
+    },
+    "stash.api_open_archive_failed": {
+      "sourceHash": "a7ff5f8ac8f02fc2d9e5acdf79733830db63c4f99aad2c08dd444e56a3f7fa22",
+      "origin": "machine",
+      "message": "לא ניתן היה לפתוח את הארכיון; יומן השירות מכיל את הסיבה"
+    },
+    "stash.api_create_failed": {
+      "sourceHash": "453e0d7591fc77c3eeefcfe2d9b8df4dcd77a58803cc15db8a6abbea7310693b",
+      "origin": "machine",
+      "message": "לא ניתן היה לשמור את ה-stash; יומן השירות מכיל את הסיבה"
+    },
+    "stash.api_delete_failed": {
+      "sourceHash": "fefd0d43a12f4eed2216633e1edc384748a69333dd11fa6e1a3ae7ee39bdaef2",
+      "origin": "machine",
+      "message": "לא ניתן היה למחוק את ה-stash; יומן השירות מכיל את הסיבה"
     }
   }
 }

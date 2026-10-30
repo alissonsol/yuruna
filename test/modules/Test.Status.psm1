@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,8 +21,7 @@ $script:Doc  = $null
 $script:File = $null
 # Owner-side gate for nested-cycle support (see the "Nested-cycle support"
 # region below). Stays $false for a run with no nested children -- then
-# Write-StatusJson takes the plain path (no lock, no re-read), so the
-# common standalone / in-process path is untouched. Publish-CycleContext
+# Write-StatusJson does not re-read the nested subtree. Publish-CycleContext
 # flips it $true the moment the owner may spawn a nested child.
 $script:PreserveNested = $false
 
@@ -40,6 +39,50 @@ Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -DisableName
 #>
 function Get-UtcTimestamp {
     return (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Read-StatusCycleCounter {
+<#
+.SYNOPSIS
+    The last cycle number: the larger of status.json's cycle and the counter
+    kept beside it (<status file>.cycle).
+.DESCRIPTION
+    status.json alone was the only record of the counter, and a status.json
+    that does not parse is moved aside at cycle start, so the next cycle was
+    numbered 1 again and its folder sorted among the oldest. The sidecar holds
+    one integer, written whenever a cycle takes a number; either file can be
+    missing or unreadable and the other still answers.
+#>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][string]$StatusFilePath)
+    $fromStatus = 0
+    if (Test-Path -LiteralPath $StatusFilePath) {
+        try {
+            $prev = Get-Content -Raw -LiteralPath $StatusFilePath | ConvertFrom-Json
+            if ($prev.cycle) { $fromStatus = [int]$prev.cycle }
+        } catch { Write-Verbose "Read-StatusCycleCounter: $StatusFilePath unreadable: $($_.Exception.Message)" }
+    }
+    $fromSidecar = 0
+    $sidecar = "$StatusFilePath.cycle"
+    if (Test-Path -LiteralPath $sidecar) {
+        $text = ''
+        try { $text = ([string](Get-Content -Raw -LiteralPath $sidecar)).Trim() } catch { Write-Verbose "Read-StatusCycleCounter: $sidecar unreadable: $($_.Exception.Message)" }
+        $value = 0
+        if ([int]::TryParse($text, [ref]$value) -and $value -gt 0) { $fromSidecar = $value }
+    }
+    return [int][math]::Max($fromStatus, $fromSidecar)
+}
+
+function Save-StatusCycleCounter {
+<#
+.SYNOPSIS
+    Record the number a cycle took in the counter beside status.json.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$StatusFilePath, [Parameter(Mandatory)][int]$Cycle)
+    return [bool](Write-YurunaStateFile -Path "$StatusFilePath.cycle" -Content "$Cycle" -WarnOnFailure -Confirm:$false)
 }
 
 <#
@@ -75,7 +118,6 @@ function Reset-StatusDocumentForCycleStart {
             if ($prev.history)        { $history        = @($prev.history) }
             if ($prev.lastGetImageAt) { $lastGetImageAt = $prev.lastGetImageAt }
             if ($prev.repoUrl)        { $repoUrl        = $prev.repoUrl }
-            if ($prev.cycle)          { $cycle          = [int]$prev.cycle }
             if ($prev.host)           { $hostType       = $prev.host }
             if ($prev.hostname)       { $hostnameValue  = $prev.hostname }
         } catch {
@@ -107,6 +149,7 @@ function Reset-StatusDocumentForCycleStart {
         }
     }
 
+    $cycle = Read-StatusCycleCounter -StatusFilePath $StatusFilePath
     $now = Get-UtcTimestamp
     $script:File = $StatusFilePath
     # A new cycle starts with no nested children, so re-arm the preserve gate to
@@ -231,10 +274,11 @@ function Initialize-StatusDocument {
             $prev = Get-Content -Raw $StatusFilePath | ConvertFrom-Json
             if ($prev.history) { $history = @($prev.history) }
             if ($prev.lastGetImageAt) { $lastGetImageAt = $prev.lastGetImageAt }
-            if ($prev.cycle) { $cycle = [int]$prev.cycle }
             if (-not $repoUrl -and $prev.repoUrl) { $repoUrl = $prev.repoUrl }
         } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2d58523ab00f9192' -Arguments @{ value = "$_" }) }
     }
+    $cycle = Read-StatusCycleCounter -StatusFilePath $StatusFilePath
+    $null = Save-StatusCycleCounter -StatusFilePath $StatusFilePath -Cycle ($cycle + 1)
 
     # Build the gitCommits array. Callers using the new GitCommits param
     # win; otherwise wrap the legacy GitCommit + RepoUrl scalars into a
@@ -737,6 +781,8 @@ function Write-StatusJson {
     # (Set-LastFailureSummary / Complete-Run / Get-CycleNumber) already grant
     # callers that reach the status helpers before a document exists.
     if (-not $script:Doc) { return }
+    # Chaos tests only (Test.FaultInjection).
+    if ($env:YURUNA_FAULT_POINTS) { Import-Module (Join-Path $PSScriptRoot 'Test.FaultInjection.psm1') -DisableNameChecking; Invoke-YurunaFaultPoint -Name 'status-write' }
     $runtimeDir = $env:YURUNA_RUNTIME_DIR
     $stepPauseFlag  = Join-Path $runtimeDir 'control.step-pause'
     $cyclePauseFlag = Join-Path $runtimeDir 'control.cycle-pause'
@@ -764,24 +810,22 @@ function Write-StatusJson {
         } catch { @() }
     } else { @() })
     # See https://yuruna.link/4213a0b3-017f
+    # Every write holds the shared status-file lock, so a read-modify-write
+    # by another process (the status service's pause routes, the start-cycle
+    # worker, a nested run) is never interleaved with this replace.
     $ok = $false
-    if ($script:PreserveNested) {
-        # A nested child process may have written the `nested` subtree since
-        # our last flush; re-read it and carry it forward so this whole-doc
-        # overwrite can't erase a sub-run's tile. Read + write run under the
-        # shared status-file lock so they're atomic against a concurrent
-        # nested RMW (Register-NestedRunNode / Set-NestedRun*). Only engaged
-        # once a nested child may exist -- the plain path below is unchanged
-        # for every standalone / in-process run.
-        $lock = Enter-StatusLock -Path $script:File
-        try {
+    $lock = Enter-StatusLock -Path $script:File
+    try {
+        if ($script:PreserveNested) {
+            # A nested child process may have written the `nested` subtree
+            # since our last flush; re-read it and carry it forward so this
+            # whole-doc overwrite can't erase a sub-run's tile. Only engaged
+            # once a nested child may exist.
             $disk = Read-StatusDocFromDisk -StatusPath $script:File
             if ($disk -and $disk.Contains('nested')) { $script:Doc.nested = $disk.nested }
-            $ok = Write-YurunaStateFileJson -Path $script:File -InputObject $script:Doc -Depth 10 -Compress:$false -Confirm:$false
-        } finally { Exit-StatusLock -Lock $lock }
-    } else {
+        }
         $ok = Write-YurunaStateFileJson -Path $script:File -InputObject $script:Doc -Depth 10 -Compress:$false -Confirm:$false
-    }
+    } finally { Exit-StatusLock -Lock $lock }
     if (-not $ok) {
         # Surface the write failure explicitly rather than leaving it to be inferred from a
         # frozen UI (mirrors the status_doc_corrupt event emitted on the read path).
@@ -1142,6 +1186,38 @@ function Read-StatusDocFromDisk {
     catch { return $null }
 }
 
+function Update-StatusDocumentField {
+    <#
+    .SYNOPSIS
+        Set top-level fields of status.json in place: a whole-document
+        read-modify-write under the shared status-file lock. $true when written.
+    .DESCRIPTION
+        For writers other than the runner that owns the document: the status
+        service's pause routes and the start-cycle worker. Reading fresh and
+        replacing under the lock keeps another locked writer's change from
+        being overwritten by a copy read before it. Nothing is written, and
+        $false returned, when status.json is absent or does not parse.
+    .PARAMETER StatusPath
+        The status.json path.
+    .PARAMETER Field
+        The top-level fields to set, by name.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$StatusPath,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Field
+    )
+    if (-not $PSCmdlet.ShouldProcess($StatusPath)) { return $false }
+    $lock = Enter-StatusLock -Path $StatusPath
+    try {
+        $doc = Read-StatusDocFromDisk -StatusPath $StatusPath
+        if (-not $doc) { return $false }
+        foreach ($name in @($Field.Keys)) { $doc[[string]$name] = $Field[$name] }
+        return [bool](Write-YurunaStateFileJson -Path $StatusPath -InputObject $doc -Depth 20 -Compress:$false -Confirm:$false)
+    } finally { Exit-StatusLock -Lock $lock }
+}
+
 function Register-NestedRunNode {
     <#
     .SYNOPSIS
@@ -1256,4 +1332,4 @@ function Set-NestedRunStatus {
     } finally { Exit-StatusLock -Lock $lock }
 }
 
-Export-ModuleMember -Function Get-PauseFlagStamp, Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-GuestQuarantine, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, New-CycleHistoryEntry, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime, Get-CycleContext, Publish-CycleContext, Clear-CycleContext, Enter-StatusLock, Exit-StatusLock, Read-StatusDocFromDisk, Register-NestedRunNode, Set-NestedRunStep, Set-NestedRunStatus
+Export-ModuleMember -Function Get-PauseFlagStamp, Read-StatusCycleCounter, Save-StatusCycleCounter, Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-GuestQuarantine, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, New-CycleHistoryEntry, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime, Get-CycleContext, Publish-CycleContext, Clear-CycleContext, Enter-StatusLock, Exit-StatusLock, Read-StatusDocFromDisk, Update-StatusDocumentField, Register-NestedRunNode, Set-NestedRunStep, Set-NestedRunStatus

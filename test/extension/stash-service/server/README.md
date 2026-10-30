@@ -105,7 +105,7 @@ unit the bring-up installs (`journalctl -u stash-service`).
 
 ## Exercise
 
-The daemon serves BOTH protocols (see the spec section 4.1):
+The daemon serves BOTH protocols (see [Upload protocols](../../../../docs/stash-implementation-notes.md#429e934f-0007)):
 
 ```bash
 # Modern scp defaults to SFTP -- works, one record per file. Stored on
@@ -286,6 +286,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../../../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 429be071-3a67-44e5-91dc-fd9c3fe536b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,9 +52,13 @@ function Invoke-PerGuestNewVm {
         notices a dropped planner cascade.
         A builder that refuses the caching proxy's CA exits with
         Get-YurunaSourceIntegrityExitCode, which is reported with failureClass
-        source_integrity rather than as an ordinary provisioning failure.
+        source_integrity rather than as an ordinary provisioning failure. Any
+        other failure carries the class and kind the builder recorded through
+        Write-YurunaProvisionResult at <log>/provision/<GuestKey>.NewVM.json;
+        a builder that recorded nothing leaves failureClass out, and the caller
+        keeps its own default.
     .OUTPUTS
-        [hashtable] @{ success = [bool]; errorMessage = [string]; failureClass = [string] }
+        [hashtable] @{ success = [bool]; errorMessage = [string]; failureClass = [string]; kind = [string] }
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -120,8 +124,16 @@ function Invoke-PerGuestNewVm {
         }
     }
     Write-Verbose "Running: $scriptPath $($childArgs -join ' ')"
-    $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1
-    $exitCode = $LASTEXITCODE
+    $resultPath = Get-YurunaProvisionResultPath -GuestKey $GuestKey -Stage 'NewVM'
+    Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+    $priorResultPath = $env:YURUNA_PROVISION_RESULT
+    $env:YURUNA_PROVISION_RESULT = $resultPath
+    try {
+        $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $env:YURUNA_PROVISION_RESULT = $priorResultPath
+    }
     foreach ($line in $output) {
         $text = "$line".TrimEnd()
         if ($text -ne '' -and $text -notmatch '^\s*\d+%\s+complete') {
@@ -143,7 +155,14 @@ function Invoke-PerGuestNewVm {
         return @{ success = $false; errorMessage = "New-VM.ps1 refused the caching proxy's CA$detail (exit $exitCode)"; failureClass = 'source_integrity' }
     }
     if ($exitCode -ne 0) {
-        return @{ success = $false; errorMessage = "New-VM.ps1 exited with code $exitCode" }
+        $failure = @{ success = $false; errorMessage = "New-VM.ps1 exited with code $exitCode" }
+        $hostResult = Read-YurunaProvisionResult -Path $resultPath
+        if ($hostResult) {
+            $failure.failureClass = [string]$hostResult.failureClass
+            $failure.kind = [string]$hostResult.kind
+            if ($hostResult.message) { $failure.errorMessage = "$($failure.errorMessage): $($hostResult.message)" }
+        }
+        return $failure
     }
     return @{ success = $true; errorMessage = $null }
 }
@@ -346,6 +365,9 @@ $script:HostResultKindClass = [ordered]@{
     unsupported = 'plan_invalid'
     # A local tool or step failed.
     tool        = 'provisioning_failure'
+    # The hypervisor did not answer a lifecycle call within its deadline:
+    # repeating the call cannot help until the hypervisor itself recovers.
+    unresponsive = 'hypervisor_unresponsive'
 }
 
 function New-YurunaHostResult {
@@ -361,10 +383,27 @@ function New-YurunaHostResult {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Pure builder: returns a record; changes no state.')]
     param(
-        [Parameter(Mandatory)][ValidateSet('network', 'integrity', 'unsupported', 'tool')][string]$Kind,
+        [Parameter(Mandatory)][ValidateSet('network', 'integrity', 'unsupported', 'tool', 'unresponsive')][string]$Kind,
         [AllowEmptyString()][string]$Message = ''
     )
     return [ordered]@{ kind = $Kind; failureClass = [string]$script:HostResultKindClass[$Kind]; message = $Message }
+}
+
+function Get-YurunaProvisionResultPath {
+    <#
+    .SYNOPSIS
+        Where a host stage of one guest records why it failed:
+        <log>/provision/<GuestKey>.<Stage>.json, under the temp folder when no
+        cycle log is set.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][ValidateSet('GetImage', 'NewVM')][string]$Stage
+    )
+    $resultRoot = if ($env:YURUNA_LOG_DIR) { $env:YURUNA_LOG_DIR } else { [IO.Path]::GetTempPath() }
+    return (Join-Path (Join-Path $resultRoot 'provision') "$GuestKey.$Stage.json")
 }
 
 function Write-YurunaProvisionResult {
@@ -379,7 +418,7 @@ function Write-YurunaProvisionResult {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][ValidateSet('network', 'integrity', 'unsupported', 'tool')][string]$Kind,
+        [Parameter(Mandatory)][ValidateSet('network', 'integrity', 'unsupported', 'tool', 'unresponsive')][string]$Kind,
         [AllowEmptyString()][string]$Message = ''
     )
     $path = [string]$env:YURUNA_PROVISION_RESULT
@@ -456,8 +495,7 @@ function Invoke-GetImage {
         }
     }
     & $writer "Running: $scriptPath"
-    $resultRoot = if ($env:YURUNA_LOG_DIR) { $env:YURUNA_LOG_DIR } else { [IO.Path]::GetTempPath() }
-    $resultPath = Join-Path (Join-Path $resultRoot 'provision') "$GuestKey.GetImage.json"
+    $resultPath = Get-YurunaProvisionResultPath -GuestKey $GuestKey -Stage 'GetImage'
     Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
     $priorResultPath = $env:YURUNA_PROVISION_RESULT
     $env:YURUNA_PROVISION_RESULT = $resultPath
@@ -476,6 +514,272 @@ function Invoke-GetImage {
         return @{ success = $false; skipped = $false; errorMessage = "Get-Image.ps1 exited with code $code"; failureClass = $failureClass; kind = $kind }
     }
     return @{ success = $true; skipped = $false; errorMessage = $null }
+}
+
+# --- REGION: Port-map ownership
+# One host-level record (Get-PortMapStatePath) of which owner holds each
+# forwarded host port, so an owner's Add-PortMap and Remove-PortMap act on its
+# own forwarders alone: the caching proxy re-asserts its forwarders every
+# cycle, and a clear-all there removed the stash, pool-control and
+# download-agent forwarders, which nothing recreated.
+$script:PortMapOwnerPattern = '^[a-z][a-z0-9-]{0,62}$'
+$script:PortMapLedgerSchema = 'yuruna.portmap/v2'
+
+function Read-YurunaPortMapLedger {
+    <#
+    .SYNOPSIS
+        The owners recorded in the host's port-map file: owner -> @{ vmIp;
+        mappings = @(@{ hostPort; vmPort; proxyProtocol }) }.
+    .DESCRIPTION
+        A missing or unreadable file, or one written before owners were
+        recorded, holds no owners: its forwarders are found on the host like
+        any other unrecorded one.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+    $owners = @{}
+    if (-not (Test-Path -LiteralPath $Path)) { return $owners }
+    try {
+        $record = Get-Content -Raw -LiteralPath $Path -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+    } catch {
+        Write-Verbose "Read-YurunaPortMapLedger: $Path not read ($($_.Exception.Message)); no owners recorded."
+        return $owners
+    }
+    if ($record -isnot [System.Collections.IDictionary] -or $record['owners'] -isnot [System.Collections.IDictionary]) { return $owners }
+    foreach ($name in @($record['owners'].Keys)) {
+        $entry = $record['owners'][$name]
+        if ([string]$name -notmatch $script:PortMapOwnerPattern -or $entry -isnot [System.Collections.IDictionary]) { continue }
+        $mappings = @(foreach ($m in @($entry['mappings'])) {
+                $hostPort = 0; $vmPort = 0
+                if ($m -is [System.Collections.IDictionary] -and [int]::TryParse([string]$m['hostPort'], [ref]$hostPort) -and [int]::TryParse([string]$m['vmPort'], [ref]$vmPort)) {
+                    [ordered]@{ hostPort = $hostPort; vmPort = $vmPort; proxyProtocol = [bool]$m['proxyProtocol'] }
+                }
+            })
+        $owners[[string]$name] = [ordered]@{ vmIp = [string]$entry['vmIp']; mappings = $mappings }
+    }
+    return $owners
+}
+
+function Get-YurunaPortMapPlan {
+    <#
+    .SYNOPSIS
+        Which forwarders an owner's port-map call may tear down, and which of
+        the host ports it asks for another owner holds.
+    .DESCRIPTION
+        An owner always releases the ports it holds. A forwarder found on the
+        host that no owner records was installed before owners were recorded:
+        Add-PortMap replaces one only on a port it is about to install, and
+        Remove-PortMap (-Removing) releases them all, as the clear-all it
+        replaces did. A port held by another owner is never released, and
+        asking for one is a conflict the caller refuses.
+    .OUTPUTS
+        [hashtable] @{ Release = [int[]]; Conflict = @([pscustomobject]@{ HostPort; Owner }) }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][ValidatePattern('^[a-z][a-z0-9-]{0,62}$')][string]$Owner,
+        [Parameter(Mandatory)][AllowEmptyCollection()][hashtable]$Owners,
+        [int[]]$HostPort = @(),
+        [int[]]$Discovered = @(),
+        [switch]$Removing
+    )
+    $holder = @{}
+    foreach ($name in $Owners.Keys) {
+        foreach ($m in @($Owners[$name].mappings)) { $holder[[int]$m.hostPort] = [string]$name }
+    }
+    $conflict = @(foreach ($p in @($HostPort | Sort-Object -Unique)) {
+            if ($holder.ContainsKey([int]$p) -and $holder[[int]$p] -ne $Owner) { [pscustomobject]@{ HostPort = [int]$p; Owner = $holder[[int]$p] } }
+        })
+    $release = [System.Collections.Generic.SortedSet[int]]::new()
+    foreach ($p in $holder.Keys) { if ($holder[$p] -eq $Owner) { [void]$release.Add([int]$p) } }
+    foreach ($p in $Discovered) {
+        if ($holder.ContainsKey([int]$p)) { continue }
+        if ($Removing -or $HostPort -contains [int]$p) { [void]$release.Add([int]$p) }
+    }
+    return @{ Release = [int[]]@($release); Conflict = $conflict }
+}
+
+function Set-YurunaPortMapOwner {
+    <#
+    .SYNOPSIS
+        Record the forwarders an owner now holds, or none, in the host's
+        port-map file; other owners' entries are kept as they are.
+    .DESCRIPTION
+        Read, change and written under a lock beside the file, so two owners
+        changing their forwarders at once both keep their entries. The write is
+        a temp file renamed into place. $false when the lock or the write
+        failed; the forwarders themselves are already in place either way.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][ValidatePattern('^[a-z][a-z0-9-]{0,62}$')][string]$Owner,
+        [string]$VMIp = '',
+        [object[]]$Mapping = @()
+    )
+    if (-not $PSCmdlet.ShouldProcess($Path, "record the port forwarders of $Owner")) { return $false }
+    $folder = Split-Path -Parent $Path
+    if ($folder -and -not (Test-Path -LiteralPath $folder)) { $null = New-Item -ItemType Directory -Path $folder -Force }
+    $lock = "$Path.lock"
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not (Enter-YurunaPidFileLock -Path $lock)) {
+        if ($clock.Elapsed.TotalSeconds -ge 15) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.portmap_ledger_busy' -Arguments @{ owner = "$Owner"; path = "$Path" })
+            return $false
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    try {
+        $owners = Read-YurunaPortMapLedger -Path $Path
+        $rows = @(foreach ($m in @($Mapping)) {
+                [ordered]@{ hostPort = [int]$m.HostPort; vmPort = [int]$m.VMPort; proxyProtocol = [bool]$m.ProxyProtocol }
+            })
+        if ($rows.Count -gt 0) { $owners[$Owner] = [ordered]@{ vmIp = $VMIp; mappings = $rows } } else { $owners.Remove($Owner) }
+        $ordered = [ordered]@{}
+        foreach ($name in @($owners.Keys | Sort-Object)) { $ordered[$name] = $owners[$name] }
+        $body = [ordered]@{
+            schema    = $script:PortMapLedgerSchema
+            owners    = $ordered
+            updatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [System.Globalization.CultureInfo]::InvariantCulture)
+        } | ConvertTo-Json -Depth 6
+        $temp = "$Path.$PID.tmp"
+        try {
+            [System.IO.File]::WriteAllText($temp, $body)
+            [System.IO.File]::Move($temp, $Path, $true)
+        } catch {
+            Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.portmap_ledger_unwritten' -Arguments @{ owner = "$Owner"; path = "$Path"; message = "$($_.Exception.Message)" })
+            return $false
+        }
+        return $true
+    } finally {
+        $null = Exit-YurunaPidFileLock -Path $lock
+    }
+}
+
+# --- REGION: Disk snapshot save
+function Invoke-YurunaDiskSnapshotSave {
+    <#
+    .SYNOPSIS
+        Save snapshot $Id of $VMName as the persisted VM named $Id, the same way
+        on every host. An earlier persisted $Id is replaced only once the new
+        snapshot is verified.
+    .DESCRIPTION
+        The one save algorithm every driver runs; the driver supplies the
+        primitives that differ by hypervisor.
+
+          1. What an interrupted save left is settled first. An aside named
+             "<Id>.previous" means a save stopped between moving the earlier
+             persisted VM out of the way and removing it: when <Id> holds a
+             verified snapshot the save had finished and the aside is removed;
+             otherwise the unverified <Id> is removed and the aside is renamed
+             back. Anything this cannot decide stops the save, so a VM it
+             cannot account for is never deleted.
+          2. The working VM is stopped and confirmed powered off.
+          3. An existing persisted <Id>, whatever state it is in, is renamed
+             aside, so it can no longer block the name.
+          4. The working VM is renamed to <Id> and the snapshot is taken under
+             that final name. A KVM snapshot freezes the domain's definition
+             (its name and disk paths), so a snapshot taken under another name
+             would point at storage the rename moved.
+          5. The snapshot is verified present. Only then is the aside removed.
+
+        A failure in steps 3 to 5 renames the VMs back, so the earlier
+        persisted VM keeps its name and its snapshot. A working VM that is
+        already named <Id> is snapshotted in place, replacing the snapshot it
+        holds.
+    .PARAMETER Primitive
+        Script blocks bound in the driver's own module:
+          State         { param($Name) }      -> absent | stopped | running | unknown
+          SnapshotState { param($Name, $Id) } -> present | absent | unknown
+          Stop          { param($Name) }      -> [bool] stopped and confirmed off
+          Rename        { param($Name, $NewName) } -> [bool]
+          Remove        { param($Name) }      -> [bool] VM and its storage removed
+          Snapshot      { param($Name, $Id) } -> [bool] replaces a same-named snapshot
+    .OUTPUTS
+        [bool] $true when <Id> holds a verified snapshot.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Id,
+        [Parameter(Mandatory)][hashtable]$Primitive
+    )
+    foreach ($name in 'State', 'SnapshotState', 'Stop', 'Rename', 'Remove', 'Snapshot') {
+        if ($Primitive[$name] -isnot [scriptblock]) { throw "Invoke-YurunaDiskSnapshotSave: the driver supplied no '$name' primitive." }
+    }
+    if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_dd94ac62ae57701c' -Arguments @{ id = "$Id" }))) { return $false }
+    $aside = "$Id.previous"
+    $unsettled = {
+        param([string]$Reason)
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.snapshot_leftover_unsettled' -Arguments @{ id = "$Id"; previous = "$aside"; reason = "$Reason" })
+        return $false
+    }
+
+    # --- REGION: Settle an interrupted save
+    $asideState = & $Primitive.State $aside
+    if ($asideState -eq 'unknown') { return (& $unsettled "$aside state unknown") }
+    if ($asideState -ne 'absent' -and $VMName -ne $Id) {
+        $idState = & $Primitive.State $Id
+        if ($idState -eq 'unknown') { return (& $unsettled "$Id state unknown") }
+        if ($idState -eq 'absent') {
+            if (-not (& $Primitive.Rename $aside $Id)) { return (& $unsettled "Rename-VM $aside $Id") }
+        } else {
+            switch (& $Primitive.SnapshotState $Id $Id) {
+                'present' { if (-not (& $Primitive.Remove $aside)) { return (& $unsettled "Remove-VM $aside") } }
+                'absent' {
+                    if (-not (& $Primitive.Remove $Id)) { return (& $unsettled "Remove-VM $Id") }
+                    if (-not (& $Primitive.Rename $aside $Id)) { return (& $unsettled "Rename-VM $aside $Id") }
+                }
+                default { return (& $unsettled "snapshot $Id state unknown") }
+            }
+        }
+    }
+
+    # --- REGION: Stop the working VM
+    if (-not (& $Primitive.Stop $VMName)) { return $false }
+
+    # --- REGION: Snapshot in place
+    if ($VMName -eq $Id) {
+        if (-not (& $Primitive.Snapshot $Id $Id) -or (& $Primitive.SnapshotState $Id $Id) -ne 'present') { return $false }
+        if ($asideState -ne 'absent' -and -not (& $Primitive.Remove $aside)) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.snapshot_previous_not_removed' -Arguments @{ id = "$Id"; previous = "$aside" })
+        }
+        return $true
+    }
+
+    # --- REGION: Move the earlier persisted VM aside
+    $idState = & $Primitive.State $Id
+    if ($idState -eq 'unknown') { return (& $unsettled "$Id state unknown") }
+    $moved = $false
+    if ($idState -ne 'absent') {
+        if (-not (& $Primitive.Rename $Id $aside)) { return $false }
+        $moved = $true
+    }
+    $rollBack = {
+        param([string]$Step, [bool]$WorkingRenamed)
+        $restored = $true
+        if ($WorkingRenamed) { $restored = [bool](& $Primitive.Rename $Id $VMName) }
+        if ($restored -and $moved) { $restored = [bool](& $Primitive.Rename $aside $Id) }
+        $key = if ($restored) { 'host.snapshot_save_rolled_back' } else { 'host.snapshot_save_rollback_incomplete' }
+        Write-Warning (Format-YurunaOperatorMessage -Key $key -Arguments @{ id = "$Id"; vMName = "$VMName"; step = "$Step" })
+        return $false
+    }
+
+    # --- REGION: Take the snapshot under its final name
+    if (-not (& $Primitive.Rename $VMName $Id)) { return (& $rollBack 'Rename-VM' $false) }
+    if (-not (& $Primitive.Snapshot $Id $Id)) { return (& $rollBack 'Save-VMDiskSnapshot' $true) }
+    if ((& $Primitive.SnapshotState $Id $Id) -ne 'present') { return (& $rollBack 'Get-VMDiskSnapshotState' $true) }
+
+    # --- REGION: Remove the earlier persisted VM
+    if ($moved -and -not (& $Primitive.Remove $aside)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.snapshot_previous_not_removed' -Arguments @{ id = "$Id"; previous = "$aside" })
+    }
+    return $true
 }
 
 function Test-TcpConnectWithin {
@@ -707,4 +1011,5 @@ function Get-HostOwnIpVerdict {
 
 # --- REGION: Exports
 Export-ModuleMember -Function Invoke-PerGuestNewVm, Write-GetImageLine, Invoke-WaitVmIp, Invoke-ResolveVmIp, Invoke-GetImage, Invoke-CachingProxyServiceAvailableProbe, Test-HostOwnIpAddress, Get-HostOwnIpVerdict, `
-    New-YurunaHostResult, Write-YurunaProvisionResult, Read-YurunaProvisionResult
+    New-YurunaHostResult, Get-YurunaProvisionResultPath, Write-YurunaProvisionResult, Read-YurunaProvisionResult, `
+    Invoke-YurunaDiskSnapshotSave, Read-YurunaPortMapLedger, Get-YurunaPortMapPlan, Set-YurunaPortMapOwner

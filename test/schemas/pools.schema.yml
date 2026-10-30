@@ -14,7 +14,8 @@ description: >
   (run/paused/drain); `repositories` (the pool's framework and project
   repository URLs) is what a pooled host runs; `config` overrides the
   per-host testCycle knobs; `gating` is the advisory pool alert/quorum policy
-  the aggregator + host notifier act on.
+  the aggregator + host notifier act on; `frameworkRing` names the canary
+  members that track the framework tip while the others wait for canary passes.
 
 type: object
 required: [schemaVersion, pools]
@@ -174,6 +175,39 @@ $defs:
                 type: integer
                 minimum: 0
                 description: Seconds below the threshold before the pool is "degraded". Default 1800.
+
+      frameworkRing:
+        type: object
+        description: >
+          Optional canary ring for framework updates. Without it every member
+          installs the framework tip at its next cycle boundary. With it, the
+          members listed in canaryMembers keep tracking the tip, and every other
+          member installs the newest framework revision that has at least
+          requiredPasses valid canary passes, as the pool aggregator counts them
+          (a completed cycle that passed, skipped no planned guest, and ran on a
+          canary member at that revision). A follower that cannot learn such a
+          revision, or that already runs a newer one, stays where it is. An empty
+          canaryMembers list freezes the followers at their current revisions.
+          Canary members must also be listed in members (Test-PoolConfiguration.ps1
+          checks it; JSON Schema cannot compare two arrays).
+        required: [canaryMembers, requiredPasses]
+        additionalProperties: false
+        properties:
+          canaryMembers:
+            type: array
+            description: hostIds of the members that track the framework tip.
+            uniqueItems: true
+            items:
+              type: string
+              pattern: "^42[0-9a-fA-F]{30}$"
+          requiredPasses:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            description: >
+              Valid canary passes a framework revision needs before the other
+              members install it. Passes on different canary members and repeated
+              passes on one canary member both count.
 
       configuredState:
         type: string

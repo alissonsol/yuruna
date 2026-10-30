@@ -413,7 +413,7 @@ não é afetada e continua fazendo sua própria verificação.
 
 <a id="pre-flight-elevation"></a>
 
-### Checagem prévia: elevação
+### Verificação de elevação
 
 `yuruna/test/Debug-TestSequence.ps1`
 
@@ -554,7 +554,7 @@ filho o consuma como SUA própria reinicialização.
 
 <a id="refuse-to-start-when-a-start-testrunner-already-owns-the-runtime-dir-invoke-testproject-spawns-its"></a>
 
-### Recuse a inicialização quando um Start-TestRunner já for proprietário do diretório de runtime. Invoke-TestProject inicia seu
+### Inicialize o runtime e as pastas de log, reivindique o runtime
 
 `yuruna/test/Invoke-TestProject.ps1`
 
@@ -576,7 +576,7 @@ oposto (Stop-StaleRunner) e permanece no executor externo.
 
 <a id="pre-flight-elevation-1"></a>
 
-### Checagem prévia: elevação
+### Verificação de elevação
 
 `yuruna/test/Invoke-TestProject.ps1`
 
@@ -971,7 +971,7 @@ de Ctrl+C acima; alterar ['Requested'] lá encerra o laço aqui.
 
 <a id="pre-flight-elevation-2"></a>
 
-### Checagem prévia: elevação
+### Verificação de elevação
 
 `yuruna/test/Start-TestRunner.ps1`
 
@@ -1252,7 +1252,7 @@ o executor faria.
 
 <a id="canonical-path-bundle-and-caching-proxy-service-module-imports"></a>
 
-### Conjunto canônico de caminhos e importações dos módulos do caching-proxy-service
+### Resolução de caminhos
 
 `yuruna/test/Test-CachingProxyService.ps1`
 
@@ -2851,7 +2851,7 @@ não altera nada no hospedeiro; as verificações que alteram ficam todas abaixo
 
 <a id="elevation-is-asserted-before-anything-happens-rather-than-at-the-line-that-needs-it-the-sync-rewrit"></a>
 
-### A elevação é verificada antes de qualquer ação, em vez de na linha que precisa dela: a sincronização regrava
+### Verificação de elevação
 
 `yuruna/test/pool/Convert-ToPoolWorker.ps1`
 
@@ -2885,7 +2885,7 @@ dos serviços.
 
 <a id="whatifpreference-is-suppressed-across-the-imports-and-restored-immediately-after-the-host-contract"></a>
 
-### $WhatIfPreference é suprimido nas importações e restaurado logo depois. O contrato do hospedeiro
+### Módulos
 
 `yuruna/test/pool/Convert-ToPoolWorker.ps1`
 

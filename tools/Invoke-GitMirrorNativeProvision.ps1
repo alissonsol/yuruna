@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ea130d-a763-42f7-bb26-62f0af898bb7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -192,11 +192,15 @@ try {
         if ($Scenario -ceq 'GM-PROXY-NO-STATUS-SERVICE') {
             # The provisioning entry point honors this setting; merely stopping
             # the service first would let it start it again before seeding.
-            $disabled = Get-Content $configPath -Raw | ConvertFrom-Yaml -Ordered
-            if (-not $disabled.statusService.enabled) { throw 'The profile must begin with an enabled status service.' }
-            Write-Information "statusService.enabled: True -> False (backup: $($provisionProfile.configSourcePath))" -InformationAction Continue
-            $disabled.statusService.enabled=$false
-            $null = Write-DocumentedTestConfig -ConfigPath $configPath -Config $disabled -TemplatePath ($configPath+'.template') -Confirm:$false
+            # Each read-modify-write of the configuration holds its write lock, so a
+            # write another process makes between the read and the write survives.
+            Use-TestConfigLock -Path $configPath -Action {
+                $disabled = Get-Content $configPath -Raw | ConvertFrom-Yaml -Ordered
+                if (-not $disabled.statusService.enabled) { throw 'The profile must begin with an enabled status service.' }
+                Write-Information "statusService.enabled: True -> False (backup: $($provisionProfile.configSourcePath))" -InformationAction Continue
+                $disabled.statusService.enabled=$false
+                $null = Write-DocumentedTestConfig -ConfigPath $configPath -Config $disabled -TemplatePath ($configPath+'.template') -Writer 'git-mirror-provision' -Confirm:$false
+            }
             $statusStopped = $true
             Invoke-ProvisionEntryPoint (Join-Path $TargetRoot test/service/Stop-StatusService.ps1) @()
             if (Test-Path (Join-Path $runtime status-service.json)) { throw 'The status service was not stopped.' }
@@ -290,15 +294,17 @@ try {
         $prepared = Invoke-ProvisionRotation Prepare
         $keyId = Get-ConfigMirrorKeyId -Value $prepared.publicKey
         if ($keyId -cne $prepared.keyId) { throw 'Prepared rotation public identity is invalid.' }
-        $overlap = (Get-Content $configPath -Raw | ConvertFrom-Yaml -Ordered)
-        $overlap.repositories.mirror.verificationPublicKeys = @($overlap.repositories.mirror.verificationPublicKeys) + @($prepared.publicKey)
-        $before = [IO.File]::ReadAllBytes($configPath)
-        foreach ($change in @(Get-ConfigMirrorChange -Current (Get-Content $configPath -Raw | ConvertFrom-Yaml -Ordered) -Proposed $overlap)) {
-            Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $configPath.backup)" -InformationAction Continue
+        Use-TestConfigLock -Path $configPath -Action {
+            $overlap = (Get-Content $configPath -Raw | ConvertFrom-Yaml -Ordered)
+            $overlap.repositories.mirror.verificationPublicKeys = @($overlap.repositories.mirror.verificationPublicKeys) + @($prepared.publicKey)
+            $before = [IO.File]::ReadAllBytes($configPath)
+            foreach ($change in @(Get-ConfigMirrorChange -Current (Get-Content $configPath -Raw | ConvertFrom-Yaml -Ordered) -Proposed $overlap)) {
+                Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $configPath.backup)" -InformationAction Continue
+            }
+            Copy-Item $configPath ($configPath+'.backup')
+            $null = Write-DocumentedTestConfig -ConfigPath $configPath -Config $overlap -TemplatePath ($configPath+'.template') -Writer 'git-mirror-provision' -Confirm:$false
+            $result.configBackupVerified = [Convert]::ToBase64String([IO.File]::ReadAllBytes($configPath+'.backup')) -ceq [Convert]::ToBase64String($before)
         }
-        Copy-Item $configPath ($configPath+'.backup')
-        $null = Write-DocumentedTestConfig -ConfigPath $configPath -Config $overlap -TemplatePath ($configPath+'.template') -Confirm:$false
-        $result.configBackupVerified = [Convert]::ToBase64String([IO.File]::ReadAllBytes($configPath+'.backup')) -ceq [Convert]::ToBase64String($before)
         if (-not $result.configBackupVerified) { throw 'Rotation enrollment lost its recoverable configuration.' }
         Assert-ProvisionMirror (Get-ProvisionSelection)
         $null = Invoke-ProvisionRotation Switch
@@ -318,10 +324,12 @@ finally {
     }
     if ($statusStopped) {
         try {
-            $enabled = Get-Content $configPath -Raw | ConvertFrom-Yaml -Ordered
-            Write-Information "statusService.enabled: False -> True (backup: $($provisionProfile.configSourcePath))" -InformationAction Continue
-            $enabled.statusService.enabled=$true
-            $null = Write-DocumentedTestConfig -ConfigPath $configPath -Config $enabled -TemplatePath ($configPath+'.template') -Confirm:$false
+            Use-TestConfigLock -Path $configPath -Action {
+                $enabled = Get-Content $configPath -Raw | ConvertFrom-Yaml -Ordered
+                Write-Information "statusService.enabled: False -> True (backup: $($provisionProfile.configSourcePath))" -InformationAction Continue
+                $enabled.statusService.enabled=$true
+                $null = Write-DocumentedTestConfig -ConfigPath $configPath -Config $enabled -TemplatePath ($configPath+'.template') -Writer 'git-mirror-provision' -Confirm:$false
+            }
             Invoke-ProvisionEntryPoint (Join-Path $TargetRoot test/service/Start-StatusService.ps1) @()
             $result.statusServiceRestored=$true
         }

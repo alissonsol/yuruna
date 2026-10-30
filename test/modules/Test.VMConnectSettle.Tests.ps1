@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b856ad-722d-46a1-b7fb-0b117cf1cfdb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ BeforeAll {
 
 Describe 'the vmconnect launch sites and the settle function (static, every platform)' {
     It 'no longer follows a vmconnect launch with a blind 2 s sleep' {
-        $text = Get-Content -Raw -LiteralPath $script:ModulePath
+        $text = Get-YurunaTestSourceText -Path $script:ModulePath
         $text | Should -Not -Match '(?m)Start-Process -FilePath \$vmconnect -ArgumentList "localhost", \$VMName\r?\n\s*Start-Sleep -Seconds 2' `
             -Because 'the poll already tolerates a vmconnect that has not started yet'
     }

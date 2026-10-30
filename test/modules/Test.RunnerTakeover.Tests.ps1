@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42213d20-67de-42c8-8f4a-9f107b0b9088
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,6 +74,36 @@ Import-Module (Join-Path $PSScriptRoot 'Test.RunnerOuterLoop.psm1') -Global -Dis
         return [pscustomobject]@{ ParentPid = $parent.Id; ChildPid = $childPid }
     }
 
+    # Runs a /bin/sh program from a script file and waits for the PIDs it
+    # writes into the named marker files (a marker's path is passed to the
+    # program as `$M_<name>`). Returns the parent PID and a name -> PID map.
+    function Start-TestScriptTree {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+            Justification = 'A test fixture that starts throwaway sleeps and kills them in the same test; a confirmation prompt would only stall an unattended suite.')]
+        param([string[]]$Lines, [string[]]$Markers, [int]$WaitMilliseconds = 4000)
+        $stamp = "yuruna-tree-$PID-$(Get-Random)"
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) $stamp
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        $exports = @(foreach ($name in $Markers) { "M_$name='$(Join-Path $dir "$name.pid")'; export M_$name" })
+        $shPath = Join-Path $dir 'tree.sh'
+        Set-Content -LiteralPath $shPath -Value (@($exports) + @($Lines)) -Encoding ascii
+        $parent = Start-Process -FilePath '/bin/sh' -ArgumentList @($shPath) -PassThru -RedirectStandardOutput '/dev/null'
+        $pids = @{}
+        $deadline = [DateTime]::UtcNow.AddMilliseconds($WaitMilliseconds)
+        while ([DateTime]::UtcNow -lt $deadline -and $pids.Count -lt $Markers.Count) {
+            Start-Sleep -Milliseconds 100
+            foreach ($name in $Markers) {
+                if ($pids.ContainsKey($name)) { continue }
+                $marker = Join-Path $dir "$name.pid"
+                if (Test-Path -LiteralPath $marker) {
+                    $value = 0
+                    if ([int]::TryParse(([string](Get-Content -LiteralPath $marker -Raw)).Trim(), [ref]$value) -and $value -gt 0) { $pids[$name] = $value }
+                }
+            }
+        }
+        return [pscustomobject]@{ ParentPid = $parent.Id; Pids = $pids; Dir = $dir }
+    }
+
     function Test-PidAlive {
         param([int]$ProcessId)
         if ($ProcessId -le 0) { return $false }
@@ -95,6 +125,73 @@ Describe 'Stop-YurunaProcessTree' {
 
         Assert-True (-not (Test-PidAlive $tree.ParentPid)) 'the named process must be gone.'
         Assert-True (-not (Test-PidAlive $tree.ChildPid)) 'the CHILD must be gone too -- leaving it is the whole defect.'
+    }
+
+    It 'kills grandchildren too, with no switch to ask for them' -Skip:$IsWindows {
+        # A cycle is usually wedged below the inner runner (a capture, an OCR
+        # engine, an ssh): a kill that stopped at direct children left those.
+        $tree = Start-TestScriptTree -Markers @('child', 'grandchild') -Lines @(
+            '/bin/sh -c ''sleep 300 & echo $! > "$M_grandchild"; sleep 300'' &'
+            'echo $! > "$M_child"'
+            'sleep 300'
+        )
+        try {
+            Assert-True ($tree.Pids.Count -eq 2) 'the fixture must have produced a child and a grandchild.'
+            Stop-YurunaProcessTree -ProcessId $tree.ParentPid -GraceMilliseconds 500 -Confirm:$false
+            Start-Sleep -Milliseconds 500
+            Assert-True (-not (Test-PidAlive $tree.ParentPid)) 'the named process must be gone.'
+            Assert-True (-not (Test-PidAlive $tree.Pids['child'])) 'the child must be gone.'
+            Assert-True (-not (Test-PidAlive $tree.Pids['grandchild'])) 'the GRANDCHILD must be gone too.'
+        } finally {
+            foreach ($id in @($tree.Pids.Values) + $tree.ParentPid) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+            Remove-Item -LiteralPath $tree.Dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'kills a process that ignores TERM, with the children it started during the grace' -Skip:$IsWindows {
+        # The parent answers TERM by starting new work two levels down; that
+        # work did not exist when the tree was first read.
+        $tree = Start-TestScriptTree -Markers @('started', 'late') -Lines @(
+            'trap ''/bin/sh -c "sleep 300 & echo \$! > \"$M_late\"; sleep 300" &'' TERM'
+            'echo $$ > "$M_started"'
+            'while :; do sleep 0.2; done'
+        ) -WaitMilliseconds 2000
+        try {
+            Stop-YurunaProcessTree -ProcessId $tree.ParentPid -GraceMilliseconds 1500 -Confirm:$false
+            Start-Sleep -Milliseconds 500
+            $late = 0
+            $marker = Join-Path $tree.Dir 'late.pid'
+            if (Test-Path -LiteralPath $marker) { $late = [int]([string](Get-Content -LiteralPath $marker -Raw)).Trim() }
+            Assert-True ($late -gt 0) 'the TERM handler must have started its late work during the grace.'
+            Assert-True (-not (Test-PidAlive $tree.ParentPid)) 'the TERM-ignoring parent must be killed.'
+            Assert-True (-not (Test-PidAlive $late)) 'the late grandchild must be killed too.'
+        } finally {
+            Stop-Process -Id $tree.ParentPid -Force -ErrorAction SilentlyContinue
+            $marker = Join-Path $tree.Dir 'late.pid'
+            if (Test-Path -LiteralPath $marker) { Stop-Process -Id ([int]([string](Get-Content -LiteralPath $marker -Raw)).Trim()) -Force -ErrorAction SilentlyContinue }
+            Remove-Item -LiteralPath $tree.Dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'is the same kill when its text is rebuilt in a separate process, as the watchdog does' -Skip:$IsWindows {
+        $tree = Start-TestScriptTree -Markers @('child', 'grandchild') -Lines @(
+            '/bin/sh -c ''sleep 300 & echo $! > "$M_grandchild"; sleep 300'' &'
+            'echo $! > "$M_child"'
+            'sleep 300'
+        )
+        try {
+            $text = Get-YurunaProcessTreeKillScript
+            $rootPid = $tree.ParentPid
+            $job = Start-Job -ScriptBlock { & ([scriptblock]::Create($using:text)) $using:rootPid 500 }
+            $null = Wait-Job -Job $job -Timeout 30
+            Remove-Job -Job $job -Force
+            Start-Sleep -Milliseconds 300
+            Assert-True (-not (Test-PidAlive $tree.ParentPid)) 'the root must be gone.'
+            Assert-True (-not (Test-PidAlive $tree.Pids['grandchild'])) 'the grandchild must be gone.'
+        } finally {
+            foreach ($id in @($tree.Pids.Values) + $tree.ParentPid) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+            Remove-Item -LiteralPath $tree.Dir -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 
     It 'refuses to kill the calling process' {

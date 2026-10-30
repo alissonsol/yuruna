@@ -349,29 +349,80 @@ func (s *Store) Commit(id ImageID, generation string, sc Sidecar) error {
 // promote the same generation between a stat and a rename, and the rename would
 // then silently replace a path a host is streaming through http.ServeContent.
 // os.Link fails with EEXIST instead, and because generations are content-named
-// EEXIST *is* the identical-bytes case.
+// EEXIST is the identical-bytes case -- provided the file there has the staged
+// byte count. One that does not is not the artifact its name claims (a copy cut
+// short, or a hand-placed file that kept growing after it was hashed), so it is
+// removed and the verified bytes land in its place; a reader already streaming
+// the old file keeps its handle.
 func (s *Store) PromoteStaging(id ImageID, stagedPath, generation string) error {
 	if err := os.MkdirAll(s.Dir(id), 0o755); err != nil {
 		return err
 	}
+	staged, err := os.Stat(stagedPath)
+	if err != nil {
+		return err
+	}
 	dst := filepath.Join(s.Dir(id), generation)
-	err := os.Link(stagedPath, dst)
-	if err == nil || errors.Is(err, os.ErrExist) {
-		if cleanupErr := os.Remove(stagedPath); cleanupErr != nil {
-			log.Printf("image promoted; staging cleanup pending for %s: %v", stagedPath, cleanupErr)
+	for attempt := 0; attempt < 2; attempt++ {
+		landed, err := landGeneration(stagedPath, dst)
+		if err != nil {
+			return err
 		}
-		return nil
+		if landed {
+			dropStaging(stagedPath, "image promoted")
+			return nil
+		}
+		cur, err := os.Stat(dst)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if cur.Size() == staged.Size() {
+			dropStaging(stagedPath, "image already promoted")
+			return nil
+		}
+		if attempt > 0 {
+			break
+		}
+		log.Printf("generation %s holds %d byte(s), not the %d verified; replacing it", dst, cur.Size(), staged.Size())
+		if err := os.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("generation %s holds %d byte(s), not the %d verified, and could not be removed: %w", generation, cur.Size(), staged.Size(), err)
+		}
+	}
+	return fmt.Errorf("generation %s still holds a byte count other than the %d verified", generation, staged.Size())
+}
+
+// landGeneration puts the staged file at dst unless a file is already there,
+// which it reports as landed=false with no error.
+func landGeneration(stagedPath, dst string) (bool, error) {
+	err := os.Link(stagedPath, dst)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrExist) {
+		return false, nil
 	}
 	// Not every SMB server implements hard links. Where one is refused, the
 	// promote still has to complete, so fall back to the check-then-rename that
 	// cannot be EEXIST-safe.
 	if _, serr := os.Stat(dst); serr == nil {
-		if cleanupErr := os.Remove(stagedPath); cleanupErr != nil {
-			log.Printf("image already promoted; staging cleanup pending for %s: %v", stagedPath, cleanupErr)
-		}
-		return nil
+		return false, nil
 	}
-	return os.Rename(stagedPath, dst)
+	if err := os.Rename(stagedPath, dst); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// dropStaging removes the staging name once the bytes are in place, or found
+// already there. A rename has already taken the name, and a failed removal is
+// left to the staging sweep.
+func dropStaging(stagedPath, what string) {
+	if err := os.Remove(stagedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("%s; staging cleanup pending for %s: %v", what, stagedPath, err)
+	}
 }
 
 // Generations lists the artifacts in an image directory (dot-prefixed entries,

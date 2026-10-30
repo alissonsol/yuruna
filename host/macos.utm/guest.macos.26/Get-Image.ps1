@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b0f1a0-585e-4f1d-8e6b-453c54b16950
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,6 +48,11 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
+# --- REGION: Failure records
+# A failure this script can name is recorded for the runner before it exits:
+# https://yuruna.link/42820e91-000a
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.HostProvision.psm1') -DisableNameChecking
+
 # --- REGION: Platform guard
 if (-not $IsMacOS) {
     Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.host_607d7ff275d56f40')
@@ -70,7 +75,9 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 # message before we burn time on a here-string + temp-file dance for what
 # is really just a "command not found".
 if (-not (Get-Command swift -ErrorAction SilentlyContinue)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_79fdf80d7c21c98e')
+    $message = Format-YurunaOperatorMessage -Key 'host.operator_79fdf80d7c21c98e'
+    Write-YurunaProvisionResult -Kind tool -Message $message
+    Write-Error $message
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_30f614d6e42fae94') -InformationAction Continue
     exit 1
 }
@@ -143,18 +150,24 @@ if ($LASTEXITCODE -ne 0) {
         Select-Object -Last 1) -replace '^ERROR_KIND=',''
     switch ($errorKind) {
         'vz-catalog-fetch' {
-            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1e7cd29fbb2332d2')
+            $message = Format-YurunaOperatorMessage -Key 'host.operator_1e7cd29fbb2332d2'
+            Write-YurunaProvisionResult -Kind network -Message $message
+            Write-Error $message
             Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_4385f6ff408b1852' -Arguments @{ baseImageFile = "$baseImageFile"; resolvedText = "$resolvedText" }) -InformationAction Continue
         }
         'version-below-floor' {
-            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_03631e7fcccff720')
+            $message = Format-YurunaOperatorMessage -Key 'host.operator_03631e7fcccff720'
+            Write-YurunaProvisionResult -Kind unsupported -Message $message
+            Write-Error $message
             Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_f63ef0c4c6099b60' -Arguments @{ resolvedText = "$resolvedText" }) -InformationAction Continue
         }
         default {
             # vz-other or no ERROR_KIND line at all (compiler error,
             # swift crash). The latter is the only case where the
             # Xcode CLT hint is actually relevant.
-            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce75ea0fbe6f282d')
+            $message = Format-YurunaOperatorMessage -Key 'host.operator_ce75ea0fbe6f282d'
+            Write-YurunaProvisionResult -Kind tool -Message $message
+            Write-Error $message
             Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_f824c272a80574f8' -Arguments @{ resolvedText = "$resolvedText" }) -InformationAction Continue
         }
     }
@@ -166,7 +179,9 @@ if ($LASTEXITCODE -ne 0) {
 # entry, so pick that one rather than .Trim()-ing the whole capture.
 $resolvedLine = ($resolved -split "`n" | Where-Object { ($_ -split "`t").Count -ge 3 } | Select-Object -Last 1)
 if (-not $resolvedLine) {
-    Write-Error ((Format-YurunaOperatorMessage -Key 'host.operator_3b5d2f7573930a29' -Arguments @{ n = [string](($resolved -join "`n")) }))
+    $message = (Format-YurunaOperatorMessage -Key 'host.operator_3b5d2f7573930a29' -Arguments @{ n = [string](($resolved -join "`n")) })
+    Write-YurunaProvisionResult -Kind tool -Message $message
+    Write-Error $message
     exit 1
 }
 $fields = $resolvedLine -split "`t"
@@ -238,7 +253,9 @@ print("Validated IPSW: macOS \(versionString ?? "?")")
 Write-Verbose "Validating downloaded IPSW via VZMacOSRestoreImage.load(from:)..."
 $vOut = Invoke-EntitledSwift -Source $validateSrc -ArgumentList @($downloadFile)
 if ($LASTEXITCODE -ne 0) {
-    Write-Error ((Format-YurunaOperatorMessage -Key 'host.operator_8fb20ea52d59a761' -Arguments @{ n = [string](($vOut -join "`n")) }))
+    $message = (Format-YurunaOperatorMessage -Key 'host.operator_8fb20ea52d59a761' -Arguments @{ n = [string](($vOut -join "`n")) })
+    Write-YurunaProvisionResult -Kind integrity -Message $message
+    Write-Error $message
     Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
     exit 1
 }
@@ -252,7 +269,9 @@ Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScript
 try {
     $keptPrevious = Publish-YurunaBaseImage -DownloadFile $downloadFile -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $downloadedSize -Confirm:$false
 } catch {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+    $message = Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" }
+    Write-YurunaProvisionResult -Kind tool -Message $message
+    Write-Error $message
     exit 1
 }
 if ($keptPrevious) {

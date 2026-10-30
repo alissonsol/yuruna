@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e9ac75-3fda-482e-9c3e-944aff26fe2a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Copy another pool host's test.config.yml onto THIS host, converted for it.
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-0085.
 .PARAMETER ReferenceHost
     Network name or IP address of the pool host to copy the config from. Any
     host type -- converting between them is the point.
@@ -81,7 +81,7 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
     'PSAvoidUsingPlainTextForPassword', 'InternalAuthKey',
     Justification = 'Forwarded as the plaintext vault stores it, to a per-host script that takes it the same way; only its HMAC proof crosses the wire.')]
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-0084
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory, Position = 0)]
@@ -120,7 +120,7 @@ Use-LogLevelFromEnv
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 
 # --- REGION: Elevation check
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-0083
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $hostTarget = Resolve-YurunaHostScript -ScriptName 'Sync-HostConfiguration.ps1'
 if ($hostTarget.RequiresElevation -and $IsWindows -and -not (Test-IsAdministrator)) {
@@ -129,13 +129,13 @@ if ($hostTarget.RequiresElevation -and $IsWindows -and -not (Test-IsAdministrato
 }
 
 # --- REGION: Common-parameter relay
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-0082
 $extra = @()
 if ($PSBoundParameters.ContainsKey('Verbose') -or $VerbosePreference -eq 'Continue') { $extra += '-Verbose' }
 if ($PSBoundParameters.ContainsKey('WhatIf'))  { $extra += '-WhatIf' }
 
 # --- REGION: Internal authentication key
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-0081
 $persistToken = -not $NoPersistInternalAuthKey -and -not $NoPool -and
                 ($PersistInternalAuthKey -or -not [string]::IsNullOrEmpty($InternalAuthKey))
 if ($persistToken) {

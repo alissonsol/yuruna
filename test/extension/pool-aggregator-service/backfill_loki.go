@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"yuruna.com/test/extension/pool-aggregator-service/internal/incident"
 )
 
 const (
@@ -267,24 +268,24 @@ func eventPayloads(h activeHost, rec cycleRecord) []map[string]any {
 // Pool-wide incidents are not replayed: they correlate hosts, and hosts are
 // backfilled one at a time.
 func replayHostIncidents(hostID, pool string, fails []failRec, n int, win time.Duration) []incidentEvent {
-	sort.SliceStable(fails, func(i, j int) bool { return fails[i].t.Before(fails[j].t) })
+	sort.SliceStable(fails, func(i, j int) bool { return fails[i].At.Before(fails[j].At) })
 	var events []incidentEvent
 	var window []failRec
 	var inc *incidentState
 	resolve := func(at time.Time) {
-		events = append(events, incidentEvent{hostId: hostID, id: inc.id, startedAt: inc.startedAt, peak: inc.peak, now: at, classHist: inc.peakClassHist, dominantClass: inc.dominantClass, poolLabel: pool})
+		events = append(events, incidentEvent{HostID: hostID, ID: inc.ID, StartedAt: inc.StartedAt, Peak: inc.Peak, Now: at, ClassHist: inc.PeakClassHist, DominantClass: inc.DominantClass, PoolLabel: pool})
 		inc = nil
 	}
 	for _, f := range fails {
 		if inc != nil && len(window) > 0 {
-			if expiry := window[len(window)-1].t.Add(win); expiry.Before(f.t) {
+			if expiry := window[len(window)-1].At.Add(win); expiry.Before(f.At) {
 				resolve(expiry)
 			}
 		}
-		cutoff := f.t.Add(-win)
+		cutoff := f.At.Add(-win)
 		kept := window[:0]
 		for _, r := range window {
-			if r.t.After(cutoff) {
+			if r.At.After(cutoff) {
 				kept = append(kept, r)
 			}
 		}
@@ -292,24 +293,24 @@ func replayHostIncidents(hostID, pool string, fails []failRec, n int, win time.D
 		count := len(window)
 		switch {
 		case inc == nil && count >= n:
-			hist := classHistogram(window)
-			dom := dominantClass(hist)
+			hist := incident.ClassHistogram(window)
+			dom := incident.DominantClass(hist)
 			if dom == "" {
 				dom = "unknown"
 			}
-			inc = &incidentState{id: incidentID(hostID, window[0].t), startedAt: window[0].t, peak: count, peakClassHist: hist, dominantClass: dom}
-			events = append(events, incidentEvent{open: true, hostId: hostID, id: inc.id, count: count, startedAt: window[0].t, now: f.t, classHist: hist, dominantClass: dom, poolLabel: pool})
-		case inc != nil && count > inc.peak:
-			inc.peak = count
-			inc.peakClassHist = classHistogram(window)
-			inc.dominantClass = dominantClass(inc.peakClassHist)
-			if inc.dominantClass == "" {
-				inc.dominantClass = "unknown"
+			inc = &incidentState{ID: incident.ID(hostID, window[0].At), StartedAt: window[0].At, Peak: count, PeakClassHist: hist, DominantClass: dom}
+			events = append(events, incidentEvent{Open: true, HostID: hostID, ID: inc.ID, Count: count, StartedAt: window[0].At, Now: f.At, ClassHist: hist, DominantClass: dom, PoolLabel: pool})
+		case inc != nil && count > inc.Peak:
+			inc.Peak = count
+			inc.PeakClassHist = incident.ClassHistogram(window)
+			inc.DominantClass = incident.DominantClass(inc.PeakClassHist)
+			if inc.DominantClass == "" {
+				inc.DominantClass = "unknown"
 			}
 		}
 	}
 	if inc != nil && len(window) > 0 {
-		resolve(window[len(window)-1].t.Add(win))
+		resolve(window[len(window)-1].At.Add(win))
 	}
 	return events
 }
@@ -317,11 +318,11 @@ func replayHostIncidents(hostID, pool string, fails []failRec, n int, win time.D
 // incidentPayload is one replayed incident line. Each incident gets a stream of
 // its own (the incidentId label), for the same reason event lines do.
 func incidentPayload(ev incidentEvent) map[string]any {
-	stream, line := incidentStreamLine(ev.poolLabel, ev)
-	stream["incidentId"] = ev.id
+	stream, line := incident.StreamLine(ev.PoolLabel, ev)
+	stream["incidentId"] = ev.ID
 	return map[string]any{"streams": []map[string]any{{
 		"stream": stream,
-		"values": [][]string{{strconv.FormatInt(ev.now.UnixNano(), 10), string(line)}},
+		"values": [][]string{{strconv.FormatInt(ev.Now.UnixNano(), 10), string(line)}},
 	}}}
 }
 
@@ -347,7 +348,7 @@ func failsFromTransitions(entries []lokiEntry) map[string]failRec {
 		if cls == "" {
 			cls = "unknown"
 		}
-		out[key] = failRec{t: e.At, class: cls}
+		out[key] = failRec{At: e.At, Class: cls}
 	}
 	return out
 }
@@ -370,14 +371,14 @@ func mergeFails(fromLoki map[string]failRec, outcomes map[string]cycleOutcome, b
 		if cls == "" {
 			cls = "unknown"
 		}
-		all[key] = failRec{t: o.End, class: cls}
+		all[key] = failRec{At: o.End, Class: cls}
 	}
 	var out []failRec
 	for _, f := range all {
-		if f.t.Before(before) {
+		if f.At.Before(before) {
 			out = append(out, f)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].t.Before(out[j].t) })
+	sort.Slice(out, func(i, j int) bool { return out[i].At.Before(out[j].At) })
 	return out
 }

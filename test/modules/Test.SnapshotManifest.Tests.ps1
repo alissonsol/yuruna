@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42fe1ae4-05a9-49ae-b073-a5c31573254d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,7 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.SnapshotManifest.psm1') -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+$script:SavedProvenanceGlobals = Save-YurunaTestGlobal -Name '__YurunaCycleStartUtc', '__YurunaRunId'
 
 # Fixtures and helpers live in BeforeAll, not at file scope: file scope and
 # Describe bodies both run during discovery, and nothing they define reaches an
@@ -60,14 +61,11 @@ function Set-YurunaProvenanceGlobal {
         Set (or clear, with $null) the cycle/run provenance globals that
         Write-SnapshotManifest stamps into the manifest.
     #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test fixture: the module reads global:__YurunaCycleStartUtc / __YurunaRunId by design.')]
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([void])]
     param([AllowNull()][string]$CycleStartUtc, [AllowNull()][string]$RunId)
     if (-not $PSCmdlet.ShouldProcess('Yuruna provenance globals', 'Set')) { return }
-    $global:__YurunaCycleStartUtc = $CycleStartUtc
-    $global:__YurunaRunId   = $RunId
+    Set-YurunaTestGlobal -Value @{ __YurunaCycleStartUtc = $CycleStartUtc; __YurunaRunId = $RunId }
 }
 
 function Write-RawManifest {
@@ -93,18 +91,18 @@ function Write-RawManifest {
 
     $runtimeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-snapman-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
-    $savedRuntimeDir = $env:YURUNA_RUNTIME_DIR
+    $savedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     $env:YURUNA_RUNTIME_DIR = $runtimeRoot
     $snapshotDir = Join-Path $runtimeRoot 'snapshots'
     # AfterAll restores the displaced value: a leaked YURUNA_RUNTIME_DIR would
     # silently relocate the state of everything that runs after this file.
-    Write-Verbose "YURUNA_RUNTIME_DIR: '$savedRuntimeDir' -> '$runtimeRoot'; manifests expected under '$snapshotDir'"
+    Write-Verbose "YURUNA_RUNTIME_DIR: '$($savedRuntimeDir.YURUNA_RUNTIME_DIR)' -> '$runtimeRoot'; manifests expected under '$snapshotDir'"
     if (Test-Path -LiteralPath $snapshotDir) { throw "Precondition: '$snapshotDir' must not exist before the first Get-SnapshotManifestDir call." }
 }
 
 AfterAll {
-    $env:YURUNA_RUNTIME_DIR = $savedRuntimeDir
-    Set-YurunaProvenanceGlobal -CycleStartUtc $null -RunId $null -Confirm:$false
+    Restore-YurunaTestEnvironment -Saved $savedRuntimeDir
+    Restore-YurunaTestGlobal -Saved $script:SavedProvenanceGlobals
     if ($runtimeRoot -and (Test-Path -LiteralPath $runtimeRoot)) {
         Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -307,14 +305,14 @@ Describe 'Remove-SnapshotManifest' {
 Describe 'Runtime-directory resolution' {
     It 'honors YURUNA_RUNTIME_DIR and creates the tree under it' {
         $alt = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-snapman-alt-" + [guid]::NewGuid().ToString('N'))
-        $saved = $env:YURUNA_RUNTIME_DIR
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = $alt
             $dir = Get-SnapshotManifestDir -Confirm:$false
             Assert-Equal -Expected (Join-Path $alt 'snapshots') -Actual $dir -Because 'the runtime dir is the operator-controlled root'
             Assert-True (Test-Path -LiteralPath $dir) 'the whole path is created, not just the last segment'
         } finally {
-            $env:YURUNA_RUNTIME_DIR = $saved
+            Restore-YurunaTestEnvironment -Saved $saved
             if (Test-Path -LiteralPath $alt) { Remove-Item -LiteralPath $alt -Recurse -Force -ErrorAction SilentlyContinue }
         }
     }
@@ -322,7 +320,7 @@ Describe 'Runtime-directory resolution' {
         # Yuruna runs its cycles on host.macos.utm and host.ubuntu.kvm as well as
         # on Windows, and POSIX PowerShell does not define $env:TEMP. Clearing it
         # here reproduces exactly what the module sees on those hosts.
-        $savedRuntime = $env:YURUNA_RUNTIME_DIR
+        $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $savedTemp    = $env:TEMP
         $dir = $null
         $existedBefore = Test-Path -LiteralPath (Join-Path ([System.IO.Path]::GetTempPath()) 'snapshots')
@@ -335,7 +333,7 @@ Describe 'Runtime-directory resolution' {
             Assert-Equal -Expected 'snapshots' -Actual (Split-Path -Leaf $dir)
         } finally {
             $env:TEMP = $savedTemp
-            $env:YURUNA_RUNTIME_DIR = $savedRuntime
+            Restore-YurunaTestEnvironment -Saved $savedRuntime
             # The module created it for this call; one that was there already
             # belongs to someone else.
             if ($dir -and -not $existedBefore) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }

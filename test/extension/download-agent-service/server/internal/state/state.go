@@ -12,6 +12,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -26,6 +27,8 @@ import (
 // is to answer while the share is sick. ioMu serializes the writes themselves.
 type Store struct {
 	dir       string
+	audit     string
+	status    string
 	mu        sync.Mutex
 	startedAt time.Time
 	actions   int
@@ -53,7 +56,8 @@ type AuditEntry struct {
 	Detail   string `json:"detail,omitempty"`
 }
 
-// Status is the snapshot written to status.json and served by /healthz.
+// Status is the snapshot written to the agent's status file and served by
+// /healthz.
 type Status struct {
 	StartedAtUTC  string `json:"startedAtUtc"`
 	LastActionUTC string `json:"lastActionUtc,omitempty"`
@@ -68,10 +72,17 @@ type Status struct {
 	PoolAvailable bool   `json:"poolAvailable"`
 }
 
-// New returns a Store rooted at dir (empty = disabled). It creates the dir when
-// possible; a create failure is surfaced later via Health rather than fatal.
-func New(dir string, now time.Time) *Store {
-	s := &Store{dir: dir, startedAt: now}
+// New returns a Store rooted at dir (empty = disabled) for the agent named
+// agent. It creates the dir when possible; a create failure is surfaced later
+// via Health rather than fatal.
+//
+// Every agent of a pool shares the directory, so each writes files of its own,
+// AuditFile(agent) and StatusFile(agent). Over CIFS an append is not atomic
+// across clients -- each client finds the end of the file for itself -- so two
+// agents appending to one log can interleave or overwrite each other's lines,
+// and two agents renaming over one status file take turns erasing each other.
+func New(dir, agent string, now time.Time) *Store {
+	s := &Store{dir: dir, audit: AuditFile(agent), status: StatusFile(agent), startedAt: now}
 	if dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			s.lastErr = "state dir: " + err.Error()
@@ -79,6 +90,26 @@ func New(dir string, now time.Time) *Store {
 	}
 	s.last = Status{StartedAtUTC: now.UTC().Format(time.RFC3339), Healthy: dir == "" || s.lastErr == "", StateDir: dir, LastError: s.lastErr}
 	return s
+}
+
+// AuditFile is the name of an agent's audit log in the state directory.
+func AuditFile(agent string) string { return "audit." + fileSafe(agent) + ".jsonl" }
+
+// StatusFile is the name of an agent's status snapshot in the state directory.
+func StatusFile(agent string) string { return "status." + fileSafe(agent) + ".json" }
+
+// fileSafe keeps an agent name to characters every share accepts in a file
+// name; a host id or a host name already is.
+func fileSafe(agent string) string {
+	if agent == "" {
+		return "agent"
+	}
+	return strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.' {
+			return r
+		}
+		return '_'
+	}, agent)
 }
 
 // Enabled reports whether a state dir is configured.
@@ -117,7 +148,7 @@ func (s *Store) Health() Status {
 	return s.last
 }
 
-// auditTarget renders the image identity as one display string for status.json.
+// auditTarget renders the image identity as one display string for the status.
 func auditTarget(e AuditEntry) string {
 	if e.HostType == "" && e.ImageKey == "" {
 		return ""
@@ -132,7 +163,7 @@ func auditTarget(e AuditEntry) string {
 	return t
 }
 
-// persist appends an audit line (when e is non-nil) and rewrites status.json,
+// persist appends an audit line (when e is non-nil) and rewrites the status,
 // then folds the outcome back into the in-memory snapshot. Every file operation
 // happens under ioMu and OUTSIDE mu, so a share that has stopped answering can
 // stall this and nothing else.
@@ -170,7 +201,7 @@ func (s *Store) persist(e *AuditEntry) {
 // appendAudit runs under ioMu; it records its own failure in auditErr rather
 // than returning it, because the mutation it describes has already happened.
 func (s *Store) appendAudit(e AuditEntry) {
-	f, err := os.OpenFile(filepath.Join(s.dir, "audit.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(filepath.Join(s.dir, s.audit), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		s.auditErr = "audit write: " + err.Error()
 		return
@@ -186,12 +217,12 @@ func (s *Store) appendAudit(e AuditEntry) {
 
 // writeStatus persists one snapshot; it runs under ioMu and never touches mu.
 func (s *Store) writeStatus(snap Status) error {
-	dst := filepath.Join(s.dir, "status.json")
+	dst := filepath.Join(s.dir, s.status)
 	b, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
 		return errors.New("status encode: " + err.Error())
 	}
-	f, err := os.CreateTemp(s.dir, ".status.json.tmp-*")
+	f, err := os.CreateTemp(s.dir, "."+s.status+".tmp-*")
 	if err != nil {
 		return errors.New("status create: " + err.Error())
 	}

@@ -3,6 +3,16 @@
   "domain": "automation",
   "locale": "pt-BR",
   "messages": {
+    "automation.deploy_phase_reused": {
+      "sourceHash": "21524b0a7bc92d3bb53acf3dc81019c396a437ef4ee4d1344a03b6b400e29d79",
+      "origin": "machine",
+      "message": "A fase {phase} foi ignorada: ela passou com estas entradas antes de a fase {failedPhase} falhar, e suas saídas continuam no lugar. Exclua {ledgerPath} para executar todas as fases novamente."
+    },
+    "automation.deploy_tool_deadline": {
+      "sourceHash": "858e0954c9babd7dee62c7b11c87b94dfad8569fc38cc6cdbe5b9dc3a8d36113",
+      "origin": "machine",
+      "message": "{label} não terminou em {seconds} segundos e foi interrompido. Isso conta como tempo esgotado, e o que ele fez antes de ser interrompido é desconhecido."
+    },
     "automation.diagnostic_checkout_unavailable": {
       "sourceHash": "ed5c11965d58f8769fe9ac82189b07c39cd138aa9d63506b313cff90fb8deba9",
       "message": "(não se aplica: as evidências do checkout não estão disponíveis; passe -CheckoutRoot para usar um checkout existente do Yuruna)"
@@ -2147,6 +2157,11 @@
       "sourceHash": "62c3c5444b97c2fb7ce5569020fbeafb0dc6ed87178fa4f28c2392481327ba97",
       "message": "Arquivo de página grátis : {kB}"
     },
+    "automation.memory_commit_charge": {
+      "sourceHash": "9cce29800c97f42aa662b9e56cbd5080174e740b27c17cebc4b55a821e5d4927",
+      "origin": "machine",
+      "message": "Commit : {charged} de {limit} cobrados, {uncharged} livres (o início de uma VM é cobrado contra este limite, não contra a memória física livre)"
+    },
     "automation.operator_bf1c637eb978cee4": {
       "sourceHash": "c315ded28236f22804403f1bf0c378f55336cedf6364453291259b5305689e50",
       "message": "(detalhes por plataforma: SO desconhecido)"
@@ -2437,6 +2452,11 @@
       "sourceHash": "18bd4a43a0d47fff905474f7045f807d4d78723af8edd7b060ba970a3d3623f7",
       "message": "Rota padrão"
     },
+    "automation.network_dhcp_lease": {
+      "sourceHash": "e3fed3af94b40ff73b8ccd7040c5582e53e1273474880b09817dc5006b919b5f",
+      "origin": "machine",
+      "message": "Concessão DHCP no dispositivo da rota padrão ({device})"
+    },
     "automation.operator_d9c1fd0b30efa8fb": {
       "sourceHash": "4d7e94c53974fdc24e406ba66b276ee6c5e05e3a3c31e4b3d809134c00f07a45",
       "message": "Servidor : (inalcançável)"
@@ -2689,6 +2709,11 @@
       "sourceHash": "81ec2b1af3517fd802249ff392e27f7579d9aa4c18de8f17abafb31f0b4dce90",
       "message": "Top 10 de memória"
     },
+    "automation.top_processes_private_bytes": {
+      "sourceHash": "3eea0843e4d78da78987a8e5f27583dc48905e1d915de8e1a60d7f1f677975ea",
+      "origin": "machine",
+      "message": "Top 10 por bytes privados (cobrança de commit)"
+    },
     "automation.operator_f30d376c3b6737d6": {
       "sourceHash": "d524887221c7192aabd7711264442952f67fcc8aa3d9caab0dc1dee8e1f596b5",
       "message": "Clear-Configuration: forward resources.yml validation failed; proceed with riverdown from resources.output.yml anyway (source config may have drifted from implaption)."
@@ -2845,6 +2870,11 @@
       "sourceHash": "99384db4ce4de9b1be2c0e3fc659bdf71eaf1323f8ec54740c74c9a384e5065c",
       "origin": "machine",
       "message": "{module} não está instalado, e esta execução não pode instalar módulos. Instale-o com: Install-Module {module} -Scope CurrentUser"
+    },
+    "automation.seed_value_unsafe": {
+      "sourceHash": "5bb725712c4b727a0a165554eaf4299e0ad53320027e2b1f65c4d768d89cb950",
+      "origin": "machine",
+      "message": "O valor de seed para {placeholder} não pode ser colocado em seu contexto {context} (linha {line} do modelo): ele contém {reason}. Altere o valor; {count} ocorrência(s) de placeholder foram recusadas no total."
     },
     "automation.setup_service_vm_reason_intended_stopped": {
       "sourceHash": "0f4f4341aa4acaa76174d52f298cd050a8463677845b44eb47413b835f36502f",

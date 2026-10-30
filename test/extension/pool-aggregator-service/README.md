@@ -244,8 +244,12 @@ Every `-interval` (default 30s) it:
    over the trailing `-rehydrate-window`. The counter resumes at its prior value
    rather than resetting to zero, so from Prometheus's view there is no reset:
    both the table's raw Pass/Fail and the 24h `increase()` tile stay correct
-   across a collector restart, with no dashboard change. Best-effort: if Loki is
-   unreachable the collector starts empty and rebuilds as cycles complete.
+   across a collector restart, with no dashboard change. Before it reads, it waits
+   (up to two minutes) for Loki's `/ready`, since a Loki started beside it answers
+   503 while its ingester warms up and an early read comes back empty, and it
+   delivers the lines an earlier run left in its outbox (see *Loki delivery*). If
+   Loki is still unreachable the collector starts empty and rebuilds as cycles
+   complete.
    It also **re-seeds its (volatile) host view** from Loki -- each host's last-known
    IP, taken from the cycle-transition feed and from an on-discovery **presence**
    beacon (`{pool,hostId,src=presence}`, pushed whenever a host is first discovered
@@ -277,8 +281,9 @@ Every `-interval` (default 30s) it:
    pairs with its `incident_open` and reports the true duration. Known gaps:
    forgetting a host (`/api/v1/forget-host`) or handing its identity over
    (`/api/v1/handover-host`) drops its open incident without writing an
-   `incident_resolved` line, and lifecycle pushes are best-effort (a line Loki
-   refuses is not retried), so the feed can hold an open line with no close.
+   `incident_resolved` line, and a lifecycle line Loki refuses outright (a 4xx
+   other than a timeout or rate limit) is dropped from the outbox, so the feed can
+   hold an open line with no close.
 8. **Correlates cross-host (pool-wide) incidents.** When `-cross-host-fails`
    distinct hosts each fail within `-cross-host-window` (default 3 hosts in 15m)
    **with the same failure class**, it opens a **pool-wide** incident -- a
@@ -362,12 +367,42 @@ retains the latest 20 attempts. If an old yellow block's evidence has expired
 or cannot be read, its link opens the host's runner-attempt history instead of
 the preceding cycle. Explicit `/go/cycle` links retain their cycle-only meaning.
 
+**Loki delivery.** Cycle transitions, event lines (polled and pushed to
+`/ingest`), incident and pool-alert lifecycle lines, presence beacons and the
+lab-token audit go through an **outbox**: each line is written and synced to
+`-loki-outbox-dir` before the collector counts it as sent, and one worker sends
+the lines to Loki in order, each only after Loki has accepted the one before,
+retrying with a backoff from one second to a minute while Loki is away. A cycle
+transition is recorded as seen, and an event file's read position moves on,
+only once the line is held, so a line that could not be held is built and sent
+again by the next poll. The outbox holds up to 20,000 lines or 256 MiB; past
+that new lines are refused (logged once) and `/ingest` answers `503`. The
+`yuruna_pool_loki_outbox_pending` gauge shows how many lines wait. An announce
+is still pushed directly, because its reply states whether Loki took it. With
+no usable directory the outbox works in memory, which bridges a Loki outage but
+not a restart of the collector.
+
+**Framework canary ring.** For a pool whose `pools.yml` carries a
+`frameworkRing` block, the members it names as canaries track the framework tip
+and every other member installs the newest revision with enough valid canary
+passes. This service keeps the facts that decision needs: for each host, the full
+framework revision every completed cycle in its `status.json` history ran
+(`selectedSha` of the framework entry in `gitCommits`) and whether the cycle
+passed without skipping a planned guest. `/api/v1/framework-ring` answers for
+the canary list and pass count the asking host reads from its own copy of
+`pools.yml`, so a ring change needs nothing propagated here. A revision is
+ordered by the start of the first canary cycle that ran it, failures do not
+subtract, and a retired host ID counts for the host that replaced it. The facts
+are kept in `-framework-ring-state-file`, because hosts re-report only their
+recent history; at most 256 revisions and 64 cycles per host and revision are
+kept.
+
 **Read-only by design:** killing this daemon leaves every runner testing
 unaffected (graceful degradation).
 
 ## Files
 
-- `main.go`, `handover.go`, and `mcp.go` -- the collector, durable host-identity ledger, and MCP routes. `localization.go` and `internal/catalog/` supply the compiled UI and API messages. Stdlib plus the shared extension SDK (a static binary, no Go toolchain at
+- `main.go`, `handover.go`, and `mcp.go` -- the collector, durable host-identity ledger, and MCP routes. `framework_ring.go` keeps the framework canary ring's facts and answers `/api/v1/framework-ring`. `localization.go` and `internal/catalog/` supply the compiled UI and API messages. Stdlib plus the shared extension SDK (a static binary, no Go toolchain at
   runtime), cross-platform (no host-specific syscalls; builds + vets on the
   Windows harness toolchain identically to the Linux target).
 - `backfill.go`, `backfill_index.go`, `backfill_loki.go`, `backfill_prom.go`,
@@ -375,6 +410,16 @@ unaffected (graceful degradation).
   backfill, the same binary's second mode (`pool-aggregator-service backfill`; see
   *History backfill* below). It builds its Loki lines with the collector's own
   builders, so the two cannot drift apart.
+- `internal/loki/` -- the Loki client: the push call, the readiness wait and the
+  outbox (*Loki delivery* above).
+- `internal/hostpoll/` -- the host-facing half of the poll: the bounded reads of
+  each host's status service and the wire types they decode.
+- `internal/incident/` -- the incident rules: host incidents, pool-wide
+  same-class incidents and the pool health gate. It keeps no state; the pool
+  view owns the records and calls the rules under its one lock.
+- `internal/httpserve/` -- the HTTP transport: the listener that serves plain
+  HTTP and TLS on one port, and the shared request and response helpers. The
+  route handlers stay beside the pool state they read.
 - `go.mod` -- module + Go version. Zero external dependencies.
 - `pool-aggregator-service.service` -- systemd unit (`User=proxy`, hardened,
   `ReadOnlyPaths=/var/log/squid` to read the access log; `:9400`; `ExecStart`
@@ -457,7 +502,11 @@ exporter listens on, as published in `/api/v1/prometheus-targets`) - `-tls-cert`
 `-tls-key` (PEM paths; the listener is HTTPS when both name readable files,
 plain HTTP otherwise) - `-backfill-state-dir` (default
 `/var/lib/pool-history-backfill`; where `/go/cycle` reads the history backfill's
-cycle indexes; empty skips them).
+cycle indexes; empty skips them) - `-loki-outbox-dir` (default
+`/var/lib/pool-aggregator-service/loki-outbox`, in the unit's `StateDirectory`;
+empty keeps queued Loki lines in memory only) - `-framework-ring-state-file`
+(default `/var/lib/pool-aggregator-service/framework-ring.json`, in the unit's
+`StateDirectory`; empty keeps the canary ring's facts in memory only).
 
 ### History backfill
 
@@ -533,6 +582,7 @@ the leaf is absent.
 | `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); the bearer is the internal authentication key (`-auth-token-file`). `503` when the proxy holds no key -- a failure state, since the proxy build mints one |
 | `/api/v1/forget-host?hostId=<42-hex>` | POST | Bearer | operator eviction: drop one hostId from the in-memory view NOW (all per-host maps -> gone from the next `/metrics` scrape) instead of waiting out the configured host TTL (`-host-ttl`). Same token as `/ingest`; 503 when no token, 400 on a malformed id. JSON `{forgotten, hostId, wasPresent}`. A still-reachable host is re-discovered on the next poll -- stop/drain it first. Called by `test/pool/Remove-PoolHost.ps1` |
 | `/api/v1/handover-host` | POST | Bearer | body `{oldHostId,newHostId}`. Requires an unreachable old ID and reachable new ID at the same status-service address. Persists the alias before removing the old live row; repeated requests for the same pair succeed. Fails if the ledger cannot be written, and refuses conflicting pairs. The old ID remains available in archived cycle paths and Loki records |
+| `/api/v1/framework-ring?canary=<id>,<id>&passes=<n>` | GET | none | the framework canary ring's answer for that canary list (at most 64 42-prefixed host IDs; repeatable) and pass count (1 to 1000): `qualifyingRevision` (the newest framework revision with at least `passes` valid canary passes, `""` when none), `qualifyingPasses`, and the 20 newest `revisions` the canaries ran with their `firstSeenUtc`, `passes` and `failures`. `400` on a malformed query. Open, like `pool-status`: host IDs and commits are already public there. Read by a ring follower's framework update (`test/modules/Test.FrameworkRing.psm1`) |
 | `/api/v1/host-aliases?hostId=<42-hex>` | GET | none | current canonical host ID and all historical IDs attached to it. The live host also carries `previousHostIds` in `/api/v1/pool-status` |
 | `/api/v1/host-history?hostId=<42-hex>&range=30d` | GET | Bearer | merged cycle, event, and incident lines for the current and retired IDs. `range` accepts `1h`, `24h`, `7d`, or `30d`; at most 1,000 newest lines are returned with their original host IDs and a `truncated` flag. Raw log bodies require the internal authentication key. The pool-control service exposes the same history to unlocked operators at `/api/hosts/history` |
 | `/announce` | POST | none (self-identity-bound) | extension-presence beacon (stash service et al., point 5c): the advertised URL derives from / must match the sender's address, so an announcer can only advertise itself, and must be an address the pool could route to (`400` for loopback/link-local/multicast/non-URL); the handler confirms a newly announced address against `/healthz` before it is resolvable (point 5c-ii). Telemetry-only, bounded, disabled (503) when `-announce-ttl` is `0` |
@@ -705,6 +755,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../../../README.md)

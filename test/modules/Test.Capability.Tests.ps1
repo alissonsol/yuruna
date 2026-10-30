@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b063c4-f3bc-4a1f-885e-8a2c257e7130
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,30 +39,24 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 # discarded before any It runs, so a Describe-local New-RegFixture would be unresolvable
 # at the moment the It calls it.
 function New-RegFixture {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test must seed/save the $global:__Yuruna* identity channels the writer reads.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: temp dir + seeds globals/env; no production state.')]
     [OutputType([hashtable])]
     param()
-    $saved = @{ HostId = $global:__YurunaHostId; RunId = $global:__YurunaRunId; RuntimeDir = $env:YURUNA_RUNTIME_DIR }
+    $saved = @{ Globals = (Save-YurunaTestGlobal -Name '__YurunaHostId', '__YurunaRunId'); Environment = (Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR') }
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-reg-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
     $env:YURUNA_RUNTIME_DIR = $tmp
-    $global:__YurunaHostId = '42' + ('b' * 30)
-    $global:__YurunaRunId  = [guid]::NewGuid().ToString()
+    Set-YurunaTestGlobal -Value @{ __YurunaHostId = '42' + ('b' * 30); __YurunaRunId = [guid]::NewGuid().ToString() }
     return @{ Tmp = $tmp; Saved = $saved }
 }
 
 function Remove-RegFixture {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test teardown: restores the $global:__Yuruna* channels it saved.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test teardown: restores saved globals/env + removes the temp dir.')]
     param([Parameter(Mandatory)][hashtable]$Fixture)
-    $global:__YurunaHostId  = $Fixture.Saved.HostId
-    $global:__YurunaRunId   = $Fixture.Saved.RunId
-    $env:YURUNA_RUNTIME_DIR = $Fixture.Saved.RuntimeDir
+    Restore-YurunaTestGlobal -Saved $Fixture.Saved.Globals
+    Restore-YurunaTestEnvironment -Saved $Fixture.Saved.Environment
     Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
@@ -134,10 +128,8 @@ Describe 'Write-HostRegistrationRecord' {
             $env:YURUNA_RUNTIME_DIR = $runtimeDir
             [IO.File]::WriteAllText((Join-Path $projectDir 'test/test.runner.yml'), "sequences: [workload.example]`n",
                 [Text.UTF8Encoding]::new($false))
-            & git -C $projectDir init --quiet
+            $null = New-YurunaTestGitRepository -Path $projectDir -CommitMessage 'fixture'
             & git -C $projectDir remote add origin 'https://example.invalid/owner/project.git'
-            & git -C $projectDir -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false `
-                commit --allow-empty --quiet --no-verify -m fixture
             $expectedCommit = "$(& git -C $projectDir rev-parse --short HEAD)".Trim()
             $access = [ordered]@{ url = 'https://example.invalid/owner/project'; status = 'denied'
                 assignedBy = [ordered]@{ poolId = 'lab' }; checkedAt = '2026-01-01T00:00:00Z'; detail = 'fixture' }

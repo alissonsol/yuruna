@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 420a4a34-c1ef-485b-9c87-3ba17e1a4250
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,8 +17,9 @@
 #requires -version 7
 
 BeforeAll {
-    $script:PreviousRuntime = $env:YURUNA_RUNTIME_DIR
-    $script:PreviousSeed = $env:YURUNA_HOST_ID_SEED
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    $script:PreviousRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+    $script:PreviousSeed = Save-YurunaTestEnvironment -Name 'YURUNA_HOST_ID_SEED'
     $env:YURUNA_HOST_ID_SEED = $null
     $script:SeedModule = Import-Module (Join-Path $PSScriptRoot 'Test.HostIdentitySeed.psm1') -PassThru -DisableNameChecking
     # Override only the hardware boundary in the real module. Neither caller
@@ -39,8 +40,8 @@ BeforeAll {
 }
 
 AfterAll {
-    $env:YURUNA_RUNTIME_DIR = $script:PreviousRuntime
-    $env:YURUNA_HOST_ID_SEED = $script:PreviousSeed
+    Restore-YurunaTestEnvironment -Saved $script:PreviousRuntime
+    Restore-YurunaTestEnvironment -Saved $script:PreviousSeed
 }
 
 Describe 'Shared lazy host identity policy' {

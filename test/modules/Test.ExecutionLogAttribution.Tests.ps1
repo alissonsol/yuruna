@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a2e5eb-3669-4a46-8c83-b6e76b040378
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,7 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:diagnosticAst = [Management.Automation.Language.Parser]::ParseFile(
         (Join-Path $PSScriptRoot 'Test.Diagnostic.psm1'), [ref]$null, [ref]$null)
     $script:runnerAst = [Management.Automation.Language.Parser]::ParseFile(
@@ -62,11 +63,11 @@ BeforeAll {
         param([string]$Key, [hashtable]$Arguments)
         return "$Key $($Arguments.count)"
     }
-    $script:priorLogDir = $env:YURUNA_LOG_DIR
+    $script:priorLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
 }
 
 AfterAll {
-    $env:YURUNA_LOG_DIR = $script:priorLogDir
+    Restore-YurunaTestEnvironment -Saved $script:priorLogDir
 }
 
 Describe 'execution log identity' {

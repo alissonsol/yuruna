@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42825670-92b0-42e5-b870-019a40a7b0be
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,9 @@ foreach ($entry in $global:YurunaProvenGuestAddress.Values) {
     }
 }
 Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
+# The level the process that started this one resolved (YURUNA_LOG_LEVEL).
+Import-Module (Join-Path $PSScriptRoot 'modules/Test.LogLevel.psm1') -DisableNameChecking
+Use-LogLevelFromEnv
 $localeModule = Get-Module Yuruna.Globalization
 if ($request.OperatorLocaleContext) {
     # Pass the resolved locale directly, including pseudo-locales which have

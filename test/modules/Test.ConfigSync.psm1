@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4250f9af-bcc6-41b0-85fb-2c2f4e968e7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,18 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.ConfigNaming.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.SingleFlightLock.psm1') -DisableNameChecking
+
+# Top-level keys dropped without a trace on every reconcile: removing one from
+# the template must not make the shape check trip on every existing file, nor
+# park a long-dead setting as an obsolete entry.
+$script:DeprecatedTopConfigKey = @('hostSshServer')
+# Same-process depth of the config write lock per resolved config path: a
+# writer that already holds it (a reconcile, a caller's Use-TestConfigLock block)
+# calls the documented writer, which takes it again.
+$script:TestConfigLockDepth = @{}
+# How many earlier versions each config keeps in its journal.
+$script:TestConfigJournalKeep = 20
 
 function Get-ConfigMirrorKeyId {
     <# .SYNOPSIS
@@ -393,6 +405,297 @@ function ConvertTo-ConfigLeafText {
     return "$Value"
 }
 
+function Use-TestConfigLock {
+    <#
+    .SYNOPSIS
+        Run a read-modify-write of a config file while holding its write lock.
+    .DESCRIPTION
+        The cycle-start reconcile, the validator, the status page's editor and
+        the enrollment helpers all read test.config.yml, change it and write it
+        back. Unserialized, two of them interleave and the later write drops the
+        earlier one's change with no trace. Every writer in this module takes
+        the lock, and a caller whose read and write are separate statements
+        wraps both in this function.
+
+        The lock is a held-open file beside the config (<config>.lock), shared
+        by every process. It is reentrant within a process, so a block that
+        holds it may call Write-DocumentedTestConfig. A lock another process
+        holds past the wait refuses the write (config-lock-busy) rather than
+        letting it race; a file system that cannot lock, or a lock file that
+        cannot be created, leaves the block running unserialized, as every
+        write ran before the lock existed, with a verbose note.
+
+        A plain function on purpose: an advanced one would define its own
+        $PSCmdlet and parameter variables, which the caller's block would then
+        read in place of its own.
+    .PARAMETER Path
+        The config file. It need not exist yet; its folder must.
+    .PARAMETER Action
+        The block to run. Its output is returned.
+    .PARAMETER WaitMilliseconds
+        How long to wait for another process's write.
+    #>
+    param([string]$Path, [scriptblock]$Action, [int]$WaitMilliseconds = 30000)
+    if (-not $Path -or -not $Action) { throw 'Use-TestConfigLock: -Path and -Action are required.' }
+    $full = [IO.Path]::GetFullPath($Path)
+    if ($script:TestConfigLockDepth.ContainsKey($full)) {
+        $script:TestConfigLockDepth[$full]++
+        try { return (& $Action) } finally { $script:TestConfigLockDepth[$full]-- }
+    }
+    $lock = Enter-YurunaSingleFlightLock -Path "$full.lock" -WaitMilliseconds $WaitMilliseconds -Metadata @{ purpose = 'test-config-write' }
+    if (-not $lock.Held) {
+        if ($lock.Reason -eq 'held-elsewhere') {
+            throw "config-lock-busy: another process held $full.lock for over $([int]($WaitMilliseconds / 1000)) s; the configuration was not written."
+        }
+        Write-Verbose "Use-TestConfigLock: $full.lock not held ($($lock.Reason)); writing unserialized."
+    }
+    $script:TestConfigLockDepth[$full] = 1
+    try {
+        return (& $Action)
+    } finally {
+        [void]$script:TestConfigLockDepth.Remove($full)
+        if ($lock.Held) { Exit-YurunaSingleFlightLock -Lock $lock }
+    }
+}
+
+function Get-TestConfigJournalPath {
+    <#
+    .SYNOPSIS
+        The journal folder of one config file: <config>.journal beside it.
+    .DESCRIPTION
+        Beside the config, like <config>.backup, because a journal entry holds
+        the same credentials the config does: the folder is git-ignored, the
+        status service serves only what git lists, and every entry ends in
+        .backup, a name the service also refuses.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$ConfigPath)
+    return ([IO.Path]::GetFullPath($ConfigPath) + '.journal')
+}
+
+function Save-TestConfigJournalEntry {
+    <#
+    .SYNOPSIS
+        Keep the current bytes of a config as a new journal entry before a
+        writer replaces them.
+    .DESCRIPTION
+        One <config>.backup slot was shared by every writer, so a second write
+        overwrote the copy the first one kept. Each journal entry is a new file,
+        <UTC time>-<writer>.backup, and only the oldest beyond the newest
+        $script:TestConfigJournalKeep are pruned. Owner-only on POSIX: an entry
+        holds the config's credentials. Nothing is kept when the file does not
+        exist or already holds the bytes about to be written.
+    .PARAMETER NewContent
+        The text about to be written, to skip an entry for a write that changes
+        nothing.
+    .OUTPUTS
+        [string] the entry path, or $null when nothing was kept.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [string]$Writer = 'write',
+        [AllowNull()][string]$NewContent
+    )
+    $full = [IO.Path]::GetFullPath($ConfigPath)
+    if (-not [IO.File]::Exists($full)) { return $null }
+    $bytes = [IO.File]::ReadAllBytes($full)
+    if ($null -ne $NewContent -and [string]::Equals([Text.Encoding]::UTF8.GetString($bytes), $NewContent, [StringComparison]::Ordinal)) { return $null }
+    $dir = Get-TestConfigJournalPath -ConfigPath $full
+    if (-not [IO.Directory]::Exists($dir)) {
+        $null = [IO.Directory]::CreateDirectory($dir)
+        if (-not $IsWindows) { [IO.File]::SetUnixFileMode($dir, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute') }
+    }
+    $label = ($Writer -replace '[^A-Za-z0-9_.-]', '-')
+    $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ', [Globalization.CultureInfo]::InvariantCulture)
+    $entry = Join-Path $dir "$stamp-$label.backup"
+    for ($n = 2; [IO.File]::Exists($entry); $n++) { $entry = Join-Path $dir "$stamp-$label-$n.backup" }
+    $stream = [IO.File]::Open($entry, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try {
+        if (-not $IsWindows) { [IO.File]::SetUnixFileMode($entry, [IO.UnixFileMode]'UserRead, UserWrite') }
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush($true)
+    } finally { $stream.Dispose() }
+    $entries = @(Get-ChildItem -LiteralPath $dir -Filter '*.backup' -File | Sort-Object Name -Descending)
+    foreach ($old in @($entries | Select-Object -Skip $script:TestConfigJournalKeep)) {
+        Remove-Item -LiteralPath $old.FullName -Force -ErrorAction SilentlyContinue
+    }
+    return $entry
+}
+
+function Get-TestConfigJournal {
+    <#
+    .SYNOPSIS
+        A config's journal entries, newest first, each with whether it holds a
+        configuration mapping.
+    .OUTPUTS
+        [pscustomobject[]] Path, TimeUtc, Writer, Parses.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject[]], [object[]])]
+    param([Parameter(Mandatory)][string]$ConfigPath)
+    $dir = Get-TestConfigJournalPath -ConfigPath $ConfigPath
+    if (-not [IO.Directory]::Exists($dir)) { return @() }
+    return @(foreach ($file in @(Get-ChildItem -LiteralPath $dir -Filter '*.backup' -File | Sort-Object Name -Descending)) {
+        $parses = $false
+        try { $parses = ((ConvertFrom-Yaml -Yaml ([IO.File]::ReadAllText($file.FullName)) -Ordered) -is [System.Collections.IDictionary]) } catch { $parses = $false }
+        $time = $null
+        $writer = ''
+        if ($file.BaseName -match '^(\d{8}T\d{9}Z)-(.+)$') {
+            $time = [DateTime]::ParseExact($Matches[1], 'yyyyMMddTHHmmssfffZ', [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)
+            $writer = $Matches[2]
+        }
+        [pscustomobject]@{ Path = $file.FullName; TimeUtc = $time; Writer = $writer; Parses = $parses }
+    })
+}
+
+function Restore-TestConfigFromJournal {
+    <#
+    .SYNOPSIS
+        Put a journal entry back as the config: the newest one that holds a
+        configuration mapping (the last known good), or the one named.
+    .DESCRIPTION
+        An operator action, never automatic: a cycle that meets a config that
+        does not parse refuses to run on it, and this is the way back. The
+        file being replaced is journaled first, so a restore is itself
+        undoable, and every value the restore changes is reported as
+        path: previous -> restored before the file is written.
+    .PARAMETER EntryPath
+        A journal entry to restore instead of the newest good one.
+    .OUTPUTS
+        [pscustomobject] Restored (entry path or $null), Saved (journal entry
+        of the replaced file or $null), Wrote.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Read inside the block handed to Use-TestConfigLock, which the rule does not follow.')]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [string]$EntryPath
+    )
+    $cmdlet = $PSCmdlet
+    return Use-TestConfigLock -Path $ConfigPath -Action {
+        $result = [pscustomobject]@{ Restored = $null; Saved = $null; Wrote = $false }
+        $entry = if ($EntryPath) {
+            Get-Item -LiteralPath $EntryPath -ErrorAction Stop | ForEach-Object { [pscustomobject]@{ Path = $_.FullName; Parses = $true } }
+        } else {
+            @(Get-TestConfigJournal -ConfigPath $ConfigPath | Where-Object { $_.Parses }) | Select-Object -First 1
+        }
+        if (-not $entry) {
+            Write-Warning "Restore-TestConfigFromJournal: $(Get-TestConfigJournalPath -ConfigPath $ConfigPath) holds no entry with a configuration mapping; nothing was restored."
+            return $result
+        }
+        $text = [IO.File]::ReadAllText($entry.Path)
+        $restored = ConvertFrom-Yaml -Yaml $text -Ordered
+        if ($restored -isnot [System.Collections.IDictionary]) { throw "config-corrupt: $($entry.Path) does not hold a configuration mapping." }
+        if (-not $cmdlet.ShouldProcess($ConfigPath, "Restore $($entry.Path)")) { return $result }
+        $current = $null
+        if (Test-Path -LiteralPath $ConfigPath) {
+            try { $current = ConvertFrom-Yaml -Yaml ([IO.File]::ReadAllText([IO.Path]::GetFullPath($ConfigPath))) -Ordered } catch { $current = $null }
+        }
+        if ($current -is [System.Collections.IDictionary]) {
+            foreach ($change in @(Get-ConfigLeafChange -Current (Copy-HashtableWithoutSecretNode $current) -Merged (Copy-HashtableWithoutSecretNode $restored))) {
+                Write-Warning "$ConfigPath $($change.Path): $($change.Previous) -> $($change.Current) (restored from $($entry.Path))"
+            }
+        }
+        $result.Saved = Save-TestConfigJournalEntry -ConfigPath $ConfigPath -Writer 'before-restore' -NewContent $text
+        $result.Wrote = [bool](Write-YurunaStateFile -Path $ConfigPath -Content $text -Confirm:$false)
+        if ($result.Wrote) { $result.Restored = $entry.Path }
+        return $result
+    }
+}
+
+function Get-TestConfigReconciliation {
+    <#
+    .SYNOPSIS
+        The one template reconciliation behind both the cycle-start overlay
+        and the validator: what the file becomes, and what that changes.
+    .DESCRIPTION
+        Update-TestConfigFromTemplate and Sync-TestConfigToTemplate used to
+        compute this each in its own way and had drifted: only the overlay
+        dropped deprecated keys and reported a replaced value, only the
+        validator backed up a dropped nested value. Both now start here and
+        differ only in what they do with the answer.
+    .OUTPUTS
+        [pscustomobject] Migration, Config (merged, canonical, secrets kept),
+        ShapeMatches, Added, Dropped, Obsolete, Replaced and Rendered (the
+        documented text when TemplateText is given, else $null).
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)]$Template,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Current,
+        [AllowEmptyString()][string]$ExistingText = '',
+        [AllowEmptyString()][string]$TemplateText = ''
+    )
+    $mirrorFailures = @(Test-ConfigMirrorSetting -Config $Current) + @(Test-ConfigMirrorSetting -Config $Template)
+    if ($mirrorFailures.Count -gt 0) { throw "$($mirrorFailures[0].Cause): $($mirrorFailures[0].Path)" }
+    $migration = ConvertTo-ConfigNamingMigration -Config $Current -ObsoleteEntry (Get-ObsoleteConfigEntry -Text $ExistingText)
+    # The migration returns a copy, so the caller's object keeps its keys.
+    $config = $migration.Config
+    if ($config -is [System.Collections.IDictionary]) {
+        foreach ($key in $script:DeprecatedTopConfigKey) { if ($config.Contains($key)) { $config.Remove($key) } }
+    }
+    $shapeMatches = Test-ConfigMatchesTemplateShape -Template $Template -Current $config
+    $merged = ConvertTo-MergedHashtable -Template $Template -Current $config
+    if ($config -is [System.Collections.IDictionary] -and $config.Contains('secrets')) { $merged['secrets'] = $config['secrets'] }
+    $merged = ConvertTo-SortedConfig $merged
+    $plainCurrent = Copy-HashtableWithoutSecretNode $config
+    $curLeaves = Get-ConfigLeafValue -Config $plainCurrent
+    $newLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $merged)
+    $added = @(foreach ($path in $newLeaves.Keys) { if (-not $curLeaves.Contains($path)) { $path } })
+    $dropped = @(Get-DroppedConfigField -Current $plainCurrent -Merged $merged)
+    $obsolete = $migration.Obsolete
+    foreach ($path in ($dropped | Sort-Object)) { $obsolete[$path] = Format-YamlScalarValue $curLeaves[$path] }
+    $replaced = @(Get-ConfigLeafChange -Current $plainCurrent -Merged $merged)
+    $rendered = if ($TemplateText) { ConvertTo-DocumentedConfigYaml -TemplateText $TemplateText -Config $merged -ObsoleteEntry $obsolete } else { $null }
+    return [pscustomobject]@{
+        Migration = $migration; Config = $merged; ShapeMatches = [bool]$shapeMatches
+        Added = [string[]]@($added | Sort-Object); Dropped = [string[]]@($dropped | Sort-Object)
+        Obsolete = $obsolete; Replaced = $replaced; Rendered = $rendered
+    }
+}
+
+function Save-ReconciledTestConfig {
+    <#
+    .SYNOPSIS
+        Write a reconciled config with the backups a reconcile owes: the naming
+        backup after a key migration, <config>.backup when a populated value
+        was dropped or the shape changed, and a journal entry always.
+    .OUTPUTS
+        [pscustomobject] Wrote, BackupPath.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)][string]$Content,
+        [Parameter(Mandatory)]$Reconciliation,
+        [switch]$Backup,
+        [string]$Writer = 'reconcile'
+    )
+    $backupPath = $null
+    $migrated = @($Reconciliation.Migration.Changes).Count -gt 0
+    if ($migrated) { $backupPath = New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false }
+    if ($Backup -and (Test-Path -LiteralPath $ConfigPath)) {
+        Copy-Item -LiteralPath $ConfigPath -Destination "$ConfigPath.backup" -Force
+        if (-not $migrated) { $backupPath = "$ConfigPath.backup" }
+    }
+    $null = Save-TestConfigJournalEntry -ConfigPath $ConfigPath -Writer $Writer -NewContent $Content
+    # Atomic temp+rename: the status service serves this working tree, so a
+    # non-atomic write would let a concurrent reader catch a torn file.
+    $wrote = [bool](Write-YurunaStateFile -Path $ConfigPath -Content $Content -Confirm:$false)
+    if (-not $wrote) {
+        if ($migrated) { throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_save_failed' -Arguments @{ configPath = $ConfigPath }) }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
+    }
+    return [pscustomobject]@{ Wrote = $wrote; BackupPath = $backupPath }
+}
+
 <#
 .SYNOPSIS
     Reconcile the on-disk test.config.yml against its template and return the merged config.
@@ -422,58 +725,36 @@ function Update-TestConfigFromTemplate {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_bd2bb274eb562e76' -Arguments @{ templatePath = "$TemplatePath" })
         return (Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered)
     }
-    $template = Get-Content -Raw $TemplatePath | ConvertFrom-Yaml -Ordered
+    $templateText = [string](Get-Content -Raw -LiteralPath $TemplatePath)
+    $template = ConvertFrom-Yaml -Yaml $templateText -Ordered
     $mirrorFailures = @(Test-ConfigMirrorSetting -Config $template)
     if ($mirrorFailures.Count -gt 0) { throw "$($mirrorFailures[0].Cause): $($mirrorFailures[0].Path)" }
-    if (-not (Test-Path $ConfigPath)) {
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ed3fe1ac669aaff0' -Arguments @{ configPath = "$ConfigPath" }) -InformationAction Continue
-        Copy-Item -Path $TemplatePath -Destination $ConfigPath
-        return (Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered)
-    }
-
-    $existingText = [string](Get-Content -Raw -LiteralPath $ConfigPath)
-    $current = ConvertFrom-Yaml -Yaml $existingText -Ordered
-    # An existing file that does not hold a mapping -- empty, comments only, a
-    # bare scalar or list -- has no settings to merge, and merging it would
-    # write the template defaults over it and over its earlier backup. Nothing
-    # is written; the operator restores the file and runs again.
-    if ($current -isnot [System.Collections.IDictionary]) {
-        throw "config-corrupt: $ConfigPath does not hold a configuration mapping; restore it (for example from $ConfigPath.backup) and run again"
-    }
-    $mirrorFailures = @(Test-ConfigMirrorSetting -Config $current)
-    if ($mirrorFailures.Count -gt 0) { throw "$($mirrorFailures[0].Cause): $($mirrorFailures[0].Path)" }
-    $migration = ConvertTo-ConfigNamingMigration -Config $current -ObsoleteEntry (Get-ObsoleteConfigEntry -Text $existingText)
-    $current = $migration.Config
-
-    # Silently drop deprecated top-level keys before the shape check below.
-    # Without this, removing a key from the template would make the
-    # structure-departure guard fire on every existing test.config.yml that
-    # still carries it, backing the file up and resetting the operator's
-    # values to template defaults. Targeted drops belong here; whole-layout
-    # migrations (e.g. flat -> nested) should still trip the backup path.
-    $deprecatedTopKeys = @('hostSshServer')
-    if ($current -is [System.Collections.IDictionary]) {
-        foreach ($k in $deprecatedTopKeys) {
-            if ($current.Contains($k)) { $current.Remove($k) }
+    $cmdlet = $PSCmdlet
+    # Read, merge and write under the config's write lock, so a change another
+    # writer made in between is read here rather than overwritten.
+    return Use-TestConfigLock -Path $ConfigPath -Action {
+        if (-not (Test-Path $ConfigPath)) {
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ed3fe1ac669aaff0' -Arguments @{ configPath = "$ConfigPath" }) -InformationAction Continue
+            Copy-Item -Path $TemplatePath -Destination $ConfigPath
+            return (Get-Content -Raw $ConfigPath | ConvertFrom-Yaml -Ordered)
         }
-    }
 
-    # Whether the on-disk file still matches the template's nested SHAPE. A
-    # mismatch (the template gained a node the file lacks, a node was removed or
-    # renamed, or a legacy flat layout) is handled AFTER the merge below by the
-    # schema-migration block: rather than reset the file to template defaults, the
-    # merge carries every field that still maps to the same path in the new schema
-    # forward from the previous file, and only fields that genuinely no longer map
-    # are surfaced for hand-migration.
-    $shapeMatchesTemplate = Test-ConfigMatchesTemplateShape -Template $template -Current $current
+        $existingText = [string](Get-Content -Raw -LiteralPath $ConfigPath)
+        $current = ConvertFrom-Yaml -Yaml $existingText -Ordered
+        # An existing file that does not hold a mapping -- empty, comments only, a
+        # bare scalar or list -- has no settings to merge, and merging it would
+        # write the template defaults over it and over its earlier backup. Nothing
+        # is written; the operator restores the file and runs again.
+        if ($current -isnot [System.Collections.IDictionary]) {
+            throw "config-corrupt: $ConfigPath does not hold a configuration mapping; restore it (Restore-TestConfigFromJournal puts back the last version that parsed, or copy $ConfigPath.backup) and run again"
+        }
 
-    # See https://yuruna.link/4213a0b3-0044
-    $statusExtNotif  = Join-Path -Path (Split-Path -Parent $ConfigPath) `
-                          -ChildPath 'status' `
-                          -AdditionalChildPath 'extension', 'notification'
-    $notifConfigPath = Join-Path $statusExtNotif 'transports.yml'
-    $hasNotifLive    = Test-Path $notifConfigPath
-    if ($current -is [System.Collections.IDictionary]) {
+        # See https://yuruna.link/4213a0b3-0044
+        $statusExtNotif  = Join-Path -Path (Split-Path -Parent $ConfigPath) `
+                              -ChildPath 'status' `
+                              -AdditionalChildPath 'extension', 'notification'
+        $notifConfigPath = Join-Path $statusExtNotif 'transports.yml'
+        $hasNotifLive    = Test-Path $notifConfigPath
         $legacyApiKey = $null
         if ($current.Contains('secrets') -and
             $current['secrets'] -is [System.Collections.IDictionary] -and
@@ -490,81 +771,51 @@ function Update-TestConfigFromTemplate {
         if (-not $hasNotifLive -and ((-not [string]::IsNullOrEmpty($legacyApiKey)) -or (-not [string]::IsNullOrEmpty($legacyTo)))) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9a76ef7358172f67')
         }
-    }
 
-    $merged = ConvertTo-MergedHashtable -Template $template -Current $current
-    if ($current -is [System.Collections.IDictionary] -and $current.Contains('secrets')) {
-        $merged['secrets'] = $current['secrets']
-    }
+        # keystrokeMechanism is no longer a machine-global config knob (it is a
+        # per-sequence attribute), so there is nothing to validate here. A stale key
+        # left in an operator's test.config.yml is inert and merges out against the
+        # template on the next canonicalizing write.
+        $reconciliation = Get-TestConfigReconciliation -Template $template -Current $current -ExistingText $existingText -TemplateText $templateText
+        $merged = $reconciliation.Config
+        # The merge keeps every operator value by construction, so a leaf that reads
+        # differently here is a defect in the overlay, not a schema change. It is
+        # reported with its previous value before anything is written: once the file
+        # is rewritten the run uses the new value and every later check passes
+        # against it, so this line is where the previous value survives.
+        foreach ($change in @($reconciliation.Replaced)) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.config_value_replaced' -Arguments @{
+                path = "$($change.Path)"; previous = "$($change.Previous)"; current = "$($change.Current)" })
+        }
+        $rendered = $reconciliation.Rendered
 
-    # keystrokeMechanism is no longer a machine-global config knob (it is a
-    # per-sequence attribute), so there is nothing to validate here. A stale key
-    # left in an operator's test.config.yml is inert and merges out against the
-    # template on the next canonicalizing write.
+        # --- REGION: Schema migration (shape departed)
+        # See https://yuruna.link/4213a0b3-0045
+        if (-not $reconciliation.ShapeMatches) {
+            $backupPath = "$ConfigPath.backup"
+            if ($cmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_3139f133d03a7df6'))) {
+                $null = Save-ReconciledTestConfig -ConfigPath $ConfigPath -Content $rendered -Reconciliation $reconciliation -Backup -Writer 'template-overlay'
+            }
+            if ($reconciliation.Dropped.Count -gt 0) {
+                $list = ($reconciliation.Dropped | ForEach-Object { "      - $_" }) -join "`n"
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7fa12fa1ab73deb3' -Arguments @{ backupPath = "$backupPath"; list = "$list" })
+                # Canonical failure exit code from Test.Prelude so a future change to
+                # the entry-point exit contract lands in one place.
+                exit (Get-EntryPointExitCode -Outcome Failure)
+            }
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bd50f33ae3c9b31e' -Arguments @{ backupPath = "$backupPath" }) -InformationAction Continue
+            return $merged
+        }
 
-    # Canonicalise ordering before any write/diff: every map key and scalar-array
-    # element alphabetically, so a regenerated test.config.yml is byte-stable and
-    # diff-friendly regardless of the order keys/elements were authored or merged
-    # in (and a file that only differs by ordering converges to canonical on the
-    # next run instead of churning forever).
-    $merged = ConvertTo-SortedConfig $merged
-    $obsolete = $migration.Obsolete
-    $curLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $current)
-    foreach ($path in @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $current) -Merged $merged)) {
-        $obsolete[$path] = Format-YamlScalarValue $curLeaves[$path]
-    }
-    # The merge keeps every operator value by construction, so a leaf that reads
-    # differently here is a defect in the overlay, not a schema change. It is
-    # reported with its previous value before anything is written: once the file
-    # is rewritten the run uses the new value and every later check passes
-    # against it, so this line is where the previous value survives.
-    foreach ($change in @(Get-ConfigLeafChange -Current (Copy-HashtableWithoutSecretNode $current) -Merged $merged)) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.config_value_replaced' -Arguments @{
-            path = "$($change.Path)"; previous = "$($change.Previous)"; current = "$($change.Current)" })
-    }
-    $rendered = ConvertTo-DocumentedConfigYaml -TemplateText ([string](Get-Content -Raw -LiteralPath $TemplatePath)) `
-        -Config $merged -ObsoleteEntry $obsolete
-
-    # --- REGION: Schema migration (shape departed)
-    # See https://yuruna.link/4213a0b3-0045
-    if (-not $shapeMatchesTemplate) {
-        $backupPath = "$ConfigPath.backup"
-        $dropped = @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $current) -Merged $merged)
-        if ($PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_3139f133d03a7df6'))) {
-            if ($migration.Changes.Count -gt 0) { [void](New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false) }
-            Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
-            # Atomic temp+rename: the status service serves this working tree, so a
-            # non-atomic write would let a concurrent reader catch a torn file.
-            if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $rendered -Confirm:$false)) {
-                if ($migration.Changes.Count -gt 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_save_failed' -Arguments @{ configPath = $ConfigPath }) }
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
+        if ((Test-ConfigDiffersOutsideSecretNode -A $merged -B $current) -or $rendered -cne $existingText) {
+            if ($cmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_785dae69f36c4993'))) {
+                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_58f8689005f6559c') -InformationAction Continue
+                $null = Save-ReconciledTestConfig -ConfigPath $ConfigPath -Content $rendered -Reconciliation $reconciliation -Writer 'template-overlay'
             }
         }
-        if ($dropped.Count -gt 0) {
-            $list = ($dropped | ForEach-Object { "      - $_" }) -join "`n"
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7fa12fa1ab73deb3' -Arguments @{ backupPath = "$backupPath"; list = "$list" })
-            # Canonical failure exit code from Test.Prelude so a future change to
-            # the entry-point exit contract lands in one place.
-            exit (Get-EntryPointExitCode -Outcome Failure)
-        }
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_bd50f33ae3c9b31e' -Arguments @{ backupPath = "$backupPath" }) -InformationAction Continue
+
         return $merged
     }
-
-    if ((Test-ConfigDiffersOutsideSecretNode -A $merged -B $current) -or $rendered -cne $existingText) {
-        if ($PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_785dae69f36c4993'))) {
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_58f8689005f6559c') -InformationAction Continue
-            if ($migration.Changes.Count -gt 0) { [void](New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false) }
-            # Atomic temp+rename: the status service serves this working tree, so a
-            # non-atomic write would let a concurrent reader catch a torn file.
-            if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $rendered -Confirm:$false)) {
-                if ($migration.Changes.Count -gt 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_save_failed' -Arguments @{ configPath = $ConfigPath }) }
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
-            }
-        }
-    }
-
-    return $merged
 }
 
 # --- REGION: https://yuruna.link/42b11c32-0003
@@ -799,28 +1050,38 @@ function ConvertTo-DocumentedConfigYaml {
 
 function Write-DocumentedTestConfig {
     <# .SYNOPSIS
-        Atomically write a config with template documentation and parked obsolete entries. #>
+        Atomically write a config with template documentation and parked obsolete entries.
+    .DESCRIPTION
+        Under the config's write lock, and the bytes it replaces are kept as a
+        journal entry named after -Writer. A caller that read the config
+        before this call holds the lock across both (Use-TestConfigLock), or
+        another writer's change can land between its read and this write. #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Read inside the block handed to Use-TestConfigLock, which the rule does not follow.')]
     param(
         [Parameter(Mandatory)][string]$ConfigPath,
         [Parameter(Mandatory)]$Config,
-        [string]$TemplatePath
+        [string]$TemplatePath,
+        [string]$Writer = 'documented-write'
     )
     $mirrorFailures = @(Test-ConfigMirrorSetting -Config $Config)
     if ($mirrorFailures.Count -gt 0) { throw "$($mirrorFailures[0].Cause): $($mirrorFailures[0].Path)" }
     if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Write documented configuration')) { return $false }
     if (-not $TemplatePath) { $TemplatePath = "$ConfigPath.template" }
     if (-not (Test-Path -LiteralPath $TemplatePath)) { $TemplatePath = Join-Path $PSScriptRoot '../test.config.yml.template' }
-    $existing = if (Test-Path -LiteralPath $ConfigPath) { [string](Get-Content -Raw -LiteralPath $ConfigPath) } else { '' }
-    $obsolete = Get-ObsoleteConfigEntry -Text $existing
-    $yaml = if (Test-Path -LiteralPath $TemplatePath) {
-        ConvertTo-DocumentedConfigYaml -TemplateText ([string](Get-Content -Raw -LiteralPath $TemplatePath)) -Config (ConvertTo-SortedConfig $Config) -ObsoleteEntry $obsolete
-    } else { ConvertTo-Yaml $Config }
     if (-not (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -DisableNameChecking
     }
-    return [bool](Write-YurunaStateFile -Path $ConfigPath -Content $yaml -Confirm:$false)
+    return [bool](Use-TestConfigLock -Path $ConfigPath -Action {
+        $existing = if (Test-Path -LiteralPath $ConfigPath) { [string](Get-Content -Raw -LiteralPath $ConfigPath) } else { '' }
+        $obsolete = Get-ObsoleteConfigEntry -Text $existing
+        $yaml = if (Test-Path -LiteralPath $TemplatePath) {
+            ConvertTo-DocumentedConfigYaml -TemplateText ([string](Get-Content -Raw -LiteralPath $TemplatePath)) -Config (ConvertTo-SortedConfig $Config) -ObsoleteEntry $obsolete
+        } else { ConvertTo-Yaml $Config }
+        $null = Save-TestConfigJournalEntry -ConfigPath $ConfigPath -Writer $Writer -NewContent $yaml
+        return [bool](Write-YurunaStateFile -Path $ConfigPath -Content $yaml -Confirm:$false)
+    })
 }
 
 <#
@@ -861,6 +1122,7 @@ function Write-DocumentedTestConfig {
 function Sync-TestConfigToTemplate {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Read inside the block handed to Use-TestConfigLock, which the rule does not follow.')]
     param(
         [Parameter(Mandatory)] $Template,
         [Parameter(Mandatory)] $Current,
@@ -875,89 +1137,55 @@ function Sync-TestConfigToTemplate {
     # The same refusal as Update-TestConfigFromTemplate: an existing file that
     # held no mapping must not be replaced by the template and backed up empty.
     if ((Test-Path -LiteralPath $ConfigPath) -and $Current -isnot [System.Collections.IDictionary]) {
-        throw "config-corrupt: $ConfigPath does not hold a configuration mapping; restore it (for example from $ConfigPath.backup) and run again"
+        throw "config-corrupt: $ConfigPath does not hold a configuration mapping; restore it (Restore-TestConfigFromJournal puts back the last version that parsed, or copy $ConfigPath.backup) and run again"
     }
-    $mirrorFailures = @(Test-ConfigMirrorSetting -Config $Current) + @(Test-ConfigMirrorSetting -Config $Template)
-    if ($mirrorFailures.Count -gt 0) { throw "$($mirrorFailures[0].Cause): $($mirrorFailures[0].Path)" }
-    $existingText = if (Test-Path -LiteralPath $ConfigPath) { [string](Get-Content -Raw -LiteralPath $ConfigPath) } else { '' }
-    $originalCurrent = $Current
-    $migration = ConvertTo-ConfigNamingMigration -Config $Current -ObsoleteEntry (Get-ObsoleteConfigEntry -Text $existingText)
-    $Current = $migration.Config
-
-    # Strict merge: template shape wins (orphan keys dropped, missing fields filled,
-    # operator values kept), then re-attach the out-of-band 'secrets' node so the
-    # validator never strips credentials, then canonicalize key + array ordering.
-    $strict = ConvertTo-MergedHashtable -Template $Template -Current $Current
-    if (($Current -is [System.Collections.IDictionary]) -and $Current.Contains('secrets')) {
-        $strict['secrets'] = $Current['secrets']
-    }
-    $canonical = ConvertTo-SortedConfig $strict
-
-    # Added / Removed both exclude 'secrets' (operator credentials always diverge
-    # from the template blanks). Removed counts only populated leaves with no home
-    # in the schema -- the values worth backing up before they are dropped.
-    $curLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $Current)
-    $newLeaves = Get-ConfigLeafValue -Config (Copy-HashtableWithoutSecretNode $canonical)
-    $added     = [System.Collections.Generic.List[string]]::new()
-    foreach ($p in $newLeaves.Keys) { if (-not $curLeaves.Contains($p)) { [void]$added.Add($p) } }
-    $removed   = @(Get-DroppedConfigField -Current (Copy-HashtableWithoutSecretNode $Current) -Merged $canonical)
-
-    # Obsolete keys are parked in the file as comments rather than only living in
-    # the .backup: entries an earlier run parked are carried forward (they are
-    # comments, so the YAML parse above cannot see them), then this run's newly
-    # dropped leaves are added with their values.
-    $obsolete = $migration.Obsolete
-    foreach ($p in ($removed | Sort-Object)) { $obsolete[$p] = Format-YamlScalarValue $curLeaves[$p] }
-
-    # Render the documented form when a template path was supplied. Comparing the
-    # RENDERED TEXT to disk (not just the parsed objects) is what lets a file whose
-    # values already match pick up newly-added template comments or a new obsolete
-    # entry -- both invisible to an object-level diff. Rendering is deterministic,
-    # so a second run produces identical text and writes nothing.
-    $rendered = $null
-    if ($TemplatePath -and (Test-Path -LiteralPath $TemplatePath)) {
-        $rendered = ConvertTo-DocumentedConfigYaml `
-            -TemplateText ([string](Get-Content -Raw -LiteralPath $TemplatePath)) `
-            -Config $canonical -ObsoleteEntry $obsolete
-    }
-
-    # Rewrite when the canonical form differs from disk outside 'secrets', or when
-    # the documented rendering differs from what is on disk.
-    $changed = (Test-ConfigDiffersOutsideSecretNode -A $canonical -B $originalCurrent) -or $migration.Changes.Count -gt 0
-    if ($null -ne $rendered) { $changed = $rendered -cne $existingText }
-    $wrote      = $false
-    $backupPath = $null
-    if ($changed -and $PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_1f50cc08b8dd3984'))) {
-        if ($migration.Changes.Count -gt 0) {
-            $backupPath = New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false
-        } elseif ($removed.Count -gt 0) {
-            $backupPath = "$ConfigPath.backup"
-            Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -Force
+    $cmdlet = $PSCmdlet
+    return Use-TestConfigLock -Path $ConfigPath -Action {
+        $existingText = if (Test-Path -LiteralPath $ConfigPath) { [string](Get-Content -Raw -LiteralPath $ConfigPath) } else { '' }
+        # Render the documented form when a template path was supplied. Comparing
+        # the RENDERED TEXT to disk (not just the parsed objects) is what lets a
+        # file whose values already match pick up newly-added template comments or
+        # a new obsolete entry -- both invisible to an object-level diff.
+        $templateText = if ($TemplatePath -and (Test-Path -LiteralPath $TemplatePath)) { [string](Get-Content -Raw -LiteralPath $TemplatePath) } else { '' }
+        $reconciliation = Get-TestConfigReconciliation -Template $Template -Current $Current -ExistingText $existingText -TemplateText $templateText
+        $canonical = $reconciliation.Config
+        foreach ($change in @($reconciliation.Replaced)) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.config_value_replaced' -Arguments @{
+                path = "$($change.Path)"; previous = "$($change.Previous)"; current = "$($change.Current)" })
         }
-        # Atomic temp+rename: the status service serves this working tree, so a
-        # non-atomic write would let a concurrent reader catch a torn file. Report Wrote
-        # from the actual result so the operator summary never claims a reconcile that
-        # did not land.
-        $content = if ($null -ne $rendered) { $rendered } else {
-            $plainYaml = $canonical | ConvertTo-Yaml
-            $obsoleteText = Format-ObsoleteConfigEntry -ObsoleteEntry $obsolete
-            if ($obsoleteText) { $plainYaml.TrimEnd() + "`n`n" + $obsoleteText + "`n" } else { $plainYaml }
-        }
-        $wrote = [bool](Write-YurunaStateFile -Path $ConfigPath -Content $content -Confirm:$false)
-        if (-not $wrote) {
-            if ($migration.Changes.Count -gt 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_save_failed' -Arguments @{ configPath = $ConfigPath }) }
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8959000a9a75ed6e')
-        }
-    }
+        $rendered = $reconciliation.Rendered
+        $migrated = @($reconciliation.Migration.Changes).Count -gt 0
 
-    return [pscustomobject]@{
-        Config     = $canonical
-        Migrated   = $migration.Changes
-        Added      = [string[]]@($added   | Sort-Object)
-        Removed    = [string[]]@($removed | Sort-Object)
-        Obsolete   = [string[]]@($obsolete.Keys | Sort-Object)
-        Wrote      = $wrote
-        BackupPath = $backupPath
+        # Rewrite when the canonical form differs from disk outside 'secrets', or when
+        # the documented rendering differs from what is on disk.
+        $changed = (Test-ConfigDiffersOutsideSecretNode -A $canonical -B $Current) -or $migrated
+        if ($null -ne $rendered) { $changed = $rendered -cne $existingText }
+        $wrote      = $false
+        $backupPath = $null
+        if ($changed -and $cmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.operator_1f50cc08b8dd3984'))) {
+            $content = if ($null -ne $rendered) { $rendered } else {
+                $plainYaml = $canonical | ConvertTo-Yaml
+                $obsoleteText = Format-ObsoleteConfigEntry -ObsoleteEntry $reconciliation.Obsolete
+                if ($obsoleteText) { $plainYaml.TrimEnd() + "`n`n" + $obsoleteText + "`n" } else { $plainYaml }
+            }
+            # A migration keeps its own naming backup; otherwise a dropped populated
+            # value is first copied to <config>.backup. Wrote reports the actual
+            # result so the operator summary never claims a reconcile that did not land.
+            $save = Save-ReconciledTestConfig -ConfigPath $ConfigPath -Content $content -Reconciliation $reconciliation `
+                -Backup:($reconciliation.Dropped.Count -gt 0 -and -not $migrated) -Writer 'validator'
+            $wrote = $save.Wrote
+            $backupPath = $save.BackupPath
+        }
+
+        return [pscustomobject]@{
+            Config     = $canonical
+            Migrated   = $reconciliation.Migration.Changes
+            Added      = $reconciliation.Added
+            Removed    = $reconciliation.Dropped
+            Obsolete   = [string[]]@($reconciliation.Obsolete.Keys | Sort-Object)
+            Wrote      = $wrote
+            BackupPath = $backupPath
+        }
     }
 }
 
@@ -994,5 +1222,7 @@ Export-ModuleMember -Function `
     Copy-HashtableWithoutSecretNode, `
     Test-ConfigMatchesTemplateShape, Get-ConfigLeafValue, Get-DroppedConfigField, Get-ConfigLeafChange, `
     Format-YamlScalarValue, Get-ConfigValueAtPath, Get-ObsoleteConfigEntry, Format-ObsoleteConfigEntry, Write-DocumentedTestConfig, `
+    Use-TestConfigLock, Get-TestConfigJournalPath, Save-TestConfigJournalEntry, Get-TestConfigJournal, Restore-TestConfigFromJournal, `
+    Get-TestConfigReconciliation, `
     ConvertTo-DocumentedConfigYaml, `
     Update-TestConfigFromTemplate, Sync-TestConfigToTemplate, Hide-SecretsInConfig

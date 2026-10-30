@@ -38,6 +38,25 @@ const DatazhCNhost = `{
     " 未为其写入哨兵或来源记录。"
   ],
   "host.clock_service_description": "Windows时间服务（W32Time）",
+  "host.download_incomplete": [
+    {
+      "arg": "uri",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 的下载未完成（已为下次尝试暂存 ",
+    {
+      "arg": "bytes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 字节）：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "host.enable_automation_no_prompt_confirm_conflict": "Enable-TestAutomation：-NoOperatorPrompt不能与-Confirm同时使用，后者会在每次更改前询问；未记录或更改任何内容。",
   "host.enable_automation_no_prompt_mode": "Enable-TestAutomation：正在以-NoOperatorPrompt运行，不显示同意对话框、不重启程序坞或屏幕保护程序、不安装模块、不显示sudo提示，也不询问networkStorage配置。需要操作员处理的设置将报告为仍未满足。",
   "host.enable_automation_no_prompt_unsupported": "Enable-TestAutomation：-NoOperatorPrompt需要Set-MacHostConditionSet -NoGuiDisruption，但当前检出的代码不提供此功能；未记录或更改任何内容。请在有人值守的会话中运行，并去掉-NoOperatorPrompt。",
@@ -50,6 +69,102 @@ const DatazhCNhost = `{
     },
     "；已保留进程ID文件，未发送任何信号。"
   ],
+  "host.hyperv_bounded_call_no_answer": [
+    "Hyper-V 调用结束时未返回结果（作业状态：",
+    {
+      "arg": "state",
+      "type": "token",
+      "trust": "internal"
+    },
+    "；原因：",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "host.hyperv_checkpoint_listing_lagged": [
+    "Save-VMDiskSnapshot：Hyper-V 已记录检查点'",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "/",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "'，但 Hyper-V 模块在 ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 秒内未列出它。"
+  ],
+  "host.hyperv_checkpoint_listing_unanswered": [
+    "Save-VMDiskSnapshot：在保存操作等待检查点'",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 秒期间，Hyper-V 模块对'",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "'的检查点列表失败或未响应；Hyper-V 自身记录包含 [",
+    {
+      "arg": "held",
+      "type": "detail",
+      "trust": "external"
+    },
+    "]（无法读取时为 ?）。"
+  ],
+  "host.hyperv_checkpoint_not_listed": [
+    "Save-VMDiskSnapshot：对'",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "/",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "'执行Checkpoint-VM报告成功，但之后的列表中没有该检查点。Checkpoint-VM返回 [",
+    {
+      "arg": "made",
+      "type": "detail",
+      "trust": "external"
+    },
+    "]；Hyper-V 模块列出 [",
+    {
+      "arg": "listed",
+      "type": "detail",
+      "trust": "external"
+    },
+    "]；Hyper-V 自身记录包含 [",
+    {
+      "arg": "held",
+      "type": "detail",
+      "trust": "external"
+    },
+    "]（无法读取时为 ?）。"
+  ],
   "host.hyperv_dism_timed_out": [
     "Assert-HyperVEnabled：dism.exe未在",
     {
@@ -58,6 +173,27 @@ const DatazhCNhost = `{
       "trust": "internal"
     },
     "秒内报告Hyper-V功能状态；功能状态未知。"
+  ],
+  "host.hyperv_lifecycle_unanswered": [
+    "Hyper-V 未在 ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 秒内响应针对“",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”的 ",
+    {
+      "arg": "verb",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "；虚拟机管理服务可能已挂起。"
   ],
   "host.hyperv_rename_destination_dir_occupied": [
     "无法重命名为“",
@@ -72,7 +208,7 @@ const DatazhCNhost = `{
       "type": "detail",
       "trust": "external"
     },
-    " 中已有文件，将存储移入其中会在重命名之后失败，使重命名只完成一半。"
+    " 中已有虚拟机存储文件，将存储移入其中会在重命名之后失败，使重命名只完成一半。"
   ],
   "host.hyperv_rename_source_not_stopped": [
     "Rename-VM：“",
@@ -191,6 +327,33 @@ const DatazhCNhost = `{
   "host.kvm_running_cache_unreachable": "caching-proxy-service 虚拟机正在运行，但无法访问其代理。运行 test/service/Start-CachingProxyServiceVM.ps1 恢复代理，或传入 -CachingProxyServiceUrl \"\" 以直接下载。",
   "host.kvm_start_network_action": "启动未激活的libvirt网络",
   "host.kvm_start_unit_action": "启动已停止的libvirt单元",
+  "host.media_digest_mismatch": [
+    "来自 ",
+    {
+      "arg": "url",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " 的 ",
+    {
+      "arg": "file",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 的 SHA-256 为 ",
+    {
+      "arg": "actual",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "，而不是为该版本固定的 ",
+    {
+      "arg": "expected",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "；下载已被丢弃，现有介质保持不变。"
+  ],
   "host.operator_005bab80fe0f8f32": [
     "  SSH：      ssh pool-control-service-admin@",
     {
@@ -2285,33 +2448,6 @@ const DatazhCNhost = `{
       "trust": "external"
     },
     "  （磁盘上不存在）"
-  ],
-  "host.operator_3d4bd722f2cfda09": [
-    "Save-VMDiskSnapshot：快照“",
-    {
-      "arg": "id",
-      "type": "detail",
-      "trust": "external"
-    },
-    "”已保存到“",
-    {
-      "arg": "utmBundle",
-      "type": "detail",
-      "trust": "external"
-    },
-    "”，但重命名“",
-    {
-      "arg": "vMName",
-      "type": "detail",
-      "trust": "external"
-    },
-    "” -> “",
-    {
-      "arg": "id",
-      "type": "detail",
-      "trust": "external"
-    },
-    "”失败；虚拟机将在下次周期清理时被清除。qcow2快照仍在磁盘上，可手动恢复。"
   ],
   "host.operator_3d53fa1f73f89fed": [
     "genisoimage失败（退出码",
@@ -4832,7 +4968,6 @@ const DatazhCNhost = `{
     "失败"
   ],
   "host.operator_87abce329e878b18": "重新启动UTM后恢复服务虚拟机",
-  "host.operator_87d1543cf3bfdad9": "清除Yuruna端口映射",
   "host.operator_87e79790981d47af": [
     "将宿主机代理设置为",
     {
@@ -5540,21 +5675,6 @@ const DatazhCNhost = `{
   ],
   "host.operator_a0e97dcbb626019f": "仅移除ufw状态端口规则——已确认该规则由本工具创建。组成员资格、$HOME ACL、libvirtd/virtlogd和GNOME键将保持原样，并在报告中列出。",
   "host.operator_a127790ebde6e4ff": "其上的缓存虚拟机），或手动定义它，请参阅",
-  "host.operator_a1763a8af3ef734a": [
-    "Save-VMDiskSnapshot：重命名'",
-    {
-      "arg": "vMName",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' -> '",
-    {
-      "arg": "id",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'失败；未创建快照，该域将在下次周期清理时被清除。"
-  ],
   "host.operator_a19074ac4867746e": "  控制台/SSH登录：",
   "host.operator_a1a6059aaacffcb8": [
     "  '",
@@ -5912,15 +6032,6 @@ const DatazhCNhost = `{
     "”没有物理上行链路（仅连接了tap端口）。正在自动修复……"
   ],
   "host.operator_a9dbdd1577bb8c0e": "    （也已嵌入seed.iso的user-data中，位于chpasswd下）",
-  "host.operator_a9dcf6d3662588bf": [
-    "数据量：",
-    {
-      "arg": "mB",
-      "type": "detail",
-      "trust": "external"
-    },
-    " MB"
-  ],
   "host.operator_a9e197e13deba921": [
     "     （或将任意Win11*.iso文件保存到",
     {
@@ -6825,27 +6936,6 @@ const DatazhCNhost = `{
     },
     "”未完全关机（qcow2仍被锁定）；正在中止，以免还原时造成损坏。"
   ],
-  "host.operator_c67e69b1dce2a237": [
-    "进度：",
-    {
-      "arg": "mB",
-      "type": "detail",
-      "trust": "external"
-    },
-    " / ",
-    {
-      "arg": "mB2",
-      "type": "detail",
-      "trust": "external"
-    },
-    " MB（",
-    {
-      "arg": "percent",
-      "type": "detail",
-      "trust": "external"
-    },
-    "%）"
-  ],
   "host.operator_c689a85719965f3f": [
     "正在从",
     {
@@ -7609,27 +7699,6 @@ const DatazhCNhost = `{
       "trust": "external"
     },
     "'"
-  ],
-  "host.operator_dda22dc70c2dcb9f": [
-    "Save-VMDiskSnapshot：已保存快照'",
-    {
-      "arg": "id",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'，但重命名'",
-    {
-      "arg": "vMName",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' -> '",
-    {
-      "arg": "id",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'失败；虚拟机将在下次周期清理时被清除。"
   ],
   "host.operator_ddd6375b1613a19a": [
     "Apple已发布macOS ",
@@ -8674,6 +8743,61 @@ const DatazhCNhost = `{
     },
     "秒内完成，因此UTM注册情况未知；未删除任何内容。请在UTM恢复响应后重新运行。"
   ],
+  "host.portmap_ledger_busy": [
+    "端口映射记录 ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " 一直被另一个进程锁定；",
+    {
+      "arg": "owner",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 持有的转发已生效，但未被记录。"
+  ],
+  "host.portmap_ledger_unwritten": [
+    "无法为 ",
+    {
+      "arg": "owner",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 写入端口映射记录 ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "host.portmap_port_held": [
+    {
+      "arg": "owner",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 的端口转发未更改：主机端口 ",
+    {
+      "arg": "port",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " 由 ",
+    {
+      "arg": "holder",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 持有。"
+  ],
   "host.proxy_ca_refused_build": [
     "未构建“",
     {
@@ -8745,8 +8869,122 @@ const DatazhCNhost = `{
     },
     "”，也未编辑其应用包。"
   ],
+  "host.service_build_plan_accepted": [
+    "'",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' 的构建计划已接受：构建所需的每个输入都已存在，且没有更改任何内容。"
+  ],
+  "host.service_seed_degraded": [
+    "'",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' 的种子已降级：",
+    {
+      "arg": "name",
+      "type": "token",
+      "trust": "internal"
+    },
+    " 被写入为空。来宾在缺少它的情况下启动，其 Start 会将启动报告为降级。"
+  ],
   "host.signature_could_not_be_checked": "  无法检查SHA256SUMS的GPG签名",
   "host.signature_could_not_be_checked_detail": "  gpg和固定的Ubuntu签名密钥都存在，但无法获取或验证签名；该校验和因未经认证而被拒绝。",
+  "host.snapshot_leftover_unsettled": [
+    "快照“",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”未保存：之前一次中断的保存留下了“",
+    {
+      "arg": "previous",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”，处理它时在 ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " 处停止。"
+  ],
+  "host.snapshot_previous_not_removed": [
+    "快照“",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”已保存，但无法删除之前持久化的虚拟机“",
+    {
+      "arg": "previous",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”；下次保存“",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”时会将其删除。"
+  ],
+  "host.snapshot_save_rollback_incomplete": [
+    "未能从“",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”保存快照“",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”（",
+    {
+      "arg": "step",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 失败），并且无法将所有虚拟机改回原名；下次保存“",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”时会处理它们。"
+  ],
+  "host.snapshot_save_rolled_back": [
+    "未能从“",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”保存快照“",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "”（",
+    {
+      "arg": "step",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 失败）；两个虚拟机都保留了尝试之前的名称。"
+  ],
   "host.snapshot_state_unknown": [
     "无法确定",
     {

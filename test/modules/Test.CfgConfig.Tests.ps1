@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42306286-6637-4762-aa48-42757ab30e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,7 +78,7 @@ Describe 'Read-TestConfig cache is case-sensitive (Ordinal) and FIFO-bounded' {
     }
 
     It 'evicts the oldest entries first (FIFO) and holds the cache at the cap' {
-        $saved = $env:YURUNA_RUNTIME_DIR
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $root = Join-Path ([System.IO.Path]::GetTempPath()) ("cfgc-fifo-" + [System.Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $root -Force | Out-Null
         try {
@@ -108,7 +108,7 @@ Describe 'Read-TestConfig cache is case-sensitive (Ordinal) and FIFO-bounded' {
             $state.Keys | Should -Contain $paths[$paths.Count - 1]   # newest survives
             $state.OrderFront | Should -Be $paths[2]        # front is now the third-inserted
         } finally {
-            $env:YURUNA_RUNTIME_DIR = $saved
+            Restore-YurunaTestEnvironment -Saved $saved
             & (Get-Module Test.Config) { Clear-TestConfigCache -Confirm:$false }
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -170,15 +170,15 @@ Describe 'Get-TestConfigSnapshotPath is one slot per source, per-user in shared 
         # hashed, never resolved, so its shape does not matter the same way.
         # Get-TestConfigSnapshotPath does not create the runtime dir, so nothing here
         # touches the filesystem and there is nothing to clean up.
-        $saved = $env:YURUNA_RUNTIME_DIR
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $rtDir = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-rt-xyz'
         try {
             $env:YURUNA_RUNTIME_DIR = $rtDir
             (Split-Path -Parent (Get-TestConfigSnapshotPath -SourcePath 'C:\x\test.config.yml')) | Should -Be $rtDir
-        } finally { $env:YURUNA_RUNTIME_DIR = $saved }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
     It 'namespaces under the exact per-user temp subdirectory when no runtime dir is set' {
-        $saved = $env:YURUNA_RUNTIME_DIR
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $user    = if ($env:USERNAME) { $env:USERNAME } elseif ($env:USER) { $env:USER } else { 'nouser' }
         $userTag = [System.Text.RegularExpressions.Regex]::Replace($user, '[^A-Za-z0-9._-]', '_')
         $expectedDir = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-$userTag"
@@ -187,7 +187,7 @@ Describe 'Get-TestConfigSnapshotPath is one slot per source, per-user in shared 
             $env:YURUNA_RUNTIME_DIR = ''
             (Split-Path -Parent (Get-TestConfigSnapshotPath -SourcePath 'C:\x\test.config.yml')) | Should -Be $expectedDir
         } finally {
-            $env:YURUNA_RUNTIME_DIR = $saved
+            Restore-YurunaTestEnvironment -Saved $saved
             if (-not $preExisted -and (Test-Path -LiteralPath $expectedDir)) {
                 Remove-Item -LiteralPath $expectedDir -Recurse -Force -ErrorAction SilentlyContinue
             }

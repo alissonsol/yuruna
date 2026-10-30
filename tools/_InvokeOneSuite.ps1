@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4243f981-9a67-4b29-81f5-966316b4be67
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,11 @@
     Setting $PesterPreference here rather than inside each suite is what lets
     the standalone path still emit a machine-readable result: the preference is
     read from this scope when the suite's first Describe triggers the run.
+    It is the only variable of this script a suite can see. The suite runs in
+    a child scope, where a mock body or a -ParameterFilter that reads an
+    unbound name resolves it by dynamic scope; every other variable here is
+    private, so a name this script uses (and sets only when run directly,
+    without the runner's temp folder) never answers for the suite's own.
 
     This script's exit code reports whether the suite returned with readable
     NUnit results, never whether its tests passed. Pester's standalone path
@@ -54,6 +59,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$private:suitePath = $Suite
+$private:xmlPath = $Xml
+Remove-Variable -Name Suite, Xml
 
 # Under tools/Invoke-TestSuite.ps1 the runner already gave this process a temp
 # folder of its own and removes it after this process ends, killed or not. Run
@@ -61,26 +69,31 @@ $ErrorActionPreference = 'Stop'
 # starts inherits the folder, so whatever a test or a killed child leaves
 # behind goes with it. See the matching block in Invoke-TestSuite.ps1 for why
 # /tmp and why DOTNET_EnableDiagnostics.
-$ownedTempRoot = $null
-$savedTempEnvironment = @{}
+$private:ownedTempRoot = $null
+$private:savedTempEnvironment = @{}
 if ([string]::IsNullOrWhiteSpace($env:YURUNA_TEST_TEMP_ROOT)) {
-    $tempBase = if ($IsWindows) { [IO.Path]::GetTempPath() } else { '/tmp' }
-    $ownedTempRoot = Join-Path $tempBase ('yrn-suite-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
-    $null = New-Item -ItemType Directory -Force -Path $ownedTempRoot
-    foreach ($name in 'TMPDIR', 'TMP', 'TEMP', 'YURUNA_TEST_TEMP_ROOT', 'DOTNET_EnableDiagnostics') {
-        $savedTempEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
-        $value = if ($name -eq 'DOTNET_EnableDiagnostics') { '0' } else { $ownedTempRoot }
-        [Environment]::SetEnvironmentVariable($name, $value)
-    }
+    # The loop temporaries live and die in this child scope.
+    $private:ownedTempRoot = & {
+        param([hashtable]$Saved)
+        $tempBase = if ($IsWindows) { [IO.Path]::GetTempPath() } else { '/tmp' }
+        $root = Join-Path $tempBase ('yrn-suite-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+        $null = New-Item -ItemType Directory -Force -Path $root
+        foreach ($name in 'TMPDIR', 'TMP', 'TEMP', 'YURUNA_TEST_TEMP_ROOT', 'DOTNET_EnableDiagnostics') {
+            $Saved[$name] = [Environment]::GetEnvironmentVariable($name)
+            $value = if ($name -eq 'DOTNET_EnableDiagnostics') { '0' } else { $root }
+            [Environment]::SetEnvironmentVariable($name, $value)
+        }
+        $root
+    } $savedTempEnvironment
 }
 
 # The coordinator sets this before worker startup. A directly invoked shim
 # must also protect its descendants from the shared startup JIT profile race.
-$savedStartupProfile = [Environment]::GetEnvironmentVariable('DOTNET_MultiCoreJitProfile')
+$private:savedStartupProfile = [Environment]::GetEnvironmentVariable('DOTNET_MultiCoreJitProfile')
 [Environment]::SetEnvironmentVariable('DOTNET_MultiCoreJitProfile', '(D)')
 
 try {
-    $pesterModule = Get-Module -ListAvailable Pester |
+    $private:pesterModule = Get-Module -ListAvailable Pester |
         Where-Object { $_.Version -ge [version]'6.0.0' -and $_.Version -lt [version]'7.0.0' } |
         Sort-Object Version -Descending | Select-Object -First 1
     if (-not $pesterModule) { throw 'Pester 6.x is required; install Pester 6.2.0.' }
@@ -88,7 +101,7 @@ try {
     $PesterPreference = New-PesterConfiguration
     $PesterPreference.Output.Verbosity      = 'None'
     $PesterPreference.TestResult.Enabled    = $true
-    $PesterPreference.TestResult.OutputPath = $Xml
+    $PesterPreference.TestResult.OutputPath = $xmlPath
     # Pinned rather than defaulted: the coordinator parses the NUnit 2.5 schema.
     $PesterPreference.TestResult.OutputFormat = 'NUnitXml'
     # Left at its default ($false) deliberately: Run.Exit does not reach this
@@ -101,16 +114,16 @@ try {
     $env:YURUNA_TRANSLATE = '0'
     $env:YURUNA_TRANSLATE_CLI = '0'
     $env:YURUNA_TRANSLATE_COMMAND = '0'
-    & $Suite
+    & $suitePath
     # Pester can catch an internal reporting failure, print it to stdout, and
     # return normally. Process survival alone must not claim a complete run.
-    if (-not (Test-Path -LiteralPath $Xml -PathType Leaf)) {
-        throw "Suite returned without writing its NUnit result file: $Xml"
+    if (-not (Test-Path -LiteralPath $xmlPath -PathType Leaf)) {
+        throw "Suite returned without writing its NUnit result file: $xmlPath"
     }
-    $result = [xml](Get-Content -LiteralPath $Xml -Raw)
+    $private:result = [xml](Get-Content -LiteralPath $xmlPath -Raw)
     # NUnit's name attribute shadows Name in PowerShell's XML adapter.
     if ($result.DocumentElement.LocalName -cne 'test-results') {
-        throw "Suite produced an invalid NUnit result file: $Xml"
+        throw "Suite produced an invalid NUnit result file: $xmlPath"
     }
     exit 0
 } catch {

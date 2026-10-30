@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ab6d19-74c3-4f80-9e25-3d0c81af57b6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,10 +73,20 @@
     Where the index lives. Default globalization/manifests/doc-anchors.json.
 .PARAMETER Quiet
     Print only problems and the summary.
+.PARAMETER HeadingRegion
+    Also report each heading whose source pointer sits in a region the heading
+    does not name. A heading names its home either as `## <path>: <region>` or
+    as a heading followed by a backticked `<repo>/<path>` line; a pointer is
+    judged only when it sits in the comment block directly under a named
+    `--- REGION:` marker. The report does not change the exit code.
 
 .EXAMPLE
     pwsh tools/Invoke-DocAnchor.ps1 -Update
     Injects anchors into every registered document and its translations.
+.EXAMPLE
+    pwsh tools/Invoke-DocAnchor.ps1 -Check -HeadingRegion -Path docs/framework-implementation-notes.md
+    Lists the implementation-note headings that name a region other than the
+    one their pointer sits in.
 #>
 
 [CmdletBinding()]
@@ -86,7 +96,8 @@ param(
     [switch]$Update,
     [string[]]$Path,
     [string]$Manifest,
-    [switch]$Quiet
+    [switch]$Quiet,
+    [switch]$HeadingRegion
 )
 
 Import-Module (Join-Path $PSScriptRoot '../test/modules/Test.Prelude.psm1') -DisableNameChecking
@@ -253,6 +264,101 @@ function Get-AnchoredText {
     return ($out -join "`n")
 }
 
+# --- REGION: Heading homes
+# Implementation-note headings say where the code they explain lives, and the
+# code points back with a link under a REGION marker. When the code is
+# reorganized the pointer moves with its block and the heading keeps the old
+# region's name, so the reader lands on a section titled for code that is
+# elsewhere. Only a pointer directly under a named marker is judged: a pointer
+# inside a function body, or under a marker that is itself a link, says
+# nothing about which region a heading should name.
+$RegionMarkerPattern = '^\s*(?:#|//|--|;|<!--|/\*|\*)\s*--- REGION:\s*(.+?)\s*(?:-->|\*/)?\s*$'
+$CommentLinePattern = '^\s*(?:#|//|--|;|<!--|<#|/\*|\*)'
+
+function Get-HeadingHome {
+    param([Parameter(Mandatory)][AllowEmptyString()][string[]]$Line, [Parameter(Mandatory)][int]$HeadingIndex)
+
+    $text = ($Line[$HeadingIndex] -replace '^#{1,6}\s+', '').Trim()
+    if ($text -match '^(?<path>[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+|[A-Za-z0-9_-]+\.[A-Za-z0-9]+):\s+(?<name>\S.*)$') {
+        return @{ Repo = $null; Path = $Matches['path']; Name = $Matches['name'].Trim() }
+    }
+    for ($i = $HeadingIndex + 1; $i -lt $Line.Count -and $i -le $HeadingIndex + 4; $i++) {
+        $candidate = $Line[$i].Trim()
+        if ($candidate -eq '') { continue }
+        if ($candidate -match '^`(?<repo>yuruna(?:-project)?)/(?<path>[^`\s]+)`$') {
+            return @{ Repo = $Matches['repo']; Path = $Matches['path']; Name = $text }
+        }
+        break
+    }
+    return $null
+}
+
+function Get-PointerRegion {
+    param([Parameter(Mandatory)][AllowEmptyString()][string[]]$Line, [Parameter(Mandatory)][int]$Index)
+
+    if ($Line[$Index] -notmatch $CommentLinePattern) { return $null }
+    for ($i = $Index - 1; $i -ge 0; $i--) {
+        if ($Line[$i] -match $RegionMarkerPattern) {
+            $name = $Matches[1]
+            if ($name -match '^https://yuruna\.link/') { return $null }
+            return $name
+        }
+        if ($Line[$i].Trim() -eq '' -or $Line[$i] -notmatch $CommentLinePattern) { return $null }
+    }
+    return $null
+}
+
+function Find-HeadingRegionMismatch {
+    # A section cited from regions in several places (one rationale shared by a
+    # family of scripts) cannot name them all, so only an id whose judged
+    # pointers agree on one file and region is held to its heading.
+    param(
+        [Parameter(Mandatory)][hashtable]$HomeById,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Pointer
+    )
+    $homesById = @{}
+    foreach ($p in $Pointer) {
+        if (-not $homesById.ContainsKey($p.Id)) { $homesById[$p.Id] = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal) }
+        [void]$homesById[$p.Id].Add("$($p.Repo)|$($p.Path)|$($p.Region)")
+    }
+    foreach ($p in $Pointer) {
+        if (-not $HomeById.ContainsKey($p.Id) -or $homesById[$p.Id].Count -gt 1) { continue }
+        $headingHome = $HomeById[$p.Id]
+        $repo = if ($headingHome.Repo) { $headingHome.Repo } else { $headingHome.DocRepo }
+        if ($p.Repo -eq $repo -and $p.Path -eq $headingHome.Path -and $p.Region -ceq $headingHome.Name) { continue }
+        [pscustomobject]@{
+            Id = $p.Id; Label = $headingHome.Label; Heading = $headingHome.Heading
+            Pointer = "$($p.Repo)/$($p.Path):$($p.Line)"; Region = $p.Region
+        }
+    }
+}
+
+function Get-RegionPointer {
+    param([Parameter(Mandatory)][hashtable]$Root)
+
+    $pointerPattern = [regex]'yuruna\.link/(42[0-9a-f]{6}-[0-9a-f]{4})'
+    foreach ($repo in $Root.Keys) {
+        $listing = & git -C $Root[$repo] ls-files -co --exclude-standard 2>$null
+        if ($LASTEXITCODE -ne 0) { continue }
+        foreach ($rel in $listing) {
+            if (-not $rel -or $rel -match '\.(png|jpg|jpeg|gif|ico|pdf|zip|gz|tgz|iso|woff2?|ttf|pfx|der)$') { continue }
+            $full = Join-Path $Root[$repo] $rel
+            if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+            $text = $null
+            try { $text = [IO.File]::ReadAllText($full) } catch { continue }
+            if ($text.IndexOf([char]0) -ge 0 -or $text.IndexOf('yuruna.link/42') -lt 0) { continue }
+            $lines = $text -split "`r?`n"
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                foreach ($m in $pointerPattern.Matches($lines[$i])) {
+                    $region = Get-PointerRegion -Line $lines -Index $i
+                    if ($null -eq $region) { continue }
+                    [pscustomobject]@{ Id = $m.Groups[1].Value; Repo = $repo; Path = $rel; Line = $i + 1; Region = $region }
+                }
+            }
+        }
+    }
+}
+
 # --- REGION: Main
 try {
 
@@ -291,6 +397,7 @@ if (Test-Path -LiteralPath $translationManifest -PathType Leaf) {
 $manifestFiles = [Collections.Generic.List[object]]::new()
 $written = 0
 $injected = 0
+$homeById = @{}
 
 foreach ($doc in $documents) {
     $root = Get-RepoRootFor -Repo $doc.Repo
@@ -392,6 +499,15 @@ foreach ($doc in $documents) {
             heading = ($lines[$h] -replace '^#{1,6}\s+', '').Trim()
             slug    = Get-HeadingSlug -Heading $lines[$h]
         })
+        if ($HeadingRegion) {
+            $headingHome = Get-HeadingHome -Line $lines -HeadingIndex $h
+            if ($headingHome) {
+                $headingHome.DocRepo = $doc.Repo
+                $headingHome.Label = $label
+                $headingHome.Heading = ($lines[$h] -replace '^#{1,6}\s+', '').Trim()
+                $homeById[$idByHeading[$h]] = $headingHome
+            }
+        }
     }
 
     # Translations take the SAME ids, paired by heading order. A count
@@ -490,6 +606,15 @@ if ($currentManifest -cne $manifestJson) {
 }
 
 foreach ($p in $problem) { Write-Output "  $p" }
+if ($HeadingRegion) {
+    $pointerRoot = @{ 'yuruna' = $RepoRoot }
+    if (Test-Path -LiteralPath $SiblingRoot -PathType Container) { $pointerRoot['yuruna-project'] = $SiblingRoot }
+    $mismatch = @(Find-HeadingRegionMismatch -HomeById $homeById -Pointer @(Get-RegionPointer -Root $pointerRoot))
+    foreach ($m in $mismatch) {
+        Write-Output "  heading $($m.Label) $($m.Id) '$($m.Heading)': its pointer $($m.Pointer) sits in region '$($m.Region)'"
+    }
+    Write-Output "Heading check: $($mismatch.Count) heading pointer(s) sit in a region the heading does not name (reported only)."
+}
 Write-Output ''
 if ($Update) {
     Write-Output "Injected $injected anchor(s); wrote $written file(s); $($problem.Count) problem(s)."

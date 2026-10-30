@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 423d6743-1531-4ed7-b6b3-7d5bf06035c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -276,6 +276,188 @@ function Remove-YurunaTestTempDir {
     }
 }
 
+function Invoke-YurunaTestGit {
+    <#
+    .SYNOPSIS
+    Runs one git command in a fixture repository and returns its output lines,
+    throwing with git's own output when it fails.
+    .DESCRIPTION
+    Nine suites wrapped git in a runner of their own, and they disagreed on
+    whether a failure threw, whether stderr counted and what came back (the
+    last line, all lines joined, an array, or nothing). A discarded failure
+    lets a fixture that was never built reach an assertion as a half-made
+    repository. The lines are returned as strings, stderr included, in the
+    order git wrote them; a suite that wants one value takes it from them.
+    #>
+    [CmdletBinding()]
+    [OutputType([string], [object[]])]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string[]]$Argument)
+    $output = @(& git -C $Path @Argument 2>&1 | ForEach-Object { [string]$_ })
+    if ($LASTEXITCODE -ne 0) { throw "git $($Argument -join ' ') failed in ${Path}: $($output -join "`n")" }
+    $output
+}
+
+function Set-YurunaTestGitIdentity {
+    <#
+    .SYNOPSIS
+    Repository-local settings that keep a fixture repository independent of
+    the operator's git configuration.
+    .DESCRIPTION
+    A fixed identity, commit and tag signing off, no line-ending conversion,
+    and hooks pointed at an empty directory inside .git, so a global
+    commit.gpgsign, core.autocrlf or core.hooksPath on the machine running the
+    suite neither prompts, rewrites fixture bytes nor runs hooks. Every setting
+    lives in the repository's own config, so later commits in the fixture need
+    no -c flags. Use it directly on a clone; New-YurunaTestGitRepository calls
+    it for a repository it creates.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Writes the config of a throwaway test repository; there is nothing for an operator to confirm.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    $gitDir = [string](Invoke-YurunaTestGit -Path $Path -Argument @('rev-parse', '--absolute-git-dir'))
+    $noHooks = Join-Path $gitDir.Trim() 'yuruna-no-hooks'
+    $null = New-Item -ItemType Directory -Force -Path $noHooks
+    foreach ($setting in @(
+            @('user.name', 'fixture'), @('user.email', 'fixture@example.invalid'),
+            @('commit.gpgsign', 'false'), @('tag.gpgsign', 'false'),
+            @('core.autocrlf', 'false'), @('core.hooksPath', $noHooks))) {
+        $null = Invoke-YurunaTestGit -Path $Path -Argument (@('config') + $setting)
+    }
+}
+
+function New-YurunaTestGitRepository {
+    <#
+    .SYNOPSIS
+    A throwaway git repository for one test, on a named branch, with the
+    settings of Set-YurunaTestGitIdentity, optionally seeded with one commit.
+    .DESCRIPTION
+    The suites built these by hand in 22 places and disagreed on what a
+    fixture repository needs: some turned commit signing off and the rest
+    inherited the machine's commit.gpgsign, so their fixture commits prompt or
+    fail where signing is on; some named the initial branch and the rest took
+    whatever init.defaultBranch says; two pinned core.autocrlf; and most sent
+    git's failures to Out-Null, so a fixture that was never built surfaced as
+    an unrelated assertion. -File writes each relative path (UTF-8, no BOM)
+    and commits them as the first commit; -AddExisting commits whatever the
+    directory already holds instead; -CommitMessage alone makes an empty first
+    commit; with none of them the repository stays unborn. -Remote adds an
+    origin remote with that URL. The repository's path is returned.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Creates a throwaway repository under a test directory; there is nothing for an operator to confirm.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [string]$Path,
+        [string]$Prefix = 'yuruna-git',
+        [string]$Branch = 'main',
+        [System.Collections.IDictionary]$File,
+        [string]$CommitMessage,
+        [string]$Remote,
+        [switch]$AddExisting
+    )
+    if (-not $Path) { $Path = New-YurunaTestTempDir -Prefix $Prefix }
+    $null = New-Item -ItemType Directory -Force -Path $Path
+    $null = Invoke-YurunaTestGit -Path $Path -Argument @('init', '--quiet', "--initial-branch=$Branch")
+    Set-YurunaTestGitIdentity -Path $Path
+    if ($Remote) { $null = Invoke-YurunaTestGit -Path $Path -Argument @('remote', 'add', 'origin', $Remote) }
+    $hasFile = $File -and $File.Count
+    if ($hasFile) {
+        foreach ($relative in $File.Keys) {
+            $full = Join-Path $Path $relative
+            $null = [IO.Directory]::CreateDirectory((Split-Path -Parent $full))
+            [IO.File]::WriteAllText($full, [string]$File[$relative], [Text.UTF8Encoding]::new($false))
+        }
+    }
+    if ($hasFile -or $AddExisting) {
+        $null = Invoke-YurunaTestGit -Path $Path -Argument @('add', '-A')
+        $message = if ($CommitMessage) { $CommitMessage } else { 'seed' }
+        $null = Invoke-YurunaTestGit -Path $Path -Argument @('commit', '--quiet', '--allow-empty', '-m', $message)
+    } elseif ($CommitMessage) {
+        $null = Invoke-YurunaTestGit -Path $Path -Argument @('commit', '--quiet', '--allow-empty', '-m', $CommitMessage)
+    }
+    $Path
+}
+
+function Save-YurunaTestGlobal {
+    <#
+    .SYNOPSIS
+    Snapshots the $global:__Yuruna* channels a test is about to change, telling
+    an absent variable from one that holds $null.
+    .DESCRIPTION
+    The entry points publish the host id, run id, cycle folder, log file and
+    cycle start to the modules through $global:__Yuruna* variables. Seventeen
+    suites set them by hand in four forms -- direct assignment, Set-Variable,
+    Remove-Variable and fixture pairs of their own -- and most never put the
+    previous value back, so a later block in the same process ran with an
+    earlier test's cycle folder or host id. Pair this with
+    Restore-YurunaTestGlobal in the matching teardown.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string[]]$Name)
+    $saved = @{}
+    foreach ($entry in $Name) {
+        if ($entry -cnotmatch '^__Yuruna\w+$') { throw "Save-YurunaTestGlobal: '$entry' is not a `$global:__Yuruna* channel." }
+        $variable = Get-Variable -Name $entry -Scope Global -ErrorAction SilentlyContinue
+        $saved[$entry] = [pscustomobject]@{ Present = [bool]$variable; Value = $(if ($variable) { $variable.Value } else { $null }) }
+    }
+    return $saved
+}
+
+function Set-YurunaTestGlobal {
+    <#
+    .SYNOPSIS
+    Sets $global:__Yuruna* channels for a test, or removes them with -Remove;
+    Save-YurunaTestGlobal first, Restore-YurunaTestGlobal after.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Sets in-process test globals that the matching teardown restores.')]
+    [CmdletBinding()]
+    param([System.Collections.IDictionary]$Value = @{}, [string[]]$Remove = @())
+    foreach ($entry in @(@($Value.Keys) + $Remove)) {
+        if ([string]$entry -cnotmatch '^__Yuruna\w+$') { throw "Set-YurunaTestGlobal: '$entry' is not a `$global:__Yuruna* channel." }
+    }
+    foreach ($entry in $Value.Keys) { Set-Variable -Name $entry -Scope Global -Value $Value[$entry] -Force }
+    foreach ($entry in $Remove) { Remove-Variable -Name $entry -Scope Global -Force -ErrorAction SilentlyContinue }
+}
+
+function Restore-YurunaTestGlobal {
+    <#
+    .SYNOPSIS
+    Puts back what Save-YurunaTestGlobal recorded: the previous value, or no
+    variable at all where there was none.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test teardown restores the caller globals.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable]$Saved)
+    foreach ($entry in $Saved.Keys) {
+        if ($Saved[$entry].Present) { Set-Variable -Name $entry -Scope Global -Value $Saved[$entry].Value -Force }
+        else { Remove-Variable -Name $entry -Scope Global -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+function Get-YurunaTestSourceText {
+    <#
+    .SYNOPSIS
+    Returns a source file's text; a host driver's root module reads as the whole
+    driver, with its part files inlined where the root loads them.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory, Position = 0)][string]$Path)
+    $full = (Get-Item -LiteralPath $Path -ErrorAction Stop).FullName
+    if (($full -replace '\\', '/') -notmatch '/host/(macos\.utm|ubuntu\.kvm|windows\.hyper-v)/modules/Yuruna\.Host\.psm1$') {
+        return [IO.File]::ReadAllText($full)
+    }
+    if (-not (Get-Command Get-YurunaSourceText -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.DriverSource.psm1') -Global -DisableNameChecking
+    }
+    return (Get-YurunaSourceText -Path $full)
+}
+
 function Get-YurunaTestFileAst {
     <#
     .SYNOPSIS
@@ -284,18 +466,32 @@ function Get-YurunaTestFileAst {
     39 suites hand-rolled this, and the ones that omitted the error check
     reported a confusing downstream failure instead of naming the file that
     would not parse.
+
+    A host driver's root module (host/<driver>/modules/Yuruna.Host.psm1) is
+    read as the whole driver: its part files are inlined where the root loads
+    them (Test.DriverSource), so a function found here stays found when it
+    moves to a part. Line numbers then count in that inlined text.
     #>
     [CmdletBinding()]
     [OutputType([System.Management.Automation.Language.ScriptBlockAst])]
     param([Parameter(Mandatory, Position = 0)][string]$Path)
     $item = Get-Item -LiteralPath $Path -ErrorAction Stop
     $identity = $item.FullName
-    $stamp = "$($item.LastWriteTimeUtc.Ticks):$($item.Length)"
+    $driver = ($identity -replace '\\', '/') -match '/host/(macos\.utm|ubuntu\.kvm|windows\.hyper-v)/modules/Yuruna\.Host\.psm1$'
+    $stampItems = if ($driver) { @(Get-ChildItem -LiteralPath $item.DirectoryName -Filter 'Yuruna.Host*' -File) } else { @($item) }
+    $stamp = ($stampItems | ForEach-Object { "$($_.Name):$($_.LastWriteTimeUtc.Ticks):$($_.Length)" }) -join '|'
     if (-not (Get-Variable -Name TestAstCache -Scope Script -ErrorAction SilentlyContinue)) { $script:TestAstCache = @{} }
     if ($script:TestAstCache.ContainsKey($identity) -and $script:TestAstCache[$identity].Stamp -eq $stamp) { return $script:TestAstCache[$identity].Ast }
-    $errors = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errors)
-    if ($errors) { throw "$Path does not parse: $($errors[0].Message)" }
+    if ($driver) {
+        if (-not (Get-Command Get-YurunaSourceAst -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot 'Test.DriverSource.psm1') -Global -DisableNameChecking
+        }
+        $ast = Get-YurunaSourceAst -Path $identity
+    } else {
+        $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errors)
+        if ($errors) { throw "$Path does not parse: $($errors[0].Message)" }
+    }
     $script:TestAstCache[$identity] = @{ Stamp = $stamp; Ast = $ast }
     $ast
 }
@@ -690,22 +886,9 @@ function Invoke-YurunaTestBrowserResult {
     }
 }
 
-function Get-YurunaTestGeneratedServerText {
-    <#
-    .SYNOPSIS
-        Expands the launcher server template in the calling fixture's scope.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][scriptblock]$Expand)
-    $source = [IO.File]::ReadAllText($Path)
-    $template = [regex]::Match($source, '(?ms)^\$serverScript = @"\r?\n(.*?)^"@')
-    if (-not $template.Success) { throw "Server template missing in $Path" }
-    return & $Expand $template.Groups[1].Value
-}
-
-Export-ModuleMember -Function Get-YurunaTestBrowser, Get-YurunaTestBrowserDom, Invoke-YurunaTestBrowserResult, Get-YurunaTestGeneratedServerText, Save-YurunaTestEnvironment, Restore-YurunaTestEnvironment, Enter-TranslationTestEnvironment, Get-YurunaTestCommandArgumentAst, Get-YurunaTestShellFunction, Invoke-YurunaTestShell, `
+Export-ModuleMember -Function Get-YurunaTestBrowser, Get-YurunaTestBrowserDom, Invoke-YurunaTestBrowserResult, Save-YurunaTestEnvironment, Restore-YurunaTestEnvironment, Enter-TranslationTestEnvironment, Get-YurunaTestCommandArgumentAst, Get-YurunaTestShellFunction, Invoke-YurunaTestShell, `
     Assert-True, Assert-False, Assert-Equal, Assert-StringEqual, Assert-NotEqual, `
     Assert-Null, Assert-NotNull, Assert-Match, Assert-Throw, Assert-NoFinding, `
-    Get-YurunaTestRepoRoot, New-YurunaTestTempDir, Remove-YurunaTestTempDir, `
-    Get-YurunaTestFileAst, Get-YurunaTestFunctionAst, Get-YurunaTestCommandCallCount
+    Get-YurunaTestRepoRoot, New-YurunaTestTempDir, Remove-YurunaTestTempDir, New-YurunaTestGitRepository, Set-YurunaTestGitIdentity, Invoke-YurunaTestGit, `
+    Save-YurunaTestGlobal, Set-YurunaTestGlobal, Restore-YurunaTestGlobal, `
+    Get-YurunaTestSourceText, Get-YurunaTestFileAst, Get-YurunaTestFunctionAst, Get-YurunaTestCommandCallCount

@@ -180,12 +180,16 @@ const DataqpsPlocaggregator = `{
   "aggregator.failed_to_encode_scrape_targets": "[ƒáíļéď ţó éñçóďé šçřáƥé ţářğéţš ~~~~~~~~~~~~~]",
   "aggregator.failed_to_seal_the_token": "[ƒáíļéď ţó šéáļ ţħé ţóķéñ ~~~~~~~~~~]",
   "aggregator.forget_host_disabled_no_auth_token_configured": "[ƒóřğéţ-ħóšţ ďíšáƀļéď (ñó áúţħ ţóķéñ çóñƒíğúřéď) ~~~~~~~~~~~~~~~~~~~]",
+  "aggregator.framework_ring_canary_invalid": "[çáñářý ɱúšţ ļíšţ 42-ƥřéƒíẋéď ħóšţ ÍĎš (áţ ɱóšţ 64), šéƥářáţéď ƀý çóɱɱáš ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "aggregator.framework_ring_passes_invalid": "[ƥáššéš ɱúšţ ƀé á ŵħóļé ñúɱƀéř ƒřóɱ 1 ţó 1000 ~~~~~~~~~~~~~~~~~~]",
   "aggregator.help_address_to_listen_on_59add3f5": "[áďďřéšš ţó ļíšţéñ óñ ~~~~~~~~]",
   "aggregator.help_allow_pseudo": "[Éñáƀļé ďíáğñóšţíç ƥšéúďó ļóçáļéš ~~~~~~~~~~~~~]",
   "aggregator.help_display_language": "[Ďíšƥļáý ļáñğúáğé: áúţó óř á šúƥƥóřţéď ļóçáļé ~~~~~~~~~~~~~~~~~~]",
   "aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083": "[ďíšţíñçţ ħóšţš ţħáţ ɱúšţ ƒáíļ ŵíţħíñ -çřóšš-ħóšţ-ŵíñďóŵ ţó óƥéñ á ƥóóļ-ŵíďé íñçíďéñţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1": "[ďřóƥ á ħóšţ ƒřóɱ ţħé ƥóóļ ṽíéŵ ţħíš ļóñğ áƒţéř ļášţ çóñţáçţ; íţš ƥéř-çýçļé ďéďúƥ šţáţé íš ķéƥţ áñ ħóúř ļóñğéř šó á řé-áƥƥéáříñğ ħóšţ çáññóţ ďóúƀļé-çóúñţ, áñď ďášħƀóářď ďééƥ ļíñķš řéšóļṽé óṽéř áţ ļéášţ 24ħ řéğářďļéšš. Çúɱúļáţíṽé ƥášš/fail çóúñţéřš ářé ñóţ éẋƥířéď ƀý ţħíš -- úšé ƤÓŠŢ /api/v1/forget-host ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952": "[ƒíļé çóñţáíñíñğ ţħé šħářéď ƀéářéř ţóķéñ řéʠúířéď ƒóř ƤÓŠŢ /ingest, ƤÓŠŢ /api/v1/forget-host, ƤÓŠŢ /api/v1/handover-host, áñď ĞÉŢ /api/v1/host-history; áñ éɱƥţý ƥáţħ, áƀšéñţ ƒíļé, óř éɱƥţý ƒíļé ďíšáƀļéš ţħéšé óƥéřáţíóñš (ñó úñáúţħéñţíçáţéď çóñţřóļ řóúţé) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "aggregator.help_framework_ring_state_file": "[ƒíļé ţħáţ ķééƥš ţħé ƒřáɱéŵóřķ řéṽíšíóñ éáçħ ħóšţ'š çóɱƥļéţéď çýçļéš řáñ, šó ţħé çáñářý říñğ šúřṽíṽéš á řéšţářţ (éɱƥţý ķééƥš íţ íñ ɱéɱóřý) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "aggregator.help_loki_outbox_dir": "[ƒóļďéř ţħáţ ķééƥš Ļóķí ļíñéš úñţíļ Ļóķí áççéƥţš ţħéɱ (éɱƥţý ķééƥš ţħéɱ íñ ɱéɱóřý, ļóšţ óñ řéšţářţ) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "aggregator.help_loki_push_api_url_c89d9321": "[Ļóķí ƥúšħ ÁƤÍ ÚŘĻ ~~~~~~~]",
   "aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f": "[óñ šţářţúƥ, řéšţóřé çýçļé çóúñţš ƒřóɱ Ļóķí óṽéř ţħíš ţřáíļíñğ ŵíñďóŵ (0 ţó ďíšáƀļé) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc": "[óƥéñ áñ íñçíďéñţ áƒţéř ţħíš ɱáñý ƒáíļéď çýçļéš ŵíţħíñ -íñçíďéñţ-ŵíñďóŵ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
@@ -204,6 +208,7 @@ const DataqpsPlocaggregator = `{
   "aggregator.host_not_known_to_the_pool": "[ħóšţ ñóţ ķñóŵñ ţó ţħé ƥóóļ ~~~~~~~~~~~]",
   "aggregator.hostid_must_be_a_42_prefixed_32_hex_id": "[ħóšţÍď ɱúšţ ƀé á 42-ƥřéƒíẋéď 32-ħéẋ íď ~~~~~~~~~~~~~~~~]",
   "aggregator.ingest_disabled": "[íñğéšţ ďíšáƀļéď ~~~~~~]",
+  "aggregator.ingest_queue_full": "[ţħé çóļļéçţóř çáññóţ ħóļď ţħéšé ļíñéš ñóŵ; ţřý áğáíñ ļáţéř ~~~~~~~~~~~~~~~~~~~~~~~~]",
   "aggregator.invalid_control_scope": "[íñṽáļíď çóñţřóļ šçóƥé ~~~~~~~~~]",
   "aggregator.invalid_hostid": "[íñṽáļíď ħóšţÍď ~~~~~~]",
   "aggregator.invalid_hostid_or_area": "[íñṽáļíď ħóšţÍď óř ářéá ~~~~~~~~~]",
@@ -270,6 +275,36 @@ const DataqpsPlocaggregator = `{
       "trust": "external"
     },
     "); ţħé éñţřý šţáýš šúƥƥřéššéď úñţíļ ţħé šéřṽíçé řé-áññóúñçéš óř ţħé áññóúñçé ŢŢĻ řéáƥš íţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "aggregator.log_framework_ring_state_unreadable": [
+    "[ƒřáɱéŵóřķ říñğ: ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " çáññóţ ƀé řéáď (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); šţářţíñğ ƒřóɱ ŵħáţ ţħé ħóšţš řéƥóřţ ñéẋţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "aggregator.log_framework_ring_state_unwritten": [
+    "[ƒřáɱéŵóřķ říñğ: ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " çáññóţ ƀé ŵříţţéñ (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); ţħé řéṽíšíóñš šţáý íñ ɱéɱóřý úñţíļ á ŵříţé šúççééďš ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "aggregator.log_host_metrics_port_value1_is_not_a_valid_port_keeping_t_e686d724": [
     "[ħóšţ-ɱéţříçš-ƥóřţ ",
@@ -361,6 +396,78 @@ const DataqpsPlocaggregator = `{
       "trust": "external"
     },
     "); ķééƥíñğ ƥřéṽíóúš çóďéš ~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "aggregator.log_loki_not_ready": [
+    "[Ļóķí ŵáš ñóţ řéáďý áƒţéř ",
+    {
+      "arg": "duration",
+      "type": "detail",
+      "trust": "external"
+    },
+    "; řéáďíñğ íţ áñýŵáý ~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "aggregator.log_loki_outbox_enqueue_failed": [
+    "[",
+    {
+      "arg": "what",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ţħé ļíñé çóúļď ñóţ ƀé ʠúéúéď ƒóř Ļóķí: ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "aggregator.log_loki_outbox_full": [
+    "[Ļóķí óúţƀóẋ íš ƒúļļ (",
+    {
+      "arg": "lines",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ļíñéš); ñéŵ ļíñéš ářé řéƒúšéď úñţíļ Ļóķí ţáķéš šóɱé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "aggregator.log_loki_outbox_memory_only": [
+    "[Ļóķí óúţƀóẋ: ",
+    {
+      "arg": "dir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " çáññóţ ƀé úšéď (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); ļíñéš ŵáíţ íñ ɱéɱóřý áñď á řéšţářţ ļóšéš ţħéɱ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "aggregator.log_loki_outbox_refused": [
+    "[Ļóķí řéƒúšéď á ʠúéúéď ļíñé (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); íţ íš ďřóƥƥéď ~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "aggregator.log_loki_outbox_unreadable": [
+    "[Ļóķí óúţƀóẋ: ",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    },
+    " çáññóţ ƀé řéáď (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); íţ íš ďřóƥƥéď ~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "aggregator.log_pool_aggregator_service_listening_on_value1_value2_poo_b30f8764": [
     "[ƥóóļ-áğğřéğáţóř-šéřṽíçé ļíšţéñíñğ óñ ",

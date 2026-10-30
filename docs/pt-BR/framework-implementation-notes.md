@@ -29,7 +29,7 @@ com o upstream indicaria desvio sempre, mesmo em uma máquina corretamente provi
 
 <a id="automationset-hostaliasps1-2-elevation--root-assertion"></a>
 
-## automation/Set-HostAlias.ps1: 2. Asserção de elevação / root
+## automation/Set-HostAlias.ps1: 3. Invalidação do cache do resolvedor
 
 Gravar o arquivo não encerra a alteração. O sistema operacional resolve nomes
 a partir de um cache em memória que continua respondendo com o endereço
@@ -323,7 +323,7 @@ execução manual não arquive sob regras diferentes das usadas pelo executor.
 
 <a id="testmodulesinvoke-testcyclerunnerps1-host-refresh-transport"></a>
 
-## test/modules/Invoke-TestCycleRunner.ps1: Transporte de atualização do hospedeiro
+## test/modules/Invoke-TestCycleRunner.ps1: Execute um ciclo
 
 Invocado sem capturar o fluxo de sucesso; o resultado tipado é lido por meio de
 `Get-LastOuterCycleResult`, deixando a saída do ciclo no console do operador.
@@ -361,7 +361,7 @@ atualização no meio do ciclo.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-resolve-paths-1"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Resolução de caminhos
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Proteção de instância única
 
 Defensivo: se outro Start-TestRunner.ps1 (o externo) estiver em execução,
 encerre-o e remova as VMs de teste abandonadas. O caminho normal de chamada é
@@ -418,7 +418,7 @@ exata que uma atualização do hospedeiro verifica antes de poder retomar este i
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-inner-pid--heartbeat-2"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: PID interno + heartbeat
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Contrato de execução autônoma
 
 O processo de execução do ciclo inicia este interno com `Process.Start`, sem
 redirecionamento dos fluxos padrão; portanto, o interno herda o terminal de
@@ -459,7 +459,7 @@ um laço de atualização no mesmo processo.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-read-config-syncs-against-template-first"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Leitura da configuração (primeiro sincroniza com o modelo)
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Barreira de configuração antes do ciclo
 
 Uma barreira, no início do ciclo, antes de qualquer trabalho no hospedeiro:
 o executor externo verifica uma vez na inicialização, mas depois executa
@@ -483,7 +483,7 @@ ciclo comum verifica novamente.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-held-control-barrier"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Barreira de controle retido
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Admissão de VMs concorrentes
 
 Dois ciclos em um conjunto de VMs corrompem um ao outro, portanto um ciclo só
 inicia em um hospedeiro comprovadamente livre de outros convidados. Em algumas
@@ -503,7 +503,7 @@ saída "cannot run", com a razão em vm-admission.json para o executor externo i
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-concurrent-vm-admission"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Admissão de VMs concorrentes
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Barreira de rede de convidados do host no início do ciclo
 
 Um objeto de switch virtual sobrevive à sua associação de uplink após uma
 reinicialização do hospedeiro, portanto a sobrevivência do objeto não comprova
@@ -536,7 +536,7 @@ preâmbulo a encerre.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-cycle-start-host-guest-network-gate"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Barreira da rede de convidados do hospedeiro no início do ciclo
+## test/modules/Test.RunnerInnerLoop.psm1: Par de host degradado -> runtime/host-network.txt + host-network.json
 
 host-network.txt é HTML pronto para incorporar, anexado literalmente pela
 página de status; host-network.json é o equivalente legível por máquina que
@@ -554,7 +554,7 @@ um hospedeiro degradado para todo consumidor que só verifica a existência.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-degraded-host-pair---runtimehost-networktxt--host-networkjson"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Par de hospedeiro degradado -> runtime/host-network.txt + host-network.json
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Varredura do sinalizador obsoleto de reinício de ciclo
 
 control.cycle-restart é gravado pelo worker por trás do endpoint
 /control/start-cycle do serviço de status. O laço de espera entre ciclos o consome no próximo
@@ -592,7 +592,7 @@ após seu próprio Initialize-YurunaHost.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-stale-cycle-restart-flag-sweep-1"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Varredura de indicador cycle-restart obsoleto
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Restauração das VMs de serviço no início do ciclo
 
 Uma reinicialização do hospedeiro deixa toda VM de serviço registrada no
 hipervisor e DESLIGADA, e nada mais no ciclo as liga novamente. As duas falhas
@@ -615,7 +615,7 @@ leva ~15 minutos e descarta um cache squid aquecido; iniciar leva segundos e o p
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-cycle-start-service-vm-restore"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Restauração de VMs de serviço no início do ciclo
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Reparo do vSwitch External no início do ciclo (somente Hyper-V)
 
 AQUI, e em nenhum outro lugar do ciclo. Uma nova associação retira o sinal
 de todo convidado no switch e interrompe por um instante a rede do hospedeiro
@@ -637,7 +637,7 @@ já fazia; a correção apenas tenta recuperar o caminho em bridge.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-cycle-start-external-vswitch-repair-hyper-v-only"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Correção do vSwitch External no início do ciclo (somente Hyper-V)
+## test/modules/Test.RunnerInnerLoop.psm1: Invoke-CycleExternalSwitchRepair
 
 A barreira acima gravou o par degradado a partir de uma sondagem feita ANTES
 desta correção, portanto um switch corrigido aqui continuaria anunciando uma
@@ -654,7 +654,7 @@ hospedeiro já saudável não pague por uma segunda sondagem a cada ciclo.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-cycle-start-external-vswitch-repair-hyper-v-only-1"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Correção do vSwitch External no início do ciclo (somente Hyper-V)
+## test/modules/Invoke-TestRunnerInnerLoop.ps1: Barreira do caching-proxy-service no início do ciclo
 
 Sonde as duas fontes do operador em ordem de prioridade (a chave persistente
 de configuração vmStart.cachingProxyIp, depois a variável de ambiente da sessão)
@@ -675,7 +675,7 @@ encerramento do watchdog.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-cycle-start-caching-proxy-service-gate"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Barreira de caching-proxy-service no início do ciclo
+## test/modules/Test.RunnerInnerLoop.psm1: Invoke-CycleCachingProxyGate
 
 Despacho do mapa de portas (externo / caminho rápido Yuruna-External /
 alternativa Default-Switch) e o formato da lista de portas Windows-vs-macOS:
@@ -694,7 +694,7 @@ em vez de gerar erro.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-cycle-start-caching-proxy-service-gate-1"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Barreira de caching-proxy-service no início do ciclo
+## test/modules/Test.RunnerInnerLoop.psm1: Invoke-CycleCachingProxyGate
 
 Deliberadamente NÃO há mais preparação de sudo aqui. A elevação de um
 hospedeiro não supervisionado pertence à inicialização (Assert-RunnerElevation,
@@ -714,7 +714,7 @@ de senha a cada ciclo para trabalho que nunca acontece.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-cycle-start-caching-proxy-service-gate-2"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Barreira de caching-proxy-service no início do ciclo
+## test/modules/Test.RunnerInnerLoop.psm1: Invoke-CycleCachingProxyGate
 
 O tratamento externo abaixo remove os encaminhadores deste hospedeiro,
 portanto só pode executar quando o endpoint é COMPROVADAMENTE outro hospedeiro.
@@ -730,13 +730,13 @@ reafirma um mapa de portas -- portanto unknown deve ficar no lado local.
 
 <a id="testmodulesinvoke-testrunnerinnerloopps1-cycle-start-caching-proxy-service-gate-3"></a>
 
-## test/modules/Invoke-TestRunnerInnerLoop.ps1: Barreira de caching-proxy-service no início do ciclo
+## test/modules/Test.RunnerInnerLoop.psm1: Invoke-CycleCachingProxyGate
 
 O conjunto de portas expostas (incluindo a visualização contínua de logs de
 caching-proxy-parser-service em 9302) vem de Get-CachingProxyServiceExposedPort,
 para não divergir da lista de instalação de Start-CachingProxyServiceVM;
-Add-PortMap primeiro limpa tudo, portanto uma porta removida deixa de atender
-na reinstalação. macOS remapeia apenas as duas portas abertas manualmente por
+Add-PortMap substitui os encaminhadores do cache por esse conjunto, portanto
+uma porta removida deixa de atender na reinstalação. macOS remapeia apenas as duas portas abertas manualmente por
 um operador: Grafana e 80 -- onde fica a página inicial da VM caching-proxy
 e, portanto, o destino do link Dashboards das páginas de status do hospedeiro.
 Sem 80, esse link não alcança nada a partir de um hospedeiro Mac.
@@ -958,7 +958,7 @@ toda ausência de snapshot já recorre a uma análise YAML completa.
 
 <a id="testmodulestestconfignamingpsm1-test-retiredconfigkeyline-answers-does-this-file-still-say-it-the-old-way"></a>
 
-## test/modules/Test.ConfigNaming.psm1: Test-RetiredConfigKeyLine responde "este ARQUIVO ainda usa a forma antiga",
+## test/modules/Test.ConfigNaming.psm1: Migração estrutural (configuração analisada, não texto bruto)
 
 Test-RetiredConfigKeyLine responde "este ARQUIVO ainda usa a forma antiga",
 que é o necessário para uma reconciliação local. Uma configuração obtida de
@@ -1082,7 +1082,7 @@ confiável entre versões -- consulte Test.ConfigServiceCA.Tests.ps1; o arquivo
 
 <a id="testmodulestestconfigservicesyncpsm1-pure-conversion-helpers-no-io-unit-tested-directly"></a>
 
-## test/modules/Test.ConfigServiceSync.psm1: Auxiliares puros de conversão (sem E/S; testados unitariamente de forma direta)
+## test/modules/Test.ConfigServiceSync.psm1: Envelope de credencial com token compartilhado (lados cliente e servidor)
 
 Ambas as pontas possuem a chave de autenticação interna; nada mais é
 compartilhado. A requisição contém uma prova HMAC de conhecimento (o próprio
@@ -1169,7 +1169,7 @@ aqui, para um compartilhamento que este hospedeiro servia anteriormente.
 
 <a id="4213a0b3-0041"></a>
 
-## test/modules/Test.ConfigServiceSync.psm1: Sync-HostConfiguration
+## test/modules/Test.ConfigServiceSync.psm1: Grafias de chaves aposentadas na referência
 
 Reescreva-os nos caminhos atuais ANTES que algo leia a configuração. Todo
 consumidor subsequente procura apenas os nomes atuais, portanto um valor
@@ -1191,8 +1191,8 @@ referência continua servindo nomes antigos a todos os demais até ser reconcili
 ## test/modules/Test.ConfigServiceSync.psm1: Sync-HostConfiguration
 
 No Linux, a montagem poolStorage executa `sudo -n mount/mkdir/umount`, que
-falha sem um arquivo drop-in em /etc/sudoers.d concedendo NOPASSWD para essas
-ações -- o WARN visto pelo operador no fim da validação, após o qual o
+falha sem um arquivo drop-in em /etc/sudoers.d concedendo NOPASSWD exatamente
+para essas linhas de comando (veja docs/pool-storage.md) -- o WARN visto pelo operador no fim da validação, após o qual o
 executor armazena localmente. O executor não supervisionado não pode elevar
 os próprios privilégios, mas ESTA é uma sessão interativa do operador,
 portanto ofereça instalar o drop-in agora (um prompt sudo), em vez de deixar
@@ -1233,7 +1233,7 @@ automaticamente entre arquivos.
 
 <a id="4213a0b3-0045"></a>
 
-## test/modules/Test.ConfigSync.psm1: Update-TestConfigFromTemplate
+## test/modules/Test.ConfigSync.psm1: Migração de esquema (formato divergente)
 
 O arquivo no disco não corresponde mais à estrutura aninhada do modelo
 (o esquema mudou). Faça backup do arquivo anterior e grave a mesclagem que
@@ -1861,7 +1861,7 @@ seria acionado no caminho frio.
 
 <a id="testmodulestesthostconditionmacpsm1-utm-ships-its-command-line-interface-inside-the-app-bundle-and-no-installer"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: UTM distribui sua interface de linha de comando DENTRO do pacote do aplicativo, e nenhum instalador
+## test/modules/Test.HostCondition.Mac.psm1: utmctl no PATH
 
 UTM distribui sua interface de linha de comando DENTRO do pacote do aplicativo,
 e nenhum instalador -- nem o cask nem o .dmg -- coloca esse diretório no PATH.
@@ -1874,7 +1874,7 @@ o veem; bin do Homebrew só alcança shells que executaram `brew shellenv`.
 
 <a id="4213a0b3-006a"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet
+## test/modules/Test.HostCondition.Mac.psm1: Verificação de elevação
 
 Todo bloco privilegiado abaixo sonda `sudo -n true` imediatamente antes
 de gravar, e toda gravação usa -n. Os dois fatos que uma variável de ambiente
@@ -1895,7 +1895,7 @@ hospedeiro em que root não está acessível.
 
 <a id="4213a0b3-006b"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet
+## test/modules/Test.HostCondition.Mac.psm1: Suspensão do sistema + suspensão do disco -> Nunca (requer sudo)
 
 Somente repouso da tela não basta: repouso do sistema -> a tela bloqueia ao
 acordar, independentemente das configurações do protetor de tela. O repouso
@@ -1943,7 +1943,7 @@ o comportamento antigo até ser iniciada novamente.
 
 <a id="4213a0b3-006e"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet
+## test/modules/Test.HostCondition.Mac.psm1: Bloqueio de tela unificado do sysadminctl (Ventura+)
 
 `sysadminctl -screenLock` é o controle unificado moderno (macOS 13+)
 gravado por System Settings > Lock Screen > "Require password after screen
@@ -1976,7 +1976,7 @@ interface gráfica não fosse perturbada, pois a própria leitura de senha
 
 <a id="4213a0b3-0070"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet
+## test/modules/Test.HostCondition.Mac.psm1: Logout automático após inatividade (Segurança -> Avançado)
 
 `com.apple.autologout.AutoLogOutDelay` (nível de sistema) é o controle
 "Log out after N minutes of inactivity" em Lock Screen / Security. macOS
@@ -1990,7 +1990,7 @@ elevar, esconderia completamente o estado.
 
 <a id="4213a0b3-0071"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Set-MacHostConditionSet
+## test/modules/Test.HostCondition.Mac.psm1: Opção de Spaces "alternar para um Space com janelas abertas"
 
 Quando o ambiente de testes chama `tell application "UTM" to activate`
 (a alternativa de teclas de convidado AVF em Send-KeyUTM / Send-TextUTM),
@@ -2005,7 +2005,7 @@ permanece no lugar. Dock precisa ser reiniciado para a mudança entrar em vigor.
 
 <a id="testmodulestesthostconditionmacpsm1-host-clock"></a>
 
-## test/modules/Test.HostCondition.Mac.psm1: Relógio do hospedeiro
+## test/modules/Test.HostCondition.Mac.psm1: Concessões do operador (permissões de privacidade do macOS)
 
 Permissões sem as quais o ambiente de testes não pode executar e que
 NENHUMA quantidade de root fornece. macOS as mantém nos bancos TCC, System
@@ -2081,7 +2081,7 @@ ainda conecte a tela. Consulte docs/host-hyperv.md.
 
 <a id="4213a0b3-0076"></a>
 
-## test/modules/Test.HostCondition.Windows.psm1: Install-YurunaVirtualDisplay
+## test/modules/Test.HostCondition.Windows.psm1: Espelhe o monitor principal, fixe o virtual como primário, imponha
 
 o limite mínimo de resolução OCR.
 A tela virtual deve DUPLICAR (não estender) a física e ser a principal,
@@ -2096,7 +2096,7 @@ portanto avise e mantenha o status do monitor.
 
 <a id="4213a0b3-0077"></a>
 
-## test/modules/Test.HostCondition.Windows.psm1: Set-YurunaDisplayCloneAndResolution
+## test/modules/Test.HostCondition.Windows.psm1: Físico + virtual conectados -> DUPLICAR (clonar), sempre
 
 A tela VIRTUAL é definida como principal para que a superfície capturada
 pelo executor fique ancorada na tela sempre presente; desconectar o monitor
@@ -2128,7 +2128,7 @@ se `stop` o removeu).
 
 <a id="4213a0b3-0079"></a>
 
-## test/modules/Test.HostCondition.Windows.psm1: Set-WindowsHostConditionSet
+## test/modules/Test.HostCondition.Windows.psm1: Exportador de métricas do host
 
 Uma alocação de memória de VM recusada é decidida pela carga de commit do
 hospedeiro contra seu limite de commit naquele instante, e nenhum dos dois
@@ -2294,7 +2294,7 @@ ali) e armazenada em cache em runtime/host.hwid.json; a drenagem lê o cache.
 
 <a id="4213a0b3-0083"></a>
 
-## test/modules/Test.HostIdentity.psm1: Invoke-PoolStorageSetupAndReclaim
+## test/modules/Test.HostIdentity.psm1: Já configurado -- não pergunte nada
 
 Uma sincronização de configuração de um hospedeiro de referência grava os
 três valores do grupo e armazena a credencial correspondente no vault.
@@ -2559,7 +2559,7 @@ de retornar.
 
 <a id="testmodulestestkeycoderegistrypsm1-maps-owned-by-this-module"></a>
 
-## test/modules/Test.KeyCodeRegistry.psm1: Mapas de responsabilidade deste módulo
+## test/modules/Test.KeyCodeRegistry.psm1: Acordes de modificadores
 
 Combinações de controle precisam de sua própria família de mapas: os mapas *-Named contêm um código
 ESCALAR por nome, e cada backend os desreferencia como escalares, portanto uma entrada
@@ -2757,7 +2757,7 @@ gerando e armazenando credenciais do laboratório, portanto um
 
 <a id="testmodulestestlocallabstoragepsm1-a-machine-that-served-its-own-shares-and-now-consumes-a-labs-has-to-stop"></a>
 
-## test/modules/Test.LocalLabStorage.psm1: Uma máquina que servia seus próprios compartilhamentos e agora consome os de um laboratório precisa parar
+## test/modules/Test.LocalLabStorage.psm1: Desativação do armazenamento local
 
 Uma máquina que servia seus próprios compartilhamentos e agora consome os de um laboratório precisa parar
 de ser um servidor de armazenamento, e cada etapa acima precisa de uma operação inversa para isso. Elas
@@ -2945,7 +2945,7 @@ não é nosso.
 
 <a id="testmodulestestlogpsm1-telemetry-is-best-effort-by-design-a-cycle-never-fails-because-an-event-could"></a>
 
-## test/modules/Test.Log.psm1: A telemetria faz o possível por projeto: um ciclo nunca falha porque um evento não pôde
+## test/modules/Test.Log.psm1: Ledger de entrega de eventos
 
 A telemetria faz o possível por projeto: um ciclo nunca falha porque um evento não pôde
 ser gravado. Essa política esconde algo de que todo consumidor precisa -- se o
@@ -3130,7 +3130,7 @@ sobre um provedor que não pode executar.
 
 <a id="testmodulestestocrenginepsm1-provider-registry"></a>
 
-## test/modules/Test.OcrEngine.psm1: Registro de provedores
+## test/modules/Test.OcrEngine.psm1: Provedor embutido: Tesseract
 
 -Global é obrigatório: uma simples reimportação com -Force de um Test.Tesseract já global
 o remove da sessão global e o coloca no escopo privado deste
@@ -3223,7 +3223,7 @@ segredo em um terminal que ainda não desligou o eco.
 
 <a id="4213a0b3-00b3"></a>
 
-## test/modules/Test.OcrMatch.psm1: Test-OCRMatch
+## test/modules/Test.OcrMatch.psm1: Estratégia 3: correspondência por segmentos (trata a reordenação de palavras do OCR)
 
 O OCR pode reordenar partes de uma linha (por exemplo, "[ec2-user@test-amazon-linux01 ~]$"
 vira "test-amazon-I inux01 login: ecZ-user"). Divida o padrão original
@@ -3851,7 +3851,7 @@ ramo nunca é executado para eles.
 
 <a id="testmodulestestremediationpsm1-which-failures-the-runner-may-retry-without-an-operator-and-how-many-times"></a>
 
-## test/modules/Test.Remediation.psm1: QUAIS falhas o executor pode tentar novamente sem um operador, e QUANTAS vezes.
+## test/modules/Test.Remediation.psm1: Política de correção automática
 
 QUAIS falhas o executor pode tentar novamente sem um operador, e QUANTAS vezes.
 A lista fica aqui, ao lado do registro que classifica as falhas, porque
@@ -3967,7 +3967,7 @@ ciclo e encerraria incorretamente o download semanal da imagem base em ~10 minut
 
 <a id="testmodulestestrunnerinnerlooppsm1-yuruna-archivetargz-and-yuruna-project-archivetargz-are-built-via"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: /yuruna-archive.tar.gz e /yuruna-project-archive.tar.gz são construídos por
+## test/modules/Test.RunnerInnerLoop.psm1: Proteção no início do ciclo: avisa sobre divergência da árvore de trabalho em relação a HEAD
 
 /yuruna-archive.tar.gz e /yuruna-project-archive.tar.gz são construídos por
 `git archive HEAD`, portanto os convidados só veem conteúdo COM COMMIT. Se o processo
@@ -3982,7 +3982,7 @@ para que isso apareça independentemente da configuração logLevel em test.conf
 
 <a id="testmodulestestrunnerinnerlooppsm1-cycle-start-guard-warn-on-working-tree-drift-vs-head"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Proteção no início do ciclo: avisar sobre divergência da árvore de trabalho em relação a HEAD
+## test/modules/Test.RunnerInnerLoop.psm1: Auxiliar: verificação de alcance do caching-proxy-service antes de cada etapa
 
 Contexto: um modo de falha real é o Wi-Fi do hospedeiro mudar para outro
 SSID/sub-rede no meio do ciclo. A VM caching-proxy-service está no
@@ -4246,7 +4246,7 @@ antes da notificação para que seu EventData obtenha a classe real.
 
 <a id="4213a0b3-00f2"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Substituição de repositórios do grupo
 
 Quando este hospedeiro está em um grupo que contém repositórios
 (runtime/pool.manifest.json, gravado por
@@ -4260,7 +4260,7 @@ atribuição que já não se aplica (e possivelmente falhar nela).
 
 <a id="4213a0b3-00f3"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Sondagem de acesso ao projeto atribuído
 
 Um grupo pode fornecer a este hospedeiro uma projectUrl que sua credencial não consegue ler. Sem
 esta sondagem, isso só aparece quando a clonagem abaixo falha, no meio do ciclo, como um
@@ -4315,7 +4315,7 @@ dispara notificações no mesmo limite que qualquer outra falha.
 
 <a id="4213a0b3-00f7"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Nível superior da orquestração (roteiro InvokeTestSequence)
 
 Uma entrada test.runner.yml pode ser uma sequência de orquestração (sem resource:/
 baseline; as etapas são InvokeTestSequence). Ela não contribui com entradas de plano
@@ -4328,7 +4328,7 @@ guestSequence legada NÃO crie um convidado inexistente.
 
 <a id="4213a0b3-00f8"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Inicialize o status deste ciclo
 
 Atribua o resultado do auxiliar DIRETAMENTE -- NÃO envolva a chamada em @(). A vírgula
 unária dentro de New-CycleGitCommitList já emite toda a lista como um
@@ -4346,7 +4346,7 @@ orquestrador depois sobrescreveria. $CycleStartUtc/$LogFile permanecem vazios; o
 
 <a id="4213a0b3-00f9"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Inicie o arquivo de log (a transcrição captura toda a saída do console)
 
 CycleNumber é lido DEPOIS de Initialize-StatusDocument para ver o
 valor incrementado (1, 2, 3, ...). Determina o prefixo de 6 dígitos no
@@ -4413,7 +4413,7 @@ de novo.
 
 <a id="4213a0b3-00fd"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
+## test/modules/Test.RunnerInnerLoop.psm1: Interrupção por reinício de ciclo (esperada)
 
 A verificação por etapa de Invoke-Sequence lança "YurunaCycleRestart: ..." quando
 /control/start-cycle pede um aborto no meio do ciclo. É o
@@ -4469,6 +4469,13 @@ mesclada; uma exceção anterior a esse ponto o deixaria nulo.
 Recorra ao parâmetro do script para que a espera entre ciclos ainda seja
 respeitada no raro caminho de falha abrupta anterior à configuração.
 
+A espera dá o ritmo do próximo ciclo do laço residente, então um ciclo cujo
+runtime um ponto de entrada de execução única (Invoke-TestProject) mantém por
+meio de sua concessão de execução única a pula (Get-InterCycleDelay):
+nenhum ciclo vem depois, e a espera apenas atrasaria o veredito da execução em
+testCycle.cycleDelaySeconds. O valor configurado fica como está, e uma
+concessão cujo detentor não pode ser identificado mantém a espera.
+
 <a id="4213a0b3-0100"></a>
 
 ## test/modules/Test.RunnerInnerLoop.psm1: Invoke-RunnerInnerCycle
@@ -4501,7 +4508,7 @@ auxiliar é invocado como instrução, sem capturar o retorno).
 
 <a id="4213a0b3-0102"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-GuestProvisionIteration
+## test/modules/Test.RunnerInnerLoop.psm1: Limpe artefatos de falha obsoletos por VM de ciclos anteriores
 
 failure_screenshot_<VM>.png e failure_ocr_<VM>.txt ainda ficam
 na raiz YURUNA_LOG_DIR (compartilhada entre ciclos, identificada apenas pelo
@@ -4517,7 +4524,7 @@ do ciclo (Get-CycleScreenDir), portanto não pode vazar para o próximo -- nenhu
 
 <a id="4213a0b3-0103"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Invoke-GuestProvisionIteration
+## test/modules/Test.RunnerInnerLoop.psm1: Serialização de convidados em host restrito
 
 Em hospedeiros com poucas threads de hardware, convidados ainda executando
 sequências anteriores competem com a instalação do sistema operacional deste convidado: totais de vCPU
@@ -4605,7 +4612,7 @@ parada / não é possível determinar) prossegue.
 
 <a id="testmodulestestrunnerouterlooppsm1-forward-env-helper"></a>
 
-## test/modules/Test.RunnerOuterLoop.psm1: Auxiliar de encaminhamento de ambiente
+## test/modules/Test.RunnerOuterLoop.psm1: Laço principal
 
 Todo retorno de Invoke-RunnerOuterCycle também atualiza o espaço reservado ao
 último resultado no módulo, para que Invoke-TestCycleRunner.ps1 possa ler o
@@ -4670,7 +4677,7 @@ host/*/Enable-TestAutomation.ps1).
 
 <a id="4213a0b3-010c"></a>
 
-## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
+## test/modules/Test.RunnerOuterLoop.psm1: Verificação de espaço do pool-storage antes de iniciar o processo (somente no modo de movimentação)
 
 Deliberadamente APÓS a limpeza de last_failure.json. A pausa por falha classifica
 a partir desse arquivo; portanto, uma verificação anterior à limpeza deixaria o registro do
@@ -4714,7 +4721,7 @@ execução INTERATIVA posterior neste shell recusar silenciosamente solicitar en
 
 <a id="4213a0b3-010f"></a>
 
-## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
+## test/modules/Test.RunnerOuterLoop.psm1: Arquivamento no pool-storage, modo COPY (melhor esforço, DESANEXADO)
 
 Iniciar o arquivador que esvazia a fila acumulada em seu PRÓPRIO processo independente, para que um
 NAS lento ou ausente NUNCA atrase o próximo ciclo. O esvaziamento evita duplicação por conta própria
@@ -4730,7 +4737,7 @@ uma cópia independente executada ao lado dele disputaria as mesmas pastas.
 
 <a id="4213a0b3-0110"></a>
 
-## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
+## test/modules/Test.RunnerOuterLoop.psm1: Modo de movimentação: deixe o encaminhador terminar a leitura antes de excluir qualquer coisa
 
 Aguardar o PROCESSO do encaminhador, não seu arquivo de bloqueio. O bloqueio é criado
 bem depois do início da inicialização do próprio filho -- após importar módulos, obter o token do cofre,
@@ -4747,7 +4754,7 @@ caminho alternativo de montagem do hospedeiro.
 
 <a id="4213a0b3-0111"></a>
 
-## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
+## test/modules/Test.RunnerOuterLoop.psm1: Notificador de alertas do grupo (melhor esforço, gancho LIMITADO no fim do ciclo)
 
 No ÚNICO hospedeiro em que o operador configurou o transporte pool.alert, entregar os
 alertas CONSULTIVOS de degradação do grupo emitidos pelo agregador: ler o indicador yuruna_pool_alert_
@@ -4769,6 +4776,14 @@ pasta de runtime (`pool.notifier.lock`) mantém separadas a execução do reside
 de modo que uma transição de alerta seja lida e enfileirada uma só vez; somente um detentor vivo
 faz uma execução se afastar, portanto um bloqueio que não pode ser criado nunca silencia a entrega.
 
+Cada host também enfileira seu próprio aviso no mesmo spool quando sua recuperação
+automática está desativada (`recovery.health.json`, gravado por
+`Set-RecoveryLedgerHealth`), antes da eleição: o host eleito o entrega sob
+`pool.alert`, e um host que não foi eleito não tem outra forma de alcançar o
+operador. Cada episódio, identificado por seu estado e por `sinceUtc`, é enfileirado
+uma única vez; `pool.notifier.state.json` guarda o último enfileirado e o esquece
+quando o marcador é removido, de modo que um episódio posterior é enfileirado de novo.
+
 <a id="4213a0b3-0112"></a>
 
 ## test/modules/Test.RunnerOuterLoop.psm1: Invoke-RunnerOuterCycle
@@ -4776,9 +4791,9 @@ faz uma execução se afastar, portanto um bloqueio que não pode ser criado nun
 Detecção de encerramento pelo watchdog: quando o interno sai com código diferente de zero E
 o último sinal de atividade da etapa é mais antigo que o limite, a
 causa quase certamente foi o watchdog (o código de saída é
-o que Stop-Process -Force tiver produzido; o
-caminho de falha da aplicação não pode executar após um SIGKILL/
-TerminateProcess). Marcar a situação para que o operador não
+o que o TERM ou o KILL da sua eliminação de árvore tiver produzido;
+o caminho de falha da aplicação não pode executar após um
+SIGKILL/TerminateProcess). Marcar a situação para que o operador não
 perca tempo procurando uma falha da aplicação que nunca
 aconteceu.
 
@@ -4944,7 +4959,7 @@ anterior não antecipe indevidamente o fim desta espera.
 
 <a id="testmodulestestsequenceenginepsm1-invoke-sequences-body-and-wait-fortext--invoke-tapon-call"></a>
 
-## test/modules/Test.SequenceEngine.psm1: Corpo de Invoke-Sequence e chamadas de Wait-ForText / Invoke-TapOn
+## test/modules/Test.SequenceEngine.psm1: Conecte o driver do host
 
 O corpo de Invoke-Sequence e as chamadas de Wait-ForText / Invoke-TapOn
 chamam funções de contrato (Get-VMScreenshot, Restart-VMConsole) que residem em
@@ -5001,7 +5016,7 @@ como "não definido".
 
 <a id="testmodulestestsequenceenginepsm1-action-type--typeandenter"></a>
 
-## test/modules/Test.SequenceEngine.psm1: Ação: type / typeAndEnter
+## test/modules/Test.SequenceEngine.psm1: Ação: tapOn -- clique do mouse localizado por OCR
 
 A navegação do foco de botões por teclas Tab é frágil: o foco inicial depende
 do estado da animação de abertura, de elementos carregados de forma assíncrona e de mudanças no instalador,
@@ -5508,7 +5523,7 @@ o caminho real de cada entrada com uma janela local StartStep/StopStep.
 
 <a id="4213a0b3-013f"></a>
 
-## test/modules/Test.SequenceEngine.psm1: Invoke-Sequence
+## test/modules/Test.SequenceEngine.psm1: Executor recursivo de etapas
 
 Encapsulado como bloco de script para que o caso de ação `retry` (abaixo) possa chamá-lo
 em sua matriz interna `steps:`, reutilizando toda a infraestrutura
@@ -5710,7 +5725,7 @@ pausar e inspecionar.
 
 <a id="testmodulestestsequenceenginepsm1-recursive-step-executor"></a>
 
-## test/modules/Test.SequenceEngine.psm1: Executor recursivo de etapas
+## test/modules/Test.SequenceEngine.psm1: Registros de provedores de E/S do host
 
 Registrado em módulos por hospedeiro com nomes no singular:
   Test.HostIO.HyperV.psm1   host.windows.hyper-v
@@ -5728,7 +5743,7 @@ integradas no hospedeiro atual antes de o ciclo começar. Ver docs/host-io.md.
 
 <a id="testmodulestestsequenceenginepsm1-host-io-provider-registrations"></a>
 
-## test/modules/Test.SequenceEngine.psm1: Registros de provedores de E/S do hospedeiro
+## test/modules/Test.SequenceEngine.psm1: Registros de metadados das ações de sequência
 
 Convenção dos blocos de script de rótulo de falha: $Context contém Step (etapa YAML
 analisada), Vars (escopo de variáveis) e ExpandVariable (referência ativa a
@@ -6175,7 +6190,7 @@ Invoke-SequenceByName / Read-SequenceFile, perde a visibilidade.
 
 <a id="testmodulestestsequenceresolvepsm1-a-snippet-is-a-named-reusable-list-of-steps-spliced-into-a-sequence-wherever"></a>
 
-## test/modules/Test.SequenceResolve.psm1: Um trecho é uma lista nomeada e reutilizável de etapas inserida em uma sequência
+## test/modules/Test.SequenceResolve.psm1: Biblioteca de trechos de etapas
 
 Um trecho é uma lista nomeada e reutilizável de etapas inserida em uma sequência onde quer que
 apareça uma etapa `{ snippet: <name> }` (inclusive dentro de retry.steps); assim, preâmbulos
@@ -6191,7 +6206,7 @@ de etapas) veja as etapas já inseridas, sem integração específica em cada po
 
 <a id="4213a0b3-0167"></a>
 
-## test/modules/Test.SequenceRunner.psm1: Resolve-TestSequencePlan
+## test/modules/Test.SequenceRunner.psm1: Sondagem do caminho quente de requiresSnapshot
 
 Quando a sequência de nível superior declara `requiresSnapshot: { id: <X> }`,
 a cadeia termina em um saveDiskSnapshot que renomeia `test-<guestKey>`
@@ -6553,7 +6568,7 @@ o que já se tem.
 
 <a id="testmodulesteststart-guestospsm1-generic-dispatcher-that-runs-a-caller-supplied-list-of-sequence-names"></a>
 
-## test/modules/Test.Start-GuestOS.psm1: Despachante genérico que executa uma lista de nomes de sequência fornecida pelo chamador
+## test/modules/Test.Start-GuestOS.psm1: Despachante de Start-GuestOS
 
 Despachante genérico que executa uma lista de nomes de sequência fornecida pelo chamador
 via Invoke-SequenceByName -- um ponto de entrada independentemente do SO
@@ -6652,7 +6667,7 @@ por PID em um lugar. -Compress:$false preserva a forma formatada em disco;
 
 <a id="testmodulesteststatuspsm1-a-debug-testsequence-run-either-owns-statusjson-standalone-or-the-outermost"></a>
 
-## test/modules/Test.Status.psm1: Uma execução de Debug-TestSequence controla status.json ou executa aninhada
+## test/modules/Test.Status.psm1: Suporte a ciclos aninhados
 
 Uma execução de Debug-TestSequence ou CONTROLA status.json (independente, ou a orquestração
 mais externa), ou executa ANINHADA na árvore de processos de outra execução -- uma
@@ -6735,7 +6750,7 @@ já informada acima -- como a que o chamador vê.
 
 <a id="testmodulestesttransportpsm1-utm-keystroke-transport-applescript-chords--jxacgevent-text"></a>
 
-## test/modules/Test.Transport.psm1: Transporte de teclas UTM: combinações AppleScript e texto JXA/CGEvent
+## test/modules/Test.Transport.psm1: Transporte de teclas do libvirt KVM: virsh send-key
 
 VNC (Connect-VNC + Send-TextVNC, o caminho usado pelo UTM) não funciona aqui.
 Empiricamente, o QEMU gerenciado por libvirt no Ubuntu 24.04 aceita nossa conexão TCP
@@ -6955,7 +6970,7 @@ indisponível recusa a retomada com estado existente, em vez de repetir sobre o 
 
 <a id="testmodulestestwarmresumepsm1-replaying-the-failed-step-in-place-puts-a-second-run-on-top-of-whatever-the"></a>
 
-## test/modules/Test.WarmResume.psm1: Repetir a etapa com falha no mesmo estado coloca uma segunda execução sobre o que a primeira deixou
+## test/modules/Test.WarmResume.psm1: Segurança da repetição
 
 Repetir a etapa com falha no mesmo estado coloca uma segunda execução sobre o que a
 primeira deixou: um script obtido instalou pacotes e inicializou o estado das
@@ -7174,7 +7189,7 @@ pacotes o informa. Um hospedeiro cujo único pwsh é esse pacote, acessado por
 
 <a id="4213a0b3-019d"></a>
 
-## install/setup.ps1: Resolução do nível de log antes de gravar qualquer coisa
+## install/setup.ps1: Nível de log a partir do ambiente
 
 A cascata que todo ponto de entrada do yuruna compartilha -- a linha de comando
 prevalece sobre test.config.yml, que prevalece sobre 'Information'. Consulte
@@ -7191,7 +7206,7 @@ convidado que estas, por sua vez, iniciam.
 
 <a id="4213a0b3-019e"></a>
 
-## install/setup.ps1: O log da execução e as transcrições dos filhos
+## install/setup.ps1: Log da execução
 
 Toda pergunta feita, toda resposta recebida e toda mensagem impressa também vão parar
 em `test/status/log/setup.<yyyy.MM.dd.HH.mm>.log`. Uma execução de setup é longa, em
@@ -7358,7 +7373,7 @@ quebrada -- e a segunda nomeia o grupo, que não é o que está errado.
 
 <a id="4213a0b3-01a7"></a>
 
-## install/setup.ps1: Perguntas sobre o estado que uma execução anterior com sudo deixou para trás
+## install/setup.ps1: Varredura de artefatos de root
 
 Somente leitura aqui; o chown / umount / kill que age sobre essas respostas fica uma
 etapa mais abaixo, onde a execução detém a credencial de que precisa.
@@ -7376,7 +7391,7 @@ máquina.
 
 <a id="4213a0b3-01a8"></a>
 
-## install/setup.ps1: Limpeza do estado que uma execução anterior com sudo deixou para trás
+## install/setup.ps1: 1b. Limpeza de artefatos de root
 
 ANTES de qualquer gravação, porque duas das coisas que isto encontra são o que faz a
 gravação falhar. Recusar a execução como root (no início da execução) impede a próxima
@@ -7408,7 +7423,7 @@ diferente de zero é uma falha real e continua lançando uma exceção.
 
 <a id="4213a0b3-01aa"></a>
 
-## install/setup.ps1: O armazenamento é crítico, e as etapas posteriores leem o fato registrado por ele
+## install/setup.ps1: 5. Armazenamento
 
 CRÍTICO sempre que o armazenamento foi solicitado. Tudo o que vem depois ou precisa dos
 compartilhamentos (os serviços stash e download-agent, o grupo de um laboratório) ou
@@ -7440,7 +7455,7 @@ nenhum dos dois é evidência de que esta máquina é a que responde.
 
 <a id="4213a0b3-01ac"></a>
 
-## install/setup.ps1: Hospedeiros standalone são donos dos aliases do grupo e do stash
+## install/setup.ps1: 5b. Aliases de hosts -- independente
 
 Standalone é o modo em que nada mais é dono dessas linhas. Um laboratório sempre
 levanta o armazenamento, e o script de armazenamento local grava os aliases como parte
@@ -7481,7 +7496,7 @@ não passa argumento algum.
 
 <a id="4213a0b3-01ae"></a>
 
-## install/setup.ps1: O alias do painel
+## install/setup.ps1: 8b. Alias do painel -- independente
 
 O painel é a única URL que um operador digita à mão e à qual volta, e ela é
 endereçada por uma concessão DHCP: um favorito salvo hoje fica errado depois que a VM
@@ -7618,7 +7633,7 @@ informa de volta pelo seu symlink /private e deixa de corresponder ao que foi pe
 
 <a id="4213a0b3-01b6"></a>
 
-## install/ubuntu.kvm.sh: O virt-manager é instalado com seus pacotes recomendados
+## install/ubuntu.kvm.sh: virt-manager
 
 Sua própria chamada ao apt COM Recommends, ao contrário do conjunto principal de
 pacotes: os widgets com que o virt-manager renderiza a tela de um domínio ficam em
@@ -7663,7 +7678,7 @@ continua antigo, e isso pertence ao resumo final, não a uma execução abortada
 
 <a id="4213a0b3-01b9"></a>
 
-## install/windows.hyper-v.ps1: O resumo da instalação é condicionado ao resultado da execução
+## install/windows.hyper-v.ps1: Resumo da instalação
 
 A última coisa impressa antes de a transcrição fechar. Tudo o que está acima rola; isto
 não -- inclusive o banner de resultado, que a verificação da versão mínima e este bloco

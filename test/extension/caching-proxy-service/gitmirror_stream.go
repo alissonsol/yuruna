@@ -5,6 +5,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -336,10 +337,11 @@ func (w *mirrorCappedWriter) Write(p []byte) (int, error) {
 var mirrorWant = regexp.MustCompile(`(?:want |want-ref refs/yuruna/pins/)([0-9a-f]{40})`)
 
 type mirrorWantReader struct {
-	reader io.Reader
-	tail   string
-	seen   map[string]bool
-	record func(string) error
+	reader    io.Reader
+	tail      string
+	seen      map[string]bool
+	record    func(string) error
+	recordErr error
 }
 
 func (r *mirrorWantReader) Read(p []byte) (int, error) {
@@ -348,6 +350,7 @@ func (r *mirrorWantReader) Read(p []byte) (int, error) {
 	for _, match := range mirrorWant.FindAllStringSubmatch(text, -1) {
 		if !r.seen[match[1]] && len(r.seen) < 4096 {
 			if e := r.record(match[1]); e != nil {
+				r.recordErr = e
 				return n, e
 			}
 			r.seen[match[1]] = true
@@ -358,6 +361,71 @@ func (r *mirrorWantReader) Read(p []byte) (int, error) {
 	}
 	r.tail = text
 	return n, err
+}
+
+// mirrorInflatedScanCap bounds how much of a gzip body the want scan inflates.
+// Wants open an upload-pack request, before any have line, and 4096 of the
+// longest form fit in under 300 KiB; a body that inflates past the cap is still
+// passed to git whole, and only the scan stops.
+const mirrorInflatedScanCap = 1 << 20
+
+// mirrorRequestBody is what git http-backend reads as the request body: the
+// client's bytes, unchanged, with every want recorded as it passes. git
+// inflates a gzip body itself (HTTP_CONTENT_ENCODING), so a compressed body
+// still reaches it as sent, and only the copy the scan reads is inflated;
+// without that, a pin a client fetches only through a compressed request would
+// never be recorded as used and could expire.
+func mirrorRequestBody(body io.Reader, encoding string, record func(string) error) io.Reader {
+	scan := &mirrorWantReader{seen: map[string]bool{}, record: record}
+	switch strings.ToLower(strings.TrimSpace(encoding)) {
+	case "gzip", "x-gzip":
+		pipeReader, pipeWriter := io.Pipe()
+		inflated := &mirrorInflatedWants{body: body, pipe: pipeWriter, done: make(chan error, 1)}
+		go func() {
+			if zr, err := gzip.NewReader(pipeReader); err == nil {
+				scan.reader = io.LimitReader(zr, mirrorInflatedScanCap)
+				_, _ = io.Copy(io.Discard, scan)
+			}
+			// A body that does not inflate is git's to refuse. Draining the rest
+			// keeps the copy to git from ever waiting on the scan.
+			_, _ = io.Copy(io.Discard, pipeReader)
+			inflated.done <- scan.recordErr
+		}()
+		return inflated
+	default:
+		scan.reader = body
+		return scan
+	}
+}
+
+// mirrorInflatedWants hands git the raw body while a goroutine inflates a copy
+// for the want scan. At the end of the body it waits for the scan, so a use that
+// could not be recorded fails the request exactly as on the plain path.
+type mirrorInflatedWants struct {
+	body     io.Reader
+	pipe     *io.PipeWriter
+	done     chan error
+	finished bool
+	result   error
+}
+
+func (r *mirrorInflatedWants) Read(p []byte) (int, error) {
+	if r.finished {
+		return 0, r.result
+	}
+	n, err := r.body.Read(p)
+	if n > 0 {
+		_, _ = r.pipe.Write(p[:n])
+	}
+	if err != nil {
+		_ = r.pipe.Close()
+		r.finished, r.result = true, err
+		if scanErr := <-r.done; scanErr != nil {
+			r.result = scanErr
+		}
+		return n, r.result
+	}
+	return n, nil
 }
 
 func runMirrorCGI(parent context.Context, options mirrorOptions) error {
@@ -396,12 +464,12 @@ func runMirrorCGI(parent context.Context, options mirrorOptions) error {
 	// The room is judged once per request: counting the folder per want would
 	// cost a directory read for each of up to 4096 of them.
 	room := mirrorUseRoom(options, repo)
-	input := &mirrorWantReader{reader: os.Stdin, seen: map[string]bool{}, record: func(sha string) error {
+	input := mirrorRequestBody(os.Stdin, os.Getenv("HTTP_CONTENT_ENCODING"), func(sha string) error {
 		if !room {
 			return nil
 		}
 		return mirrorRecordUse(options, repo, sha)
-	}}
+	})
 	g := &mirrorGit{options: options, stdin: input, env: []string{"GIT_PROJECT_ROOT=" + options.Root, "GIT_HTTP_EXPORT_ALL=1", "GIT_PROTOCOL=" + os.Getenv("HTTP_GIT_PROTOCOL")}}
 	_, err = g.command(ctx, path, os.Stdout, "http-backend")
 	return err

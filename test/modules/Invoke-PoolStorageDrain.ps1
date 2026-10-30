@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42370011-0231-4e74-92a9-2c8cee1d8a15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,9 @@
 param([string]$HostId = '')
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+# The level the process that started this one resolved (YURUNA_LOG_LEVEL).
+Import-Module (Join-Path $PSScriptRoot 'Test.LogLevel.psm1') -DisableNameChecking
+Use-LogLevelFromEnv
 $ErrorActionPreference = 'Continue'
 $here = Split-Path -Parent $PSCommandPath
 

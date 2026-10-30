@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 426c2f81-86df-422e-8db7-a94bd7ff61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1522,19 +1522,179 @@ function Write-YurunaServiceVmRestoreReport {
     }
 }
 
+function Get-ServiceVmBuildTimeout {
+    <#
+    .SYNOPSIS
+        The wall-clock bound of one service VM build, in seconds.
+    .DESCRIPTION
+        A build fetches the base image when it is missing and waits up to 20
+        minutes for the guest's first address, so the default leaves room for
+        both on a slow link. YURUNA_SERVICE_VM_BUILD_TIMEOUT_SECONDS raises or
+        lowers it; a value that is not a positive whole number is ignored.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param()
+    $parsed = 0
+    if ($env:YURUNA_SERVICE_VM_BUILD_TIMEOUT_SECONDS -and
+        [int]::TryParse($env:YURUNA_SERVICE_VM_BUILD_TIMEOUT_SECONDS, [ref]$parsed) -and $parsed -gt 0) {
+        return $parsed
+    }
+    return 5400
+}
+
+function Invoke-ServiceVmBuilderProcess {
+    <#
+    .SYNOPSIS
+        Run a service VM builder in a child pwsh under a wall-clock bound,
+        relaying its output line by line, and return the bounded result with
+        the seed values the builder reported baked empty.
+    .DESCRIPTION
+        The builder runs while the Start holds the service's operation lock,
+        so an unbounded wait would hold that lock, and every Stop queued
+        behind it, for as long as a wedged hypervisor call or download lasts.
+        The bound turns that into a classified failure (TimedOut, exit 124)
+        with the builder's process tree killed. Standard input is closed, so
+        a prompt fails instead of waiting for an operator who is not there.
+        YURUNA_SEED_DEGRADED=<name> lines (Write-SeedDegradation) are
+        collected instead of relayed.
+    .OUTPUTS
+        [hashtable] Native (the Invoke-BoundedNativeCommand result), Degraded
+        (string[]).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$BuilderPath,
+        [Parameter(Mandatory)][string[]]$Argument,
+        [Parameter(Mandatory)][ValidateRange(1, 2147483)][int]$TimeoutSeconds
+    )
+    $pending = @{ stdout = [Text.StringBuilder]::new(); stderr = [Text.StringBuilder]::new() }
+    $degraded = [Collections.Generic.List[string]]::new()
+    $relay = {
+        param([string]$Line)
+        if ($Line -match '^YURUNA_SEED_DEGRADED=([A-Za-z]+)\s*$') {
+            if (-not $degraded.Contains($Matches[1])) { $degraded.Add($Matches[1]) }
+            return
+        }
+        Write-Information $Line -InformationAction Continue
+    }
+    # Chunks arrive as the pipes deliver them, so a line can span two calls;
+    # each stream keeps its own unfinished tail.
+    $handler = {
+        param($Chunk, $Stream)
+        $buffer = $pending[$Stream]
+        [void]$buffer.Append($Chunk)
+        $text = $buffer.ToString()
+        $cut = $text.LastIndexOf("`n")
+        if ($cut -lt 0) { return }
+        [void]$buffer.Clear().Append($text.Substring($cut + 1))
+        foreach ($line in ($text.Substring(0, $cut) -split "`r?`n")) { & $relay $line }
+    }
+    $native = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) `
+        -ArgumentList (@('-NoProfile', '-NonInteractive', '-File', $BuilderPath) + $Argument) `
+        -TimeoutSeconds $TimeoutSeconds -MaxCapturedChars 16777216 -OutputHandler $handler
+    foreach ($stream in 'stdout', 'stderr') {
+        $tail = $pending[$stream].ToString().TrimEnd("`r")
+        if ($tail) { & $relay $tail }
+    }
+    return @{ Native = $native; Degraded = [string[]]$degraded.ToArray() }
+}
+
+function Test-YurunaServiceVmBuildPlan {
+    <#
+    .SYNOPSIS
+        Run a builder's -PlanOnly pass while the working VM and its
+        advertisement are still in place: {Ok; ExitCode; Error; Degraded}.
+    .DESCRIPTION
+        Every input that can refuse the build -- the SSH key, the vault
+        password, the seed templates, the guest network -- is checked here,
+        so a Start that would fail on one of them stops before it withdraws
+        the advertisement or tears anything down.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$BuilderPath,
+        [Parameter(Mandatory)][string]$VMName,
+        [switch]$AllowPseudoLocale,
+        [ValidateRange(1, 86400)][int]$TimeoutSeconds = 600
+    )
+    if (-not (Test-Path -LiteralPath $BuilderPath)) {
+        return @{ Ok = $false; ExitCode = 1; Degraded = @(); Error = (Format-YurunaOperatorMessage -Key 'runner.service_build_plan_refused' -Arguments @{ vmName = $VMName; detail = "builder missing: $BuilderPath" }) }
+    }
+    $arguments = @('-VMName', $VMName, '-PlanOnly')
+    if ($AllowPseudoLocale) { $arguments += '-AllowPseudoLocale' }
+    $run = Invoke-ServiceVmBuilderProcess -BuilderPath $BuilderPath -Argument $arguments -TimeoutSeconds $TimeoutSeconds
+    $native = $run.Native
+    if ($native.Started -and -not $native.TimedOut -and $native.ExitCode -eq 0) {
+        return @{ Ok = $true; ExitCode = 0; Degraded = $run.Degraded; Error = '' }
+    }
+    $detail = if (-not $native.Started) { "not started: $($native.StartError)" }
+        elseif ($native.TimedOut) { "no answer within $TimeoutSeconds s" }
+        else { "exit $($native.ExitCode)" }
+    $code = if ($native.TimedOut) { 124 } elseif ($native.ExitCode -gt 0) { [int]$native.ExitCode } else { 1 }
+    return @{ Ok = $false; ExitCode = $code; Degraded = $run.Degraded
+        Error = (Format-YurunaOperatorMessage -Key 'runner.service_build_plan_refused' -Arguments @{ vmName = $VMName; detail = $detail }) }
+}
+
+function Invoke-YurunaServiceVmBuilderRun {
+    <#
+    .SYNOPSIS
+        Run a service VM builder as a bounded child and classify how it ended:
+        {Ok; ExitCode; Outcome built|build-failed|build-timeout; Degraded;
+        Error}.
+    .DESCRIPTION
+        The one build run of every service Start. The extension services reach
+        it through Invoke-YurunaServiceVmBuild, which then starts and waits for
+        the guest; the caching proxy calls it directly, because its Start
+        registers, starts and waits for its own guest. A builder that does not
+        start, exits non-zero, or outlives the bound is a failed build, the
+        last one classified build-timeout with exit 124 and its process tree
+        killed.
+    .PARAMETER BuilderArgument
+        Builder parameters after -VMName, as separate strings.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$BuilderPath, [Parameter(Mandatory)][string]$VMName,
+        [string[]]$BuilderArgument = @(), [switch]$AllowPseudoLocale,
+        [ValidateRange(1, 2147483)][int]$TimeoutSeconds = (Get-ServiceVmBuildTimeout))
+    if (-not (Test-Path -LiteralPath $BuilderPath)) { return @{ Ok = $false; ExitCode = 1; Outcome = 'build-failed'; Degraded = @(); Error = "VM builder missing: $BuilderPath" } }
+    $arguments = @('-VMName', $VMName) + @($BuilderArgument)
+    if ($AllowPseudoLocale) { $arguments += '-AllowPseudoLocale' }
+    $run = Invoke-ServiceVmBuilderProcess -BuilderPath $BuilderPath -Argument $arguments -TimeoutSeconds $TimeoutSeconds
+    $native = $run.Native
+    if (-not $native.Started) {
+        return @{ Ok = $false; ExitCode = 1; Outcome = 'build-failed'; Degraded = $run.Degraded; Error = "$BuilderPath could not be started: $($native.StartError)" }
+    }
+    if ($native.TimedOut) {
+        return @{ Ok = $false; ExitCode = 124; Outcome = 'build-timeout'; Degraded = $run.Degraded
+            Error = (Format-YurunaOperatorMessage -Key 'runner.service_build_timeout' -Arguments @{ vmName = $VMName; seconds = [string]$TimeoutSeconds; killFailed = [string][bool]$native.KillFailed }) }
+    }
+    $code = [int]$native.ExitCode
+    if ($code -ne 0) { return @{ Ok = $false; ExitCode = $code; Outcome = 'build-failed'; Degraded = $run.Degraded; Error = "$BuilderPath exited $code -- aborting." } }
+    return @{ Ok = $true; ExitCode = 0; Outcome = 'built'; Degraded = $run.Degraded; Error = '' }
+}
+
 function Invoke-YurunaServiceVmBuild {
     <#
     .SYNOPSIS
-        Build a service VM, honor its start intent, and require a running guest.
+        Build a service VM under a wall-clock bound, honor its start intent,
+        and require a running guest.
+    .OUTPUTS
+        [hashtable] Ok; ExitCode; Error; Outcome built|build-failed|
+        build-timeout|declined; Degraded (seed values baked empty).
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$BuilderPath, [Parameter(Mandatory)][string]$HostType,
         [Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)]$OperationContext,
-        [switch]$AllowPseudoLocale)
-    if (-not (Test-Path -LiteralPath $BuilderPath)) { return @{ Ok = $false; ExitCode = 1; Error = "VM builder missing: $BuilderPath" } }
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Build and start service VM')) { return @{ Ok = $false; ExitCode = 1; Error = 'Build declined.' } }
-    if (-not (Test-YurunaServiceOperationCurrent -Context $OperationContext)) { return @{ Ok = $false; ExitCode = 1; Error = 'The service start intent changed before build.' } }
+        [switch]$AllowPseudoLocale,
+        [ValidateRange(1, 2147483)][int]$TimeoutSeconds = (Get-ServiceVmBuildTimeout))
+    if (-not (Test-Path -LiteralPath $BuilderPath)) { return @{ Ok = $false; ExitCode = 1; Outcome = 'build-failed'; Degraded = @(); Error = "VM builder missing: $BuilderPath" } }
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Build and start service VM')) { return @{ Ok = $false; ExitCode = 1; Outcome = 'declined'; Degraded = @(); Error = 'Build declined.' } }
+    if (-not (Test-YurunaServiceOperationCurrent -Context $OperationContext)) { return @{ Ok = $false; ExitCode = 1; Outcome = 'declined'; Degraded = @(); Error = 'The service start intent changed before build.' } }
     # A service guest fetches its NAS credential from this host's config service
     # at first boot, so the service is ensured before the guest is built.
     if (Get-Command Start-YurunaConfigServiceIfEnabled -ErrorAction SilentlyContinue) {
@@ -1546,22 +1706,172 @@ function Invoke-YurunaServiceVmBuild {
         }
         $null = Start-YurunaConfigServiceIfEnabled -Config $config -StartScript (Join-Path $repoRoot 'test/service/Start-ConfigService.ps1')
     }
-    $arguments = @('-NoProfile', '-File', $BuilderPath, '-VMName', $VMName)
-    if ($AllowPseudoLocale) { $arguments += '-AllowPseudoLocale' }
-    & (Get-PwshApplicationPath) @arguments | ForEach-Object { Write-Information ([string]$_) -InformationAction Continue }
-    $code = $LASTEXITCODE
-    if ($code -ne 0) { return @{ Ok = $false; ExitCode = $code; Error = "$BuilderPath exited $code -- aborting." } }
+    # Only a rebuild reaches this builder (an adopted VM is kept, with its pinned
+    # SSH host key). The rebuilt guest has new host keys, so the pin is forgotten
+    # here; the start scripts load Test.Ssh before their adoption check.
+    if (Get-Command Reset-GuestHostKeyPin -ErrorAction SilentlyContinue) { Reset-GuestHostKeyPin -VMName $VMName -Confirm:$false }
+    $run = Invoke-YurunaServiceVmBuilderRun -BuilderPath $BuilderPath -VMName $VMName -AllowPseudoLocale:$AllowPseudoLocale -TimeoutSeconds $TimeoutSeconds
+    if (-not $run.Ok) { return $run }
     if ($HostType -eq 'host.macos.utm') {
         $bundle = Join-Path $HOME "yuruna/guest.nosync/$VMName.utm"
-        if (-not (Test-Path -LiteralPath $bundle)) { return @{ Ok = $false; ExitCode = 1; Error = "UTM bundle missing: $bundle" } }
+        if (-not (Test-Path -LiteralPath $bundle)) { return @{ Ok = $false; ExitCode = 1; Outcome = 'build-failed'; Degraded = $run.Degraded; Error = "UTM bundle missing: $bundle" } }
         $started = Start-VM -VMName $VMName -Confirm:$false
-        if (-not $started.success) { return @{ Ok = $false; ExitCode = 1; Error = "Could not start '$VMName': $($started.errorMessage)" } }
+        if (-not $started.success) { return @{ Ok = $false; ExitCode = 1; Outcome = 'build-failed'; Degraded = $run.Degraded; Error = "Could not start '$VMName': $($started.errorMessage)" } }
     }
     if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
         $state = try { Get-VMState -VMName $VMName } catch { 'unknown' }
-        return @{ Ok = $false; ExitCode = 1; Error = "VM '$VMName' did not reach running (state: $state); the guest service has not started. Open its hypervisor console to inspect the boot failure." }
+        return @{ Ok = $false; ExitCode = 1; Outcome = 'build-failed'; Degraded = $run.Degraded; Error = "VM '$VMName' did not reach running (state: $state); the guest service has not started. Open its hypervisor console to inspect the boot failure." }
     }
-    return @{ Ok = $true; ExitCode = 0; Error = '' }
+    return @{ Ok = $true; ExitCode = 0; Outcome = 'built'; Degraded = $run.Degraded; Error = '' }
+}
+
+function Resolve-YurunaServiceVmAdoption {
+    <#
+    .SYNOPSIS
+        Decide whether a Start keeps the service VM that is already running
+        instead of rebuilding it: {Decision adopt-serving|adopt-building|
+        rebuild; Reason; Address; CloudInitStatus}.
+    .DESCRIPTION
+        Keyed on the live address -- what the host driver resolves now, never
+        a recorded one, which DHCP may since have handed to another machine --
+        plus the service's health port at that address:
+
+          * the port answers -> adopt-serving, unless SourceCheck says the
+            daemon was built from another framework snapshot (a re-run then
+            rebuilds, so it still deploys the code the operator is working in);
+          * the port is silent, and the guest itself reports over SSH that
+            cloud-init is still running -> adopt-building: a first boot that
+            compiles its daemon is followed by the readiness wait instead of
+            being destroyed by the re-run its own guidance suggested;
+          * anything else (absent, stopped, no address, a finished or failed
+            cloud-init, a guest that does not answer) -> rebuild.
+
+        The effects are injectable so the decision is tested without a VM.
+    .PARAMETER SourceCheck
+        Optional { param($Address) } returning $false only when the serving
+        daemon is a verified different build.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][int]$Port,
+        [string]$GuestKey = '',
+        [string]$User = '',
+        [scriptblock]$SourceCheck,
+        [scriptblock]$GetState = { param($Name) Get-VMState -VMName $Name },
+        [scriptblock]$ResolveAddress = { param($Name) Get-YurunaServiceVmAddress -VMName $Name },
+        [scriptblock]$TestPortOpen = { param($Address, $PortNumber) Test-YurunaServiceVmPort -Address $Address -Port $PortNumber },
+        [scriptblock]$InvokeInGuest = {
+            param($Address, $Key, $Account, $Command)
+            if (-not (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue)) { return $null }
+            Invoke-GuestSsh -VMName $Address -GuestKey $Key -User $Account -Command $Command -TimeoutSeconds 30
+        }
+    )
+    $decision = { param($d, $r, $a = '', $c = '') [pscustomobject]@{ Decision = $d; Reason = $r; Address = $a; CloudInitStatus = $c } }
+    $state = 'unknown'
+    try { $state = [string](& $GetState $VMName) } catch { Write-Verbose "Resolve-YurunaServiceVmAdoption: state: $($_.Exception.Message)" }
+    if ($state -ne 'running') { return (& $decision 'rebuild' "vm-not-running ($state)") }
+    $address = ''
+    try { $address = [string](& $ResolveAddress $VMName) } catch { Write-Verbose "Resolve-YurunaServiceVmAdoption: address: $($_.Exception.Message)" }
+    if ([string]::IsNullOrWhiteSpace($address)) { return (& $decision 'rebuild' 'no-live-address') }
+    $answers = $false
+    try { $answers = [bool](& $TestPortOpen $address $Port) } catch { Write-Verbose "Resolve-YurunaServiceVmAdoption: port: $($_.Exception.Message)" }
+    if ($answers) {
+        if ($SourceCheck) {
+            $accepted = $true
+            try { $accepted = [bool](& $SourceCheck $address) } catch { Write-Verbose "Resolve-YurunaServiceVmAdoption: source check: $($_.Exception.Message)" }
+            if (-not $accepted) { return (& $decision 'rebuild' 'stale-build' $address) }
+        }
+        return (& $decision 'adopt-serving' 'serving' $address)
+    }
+    if (-not $GuestKey -or -not $User) { return (& $decision 'rebuild' 'not-serving' $address) }
+    $status = ''
+    try {
+        $answer = & $InvokeInGuest $address $GuestKey $User 'echo "YURUNA_CLOUDINIT=$(cloud-init status 2>/dev/null | head -n 1 | sed -e "s/^status: //")"'
+        if ($answer -and ([string]$answer.output) -match 'YURUNA_CLOUDINIT=(\S*)') { $status = $Matches[1].Trim() }
+    } catch { Write-Verbose "Resolve-YurunaServiceVmAdoption: in-guest probe: $($_.Exception.Message)" }
+    if ($status -eq 'running') { return (& $decision 'adopt-building' 'building' $address $status) }
+    $why = if ($status) { "not-serving (cloud-init: $status)" } else { 'not-serving (guest silent)' }
+    return (& $decision 'rebuild' $why $address $status)
+}
+
+function Remove-YurunaServiceVmAdvertisement {
+    <#
+    .SYNOPSIS
+        Withdraw a service's advertisement before its VM is torn down for a
+        rebuild. Returns $true when no marker remains.
+    .DESCRIPTION
+        The same two steps the Stop takes first: the marker goes and the
+        registration record is regenerated, so the aggregator and every
+        consumer stop following an address that is about to disappear
+        instead of learning it from failed connections.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Area,
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [string]$RuntimeDir
+    )
+    if (-not $PSCmdlet.ShouldProcess($Area, 'Withdraw the service advertisement')) { return $false }
+    if (-not (Get-Command Initialize-YurunaRuntimeDir -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -Global -DisableNameChecking -Verbose:$false
+    }
+    if (-not $RuntimeDir) {
+        try { $RuntimeDir = Initialize-YurunaRuntimeDir } catch { Write-Verbose "runtime directory: $($_.Exception.Message)" }
+    }
+    if (-not $RuntimeDir) { return $true }
+    $removed = [bool](Remove-ExtensionServiceMarker -Area $Area -RuntimeDir $RuntimeDir -Confirm:$false)
+    try {
+        Set-Variable -Name '__YurunaHostId' -Scope Global -Value (Get-YurunaHostId)
+        Import-Module (Join-Path $PSScriptRoot 'Test.Capability.psm1') -Global -DisableNameChecking -Verbose:$false
+        [void](Write-HostRegistrationRecord -HostType $HostType -RepoRoot $RepoRoot)
+    } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
+    if ($removed) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.service_advertisement_withdrawn' -Arguments @{ area = $Area }) -InformationAction Continue }
+    return $removed
+}
+
+function Resolve-YurunaServiceStartOutcome {
+    <#
+    .SYNOPSIS
+        The one outcome of a service Start -- the census result, whether the
+        service is advertised, and the exit -- derived from the same facts.
+    .DESCRIPTION
+        Recorded separately, they disagreed: a Start whose daemon never
+        served was confirmed in the census and exited with a failure, and a
+        daemon running an obsolete build stayed advertised under a failed
+        exit. In order:
+          * a newer stop request -> failed, not advertised;
+          * a readiness failure -> failed, not advertised;
+          * a deployed build that was refused -> failed, not advertised;
+          * serving, from this host or only from inside the guest ->
+            confirmed, advertised;
+          * still building -> confirmed (the guest runs, as asked), not
+            advertised until its daemon serves.
+        Degraded seed values never change the result; they are carried so
+        the report names them.
+    .OUTPUTS
+        [pscustomobject] Result confirmed|failed; Advertise; Outcome Ok|Failure;
+        State stop-requested|not-serving|wrong-build|serving|building; Degraded.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)]$Verdict,
+        [bool]$StillWanted = $true,
+        [bool]$SourceAccepted = $true,
+        [AllowEmptyCollection()][string[]]$Degraded = @()
+    )
+    $carried = [string[]]@($Degraded | Where-Object { $_ })
+    $make = { param($result, $advertise, $outcome, $state)
+        [pscustomobject]@{ Result = $result; Advertise = $advertise; Outcome = $outcome; State = $state; Degraded = $carried } }
+    if (-not $StillWanted) { return (& $make 'failed' $false 'Failure' 'stop-requested') }
+    if ($Verdict.IsFailure) { return (& $make 'failed' $false 'Failure' 'not-serving') }
+    if (-not $SourceAccepted) { return (& $make 'failed' $false 'Failure' 'wrong-build') }
+    if ([string]$Verdict.Outcome -eq 'StillBuilding') { return (& $make 'confirmed' $false 'Ok' 'building') }
+    return (& $make 'confirmed' $true 'Ok' 'serving')
 }
 
 function Invoke-YurunaServiceVmFailureDiagnostic {
@@ -1612,6 +1922,7 @@ function Invoke-YurunaServiceVmFailureDiagnostic {
     Write-Verbose '========'
 }
 
-Export-ModuleMember -Function Invoke-YurunaServiceVmBuild, Invoke-YurunaServiceVmFailureDiagnostic, Get-YurunaServiceVmRoster, Test-YurunaServiceVmPort, `
+Export-ModuleMember -Function Invoke-YurunaServiceVmBuild, Invoke-YurunaServiceVmBuilderRun, Test-YurunaServiceVmBuildPlan, Resolve-YurunaServiceVmAdoption, `
+    Remove-YurunaServiceVmAdvertisement, Resolve-YurunaServiceStartOutcome, Get-ServiceVmBuildTimeout, Invoke-YurunaServiceVmFailureDiagnostic, Get-YurunaServiceVmRoster, Test-YurunaServiceVmPort, `
     Get-YurunaServiceVmAddress, Restore-YurunaServiceVM, Write-YurunaServiceVmRestoreReport, `
     Resolve-YurunaServiceVmPolicy, Test-YurunaServiceVmRunning

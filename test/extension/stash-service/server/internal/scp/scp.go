@@ -3,7 +3,7 @@
 // GUID: 42b203d1-9e48-4e62-9c84-d1fd0d9c6909
 
 // Package scp implements just enough of OpenSSH's SCP sink-mode wire
-// protocol (section 5) to receive files from a standard `scp` client.
+// protocol (https://yuruna.link/429e934f-0007) to receive files from a standard `scp` client.
 //
 // Wire protocol summary (binaries-only path; T<time> lines are
 // accepted and ignored):
@@ -22,7 +22,7 @@
 // place each C under it.
 //
 // Path safety: client-supplied names are stripped of slashes and
-// .. components before joining. The trusted-network posture in section 11
+// .. components before joining. The trusted-network posture (https://yuruna.link/429e934f-0004)
 // makes hostile clients out of scope, but path-traversal hygiene is
 // cheap and worth keeping.
 package scp
@@ -44,7 +44,7 @@ import (
 // Result is what the SCP receive returned to the caller (sshsrv).
 // FileNames lists the basenames received in order; FirstDirName is
 // the first D-line dirname (used as originalFilename for recursive
-// uploads per section 8.1). Truncated is true if any file hit the 100 MB cap.
+// uploads, https://yuruna.link/429e934f-000c). Truncated is true if any file hit the 100 MB cap.
 // TotalBytes counts EVERY byte written to disk across the session
 // (post-truncation), which feeds the sizeBytes field on partial /
 // truncated outcomes.
@@ -60,13 +60,13 @@ type Result struct {
 // protocol error occurs, or when the underlying connection breaks.
 //
 // Returns the Result so the caller can finalize. A non-nil error
-// indicates the transfer ended abnormally (partial outcome per section 8.2
-// step 5). The caller still gets the partial Result populated up to
+// indicates the transfer ended abnormally (the partial outcome of
+// https://yuruna.link/429e934f-000d). The caller still gets the partial Result populated up to
 // the point of failure.
 func Receive(in io.Reader, out io.Writer, stagingDir string) (*Result, error) {
 	br := bufio.NewReader(in)
 	res := &Result{}
-	// Server-ready signal (section 5 wire protocol).
+	// Server-ready signal of the SCP sink protocol (https://yuruna.link/429e934f-0007).
 	if _, err := out.Write([]byte{0}); err != nil {
 		return res, fmt.Errorf("write ready: %w", err)
 	}
@@ -111,7 +111,7 @@ func Receive(in io.Reader, out io.Writer, stagingDir string) (*Result, error) {
 				return res, fmt.Errorf("ack C: %w", err)
 			}
 			if safeName == "" {
-				// section 5.5 empty-filename: ignored. Still must drain the
+				// An empty filename is ignored (https://yuruna.link/429e934f-0008). Still must drain the
 				// payload (size bytes + trailing \x00) so the protocol
 				// stays in sync, but skip the disk write + the file-
 				// name listing.
@@ -302,6 +302,6 @@ func drainPayload(br *bufio.Reader, n int64) error {
 }
 
 // sanitizeName strips any path separators and "..", then trims. An
-// empty result tells the caller to treat this as the section 5.5 empty-
-// filename case (skip).
+// empty result tells the caller to treat this as the empty-filename case
+// (https://yuruna.link/429e934f-0008): skip.
 func sanitizeName(raw string) string { return fsutil.UploadName(raw) }

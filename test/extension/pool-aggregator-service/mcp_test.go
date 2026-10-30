@@ -27,7 +27,7 @@ func mcpPost(t *testing.T, h http.Handler, body string) map[string]any {
 
 func TestMcpToolsArePinnedAndReadOnly(t *testing.T) {
 	s := newPoolState("default", 8080)
-	h := s.mcpServer("2026.10.26").Handler()
+	h := s.mcpServer("2026.10.30").Handler()
 	got := mcpPost(t, h, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	tools := got["result"].(map[string]any)["tools"].([]any)
 	want := []string{"pool_cycle_links", "pool_extension_hosts", "pool_health", "pool_incidents", "pool_stats", "pool_status"}
@@ -48,7 +48,7 @@ func TestMcpToolsArePinnedAndReadOnly(t *testing.T) {
 func TestMcpExtensionHostsToolIsTheRouteItself(t *testing.T) {
 	// FromRoute invokes the handler, so tool and route come from one function.
 	s := newPoolState("default", 8080)
-	h := s.mcpServer("2026.10.26").Handler()
+	h := s.mcpServer("2026.10.30").Handler()
 
 	rec := httptest.NewRecorder()
 	s.handleExtensionHosts(rec, httptest.NewRequest(http.MethodGet, routeExtensionHosts, nil))
@@ -78,9 +78,9 @@ func TestMcpServerInfoCarriesTheStampedVersion(t *testing.T) {
 	// The aggregator gained a stamped version with this mount; before it, the
 	// one daemon in the fleet that could not say what it was built from.
 	s := newPoolState("default", 8080)
-	got := mcpPost(t, s.mcpServer("2026.10.26").Handler(), `{"jsonrpc":"2.0","id":3,"method":"initialize"}`)
+	got := mcpPost(t, s.mcpServer("2026.10.30").Handler(), `{"jsonrpc":"2.0","id":3,"method":"initialize"}`)
 	info := got["result"].(map[string]any)["serverInfo"].(map[string]any)
-	if info["name"] != "pool-aggregator-service" || info["version"] != "2026.10.26" {
+	if info["name"] != "pool-aggregator-service" || info["version"] != "2026.10.30" {
 		t.Errorf("serverInfo = %v", info)
 	}
 }
@@ -104,7 +104,7 @@ func TestCycleLinksToolAnswersTheClickDestinations(t *testing.T) {
 	}
 	s.mu.Unlock()
 
-	h := s.mcpServer("2026.10.26").Handler()
+	h := s.mcpServer("2026.10.30").Handler()
 	got := mcpPost(t, h, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pool_cycle_links",`+
 		`"arguments":{"hostId":"`+hostID+`"}}}`)
 	res, ok := got["result"].(map[string]any)
@@ -143,7 +143,7 @@ func TestCycleLinksToolAnswersTheClickDestinations(t *testing.T) {
 // plausible-looking URL for a host the pool has never seen.
 func TestCycleLinksToolRefusesAnUnknownHost(t *testing.T) {
 	s := newPoolState("default", 8080)
-	h := s.mcpServer("2026.10.26").Handler()
+	h := s.mcpServer("2026.10.30").Handler()
 	got := mcpPost(t, h, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pool_cycle_links",`+
 		`"arguments":{"hostId":"42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}}`)
 	res, _ := got["result"].(map[string]any)
@@ -157,7 +157,7 @@ func TestCycleLinksToolRefusesAnUnknownHost(t *testing.T) {
 // refresh entry point is pool-control's credential-gated per-host tool.
 func TestMcpOffersNoRefreshTool(t *testing.T) {
 	s := newPoolState("default", 8080)
-	got := mcpPost(t, s.mcpServer("2026.10.26").Handler(), `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	got := mcpPost(t, s.mcpServer("2026.10.30").Handler(), `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	for _, raw := range got["result"].(map[string]any)["tools"].([]any) {
 		m := raw.(map[string]any)
 		name := m["name"].(string)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 4269ddd2-50e1-4f8b-a2aa-0cb1d876bac8
@@ -120,7 +120,6 @@ yuruna_service_packages golang-go libcap2-bin cifs-utils curl
 go version
 
 # --- REGION: Locate the daemon source
-# Avoid find|head: under pipefail the expected producer SIGPIPE aborts lookup.
 locate_server_dir() {
   local repo; repo="$(yuruna_service_find_repo test/extension/stash-service/server)" || return 1
   printf '%s' "$repo/test/extension/stash-service/server"
@@ -148,6 +147,8 @@ echo "Framework version: $VERSION_STR"
 # --- REGION: Build
 # See https://yuruna.link/42e220c4-000f
 # Keep the committed go.sum authoritative; provisioning must not rewrite it.
+echo ""
+echo -e "\e[1;36m==== Building stash-service ($VERSION_STR) from $SERVER_DIR ====\e[0m"
 BUILD="$(yuruna_service_stage "$SERVER_DIR" 'stash-service')"
 trap 'rm -rf -- "$BUILD"' EXIT
 yuruna_service_build "$BUILD" 'stash-service' "$VERSION_STR" "${BUILD_TAGS:-}"
@@ -195,15 +196,15 @@ PRESENCE_INTERVAL=$PRESENCE_INTERVAL
 ENV
 
 # --- REGION: systemd unit
-# See https://yuruna.link/42e220c4-000f
-# Order after the mount without requiring it; offline buffering must still start.
 echo ""
 echo -e "\e[1;36m==== /etc/systemd/system/stash-service.service ====\e[0m"
 sudo tee /etc/systemd/system/stash-service.service >/dev/null <<UNIT
 # --- REGION: [Unit]
 [Unit]
-Description=Yuruna stash service daemon
+Description=Yuruna stash service
 Documentation=https://yuruna.link/42f5e921
+# See https://yuruna.link/42e220c4-000f
+# Order after the mount without requiring it; offline buffering must still start.
 After=network-online.target mnt-ystash\x2dnas.mount
 Wants=network-online.target
 

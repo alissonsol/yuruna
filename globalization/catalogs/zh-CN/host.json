@@ -8,6 +8,11 @@
       "origin": "machine",
       "message": "caching-proxy-service 虚拟机正在运行，但无法访问其代理。运行 test/service/Start-CachingProxyServiceVM.ps1 恢复代理，或传入 -CachingProxyServiceUrl \"\" 以直接下载。"
     },
+    "host.media_digest_mismatch": {
+      "sourceHash": "3ba9e00ae704363ace6af00e2c1f2e0d6babb3b6537232b9285fb2ef73241b85",
+      "origin": "machine",
+      "message": "来自 {url} 的 {file} 的 SHA-256 为 {actual}，而不是为该版本固定的 {expected}；下载已被丢弃，现有介质保持不变。"
+    },
     "host.utm_cache_state_unconfirmed": {
       "sourceHash": "7a6eef76a798f82d67d54f517af7235733d3a48fe238b592158281846a2333d1",
       "origin": "machine",
@@ -297,11 +302,6 @@
       "sourceHash": "22df955eb1c4ee45c675a6e12731227cf220cfb410cb07c153b2152610845b41",
       "origin": "machine",
       "message": "    {f}  （磁盘上不存在）"
-    },
-    "host.operator_3d4bd722f2cfda09": {
-      "sourceHash": "0ae8e105f9aaccf7f6885764e8c2713e4593ee32a7c70eb6079e7b970086fcc7",
-      "origin": "machine",
-      "message": "Save-VMDiskSnapshot：快照“{id}”已保存到“{utmBundle}”，但重命名“{vMName}” -> “{id}”失败；虚拟机将在下次周期清理时被清除。qcow2快照仍在磁盘上，可手动恢复。"
     },
     "host.operator_3d53fa1f73f89fed": {
       "sourceHash": "8107d53884c4254b2579e47684ce6c6cd76ff16d2664e0e77ffc859086b8c8c9",
@@ -3558,11 +3558,6 @@
       "origin": "machine",
       "message": "重新启动UTM后恢复服务虚拟机"
     },
-    "host.operator_87d1543cf3bfdad9": {
-      "sourceHash": "f34fdbf2246361b6463b2b7540774223a1f45e678a8a0222981aa2358c633e31",
-      "origin": "machine",
-      "message": "清除Yuruna端口映射"
-    },
     "host.operator_87e79790981d47af": {
       "sourceHash": "235a91a7108590f6546a00ed7d1c599d0c251b8bcf05c5d75c7104203e962007",
       "origin": "machine",
@@ -4003,6 +3998,16 @@
       "origin": "machine",
       "message": "模板缺失：{f}"
     },
+    "host.service_build_plan_accepted": {
+      "sourceHash": "d5ded036a903d0630b6da3d65612f268f52d701da6acdd0aff75f01a04862f15",
+      "origin": "machine",
+      "message": "'{vMName}' 的构建计划已接受：构建所需的每个输入都已存在，且没有更改任何内容。"
+    },
+    "host.service_seed_degraded": {
+      "sourceHash": "aca2d845f6dcec894ca8254c4adced41e310d3c02c93015ed8a07e37a09837eb",
+      "origin": "machine",
+      "message": "'{vMName}' 的种子已降级：{name} 被写入为空。来宾在缺少它的情况下启动，其 Start 会将启动报告为降级。"
+    },
     "host.operator_9a367ca9534863eb": {
       "sourceHash": "f65a4c7a99abe58e5e8e8075c807706db13016ffe44f45d2a3ebdfb3186d869a",
       "origin": "machine",
@@ -4127,11 +4132,6 @@
       "sourceHash": "f618b6dfc7bb8a5e09a5724d98821422449f0acbdc957c6c86eee0899f03ac71",
       "origin": "machine",
       "message": "仅移除ufw状态端口规则——已确认该规则由本工具创建。组成员资格、$HOME ACL、libvirtd/virtlogd和GNOME键将保持原样，并在报告中列出。"
-    },
-    "host.operator_a1763a8af3ef734a": {
-      "sourceHash": "882dd7af2272772274804f65f6a94f9bbda026a1ec99298da4261db61a52d4b9",
-      "origin": "machine",
-      "message": "Save-VMDiskSnapshot：重命名'{vMName}' -> '{id}'失败；未创建快照，该域将在下次周期清理时被清除。"
     },
     "host.operator_a19074ac4867746e": {
       "sourceHash": "5dfbda1c19cb0b249879c5819add22db468e903a3a21f497e15edccb64bbc3ad",
@@ -5363,11 +5363,6 @@
       "origin": "machine",
       "message": "保存磁盘快照'{id}'并重命名为'{id}'"
     },
-    "host.operator_dda22dc70c2dcb9f": {
-      "sourceHash": "5db06ecada51e619cf2bb7922125e404774303235f30f33aa7028359ddfb53de",
-      "origin": "machine",
-      "message": "Save-VMDiskSnapshot：已保存快照'{id}'，但重命名'{vMName}' -> '{id}'失败；虚拟机将在下次周期清理时被清除。"
-    },
     "host.operator_ddd6375b1613a19a": {
       "sourceHash": "02b5280ac93dbcc00b301303f93e57485928f679cd36688cc3b256715cfeb2f0",
       "origin": "machine",
@@ -5568,11 +5563,6 @@
       "origin": "machine",
       "message": "上文 -> 'storedir'，并检查缓存占用量 > 0。"
     },
-    "host.operator_a9dcf6d3662588bf": {
-      "sourceHash": "754bb9593d6c5eca824eee25bf6e3b4a46102a3536e66515df45ca9861425de2",
-      "origin": "machine",
-      "message": "数据量：{mB} MB"
-    },
     "host.operator_a9f9eb3eae0014c6": {
       "sourceHash": "07fe0c600428acfdc1c8747a9ddefc8e49d3b155359722514a45138ed39c75b0",
       "origin": "machine",
@@ -5602,11 +5592,6 @@
       "sourceHash": "5bddfe0815676b1dfff55d2458e7e3d5e23608168882220064c931d2c1a386d8",
       "origin": "machine",
       "message": "请参阅 https://yuruna.link/4268e4cb."
-    },
-    "host.operator_c67e69b1dce2a237": {
-      "sourceHash": "31629f398acbd78cd8937267b1af01a3ed2da579c25c2e00f31fd22b6df5f0d8",
-      "origin": "machine",
-      "message": "进度：{mB} / {mB2} MB（{percent}%）"
     },
     "host.operator_cf6c53f788458edb": {
       "sourceHash": "87c2d5af265918292f43e81f50bc8b9f98cbe4ef6a02ca5e58f3d1f58116b8e3",
@@ -5934,9 +5919,29 @@
       "message": "未重建“{vMName}”：{vmDir} 中仍有另一台虚拟机正在使用的磁盘，或者无法读取其使用情况。其中的内容均未更改。"
     },
     "host.hyperv_rename_destination_dir_occupied": {
-      "sourceHash": "5861465cad32019f536959ba9e088654eab9e3faea8a52b37e11da4b326b6057",
+      "sourceHash": "28e14b347d0c84f811c990b594e61323b077b36d0c4ebab0eca7998e39464c74",
       "origin": "machine",
-      "message": "无法重命名为“{newName}”：目录 {newDir} 中已有文件，将存储移入其中会在重命名之后失败，使重命名只完成一半。"
+      "message": "无法重命名为“{newName}”：目录 {newDir} 中已有虚拟机存储文件，将存储移入其中会在重命名之后失败，使重命名只完成一半。"
+    },
+    "host.hyperv_checkpoint_not_listed": {
+      "sourceHash": "f35cebf8e3639fe6cf34969153a00a3c6362f33a0f28ed514f2d87c1d851d580",
+      "origin": "machine",
+      "message": "Save-VMDiskSnapshot：对'{vMName}/{id}'执行Checkpoint-VM报告成功，但之后的列表中没有该检查点。Checkpoint-VM返回 [{made}]；Hyper-V 模块列出 [{listed}]；Hyper-V 自身记录包含 [{held}]（无法读取时为 ?）。"
+    },
+    "host.hyperv_checkpoint_listing_lagged": {
+      "sourceHash": "2170a28941372832ddaadbd99d5581a90442024726bb039a1c9fef9a8112c43f",
+      "origin": "machine",
+      "message": "Save-VMDiskSnapshot：Hyper-V 已记录检查点'{vMName}/{id}'，但 Hyper-V 模块在 {seconds} 秒内未列出它。"
+    },
+    "host.hyperv_checkpoint_listing_unanswered": {
+      "sourceHash": "9f46a825fe9251f31c3d56ea6c05b2879047a7e7f587faf046918ea480fd2c94",
+      "origin": "machine",
+      "message": "Save-VMDiskSnapshot：在保存操作等待检查点'{id}' {seconds} 秒期间，Hyper-V 模块对'{vMName}'的检查点列表失败或未响应；Hyper-V 自身记录包含 [{held}]（无法读取时为 ?）。"
+    },
+    "host.hyperv_bounded_call_no_answer": {
+      "sourceHash": "2ef44748001e42ceafd235fd44188bf5dcba0e45fa7601b1afeb8a6a2c2176aa",
+      "origin": "machine",
+      "message": "Hyper-V 调用结束时未返回结果（作业状态：{state}；原因：{reason}）。"
     },
     "host.vm_storage_reconcile_action": {
       "sourceHash": "518ebc15e6c396cd1dc4a0f1dc5d0d10450037b1cc28c9b504784ba5ff8c1ed1",
@@ -5977,6 +5982,51 @@
       "sourceHash": "891986811834ded8494d25e5df6050ca2f3681cf7e9737154ed2386097dcea1a",
       "origin": "machine",
       "message": "无法将下载内容就位为{baseImageFile}：{message} 未为其写入哨兵或来源记录。"
+    },
+    "host.hyperv_lifecycle_unanswered": {
+      "sourceHash": "1a33900ee7d9c7684f3eceeb9f98ac7a60f33c47ba01a7464526229d8277f444",
+      "origin": "machine",
+      "message": "Hyper-V 未在 {seconds} 秒内响应针对“{vMName}”的 {verb}；虚拟机管理服务可能已挂起。"
+    },
+    "host.snapshot_leftover_unsettled": {
+      "sourceHash": "17ec215e94db28004dee34cadf27d6ced008416c7b1cd8bd4d6eff8eeb517d7a",
+      "origin": "machine",
+      "message": "快照“{id}”未保存：之前一次中断的保存留下了“{previous}”，处理它时在 {reason} 处停止。"
+    },
+    "host.snapshot_previous_not_removed": {
+      "sourceHash": "d8b4edd61e6423a0b2cb0499a555b662857e5368b106c0dd54469822cb337c98",
+      "origin": "machine",
+      "message": "快照“{id}”已保存，但无法删除之前持久化的虚拟机“{previous}”；下次保存“{id}”时会将其删除。"
+    },
+    "host.snapshot_save_rolled_back": {
+      "sourceHash": "f149d920f5911d0c39cb227f6c308de74ed73c30cafa23baafc4258247f36d74",
+      "origin": "machine",
+      "message": "未能从“{vMName}”保存快照“{id}”（{step} 失败）；两个虚拟机都保留了尝试之前的名称。"
+    },
+    "host.snapshot_save_rollback_incomplete": {
+      "sourceHash": "b86e723699d06b06be25caba4e7e4bf504c755f43d1452cb1baceac573e241d1",
+      "origin": "machine",
+      "message": "未能从“{vMName}”保存快照“{id}”（{step} 失败），并且无法将所有虚拟机改回原名；下次保存“{id}”时会处理它们。"
+    },
+    "host.portmap_port_held": {
+      "sourceHash": "34ab182cfc35c22077bf6e35fe5d0f286622a04af727077e64c899907fccb6ef",
+      "origin": "machine",
+      "message": "{owner} 的端口转发未更改：主机端口 {port} 由 {holder} 持有。"
+    },
+    "host.portmap_ledger_busy": {
+      "sourceHash": "117ac031c1bd8e79d80182a4daa5356dc9a42ab1d6e029868a57f962dc7184f9",
+      "origin": "machine",
+      "message": "端口映射记录 {path} 一直被另一个进程锁定；{owner} 持有的转发已生效，但未被记录。"
+    },
+    "host.portmap_ledger_unwritten": {
+      "sourceHash": "0daf2f7a2ae459aabd351b05cd6ea7eed8ffff398059b43b7eebf906af9fc26d",
+      "origin": "machine",
+      "message": "无法为 {owner} 写入端口映射记录 {path}：{message}"
+    },
+    "host.download_incomplete": {
+      "sourceHash": "f9e98167cc295b055bd08d2232dfd51afd0b07096d61dead8fbed458d671fcea",
+      "origin": "machine",
+      "message": "{uri} 的下载未完成（已为下次尝试暂存 {bytes} 字节）：{detail}"
     }
   }
 }

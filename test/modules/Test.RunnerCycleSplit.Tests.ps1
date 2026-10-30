@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 424757c6-0173-447c-a3d1-c814f73109f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $testRoot   = Split-Path -Parent $PSScriptRoot
 $script:cycleFile  = Join-Path $PSScriptRoot 'Invoke-TestCycleRunner.ps1'
@@ -389,7 +390,7 @@ Describe 'Cycle dispatch' {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
         $spacedScript = Join-Path $dir 'Invoke-TestCycleRunner.ps1'
         Set-Content -LiteralPath $spacedScript -Value '# spawn fixture' -Encoding utf8
-        $priorRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $priorRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $dir
         try {
             # The stand-in spawn leaves the record a real cycle process leaves; a
@@ -412,7 +413,7 @@ Describe 'Cycle dispatch' {
                 $i -ge 0 -and ([string]$ArgumentList[$i + 1]) -like '"* *"'
             }
         } finally {
-            $env:YURUNA_RUNTIME_DIR = $priorRuntimeDir
+            Restore-YurunaTestEnvironment -Saved $priorRuntimeDir
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }

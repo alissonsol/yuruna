@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4296b755-95ac-439b-8cc9-62f9188e5c59
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,6 +71,273 @@ $script:StartCycleStateUrl = '/runtime/start-cycle.state.json'
 # validation on every request does not re-parse the script.
 $script:StatusWorkerCommandCache = @{}
 $script:StatusWorkerStateMaxBytes = 65536
+
+# --- REGION: Control route guard table
+# Every control route that can change state, with the guard the listener puts
+# in front of it. Always: the X-Yuruna header on every method and, from off the
+# loopback, a control proof. Write: the same on POST and PUT only, because the
+# route's GET and HEAD read path changes nothing. ProofScope names the scoped
+# proof that opens the route besides a full one: a pool-wide pause proof opens
+# the four pause and resume routes and no other. A route absent from the table
+# is a read route and stays open.
+$script:StatusControlRouteGuard = [ordered]@{
+    'control/start-cycle'                = @{ Guard = 'Always'; ProofScope = @() }
+    'control/break-continue'             = @{ Guard = 'Always'; ProofScope = @() }
+    'control/test-caching-proxy-service' = @{ Guard = 'Always'; ProofScope = @() }
+    'control/host-diagnostic'            = @{ Guard = 'Always'; ProofScope = @() }
+    'control/step-pause'                 = @{ Guard = 'Always'; ProofScope = @('pause') }
+    'control/step-resume'                = @{ Guard = 'Always'; ProofScope = @('pause') }
+    'control/cycle-pause'                = @{ Guard = 'Always'; ProofScope = @('pause') }
+    'control/cycle-resume'               = @{ Guard = 'Always'; ProofScope = @('pause') }
+    'control/lab-hold-release'           = @{ Guard = 'Always'; ProofScope = @() }
+    'control/host-refresh'               = @{ Guard = 'Always'; ProofScope = @() }
+    'control/test-config'                = @{ Guard = 'Write'; ProofScope = @() }
+    'control/perf-aggregates'            = @{ Guard = 'Write'; ProofScope = @() }
+}
+
+# --- REGION: Listener liveness lease
+# The listener serves one request at a time, so a long request (an archive
+# being packed, a diagnostic streamed back) leaves it unable to answer a probe
+# for as long as that request runs. The lease tells such a busy listener apart
+# from a wedged one: the loop renews it while idle and stamps each request it
+# starts, so a reader sees the state, the route and since when. Ages are taken
+# on [Environment]::TickCount64, the machine's boot-relative clock, which every
+# process on the host shares and a wall-clock correction does not move.
+$script:StatusLeaseIdleRenewMilliseconds = 10000
+$script:StatusLeaseIdleAfterBusyMilliseconds = 2000
+$script:StatusLeaseBusyRestampMilliseconds = 5000
+# A listener renews an idle lease about every 15 s (its loop wakes at least
+# that often), so 90 s is six missed renewals.
+$script:StatusLeaseIdleStaleSeconds = 90
+# The longest a single request may hold the listener before it reads as
+# wedged; long enough for a large cycle archive to be packed and streamed.
+$script:StatusLeaseBusyCeilingSeconds = 600
+
+function New-StatusServiceLease {
+    <#
+    .SYNOPSIS
+        The in-memory lease a listener keeps and Update-StatusServiceLease writes.
+    .PARAMETER Path
+        The lease file (<runtime>/server.lease.json).
+    .PARAMETER ProcessId
+        The listener process; this one by default.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds an in-memory record only; Update-StatusServiceLease writes the file.')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path, [int]$ProcessId = $PID)
+    $startTime = [long]0
+    try { $startTime = [DateTimeOffset]::new((Get-Process -Id $ProcessId -ErrorAction Stop).StartTime).ToUnixTimeMilliseconds() } catch { $startTime = [long]0 }
+    return @{ Path = $Path; Pid = $ProcessId; StartTimeUnixMs = $startTime; State = ''; Route = ''; SinceTick = [long]0; SinceUtc = ''
+        WrittenTick = [long]0; Served = [long]0; WriteFailed = $false }
+}
+
+function Update-StatusServiceLease {
+    <#
+    .SYNOPSIS
+        Record that the listener is idle or has started a request, writing the
+        lease file when a reader would otherwise see a wrong state. $true when
+        the file was written.
+    .DESCRIPTION
+        A request always writes when the lease last said idle, so a long
+        request can never hide behind an idle renewal; a request that follows
+        another within five seconds keeps the earlier stamp, which bounds the
+        error on its age. Idle writes when the lease has said busy for two
+        seconds, or to renew an idle lease every ten. That keeps the writes to
+        a few per second under load and one every ten seconds at rest.
+    .PARAMETER Lease
+        The New-StatusServiceLease record; updated in place.
+    .PARAMETER State
+        idle or busy.
+    .PARAMETER Route
+        The request path, for busy.
+    .PARAMETER NowTick
+        [Environment]::TickCount64 by default; tests pass a clock.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Lease,
+        [Parameter(Mandatory)][ValidateSet('idle', 'busy')][string]$State,
+        [AllowEmptyString()][string]$Route = '',
+        [long]$NowTick = [Environment]::TickCount64
+    )
+    $sinceWrite = $NowTick - [long]$Lease.WrittenTick
+    $write = $false
+    if ($State -ceq 'busy') {
+        $Lease.Served = [long]$Lease.Served + 1
+        $write = ($Lease.State -cne 'busy') -or (($NowTick - [long]$Lease.SinceTick) -ge $script:StatusLeaseBusyRestampMilliseconds)
+    } elseif ($Lease.State -ceq 'busy') {
+        $write = $sinceWrite -ge $script:StatusLeaseIdleAfterBusyMilliseconds
+    } else {
+        $write = ($Lease.State -cne 'idle') -or ($sinceWrite -ge $script:StatusLeaseIdleRenewMilliseconds)
+    }
+    if (-not $write) { return $false }
+    if ($Lease.State -cne $State -or $State -ceq 'busy') {
+        $Lease.SinceTick = $NowTick
+        $Lease.SinceUtc = [DateTime]::UtcNow.ToString('o')
+    }
+    $Lease.State = $State
+    $Lease.Route = if ($State -ceq 'busy') { if ($Route.Length -gt 200) { $Route.Substring(0, 200) } else { $Route } } else { '' }
+    $Lease.WrittenTick = $NowTick
+    if (-not $PSCmdlet.ShouldProcess($Lease.Path)) { return $false }
+    $record = [ordered]@{
+        schemaVersion = 1; pid = [int]$Lease.Pid; startTimeUnixMs = [long]$Lease.StartTimeUnixMs; state = $State; route = [string]$Lease.Route
+        sinceUtc = [string]$Lease.SinceUtc; sinceTick = [long]$Lease.SinceTick; renewedUtc = [DateTime]::UtcNow.ToString('o'); renewedTick = $NowTick
+        served = [long]$Lease.Served
+    }
+    $temp = "$($Lease.Path).$PID.tmp"
+    try {
+        [IO.File]::WriteAllText($temp, ($record | ConvertTo-Json -Compress))
+        [IO.File]::Move($temp, $Lease.Path, $true)
+        $Lease.WriteFailed = $false
+        return $true
+    } catch {
+        $Lease.WriteFailed = $true
+        Write-Verbose "Update-StatusServiceLease: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Get-StatusServiceLeaseVerdict {
+    <#
+    .SYNOPSIS
+        Whether the listener named by server.pid is alive, busy with one
+        request, wedged, or unknown, from its lease.
+    .DESCRIPTION
+        alive: idle and renewed within IdleStaleSeconds. busy: serving one
+        request for less than BusyCeilingSeconds. wedged: an idle lease past
+        its renewals, or a request past the ceiling. unknown: no lease, one
+        that does not parse, or one written by another process or an earlier
+        process behind the same PID; a caller treats it as no evidence.
+    .PARAMETER Path
+        The lease file.
+    .PARAMETER ProcessId
+        The listener PID from server.pid.
+    .PARAMETER NowTick
+        [Environment]::TickCount64 by default; tests pass a clock.
+    .OUTPUTS
+        [pscustomobject] @{ Verdict; Reason; State; Route; AgeSeconds; Served }
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][int]$ProcessId,
+        [long]$NowTick = [Environment]::TickCount64,
+        [int]$IdleStaleSeconds = $script:StatusLeaseIdleStaleSeconds,
+        [int]$BusyCeilingSeconds = $script:StatusLeaseBusyCeilingSeconds
+    )
+    $verdict = [ordered]@{ Verdict = 'unknown'; Reason = 'lease-missing'; State = ''; Route = ''; AgeSeconds = [long]0; Served = [long]0 }
+    if (-not [IO.File]::Exists($Path)) { return [pscustomobject]$verdict }
+    $record = $null
+    try { $record = [IO.File]::ReadAllText($Path) | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { $record = $null }
+    if ($record -isnot [System.Collections.IDictionary] -or [int]$record['schemaVersion'] -ne 1) { $verdict.Reason = 'lease-unreadable'; return [pscustomobject]$verdict }
+    if ([int]$record['pid'] -ne $ProcessId) { $verdict.Reason = 'lease-other-process'; return [pscustomobject]$verdict }
+    $liveStart = [long]0
+    try { $liveStart = [DateTimeOffset]::new((Get-Process -Id $ProcessId -ErrorAction Stop).StartTime).ToUnixTimeMilliseconds() } catch { $liveStart = [long]0 }
+    if ($liveStart -eq 0 -or [Math]::Abs($liveStart - [long]$record['startTimeUnixMs']) -gt 2000) { $verdict.Reason = 'lease-other-process'; return [pscustomobject]$verdict }
+    $verdict.State = [string]$record['state']
+    $verdict.Route = [string]$record['route']
+    $verdict.Served = [long]$record['served']
+    switch -CaseSensitive ($verdict.State) {
+        'idle' {
+            $verdict.AgeSeconds = [long][Math]::Floor(($NowTick - [long]$record['renewedTick']) / 1000)
+            if ($verdict.AgeSeconds -le $IdleStaleSeconds) { $verdict.Verdict = 'alive'; $verdict.Reason = 'idle-renewed' }
+            else { $verdict.Verdict = 'wedged'; $verdict.Reason = 'idle-renewal-lapsed' }
+        }
+        'busy' {
+            $verdict.AgeSeconds = [long][Math]::Floor(($NowTick - [long]$record['sinceTick']) / 1000)
+            if ($verdict.AgeSeconds -le $BusyCeilingSeconds) { $verdict.Verdict = 'busy'; $verdict.Reason = 'serving' }
+            else { $verdict.Verdict = 'wedged'; $verdict.Reason = 'request-past-ceiling' }
+        }
+        default { $verdict.Reason = 'lease-unreadable' }
+    }
+    return [pscustomobject]$verdict
+}
+
+function Invoke-StatusListenerWatch {
+    <#
+    .SYNOPSIS
+        One watch pass over this runtime's listener: replace it when its lease
+        has read wedged on two passes in a row and it does not answer a probe.
+    .DESCRIPTION
+        Runs from the host-address beacon, the one long-lived host process
+        that ticks on time, so a wedged listener is replaced within a cycle
+        rather than at the next cycle start. The second pass and the probe
+        keep a lease that lapsed once, or a listener whose lease cannot be
+        written but that still answers, from being replaced. After an
+        attempt, whatever its outcome, the next waits RetryAfterSeconds.
+    .PARAMETER RuntimeDir
+        The owning runtime directory (server.pid, server.lease.json).
+    .PARAMETER State
+        The watch's memory across passes; updated in place.
+    .PARAMETER Probe
+        Returns $true when the listener answers an HTTP probe.
+    .PARAMETER Replace
+        Runs the replacement start and returns its exit code.
+    .PARAMETER RetryAfterSeconds
+        The least time between two replacement attempts.
+    .PARAMETER NowTick
+        [Environment]::TickCount64 by default; tests pass a clock.
+    .OUTPUTS
+        [string] ok, no-listener, wedged-pending, throttled, answered, replaced or replace-failed.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][hashtable]$State,
+        [Parameter(Mandatory)][scriptblock]$Probe,
+        [Parameter(Mandatory)][scriptblock]$Replace,
+        [int]$RetryAfterSeconds = 300,
+        [long]$NowTick = [Environment]::TickCount64
+    )
+    $serverPid = 0
+    try { [void][int]::TryParse(([IO.File]::ReadAllText((Join-Path $RuntimeDir 'server.pid'))).Trim(), [ref]$serverPid) } catch { $serverPid = 0 }
+    if ($serverPid -le 0) { $State.WedgedPasses = 0; return 'no-listener' }
+    $lease = Get-StatusServiceLeaseVerdict -Path (Join-Path $RuntimeDir 'server.lease.json') -ProcessId $serverPid -NowTick $NowTick
+    if ($lease.Verdict -cne 'wedged') { $State.WedgedPasses = 0; return 'ok' }
+    $State.WedgedPasses = [int]$State.WedgedPasses + 1
+    if ($State.WedgedPasses -lt 2) { return 'wedged-pending' }
+    if ($State.ContainsKey('LastAttemptTick') -and ($NowTick - [long]$State.LastAttemptTick) -lt ([long]$RetryAfterSeconds * 1000)) { return 'throttled' }
+    if (& $Probe) { $State.WedgedPasses = 0; return 'answered' }
+    $State.LastAttemptTick = $NowTick
+    $State.WedgedPasses = 0
+    $exitCode = -1
+    try { $exitCode = [int](& $Replace) } catch { Write-Verbose "Invoke-StatusListenerWatch: the replacement start failed: $($_.Exception.Message)" }
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.status_listener_replace_in_cycle' -Arguments @{
+        processId = "$serverPid"; state = "$($lease.State)"; route = "$($lease.Route)"; seconds = "$($lease.AgeSeconds)"; exitCode = "$exitCode" }) -InformationAction Continue
+    if ($exitCode -eq 0) { return 'replaced' }
+    return 'replace-failed'
+}
+
+function Get-StatusControlRouteGuard {
+    <#
+    .SYNOPSIS
+        The guard a control route needs for one request, or $null for a read
+        route.
+    .DESCRIPTION
+        RequiresHeader says whether this method on this route needs the
+        X-Yuruna header and, off the loopback, a control proof; ProofScope
+        lists the scoped proofs the route accepts besides a full one. A
+        guarded route answers an OPTIONS preflight with no grant either way.
+    .PARAMETER Path
+        The request path without its leading slash.
+    .PARAMETER Method
+        The request method.
+    .OUTPUTS
+        [pscustomobject] @{ Path; Guard; ProofScope; RequiresHeader }, or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([AllowEmptyString()][string]$Path, [AllowEmptyString()][string]$Method)
+    if (-not $Path -or -not $script:StatusControlRouteGuard.Contains($Path)) { return $null }
+    $row = $script:StatusControlRouteGuard[$Path]
+    $requiresHeader = ($row.Guard -ceq 'Always') -or ($Method -in @('POST', 'PUT'))
+    return [pscustomobject]@{ Path = $Path; Guard = [string]$row.Guard; ProofScope = [string[]]@($row.ProofScope); RequiresHeader = [bool]$requiresHeader }
+}
 
 function ConvertTo-StatusRouteWireToken {
     <#
@@ -1410,4 +1677,4 @@ Export-ModuleMember -Function New-StatusBoundedBodyRead, Update-StatusBoundedBod
     Get-HostDiagnosticRouteState, Read-StatusWorkerState, New-StatusOperationId, Get-StatusRuntimeKey,
     Test-StatusPathOutsideServedRoot, Get-StatusServerOwnership, Test-StatusRouteCommandSet,
     Get-StartCycleRunnerDecision, Get-StartCycleRunnerArgument, Save-StatusLaunchOutcome, Get-StatusWorkerTranscriptStem,
-    Get-StartCycleRefusalReason
+    Get-StartCycleRefusalReason, Get-StatusControlRouteGuard, New-StatusServiceLease, Update-StatusServiceLease, Get-StatusServiceLeaseVerdict, Invoke-StatusListenerWatch

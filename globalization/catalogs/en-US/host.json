@@ -8,6 +8,33 @@
       "description": "Ubuntu KVM New-VM error when standalone cache discovery finds a running cache without a reachable URL. Preserve the service name, script path and parameter name.",
       "lifecycle": "active"
     },
+    "host.media_digest_mismatch": {
+      "message": "{file} from {url} has SHA-256 {actual}, not the {expected} pinned for that release; the download was discarded and the media in place is unchanged.",
+      "description": "Guest media download refused: the bytes do not match the SHA-256 pinned for the versioned URL. Preserve the file name, URL and digests.",
+      "lifecycle": "active",
+      "placeholders": {
+        "file": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "virtio-win.iso"
+        },
+        "url": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "https://fedorapeople.org/.../virtio-win-0.1.302.iso"
+        },
+        "actual": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "0123abcd..."
+        },
+        "expected": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "303f7ae4..."
+        }
+      }
+    },
     "host.utm_cache_state_unconfirmed": {
       "message": "The caching-proxy-service VM state could not be confirmed ({state}; {reason}). Restore UTM access or pass -CachingProxyServiceUrl \"\" to fetch directly.",
       "description": "Write-Error in the UTM Ubuntu VM builder when automatic caching-proxy discovery cannot establish a safe direct-download state. Preserve the service name, UTM and parameter name.",
@@ -3185,28 +3212,6 @@
           "type": "detail",
           "trust": "external",
           "example": "$f"
-        }
-      }
-    },
-    "host.operator_3d4bd722f2cfda09": {
-      "message": "Save-VMDiskSnapshot: snapshot '{id}' saved into '{utmBundle}' but rename '{vMName}' -> '{id}' failed; VM will be wiped on next cycle cleanup. The qcow2 snapshot is on disk and can be restored manually.",
-      "description": "Whole Write-Warning message in host/macos.utm/modules/Yuruna.Host.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "id": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$Id"
-        },
-        "utmBundle": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$utmBundle"
-        },
-        "vMName": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$VMName"
         }
       }
     },
@@ -6786,11 +6791,6 @@
       "description": "Whole ShouldProcess-prompt message in host/macos.utm/modules/Yuruna.Host.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
-    "host.operator_87d1543cf3bfdad9": {
-      "message": "Clear Yuruna port mapping",
-      "description": "Whole ShouldProcess-prompt message in host/windows.hyper-v/modules/Yuruna.Host.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active"
-    },
     "host.operator_87e79790981d47af": {
       "message": "Set host proxy to {proxyUrl}",
       "description": "Whole ShouldProcess-prompt message in host/windows.hyper-v/modules/Yuruna.Host.psm1; preserve command names, paths, codes, and argument boundaries.",
@@ -7498,6 +7498,35 @@
         }
       }
     },
+    "host.service_build_plan_accepted": {
+      "message": "Build plan for '{vMName}' accepted: every input the build needs is present, and nothing was changed.",
+      "description": "Write-Output line of a service VM builder (host/*/guest.*-service/New-VM.ps1) run with -PlanOnly after every input check passed; preserve the VM name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "yuruna-stash-service"
+        }
+      }
+    },
+    "host.service_seed_degraded": {
+      "message": "The seed of '{vMName}' is degraded: {name} is baked empty. The guest starts without it, and its Start reports the bring-up as degraded.",
+      "description": "Write-Warning of Write-SeedDegradation (host/modules/Yuruna.SeedMedia.psm1) when a service VM builder bakes a seed value empty; name is hostAddress or aggregatorUrl; preserve the VM name and the value name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "yuruna-stash-service"
+        },
+        "name": {
+          "type": "token",
+          "trust": "internal",
+          "example": "aggregatorUrl"
+        }
+      }
+    },
     "host.operator_9a26d7342217e270": {
       "message": "libvirt network '{c}' is defined but not active -- skipping it. Start it with 'virsh -c qemu:///system net-start {c}', or re-run test/service/Start-CachingProxyServiceVM.ps1 to rebuild/heal it.",
       "description": "Whole Write-Warning message in host/ubuntu.kvm/modules/Yuruna.Host.psm1; preserve command names, paths, codes, and argument boundaries.",
@@ -7792,23 +7821,6 @@
       "message": "cache VM on it), or define it by hand -- see",
       "description": "Whole Write-Warning message in host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
-    },
-    "host.operator_a1763a8af3ef734a": {
-      "message": "Save-VMDiskSnapshot: rename '{vMName}' -> '{id}' failed; no snapshot taken, domain will be wiped on next cycle cleanup.",
-      "description": "Whole Write-Warning message in host/ubuntu.kvm/modules/Yuruna.Host.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "vMName": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$VMName"
-        },
-        "id": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$Id"
-        }
-      }
     },
     "host.operator_a19074ac4867746e": {
       "message": "  Console/SSH login:",
@@ -8287,18 +8299,6 @@
       "message": "    (also embedded in the seed.iso's user-data -- chpasswd)",
       "description": "Whole Write-Output message in host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
-    },
-    "host.operator_a9dcf6d3662588bf": {
-      "message": "{mB} MB",
-      "description": "Whole Write-Progress message in host/modules/Yuruna.DownloadAgent.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "mB": {
-          "type": "detail",
-          "trust": "external",
-          "example": "($total / 1MB)"
-        }
-      }
     },
     "host.operator_a9e197e13deba921": {
       "message": "     (or save any Win11*.iso file to {downloadDir})",
@@ -9582,28 +9582,6 @@
         }
       }
     },
-    "host.operator_c67e69b1dce2a237": {
-      "message": "{mB} / {mB2} MB ({percent}%)",
-      "description": "Whole Write-Progress message in host/modules/Yuruna.DownloadAgent.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "mB": {
-          "type": "detail",
-          "trust": "external",
-          "example": "($total / 1MB)"
-        },
-        "mB2": {
-          "type": "detail",
-          "trust": "external",
-          "example": "($ExpectedByteCount / 1MB)"
-        },
-        "percent": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$percent"
-        }
-      }
-    },
     "host.operator_c689a85719965f3f": {
       "message": "Resolving stable build from {stableReleaseUrl} ...",
       "description": "Whole Write-Information message in host/modules/Yuruna.UbuntuImage.psm1; preserve command names, paths, codes, and argument boundaries.",
@@ -10651,23 +10629,6 @@
           "type": "detail",
           "trust": "external",
           "example": "$Id"
-        }
-      }
-    },
-    "host.operator_dda22dc70c2dcb9f": {
-      "message": "Save-VMDiskSnapshot: snapshot '{id}' saved but rename '{vMName}' -> '{id}' failed; VM will be wiped on next cycle cleanup.",
-      "description": "Whole Write-Warning message in host/windows.hyper-v/modules/Yuruna.Host.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "id": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$Id"
-        },
-        "vMName": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$VMName"
         }
       }
     },
@@ -12860,8 +12821,8 @@
       }
     },
     "host.hyperv_rename_destination_dir_occupied": {
-      "message": "Cannot rename to '{newName}': the directory {newDir} already holds files, and moving storage into it would fail after the rename and leave it half done.",
-      "description": "Write-Warning in host/windows.hyper-v/modules/Yuruna.Host.psm1 (Rename-VM) before Hyper-V renames the VM, when the destination directory below VirtualHardDiskPath holds files or cannot be listed.",
+      "message": "Cannot rename to '{newName}': the directory {newDir} already holds virtual machine storage files, and moving storage into it would fail after the rename and leave it half done.",
+      "description": "Write-Warning in host/windows.hyper-v/modules/Yuruna.Host.psm1 (Rename-VM) before Hyper-V renames the VM, when the destination directory below VirtualHardDiskPath holds a disk, configuration or checkpoint file, or cannot be listed.",
       "lifecycle": "active",
       "placeholders": {
         "newName": {
@@ -12873,6 +12834,104 @@
           "type": "detail",
           "trust": "external",
           "example": "C:\\VHD\\snap-base"
+        }
+      }
+    },
+    "host.hyperv_checkpoint_not_listed": {
+      "message": "Save-VMDiskSnapshot: Checkpoint-VM reported success for '{vMName}/{id}', but the checkpoint is not listed afterwards. Checkpoint-VM returned [{made}]; the Hyper-V module listed [{listed}]; Hyper-V's own record holds [{held}] (? when it could not be read).",
+      "description": "Write-Warning in host/windows.hyper-v/modules/Yuruna.Host.psm1 (New-HyperVDiskSnapshot) when, within the settle bound, the Hyper-V module never lists a checkpoint just created and Hyper-V's own record for the VM's Id never holds a checkpoint of that name; the save then counts as failed. made is what Checkpoint-VM -Passthru returned (name and Id), listed the checkpoint names the creating call listed, and held the names and types Hyper-V last recorded, or ? when that record could not be read.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-01"
+        },
+        "id": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ubuntu.server.24.base"
+        },
+        "made": {
+          "type": "detail",
+          "trust": "external",
+          "example": "amisad-build (6f1c2d3e-5a4b-4c3d-9e8f-0a1b2c3d4e5f)"
+        },
+        "listed": {
+          "type": "detail",
+          "trust": "external",
+          "example": "amisad-core-k8s"
+        },
+        "held": {
+          "type": "detail",
+          "trust": "external",
+          "example": "amisad-build - (10/27/2026 - 7:16:43 PM) [Microsoft:Hyper-V:Snapshot:Realized]"
+        }
+      }
+    },
+    "host.hyperv_checkpoint_listing_lagged": {
+      "message": "Save-VMDiskSnapshot: Hyper-V holds checkpoint '{vMName}/{id}', but the Hyper-V module did not list it within {seconds} seconds.",
+      "description": "Write-Warning in host/windows.hyper-v/modules/Yuruna.Host.psm1 (New-HyperVDiskSnapshot) when Hyper-V's own record for the VM's Id holds a checkpoint just created, but the module's listing, which the save verification and the next restore read by name, still does not show it after the settle polls; the save then counts as failed. seconds is the measured wait.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-01"
+        },
+        "id": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ubuntu.server.24.base"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "30"
+        }
+      }
+    },
+    "host.hyperv_checkpoint_listing_unanswered": {
+      "message": "Save-VMDiskSnapshot: the Hyper-V module's checkpoint listing for '{vMName}' failed or did not answer while the save waited {seconds} seconds for checkpoint '{id}'; Hyper-V's own record holds [{held}] (? when it could not be read).",
+      "description": "Write-Warning in host/windows.hyper-v/modules/Yuruna.Host.psm1 (New-HyperVDiskSnapshot) when, while waiting for a checkpoint the creating call did not list, the module's listing fails or reaches its cap and reads as unknown; the save then counts as failed. seconds is the measured wait, and held the names and types Hyper-V last recorded for the VM's Id, or ? when that record could not be read.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-01"
+        },
+        "id": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ubuntu.server.24.base"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "184"
+        },
+        "held": {
+          "type": "detail",
+          "trust": "external",
+          "example": "amisad-build [Microsoft:Hyper-V:Snapshot:Realized]"
+        }
+      }
+    },
+    "host.hyperv_bounded_call_no_answer": {
+      "message": "The Hyper-V call ended without returning an answer (job state: {state}; reason: {reason}).",
+      "description": "Error record from Invoke-HyperVBoundedCall in host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1 when the thread job running a Hyper-V call ends without the answer object its body always emits, so the body never finished; the caller reports a failed call instead of an empty success. state is the job's state; reason is the job's failure reason, empty when it gave none.",
+      "lifecycle": "active",
+      "placeholders": {
+        "state": {
+          "type": "token",
+          "trust": "internal",
+          "example": "Failed"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "The term 'Hyper-V\\Get-VM' is not recognized as a name of a cmdlet."
         }
       }
     },
@@ -12978,6 +13037,194 @@
           "type": "detail",
           "trust": "external",
           "example": "Another process is publishing the image; its swap was left alone."
+        }
+      }
+    },
+    "host.hyperv_lifecycle_unanswered": {
+      "message": "Hyper-V did not answer {verb} for '{vMName}' within {seconds} seconds; the virtual machine management service may be hung.",
+      "description": "Error from Invoke-HyperVLifecycleCmdlet and Start-HyperVVM in host/windows.hyper-v/modules/Yuruna.Host.psm1 when a lifecycle cmdlet run under the lifecycle cap did not return; the verb is a Hyper-V cmdlet name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "verb": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Start-VM"
+        },
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-vm"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "180"
+        }
+      }
+    },
+    "host.snapshot_leftover_unsettled": {
+      "message": "Snapshot '{id}' was not saved: an interrupted earlier save left '{previous}', and settling it stopped at {reason}.",
+      "description": "Write-Warning from Invoke-YurunaDiskSnapshotSave in host/modules/Yuruna.HostProvision.psm1 when the aside VM an interrupted save left cannot be accounted for, so the save stops before changing anything else; reason names the step or the state that could not be read.",
+      "lifecycle": "active",
+      "placeholders": {
+        "id": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ubuntu.server.24.base"
+        },
+        "previous": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ubuntu.server.24.base.previous"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "Rename-VM ubuntu.server.24.base.previous ubuntu.server.24.base"
+        }
+      }
+    },
+    "host.snapshot_previous_not_removed": {
+      "message": "Snapshot '{id}' was saved, but the earlier persisted VM '{previous}' could not be removed; the next save of '{id}' removes it.",
+      "description": "Write-Warning from Invoke-YurunaDiskSnapshotSave in host/modules/Yuruna.HostProvision.psm1 when the new snapshot is verified but removing the aside VM failed.",
+      "lifecycle": "active",
+      "placeholders": {
+        "id": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ubuntu.server.24.base"
+        },
+        "previous": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ubuntu.server.24.base.previous"
+        }
+      }
+    },
+    "host.snapshot_save_rolled_back": {
+      "message": "Snapshot '{id}' was not saved from '{vMName}' ({step} failed); both VMs keep the names they had before the attempt.",
+      "description": "Write-Warning from Invoke-YurunaDiskSnapshotSave in host/modules/Yuruna.HostProvision.psm1 when a step of the save failed and the renames were undone; step is a command name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "id": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ubuntu.server.24.base"
+        },
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-01"
+        },
+        "step": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Save-VMDiskSnapshot"
+        }
+      }
+    },
+    "host.snapshot_save_rollback_incomplete": {
+      "message": "Snapshot '{id}' was not saved from '{vMName}' ({step} failed), and the VMs could not all be renamed back; the next save of '{id}' settles them.",
+      "description": "Write-Warning from Invoke-YurunaDiskSnapshotSave in host/modules/Yuruna.HostProvision.psm1 when a step of the save failed and undoing the renames failed too; step is a command name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "id": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "ubuntu.server.24.base"
+        },
+        "vMName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "test-01"
+        },
+        "step": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Save-VMDiskSnapshot"
+        }
+      }
+    },
+    "host.portmap_port_held": {
+      "message": "Port forwards for {owner} were not changed: host port {port} is held by {holder}.",
+      "description": "Write-Warning from Add-PortMap in each host driver (host/*/modules/Yuruna.Host.psm1) when the owner asks for a host port another owner holds in the port-map record; owner and holder are service names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "owner": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "pool-control-service"
+        },
+        "port": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "2222"
+        },
+        "holder": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "stash-service"
+        }
+      }
+    },
+    "host.portmap_ledger_busy": {
+      "message": "The port-map record {path} stayed locked by another process; the forwards {owner} holds are in place but not recorded.",
+      "description": "Write-Warning from Set-YurunaPortMapOwner in host/modules/Yuruna.HostProvision.psm1 when the lock beside the port-map record could not be taken within its wait; owner is a service name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "owner": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "stash-service"
+        },
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/user/yuruna/test/status/runtime/caching-proxy-service-port-map.json"
+        }
+      }
+    },
+    "host.portmap_ledger_unwritten": {
+      "message": "The port-map record {path} could not be written for {owner}: {message}",
+      "description": "Write-Warning from Set-YurunaPortMapOwner in host/modules/Yuruna.HostProvision.psm1 when writing the port-map record failed; owner is a service name and message is the file system's error.",
+      "lifecycle": "active",
+      "placeholders": {
+        "owner": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "stash-service"
+        },
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/user/yuruna/test/status/runtime/caching-proxy-service-port-map.json"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Access to the path is denied."
+        }
+      }
+    },
+    "host.download_incomplete": {
+      "message": "The download of {uri} did not complete ({bytes} bytes are staged for the next attempt): {detail}",
+      "description": "Exception from Invoke-YurunaResumableDownload in host/modules/Yuruna.HostDownload.psm1 when every attempt of a call ended short; the partial file stays beside the destination for a later attempt to resume.",
+      "lifecycle": "active",
+      "placeholders": {
+        "uri": {
+          "type": "detail",
+          "trust": "external",
+          "example": "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img"
+        },
+        "bytes": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "524288000"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "The response ended prematurely."
         }
       }
     }

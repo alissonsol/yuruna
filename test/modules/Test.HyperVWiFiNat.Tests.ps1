@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4284e886-4b60-4b77-815f-041d9206d0dc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,8 +50,8 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 
 # Parse once; each test reads the function bodies out of the AST so that
 # comments and strings can never be mistaken for calls.
-$ast     = [System.Management.Automation.Language.Parser]::ParseFile($hostFile, [ref]$null, [ref]$null)
-$script:srcText = Get-Content -Raw $hostFile
+$ast     = Get-YurunaTestFileAst -Path $hostFile
+$script:srcText = Get-YurunaTestSourceText -Path $hostFile
 
 function Get-FunctionAst {
     param([string]$Name)

@@ -290,6 +290,26 @@ apparmor is matched on `STATUS` only. A profile load is bookkeeping; a
 `DENIED` line is a fault, and is exactly what a reader of this section
 is looking for.
 
+<a id="423ef7f5-0015"></a>
+
+### Failed units with their own reason
+
+The error list names a failed unit only through systemd's own
+`Failed to start` line. The reason is usually what the unit's process
+printed, and the journal keeps a service's stdout and stderr at info
+priority, below the error list's cut. A guest whose sshd had lost its
+host keys showed six `Failed to start ssh.service` errors per boot and
+never `sshd: no hostkeys available -- exiting.`, so the guest's own
+evidence did not explain why every SSH path to it was closed.
+
+RECENT SYSTEM EVENTS therefore prints `systemctl --failed` and, for
+each failed unit, the newest 10 journal lines of the current boot at
+every priority -- what `systemctl status` shows, without its pager or
+terminal width. At most 8 units are read, so a guest with many failures
+cannot crowd the rest of the capture out of a console-sized budget.
+Nothing here raises a problem: the list is evidence for whichever
+failure asked for the capture.
+
 <a id="423ef7f5-000e"></a>
 
 ### 13. GAP HEURISTICS
@@ -428,8 +448,15 @@ section is capped at 68,000 bytes. The existing
 truncation flags. `kernelFirstStallUtc` and `kernelFirstStallFollowupUtc` are
 capture times; the journal lines retain their kernel monotonic timestamps.
 These timestamps do not prove when the triggering defect began. A report or
-stack exceeding the collection bounds can still be incomplete. This evidence
-does not change the all-processor livelock predicate or permit automatic reset.
+stack exceeding the collection bounds can still be incomplete. Each sample is
+the newest 256 kernel records of the boot, so a first stall frozen from the
+recorder's first sample can be a report from before the step. The host reads
+this section with the parser it applies to the Hyper-V serial console and keeps
+the reading as `kernelStall` in the step's recorder evidence and as
+`guestKernelFault.recorder` in a [failure record](failure-schema.md#42820e91-0006),
+marked `mayPredateStep` when it came from that first sample.
+This evidence does not change the all-processor livelock predicate or permit
+automatic reset.
 
 New Ubuntu and Amazon Linux seeds keep the journal across boots with 32 MiB
 disk and 8 MiB runtime caps, a 256 MiB free-space reserve, and 30-second sync.
@@ -448,6 +475,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

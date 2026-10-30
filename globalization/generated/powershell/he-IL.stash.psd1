@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42fa1423-b613-b101-7ca5-c7f86fcafc55
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,21 +23,8 @@
     'stash.all_hosts' = 'כל המארחים'
     'stash.all_types' = 'כל הסוגים'
     'stash.api_could_not_parse_form' = 'לא ניתן לפענח את הטופס'
-    'stash.api_create_detail' = @(
-        'יצירה: '
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
-    'stash.api_detail' = @(
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
+    'stash.api_create_failed' = 'לא ניתן היה לשמור את ה-stash; יומן השירות מכיל את הסיבה'
+    'stash.api_delete_failed' = 'לא ניתן היה למחוק את ה-stash; יומן השירות מכיל את הסיבה'
     'stash.api_invalid_host' = 'מארח לא תקין'
     'stash.api_invalid_json_body' = 'גוף JSON לא תקין'
     'stash.api_invalid_stash_path' = 'נתיב מאגר אחסון לא תקין'
@@ -46,25 +33,12 @@
     'stash.api_not_an_archive' = 'אינו ארכיון'
     'stash.api_not_found' = 'לא נמצא'
     'stash.api_nothing_to_store_provide_text_or_files' = 'אין מה לאחסן: ספקו טקסט או קבצים'
-    'stash.api_open_archive_detail' = @(
-        'פתיחת ארכיון: '
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
+    'stash.api_open_archive_failed' = 'לא ניתן היה לפתוח את הארכיון; יומן השירות מכיל את הסיבה'
     'stash.api_open_artifact' = 'פתיחת תוצר'
     'stash.api_open_upload' = 'פתיחת העלאה'
     'stash.api_open_uploads' = 'פתיחת העלאות'
-    'stash.api_search_detail' = @(
-        'חיפוש: '
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
+    'stash.api_resolve_failed' = 'לא ניתן היה לאתר את ה-stash; יומן השירות מכיל את הסיבה'
+    'stash.api_search_failed' = 'לא ניתן היה לחפש באינדקס ה-stash; יומן השירות מכיל את הסיבה'
     'stash.api_stash_not_found' = 'מאגר האחסון לא נמצא'
     'stash.api_stat_artifact' = 'קבלת מאפייני תוצר'
     'stash.api_too_many_files_in_one_upload' = 'יותר מדי קבצים בהעלאה אחת'

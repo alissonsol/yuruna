@@ -11,21 +11,8 @@ const DatazhCNstash = `{
   "stash.all_hosts": "所有宿主机",
   "stash.all_types": "所有类型",
   "stash.api_could_not_parse_form": "无法解析表单",
-  "stash.api_create_detail": [
-    "创建：",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "stash.api_detail": [
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
+  "stash.api_create_failed": "无法存储该 stash；原因请查看服务日志",
+  "stash.api_delete_failed": "无法删除该 stash；原因请查看服务日志",
   "stash.api_invalid_host": "宿主机无效",
   "stash.api_invalid_json_body": "JSON正文无效",
   "stash.api_invalid_stash_path": "存储服务路径无效",
@@ -34,25 +21,12 @@ const DatazhCNstash = `{
   "stash.api_not_an_archive": "不是归档文件",
   "stash.api_not_found": "未找到",
   "stash.api_nothing_to_store_provide_text_or_files": "没有可存储的内容：请提供文本或文件",
-  "stash.api_open_archive_detail": [
-    "打开归档文件：",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
+  "stash.api_open_archive_failed": "无法打开该归档；原因请查看服务日志",
   "stash.api_open_artifact": "打开制品",
   "stash.api_open_upload": "打开上传文件",
   "stash.api_open_uploads": "打开上传文件",
-  "stash.api_search_detail": [
-    "搜索：",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
+  "stash.api_resolve_failed": "无法查找该 stash；原因请查看服务日志",
+  "stash.api_search_failed": "无法搜索 stash 索引；原因请查看服务日志",
   "stash.api_stash_not_found": "未找到存储服务",
   "stash.api_stat_artifact": "获取制品状态",
   "stash.api_too_many_files_in_one_upload": "单次上传的文件过多",

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42869a92-a8d2-410d-9364-cdfba1a4ed8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -586,5 +586,112 @@ Describe 'Send-TextHyperV honors the batched/per-char text-send shape' {
         Assert-True ($text -match 'DefaultBatchedTextSend\s*=\s*\r?\n?\s*-not \(\$IsWindows -and') `
             'the default must be negated only for a Windows ARM64 host'
         Assert-True ($text -match '\$comm\.batchedTextSend') 'vmCommunication.batchedTextSend must override the default'
+    }
+}
+
+Describe 'Text a transport has no key for is refused before anything is typed' {
+    # Dropping the character and typing the rest delivers a different string
+    # than the step asked for -- a password wrong by one -- and reports success,
+    # so the step fails later under a label that names something else.
+
+    It 'types nothing over VNC and records a deterministic fault naming the code point' {
+        Reset-KeyRecording
+        Clear-HostInputFault
+        $ok = Send-TextVNC -VMName 'vm' -Text ('ab' + [char]0xE9) -CharDelayMs 0 3>$null
+        Assert-True ($ok -eq $false) 'an unmappable character must fail the send'
+        $rec = & $script:TransportModule { , $script:rec.ToArray() }
+        Assert-Equal -Expected 0 -Actual $rec.Count -Because 'no key of the text may reach the guest'
+        $fault = Get-HostInputFault
+        Assert-Equal -Expected 'deterministic' -Actual $fault.kind
+        Assert-Equal -Expected 'unmappable-character' -Actual $fault.reason
+        Assert-Equal -Expected 'U+00E9 at 2' -Actual $fault.detail -Because 'named by code point and position, never by value'
+        Assert-Equal -Expected 0 -Actual $fault.delivered
+    }
+
+    It 'warns once for the whole text, not once per character' {
+        Reset-KeyRecording
+        $warnings = @(Send-TextVNC -VMName 'vm' -Text ([string][char]0xE9 + [char]0x20AC) -CharDelayMs 0 3>&1 |
+            Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+        Assert-Equal -Expected 1 -Actual $warnings.Count
+        Assert-True ("$($warnings[0])" -match 'U\+00E9 at 0, U\+20AC at 1') "the warning lists both: $($warnings[0])"
+    }
+
+    It 'records an unknown key name as deterministic' {
+        Clear-HostInputFault
+        Assert-True ((Send-KeyVNC -VMName 'vm' -KeyName 'NoSuchKey' 3>$null) -eq $false) 'an unknown key must fail'
+        Assert-Equal -Expected 'unknown-key' -Actual (Get-HostInputFault).reason
+        Assert-Equal -Expected 'deterministic' -Actual (Get-HostInputFault).kind
+    }
+}
+
+Describe 'A VNC text send that dies part-way says how much went out' {
+    It 'counts the characters whose press and release were both written' {
+        # 'abc' writes down(a) up(a) down(b) up(b) down(c) up(c); failing the 5th
+        # write leaves a and b in the guest and c released by the finally.
+        Reset-KeyRecording -FailAt 5
+        Clear-HostInputFault
+        Assert-True ((Send-TextVNC -VMName 'vm' -Text 'abc' -CharDelayMs 0 3>$null) -eq $false) 'the send must fail'
+        $fault = Get-HostInputFault
+        Assert-Equal -Expected 'transient' -Actual $fault.kind -Because 'a refused write may clear on a new connection'
+        Assert-Equal -Expected 'write-failed' -Actual $fault.reason
+        Assert-Equal -Expected 2 -Actual $fault.delivered
+        Assert-Equal -Expected 3 -Actual $fault.total
+    }
+}
+
+Describe 'Hyper-V and UTM text refuse unmappable characters too' {
+    BeforeEach {
+        & $script:TransportModule {
+            $script:scanSends = [System.Collections.ArrayList]::new()
+            $script:osaScripts = [System.Collections.ArrayList]::new()
+            function script:Get-HyperVKeyboard {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Shadow stub; the caller binds -VMName and there is no WMI keyboard to resolve here.')]
+                param($VMName)
+                [pscustomobject]@{ Fake = $true }
+            }
+            function script:Send-ScanCode {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Shadow stub; $Keyboard is the WMI instance the real primitive invokes against, and this one records the codes instead.')]
+                param($Keyboard, [byte[]]$Codes)
+                [void]$script:scanSends.Add([byte[]]$Codes)
+                return $true
+            }
+            function script:Invoke-OsaScriptFile {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Shadow stub; records the script instead of running osascript.')]
+                param($Script, $Language)
+                [void]$script:osaScripts.Add([string]$Script)
+                return 'ok'
+            }
+        }
+        Clear-HostInputFault
+    }
+
+    It 'sends no scan code for text with a character the PS/2 map lacks' {
+        Assert-True ((Send-TextHyperV -VMName 'vm' -Text ('a' + [char]0x4F60) -CharDelayMs 0 3>$null) -eq $false) 'the send must fail'
+        $sends = & $script:TransportModule { , $script:scanSends.ToArray() }
+        Assert-Equal -Expected 0 -Actual $sends.Count -Because 'not even the modifier-reset prefix is sent'
+        Assert-Equal -Expected 'unmappable-character' -Actual (Get-HostInputFault).reason
+    }
+
+    It 'runs no osascript for text the macOS key map lacks, without the shell escape' {
+        Assert-True ((Send-TextUTM -VMName 'vm' -Text ('a' + [char]0x20AC) -CharDelayMs 0 3>$null) -eq $false) 'the send must fail'
+        $scripts = & $script:TransportModule { , $script:osaScripts.ToArray() }
+        Assert-Equal -Expected 0 -Actual $scripts.Count
+        Assert-Equal -Expected 'deterministic' -Actual (Get-HostInputFault).kind
+    }
+
+    It 'types the character through the shell escape, which spells every byte with unshifted keys' {
+        Assert-True ((Send-TextUTM -VMName 'vm' -Text ('echo ' + [char]0x20AC) -CharDelayMs 0 -ShellEscape 3>$null) -eq $true) 'the escaped send must succeed'
+        $scripts = & $script:TransportModule { , $script:osaScripts.ToArray() }
+        Assert-Equal -Expected 1 -Actual $scripts.Count
+    }
+
+    It 'records an osascript that did not finish as transient' {
+        & $script:TransportModule { function script:Invoke-OsaScriptFile { param($Script, $Language) $null = $Script, $Language; 'window_not_found' } }
+        Assert-True ((Send-TextUTM -VMName 'vm' -Text 'abc' -CharDelayMs 0) -eq $false) 'the send must fail'
+        Assert-Equal -Expected 'transient' -Actual (Get-HostInputFault).kind
+        Assert-Equal -Expected 'send-failed' -Actual (Get-HostInputFault).reason
     }
 }

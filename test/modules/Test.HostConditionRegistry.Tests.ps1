@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d1e9a4-db28-4ba0-8a3a-5806a893ed05
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,8 +69,8 @@ BeforeAll {
             ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join "`n"
 
     $script:Facade = Get-Module -Name 'Test.HostCondition'
-    $script:RecordFields = 'HostType, Assert, AssertMinimum, RequiresElevation, Display, DisplayTeardown, ClockSync, NetworkHealth, MetricsExporter'
-    $script:OptionalSlots = @('Display', 'DisplayTeardown', 'ClockSync', 'NetworkHealth', 'MetricsExporter')
+    $script:RecordFields = 'HostType, Assert, AssertMinimum, RequiresElevation, Display, DisplayTeardown, ClockSync, NetworkHealth, MetricsExporter, Failure'
+    $script:OptionalSlots = @('Display', 'DisplayTeardown', 'ClockSync', 'NetworkHealth', 'MetricsExporter', 'Failure')
 }
 
 Describe 'every supported host registers a condition provider' {
@@ -131,6 +131,7 @@ Describe 'the record each supported host registers' {
                 Display = 'Install-YurunaVirtualDisplay'; DisplayTeardown = 'Remove-YurunaVirtualDisplay'
                 ClockSync = 'Sync-WindowsHostClock'; NetworkHealth = 'Test-WindowsGuestNetworkHealth'
                 MetricsExporter = 'Initialize-WindowsHostMetricsExporter'
+                Failure = 'Get-WindowsHostConditionFailure'
             }
         }
         @{
@@ -140,6 +141,7 @@ Describe 'the record each supported host registers' {
                 Display = $null; DisplayTeardown = $null
                 ClockSync = 'Sync-MacHostClock'; NetworkHealth = $null
                 MetricsExporter = $null
+                Failure = 'Get-MacHostConditionFailure'
             }
         }
         @{
@@ -149,6 +151,7 @@ Describe 'the record each supported host registers' {
                 Display = $null; DisplayTeardown = $null
                 ClockSync = 'Sync-LinuxHostClock'; NetworkHealth = $null
                 MetricsExporter = $null
+                Failure = 'Get-LinuxHostConditionFailure'
             }
         }
     ) {
@@ -188,7 +191,7 @@ Describe 'optional capabilities are resolved by name when a host registers' {
         $script:FixtureFunction = @(
             'Test-YurunaRegistryFixtureAssert', 'Test-YurunaRegistryFixtureMinimum', 'Get-YurunaRegistryFixtureDisplay',
             'Get-YurunaRegistryFixtureTeardown', 'Get-YurunaRegistryFixtureClock', 'Get-YurunaRegistryFixtureNetwork',
-            'Get-YurunaRegistryFixtureMetric')
+            'Get-YurunaRegistryFixtureMetric', 'Get-YurunaRegistryFixtureFailure')
         function global:Test-YurunaRegistryFixtureAssert { $true }
         function global:Test-YurunaRegistryFixtureMinimum { $true }
         function global:Get-YurunaRegistryFixtureDisplay { 'AlreadyActive' }
@@ -196,23 +199,24 @@ Describe 'optional capabilities are resolved by name when a host registers' {
         function global:Get-YurunaRegistryFixtureClock { @{ Succeeded = $true; Message = '' } }
         function global:Get-YurunaRegistryFixtureNetwork { @{ Healthy = $true } }
         function global:Get-YurunaRegistryFixtureMetric { [pscustomobject]@{ Status = 'Present'; Reason = '' } }
+        function global:Get-YurunaRegistryFixtureFailure { $null }
 
         # The registration helper's own parameter for each optional slot, and
         # the fixture function that fills the slot.
         $script:SlotParameter = [ordered]@{
             Display = 'DisplayFn'; DisplayTeardown = 'TeardownFn'; ClockSync = 'ClockSyncFn'
-            NetworkHealth = 'NetworkHealthFn'; MetricsExporter = 'MetricsExporterFn'
+            NetworkHealth = 'NetworkHealthFn'; MetricsExporter = 'MetricsExporterFn'; Failure = 'FailureFn'
         }
         $script:SlotFixture = @{
             Display = 'Get-YurunaRegistryFixtureDisplay'; DisplayTeardown = 'Get-YurunaRegistryFixtureTeardown'
             ClockSync = 'Get-YurunaRegistryFixtureClock'; NetworkHealth = 'Get-YurunaRegistryFixtureNetwork'
-            MetricsExporter = 'Get-YurunaRegistryFixtureMetric'
+            MetricsExporter = 'Get-YurunaRegistryFixtureMetric'; Failure = 'Get-YurunaRegistryFixtureFailure'
         }
 
         function Get-FixtureArgument {
             <#
             .SYNOPSIS
-                Arguments that register a fixture host whose five optional
+                Arguments that register a fixture host whose six optional
                 functions all exist.
             #>
             [CmdletBinding()]
@@ -285,7 +289,7 @@ Describe 'optional capabilities are resolved by name when a host registers' {
         foreach ($hostType in @($store.Keys | Where-Object { $_ -like 'host.fixture.*' })) { $store.Remove($hostType) }
     }
 
-    It 'fills all five optional slots when every named function exists' {
+    It 'fills all six optional slots when every named function exists' {
         $run = Invoke-FixtureRegistration (Get-FixtureArgument -HostType 'host.fixture.full')
         Assert-Equal -Expected 0 -Actual ($run.Verbose.Count + $run.Warning.Count + $run.Output.Count) `
             -Because "a registration with nothing missing writes nothing: $($run.Verbose + $run.Warning -join ' | ')"
@@ -306,6 +310,7 @@ Describe 'optional capabilities are resolved by name when a host registers' {
         @{ Slot = 'ClockSync';       Wording = 'clock sync' }
         @{ Slot = 'NetworkHealth';   Wording = 'guest-network probe' }
         @{ Slot = 'MetricsExporter'; Wording = 'metrics-exporter convergence' }
+        @{ Slot = 'Failure';         Wording = 'failure reader' }
     ) {
         param([string]$Slot, [string]$Wording)
 
@@ -333,7 +338,8 @@ Describe 'optional capabilities are resolved by name when a host registers' {
         $expected = @()
         foreach ($pair in @(
                 @('DisplayFn', 'display ensure'), @('TeardownFn', 'display teardown'), @('ClockSyncFn', 'clock sync'),
-                @('NetworkHealthFn', 'guest-network probe'), @('MetricsExporterFn', 'metrics-exporter convergence'))) {
+                @('NetworkHealthFn', 'guest-network probe'), @('MetricsExporterFn', 'metrics-exporter convergence'),
+                @('FailureFn', 'failure reader'))) {
             $argument[$pair[0]] = "Get-YurunaRegistryFixtureAbsent$($pair[0])"
             $expected += "Test.HostCondition: host.fixture.bare $($pair[1]) 'Get-YurunaRegistryFixtureAbsent$($pair[0])' not found; skipping that capability."
         }
@@ -351,7 +357,7 @@ Describe 'optional capabilities are resolved by name when a host registers' {
         }
         $blank = Invoke-FixtureRegistration @{
             HostType = 'host.fixture.blank'; AssertFn = 'Test-YurunaRegistryFixtureAssert'; MinimumFn = 'Test-YurunaRegistryFixtureMinimum'
-            DisplayFn = ''; TeardownFn = ''; ClockSyncFn = ''; NetworkHealthFn = ''; MetricsExporterFn = ''
+            DisplayFn = ''; TeardownFn = ''; ClockSyncFn = ''; NetworkHealthFn = ''; MetricsExporterFn = ''; FailureFn = ''
         }
         foreach ($run in @($never, $blank)) {
             Assert-Equal -Expected 0 -Actual ($run.Verbose.Count + $run.Warning.Count) `

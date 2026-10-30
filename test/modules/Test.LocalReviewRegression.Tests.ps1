@@ -1,7 +1,7 @@
 <#PSScriptInfo
 .GUID 42be47e1-a8ca-4869-85bf-16e98c15bb5d
 .LICENSEURI https://yuruna.link/license
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .BUILD 260927
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,9 @@ BeforeAll {
         @('host/macos.utm/modules/Yuruna.Host.psm1', 'Test-UtmBoundedResultComplete'),
         @('host/windows.hyper-v/modules/Yuruna.Host.psm1', 'Get-WindowsDefaultIPv4Route'),
         @('host/windows.hyper-v/modules/Yuruna.Host.psm1', 'Get-WindowsDefaultRoutePhysicalAdapter'),
+        @('test/modules/Test.ServiceVm.psm1', 'Get-ServiceVmBuildTimeout'),
+        @('test/modules/Test.ServiceVm.psm1', 'Invoke-ServiceVmBuilderProcess'),
+        @('test/modules/Test.ServiceVm.psm1', 'Invoke-YurunaServiceVmBuilderRun'),
         @('test/modules/Test.ServiceVm.psm1', 'Invoke-YurunaServiceVmBuild'),
         @('test/modules/Test.ServiceVm.psm1', 'Invoke-YurunaServiceVmFailureDiagnostic'),
         @('test/modules/Test.HostCondition.Windows.psm1', 'Get-WindowsVhdxFilterIssue'),

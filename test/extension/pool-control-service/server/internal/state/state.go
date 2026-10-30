@@ -22,12 +22,20 @@ import (
 
 // Store owns the state directory. All methods are safe for concurrent use and
 // tolerate a temporarily-unwritable NAS (they record the failure in Health).
+//
+// The two locks are not interchangeable. mu guards only the in-memory snapshot
+// and is never held across a file operation: /healthz reads that snapshot, so a
+// mutex held across a CIFS write to a hung NAS would hang the endpoint whose
+// whole purpose is to answer while the share is sick. ioMu serializes the
+// writes themselves, and the failures they record.
 type Store struct {
 	dir       string
 	mu        sync.Mutex
 	startedAt time.Time
 	writes    int
 	last      Status
+
+	ioMu      sync.Mutex
 	statusErr string
 	auditErr  string
 }
@@ -76,7 +84,6 @@ func (s *Store) Enabled() bool { return s.dir != "" }
 // mutation that is a "publish" (any configuration write) also stamps LastPublishOK.
 func (s *Store) Record(now time.Time, e AuditEntry) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if e.Publish {
 		s.writes++
 		s.last.Writes = s.writes
@@ -84,18 +91,18 @@ func (s *Store) Record(now time.Time, e AuditEntry) {
 		s.last.LastAction = e.Action
 		s.last.LastPublishOK = e.OK
 	}
-	s.appendAudit(e)
-	s.writeStatusLocked(now)
+	s.mu.Unlock()
+	s.persist(&e)
 }
 
 // Beat updates the heartbeat + configuration-readable flag (called by the monitor loop)
 // and persists the status.
 func (s *Store) Beat(now time.Time, configurationReadable bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.last.HeartbeatUTC = now.UTC().Format(time.RFC3339)
 	s.last.ConfigurationReadable = configurationReadable
-	s.writeStatusLocked(now)
+	s.mu.Unlock()
+	s.persist(nil)
 }
 
 // Health returns the current status snapshot for /healthz.
@@ -105,9 +112,34 @@ func (s *Store) Health() Status {
 	return s.last
 }
 
-// updateHealthLocked keeps independent audit and status failures visible until
-// that same destination successfully writes again.
-func (s *Store) updateHealthLocked() {
+// persist appends an audit line (when e is non-nil) and rewrites status.json,
+// then folds the outcome back into the in-memory snapshot. Every file operation
+// happens under ioMu and outside mu.
+func (s *Store) persist(e *AuditEntry) {
+	s.ioMu.Lock()
+	defer s.ioMu.Unlock()
+	if s.dir != "" && e != nil {
+		s.appendAudit(*e)
+	}
+	s.statusErr = ""
+	s.mu.Lock()
+	snap := s.last
+	s.mu.Unlock()
+	snap.LastError, snap.Healthy = s.failures()
+	if s.dir != "" {
+		if err := writeStatus(s.dir, snap); err != nil {
+			s.statusErr = err.Error()
+			snap.LastError, snap.Healthy = s.failures()
+		}
+	}
+	s.mu.Lock()
+	s.last.LastError, s.last.Healthy = snap.LastError, snap.Healthy
+	s.mu.Unlock()
+}
+
+// failures joins the audit and status failures; each stays visible until that
+// same destination writes successfully again. Runs under ioMu.
+func (s *Store) failures() (string, bool) {
 	var failures []string
 	if s.auditErr != "" {
 		failures = append(failures, s.auditErr)
@@ -115,14 +147,11 @@ func (s *Store) updateHealthLocked() {
 	if s.statusErr != "" {
 		failures = append(failures, s.statusErr)
 	}
-	s.last.LastError = strings.Join(failures, "; ")
-	s.last.Healthy = len(failures) == 0
+	return strings.Join(failures, "; "), len(failures) == 0
 }
 
+// appendAudit runs under ioMu.
 func (s *Store) appendAudit(e AuditEntry) {
-	if s.dir == "" {
-		return
-	}
 	f, err := os.OpenFile(filepath.Join(s.dir, "audit.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err == nil {
 		var b []byte
@@ -140,26 +169,36 @@ func (s *Store) appendAudit(e AuditEntry) {
 	if s.auditErr != "" && s.auditErr != previous {
 		log.Printf("pool-control-service: %s", s.auditErr)
 	}
-	s.updateHealthLocked()
 }
 
-func (s *Store) writeStatusLocked(now time.Time) {
-	s.statusErr = ""
-	s.updateHealthLocked()
-	if s.dir == "" {
-		return
+// writeStatus publishes one snapshot through a temp file of its own and a
+// rename. A fixed temp name would let two writers -- a second daemon on the same
+// share, or a write still landing after a restart -- write into one file and
+// rename each other's half.
+func writeStatus(dir string, snap Status) error {
+	b, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return errors.New("status encode: " + err.Error())
 	}
-	tmp := filepath.Join(s.dir, "status.json.tmp")
-	dst := filepath.Join(s.dir, "status.json")
-	b, _ := json.MarshalIndent(s.last, "", "  ")
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		s.statusErr = "status write: " + err.Error()
-		s.updateHealthLocked()
-		return
+	f, err := os.CreateTemp(dir, ".status.json.tmp-*")
+	if err != nil {
+		return errors.New("status write: " + err.Error())
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		s.statusErr = "status rename: " + err.Error()
-		s.updateHealthLocked()
-		return
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return errors.New("status write: " + err.Error())
 	}
+	if err := f.Chmod(0o644); err != nil {
+		f.Close()
+		return errors.New("status write: " + err.Error())
+	}
+	if err := f.Close(); err != nil {
+		return errors.New("status write: " + err.Error())
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, "status.json")); err != nil {
+		return errors.New("status rename: " + err.Error())
+	}
+	return nil
 }

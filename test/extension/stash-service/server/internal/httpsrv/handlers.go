@@ -34,7 +34,7 @@ import (
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	// JSON API (section 9).
+	// JSON API (https://yuruna.link/429e934f-0011).
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /api/stashes", s.handleList)
 	mux.HandleFunc("POST /api/stashes", s.handleCreate)
@@ -57,14 +57,14 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/unlock-proof", s.handleUnlockProof)
 	mux.HandleFunc("DELETE /api/stashes/{hostId}/{year}/{month}/{day}/{id}", s.gate.Require(s.handleDelete))
 	mux.HandleFunc("POST /api/stashes/delete", s.gate.Require(s.handleDeleteBatch))
-	// Local short-alias routes (section 4.4): the hostId wildcard is omitted and
+	// Local short-alias routes (https://yuruna.link/429e934f-0014): the hostId wildcard is omitted and
 	// defaults to this host in parsePathKey, so /s/<y>/<m>/<d>/<id> works.
 	mux.HandleFunc("GET /api/stashes/{year}/{month}/{day}/{id}", s.handleGetMeta)
 	mux.HandleFunc("GET /api/stashes/{year}/{month}/{day}/{id}/archive", s.handleArchive)
 	mux.HandleFunc("DELETE /api/stashes/{year}/{month}/{day}/{id}", s.gate.Require(s.handleDelete))
 	mux.HandleFunc("GET /raw/{year}/{month}/{day}/{id}", s.handleRaw)
 	mux.HandleFunc("GET /download/{year}/{month}/{day}/{id}", s.handleDownload)
-	// Static pages + assets (section 2.3).
+	// Static pages + assets (https://yuruna.link/429e934f-0011).
 	mux.HandleFunc("GET /assets/", s.handleAsset)
 	mux.HandleFunc("GET /new", s.servePage("new.html"))
 	mux.HandleFunc("GET /s/", s.servePage("stash.html"))
@@ -151,7 +151,7 @@ func (s *Server) parsePathKey(r *http.Request) (pathKey, bool) {
 // BODY (the bulk delete) passes exactly the checks one named in the URL does.
 // A second, laxer parser for the batch route is how a traversal gets in.
 func (s *Server) newPathKey(hostID, yS, mS, dS, id string) (pathKey, bool) {
-	// The short-alias routes (/s/<y>/<m>/<d>/<id>, section 4.4) omit the hostId
+	// The short-alias routes (/s/<y>/<m>/<d>/<id>, https://yuruna.link/429e934f-0014) omit the hostId
 	// wildcard; default it to this host, so the alias resolves to a local
 	// stash exactly like the canonical full permalink.
 	if hostID == "" {
@@ -262,10 +262,9 @@ func findArtifact(dir, id string) string {
 }
 
 // effectiveResult returns the record's stored detection, classifying
-// on-the-fly when a record predates the section 10 type fields. For a LOCALLY
+// on-the-fly when a record predates the stored type fields (https://yuruna.link/429e934f-0016). For a LOCALLY
 // owned record it backfills (persists) the result; for a REMOTE record it
-// only computes (never writes another host's storage -- the section 8.1 ownership
-// boundary, honored by the on-the-fly detection in section 10).
+// only computes, because a host writes only its own metadata.
 func (s *Server) effectiveResult(r *resolved) detect.Result {
 	rec := r.rec
 	if rec.ContentClass != "" {
@@ -279,7 +278,7 @@ func (s *Server) effectiveResult(r *resolved) detect.Result {
 	}
 	res := s.detector().DetectFile(r.artifact, rec.OriginalFilename)
 	if r.hostID == s.localHostID && rec.Status == meta.StatusComplete {
-		// Backfill our own record + rewrite the sidecar (section 10).
+		// Backfill our own record + rewrite the sidecar (https://yuruna.link/429e934f-0016).
 		if err := s.meta().UpdateType(rec.ID, res.MimeType, res.ContentClass, res.IsText, res.TypeLabel, res.TypeScore); err == nil {
 			if fresh, gerr := s.meta().Get(rec.ID); gerr == nil && !fresh.LocallyBuffered {
 				_ = meta.WriteSidecar(fresh)
@@ -308,7 +307,8 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	if f.Host == "" || f.Host == s.localHostID {
 		recs, err := s.meta().Search(f.toMetaFilter(0))
 		if err != nil {
-			s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_search_detail", "", map[string]any{"detail": err.Error()})
+			log.Printf("stash: search the local index: %v", err)
+			s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_search_failed", "", nil)
 			return
 		}
 		for _, rc := range recs {
@@ -374,7 +374,8 @@ func (s *Server) parseAndResolve(w http.ResponseWriter, r *http.Request) (*resol
 	}
 	res, found, err := s.resolve(k)
 	if err != nil {
-		s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_detail", "", map[string]any{"detail": err.Error()})
+		log.Printf("stash: resolve %s/%s: %v", k.hostID, k.id, err)
+		s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_resolve_failed", "", nil)
 		return nil, false
 	}
 	if !found {
@@ -420,7 +421,8 @@ func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
 	}
 	zr, err := zip.OpenReader(res.artifact)
 	if err != nil {
-		s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_open_archive_detail", "", map[string]any{"detail": err.Error()})
+		log.Printf("stash: open archive %s/%s: %v", res.hostID, res.rec.ID, err)
+		s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_open_archive_failed", "", nil)
 		return
 	}
 	defer zr.Close()
@@ -442,7 +444,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) { s.serv
 // serveBytes streams an artifact. attachment=true forces a download
 // (Content-Disposition: attachment, octet-stream); attachment=false serves
 // inline for the UI's <img>/<embed>/<audio>/<video>/text fetch. Either way
-// the active-content safety rules (section 7.4) apply: nosniff, a restrictive CSP,
+// the active-content safety rules (https://yuruna.link/429e934f-0017) apply: nosniff, a restrictive CSP,
 // and text/plain for any non-(image|pdf|audio|video) type so a .html/.svg
 // stash can never execute when opened directly.
 func (s *Server) serveBytes(w http.ResponseWriter, r *http.Request, attachment bool) {
@@ -626,8 +628,8 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.deleteStash(k); err != nil {
-		status, msg := deleteStatus(err)
-		s.writeLocalizedError(w, r, status, "stash.api_detail", "", map[string]any{"detail": msg})
+		status, code := deleteStatus(k, err)
+		s.writeLocalizedError(w, r, status, code, "", nil)
 		return
 	}
 	log.Printf("delete: host=%s id=%s from %s", k.hostID, k.id, clientIP(r))
@@ -683,8 +685,8 @@ func (s *Server) handleDeleteBatch(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err := s.deleteStash(k); err != nil {
-			_, msg := deleteStatus(err)
-			results = append(results, result{ID: k.id, HostID: k.hostID, Error: msg})
+			_, code := deleteStatus(k, err)
+			results = append(results, result{ID: k.id, HostID: k.hostID, Code: code, Error: s.pages.Catalog.Render(code, nil, locale.ResolvedTag)})
 			continue
 		}
 		deleted++
@@ -722,7 +724,8 @@ func (s *Server) handleHostResolve(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) respondCreate(w http.ResponseWriter, r *http.Request, res *sshsrv.IngestResult, err error) {
 	if err != nil {
-		s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_create_detail", "", map[string]any{"detail": err.Error()})
+		log.Printf("stash: create from %s: %v", clientIP(r), err)
+		s.writeLocalizedError(w, r, http.StatusInternalServerError, "stash.api_create_failed", "", nil)
 		return
 	}
 	y, mo, d := time.Now().UTC().Date()
@@ -895,7 +898,7 @@ func inlineContentType(res detect.Result) string {
 		// Honor the stored MIME only when it maps back to the SAME renderable
 		// class. A remote sidecar is peer-written, so a mismatch like
 		// {class:image, mime:text/html} must not yield an inline text/html
-		// response (section 7.4); fall back to octet-stream in that case.
+		// response (https://yuruna.link/429e934f-0017); fall back to octet-stream in that case.
 		if res.MimeType != "" && detect.ClassFromMime(res.MimeType) == res.ContentClass {
 			return res.MimeType
 		}
@@ -904,7 +907,7 @@ func inlineContentType(res detect.Result) string {
 		return "text/plain; charset=utf-8"
 	default:
 		// other/archive served inline -> text/plain so active content
-		// (html/svg) can never execute when opened directly (section 7.4).
+		// (html/svg) can never execute when opened directly (https://yuruna.link/429e934f-0017).
 		return "text/plain; charset=utf-8"
 	}
 }

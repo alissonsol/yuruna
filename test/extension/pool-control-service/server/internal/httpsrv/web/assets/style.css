@@ -432,6 +432,12 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
    error color the notices and row feedback already define, so it reads as
    actionable in both themes without introducing a token of its own. */
 .badge.rekeyed { border-color: var(--err); color: var(--err); }
+/* Y.explain: hover-only text shown inline on demand; a target or "?" toggle
+   stays 24px square, and the details wrap inside the cell. */
+.explain-target { display: inline-block; min-width: 24px; min-height: 24px; line-height: 24px; cursor: pointer; text-decoration: underline dotted; }
+.explain-toggle { min-width: 24px; min-height: 24px; margin-inline-start: .25rem; border: 1px solid var(--control-edge); border-radius: 999px; background: var(--btn-bg); color: var(--fg); font: inherit; cursor: pointer; }
+.explain-details { display: block; max-width: 28rem; font-size: .8rem; overflow-wrap: anywhere; }
+.explain-details[hidden] { display: none; }
 
 @media (max-width: 600px) {
   /* iOS Safari zooms the viewport when a focused text control computes under

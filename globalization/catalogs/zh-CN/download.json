@@ -779,6 +779,16 @@
       "sourceHash": "98e0474b9772f49ad6944c9576ccbd80ad60a557205f1dd8d3d84e24b9546735",
       "origin": "machine",
       "message": "Yuruna Download Agent（下载代理）"
+    },
+    "download.api_delete_refused_reason": {
+      "sourceHash": "8706af375b2d0292207518baf53448a081a82fa05e99ff478f15d55abf47a05c",
+      "origin": "machine",
+      "message": "删除被拒绝：{reason}"
+    },
+    "download.api_prune_refused_reason": {
+      "sourceHash": "70d748ccddd933e47701f3ed3129272a9d503d2983b7ef76f39f09d4d5ded94d",
+      "origin": "machine",
+      "message": "清理被拒绝：{reason}"
     }
   }
 }

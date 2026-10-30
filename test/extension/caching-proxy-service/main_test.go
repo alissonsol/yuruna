@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	testVersion = "2026.10.26"
+	testVersion = "2026.10.30"
 	testBearer  = "test-internal-auth-key"
 )
 

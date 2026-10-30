@@ -7,6 +7,7 @@ package webui
 import (
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestAssetServesTheSharedRuntime(t *testing.T) {
@@ -48,5 +49,36 @@ func TestNamesListsWhatIsShipped(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("Names() = %v, missing yuruna.core.js", names)
+	}
+}
+
+func TestAssetCatalogsReadsEveryNonDefaultLocaleFromItsAsset(t *testing.T) {
+	fsys := fstest.MapFS{
+		"web/assets/pt-BR.pool.js": {Data: []byte("pt-BR tables")},
+		"web/assets/zh-CN.pool.js": {Data: []byte("zh-CN tables")},
+		"web/assets/en-US.pool.js": {Data: []byte("never read")},
+	}
+	data := map[string]map[string]string{"en-US": {}, "pt-BR": {}, "zh-CN": {}}
+	got, err := AssetCatalogs(fsys, "web/assets", "pool", data)
+	if err != nil {
+		t.Fatalf("AssetCatalogs: %v", err)
+	}
+	if len(got) != 2 || got["pt-BR"] != "pt-BR tables" || got["zh-CN"] != "zh-CN tables" {
+		t.Fatalf("AssetCatalogs = %v, want the two non-default locales' asset bytes", got)
+	}
+	if _, ok := got["en-US"]; ok {
+		t.Error("the default locale's tables travel in the runtime; AssetCatalogs returned a second copy")
+	}
+}
+
+func TestAssetCatalogsRefusesADeliveredLocaleWithNoAsset(t *testing.T) {
+	fsys := fstest.MapFS{"web/assets/pt-BR.stash.js": {Data: []byte("pt-BR tables")}}
+	data := map[string]map[string]string{"en-US": {}, "pt-BR": {}, "he-IL": {}, "zh-CN": {}}
+	got, err := AssetCatalogs(fsys, "web/assets", "stash", data)
+	if err == nil || !strings.Contains(err.Error(), "he-IL, zh-CN") {
+		t.Fatalf("AssetCatalogs error = %v, want both missing locales named in order", err)
+	}
+	if got["pt-BR"] != "pt-BR tables" {
+		t.Errorf("AssetCatalogs dropped the locale it could read: %v", got)
 	}
 }

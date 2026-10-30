@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4241b748-d045-41cb-81f6-f42876137267
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,15 +27,10 @@
 
 BeforeAll {
     $script:ImageMagick = @(Get-Command convert -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
-    $hostPath = Join-Path $PSScriptRoot '../../host/ubuntu.kvm/modules/Yuruna.Host.psm1'
-    $ast = [Management.Automation.Language.Parser]::ParseFile($hostPath, [ref]$null, [ref]$null)
-    $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-VMScreenshot' }, $true)
-    if (-not $definition) { throw 'Get-VMScreenshot is absent.' }
-    . ([scriptblock]::Create($definition.Extent.Text))
-    $consoleDefinition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Restart-VMConsole' }, $true)
-    . ([scriptblock]::Create($consoleDefinition.Extent.Text))
-    $completeDefinition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-DriverNativeResultComplete' }, $true)
-    . ([scriptblock]::Create($completeDefinition.Extent.Text))
+    Import-Module (Join-Path $PSScriptRoot 'Test.DriverSource.psm1') -DisableNameChecking
+    foreach ($name in 'Get-VMScreenshot', 'Restart-VMConsole', 'Test-DriverNativeResultComplete') {
+        . ([scriptblock]::Create((Get-YurunaDriverFunction -Driver ubuntu.kvm -Name $name)))
+    }
     Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
     $script:VirshQueryTimeoutSeconds = 20
     function Get-NativeResultFixture {

@@ -5,7 +5,9 @@
 package imagestore
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -34,6 +36,33 @@ func dropFile(t *testing.T, s *Store, id ImageID, name string, body []byte, age 
 	return path
 }
 
+// testISO builds a small image shaped like installation media: an ISO 9660
+// primary volume descriptor that declares the whole file, and a UDF volume
+// whose anchor descriptor sits at sector 256 and in the last sector. tag makes
+// two images differ in their bytes.
+func testISO(t *testing.T, sectors int, tag string) []byte {
+	t.Helper()
+	img := make([]byte, sectors*isoSector)
+	at := func(n int) []byte { return img[n*isoSector : (n+1)*isoSector] }
+	pvd := at(16)
+	pvd[0] = 1
+	copy(pvd[1:6], "CD001")
+	binary.LittleEndian.PutUint32(pvd[80:84], uint32(sectors))
+	binary.BigEndian.PutUint32(pvd[84:88], uint32(sectors))
+	binary.LittleEndian.PutUint16(pvd[128:130], isoSector)
+	binary.BigEndian.PutUint16(pvd[130:132], isoSector)
+	copy(pvd[40:72], tag)
+	term := at(17)
+	term[0] = 255
+	copy(term[1:6], "CD001")
+	copy(at(18)[1:6], "BEA01")
+	copy(at(19)[1:6], "NSR02")
+	copy(at(20)[1:6], "TEA01")
+	binary.LittleEndian.PutUint16(at(256)[0:2], 2)
+	binary.LittleEndian.PutUint16(at(sectors - 1)[0:2], 2)
+	return img
+}
+
 // windowsID is the row the hand-download path exists for.
 var windowsID = ImageID{HostType: HostTypeHyperV, ImageKey: KeyWindows11, Arch: ArchAMD64, Variant: VariantStable}
 
@@ -47,8 +76,8 @@ func brokenFido(t *testing.T) FidoConfig {
 }
 
 func TestAHandPlacedISOBecomesTheServedArtifact(t *testing.T) {
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.10.26"})
-	body := []byte("bytes an operator downloaded from Microsoft by hand")
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.10.30"})
+	body := testISO(t, 300, "bytes an operator downloaded by hand")
 	dropFile(t, a.store, windowsID, signedName, body, 10*time.Minute)
 
 	// Through the ordinary refresh path, not a private helper: the drop folder
@@ -140,7 +169,7 @@ func TestAdoptionLeavesFamiliesWithAWorkingResolverAlone(t *testing.T) {
 
 func TestTheScanAdoptsWithoutAnyonePressingAnything(t *testing.T) {
 	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AutoSeed: false})
-	body := []byte("bytes an operator dropped and then walked away from")
+	body := testISO(t, 300, "dropped and then walked away from")
 	dropFile(t, a.store, windowsID, signedName, body, 10*time.Minute)
 
 	a.ScanOnce(context.Background())
@@ -287,5 +316,52 @@ func TestManualCandidateEqualTimeUsesName(t *testing.T) {
 	got, _, ok := a.store.ManualCandidate(windowsID, fixedNow)
 	if !ok || got != want {
 		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+// The settle delay reads a copy that paused for longer than it as a finished
+// one. A copy writes front to back, so the image's own structure tells: a file
+// that ends before the volume its first sectors declare, or that was given its
+// full length up front and never reached its closing anchor, is not adopted.
+func TestAPausedCopyIsNotAdopted(t *testing.T) {
+	whole := testISO(t, 300, "a copy that stalled")
+	preallocated := append(append([]byte{}, whole[:150*isoSector]...), make([]byte, 150*isoSector)...)
+	for name, body := range map[string][]byte{
+		"cut short":    whole[:150*isoSector],
+		"preallocated": preallocated,
+		"not an ISO":   bytes.Repeat([]byte("x"), 300*isoSector),
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t)})
+			dropFile(t, a.store, windowsID, signedName, body, 10*time.Minute)
+			adopted, err := a.adoptManual(context.Background(), windowsID, &Progress{})
+			if adopted || err == nil {
+				t.Fatalf("adoptManual = (%t, %v), want a refusal that says why", adopted, err)
+			}
+			if _, found := a.Entry(fixedNow, windowsID); found {
+				t.Fatal("a pointer was published for an image that is not whole")
+			}
+			if _, _, ok := a.store.ManualCandidate(windowsID, fixedNow); !ok {
+				t.Fatal("the drop was consumed; it must stay for the copy to finish")
+			}
+		})
+	}
+}
+
+// virtio-win is best effort, but its resolver works and it has no hand-download
+// path: a file in its folder is not published as its artifact.
+func TestADropForAFamilyWithoutAHandDownloadPathIsNotAdopted(t *testing.T) {
+	a := newTestAgent(t, Options{PoolDir: t.TempDir()})
+	virtio := ImageID{HostType: HostTypeHyperV, ImageKey: KeyVirtioWin, Arch: ArchAMD64, Variant: VariantStable}
+	if !IsBestEffort(virtio.ImageKey) {
+		t.Fatal("virtio-win is no longer best effort; the premise of this test is gone")
+	}
+	dropFile(t, a.store, virtio, "virtio-win.iso", testISO(t, 300, "virtio"), 10*time.Minute)
+	adopted, err := a.adoptManual(context.Background(), virtio, &Progress{})
+	if err != nil || adopted {
+		t.Fatalf("adoptManual = (%t, %v), want no adoption", adopted, err)
+	}
+	if _, found := a.Entry(fixedNow, virtio); found {
+		t.Fatal("a pointer was published from virtio-win's drop folder")
 	}
 }

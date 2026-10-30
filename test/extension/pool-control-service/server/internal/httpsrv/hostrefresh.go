@@ -9,7 +9,6 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"regexp"
@@ -22,6 +21,7 @@ import (
 	"pool-control-service/internal/state"
 	"yuruna.com/test/extension/extension-sdk/hostrefresh"
 	"yuruna.com/test/extension/extension-sdk/i18n"
+	"yuruna.com/test/extension/extension-sdk/jsonbody"
 	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
@@ -140,13 +140,16 @@ type refreshRefusal struct {
 // ignored, so no option can ride in unnoticed. A key that differs from an
 // allowed one only in case or punctuation counts as that key for the
 // duplicate check.
-func decodeRefreshBody(r *http.Request) (refreshBody, *refreshRefusal) {
-	raw, err := io.ReadAll(io.LimitReader(r.Body, config.MaxRefreshRequestBytes+1))
+//
+// The body must arrive within the shared body read timeout, like every other
+// small JSON body here.
+func decodeRefreshBody(w http.ResponseWriter, r *http.Request) (refreshBody, *refreshRefusal) {
+	raw, err := jsonbody.ReadRequest(w, r, config.MaxRefreshRequestBytes)
+	if errors.Is(err, jsonbody.ErrOversize) {
+		return refreshBody{}, &refreshRefusal{status: http.StatusRequestEntityTooLarge, key: "pool.host_refresh_body_invalid", args: map[string]any{"detail": "too_large"}}
+	}
 	if err != nil {
 		return refreshBody{}, &refreshRefusal{status: http.StatusBadRequest, key: "pool.host_refresh_body_invalid", args: map[string]any{"detail": "unreadable"}}
-	}
-	if len(raw) > config.MaxRefreshRequestBytes {
-		return refreshBody{}, &refreshRefusal{status: http.StatusRequestEntityTooLarge, key: "pool.host_refresh_body_invalid", args: map[string]any{"detail": "too_large"}}
 	}
 	invalid := func(detail string) (refreshBody, *refreshRefusal) {
 		return refreshBody{}, &refreshRefusal{status: http.StatusBadRequest, key: "pool.host_refresh_body_invalid", args: map[string]any{"detail": detail}}
@@ -211,7 +214,7 @@ func (s *Server) handleHostRefresh(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"path": s.refreshAuthorityFile()}, nil)
 		return
 	}
-	body, refusal := decodeRefreshBody(r)
+	body, refusal := decodeRefreshBody(w, r)
 	if refusal != nil {
 		s.recordHostRefresh(refreshBody{}, refreshOutcomeBodyInvalid, 0, "")
 		extra := map[string]any{}

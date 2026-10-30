@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e7a1d5-3b90-4c68-8f24-05c6b93e1a7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,25 +52,14 @@ $script:Orchestrator = Join-Path $script:RepoRoot 'test/modules/Test.Orchestrato
 Import-Module $script:LogModule -Force -Global -DisableNameChecking
 
 # The cycle-folder anchor is a global by design: Start-LogFile sets it and the
-# log writers read it. A test that redirects the writer at a sandbox has to
-# touch it, so the two accesses live here rather than being repeated inline.
-function Get-CycleFolderAnchor {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Reads the cycle-folder anchor the log module defines as a global.')]
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    return [string]$global:__YurunaCycleFolder
-}
-
+# log writers read it. A test that redirects the writer at a sandbox points it
+# through this helper and restores it with Restore-YurunaTestGlobal.
 function Set-CycleFolderAnchor {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Points the log writer at a sandbox for the duration of one test.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Sets an in-process variable that the same test restores in its finally block.')]
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$Path)
-    $global:__YurunaCycleFolder = $Path
+    Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $Path }
 }
 }
 
@@ -178,7 +167,7 @@ Describe 'a step boundary is available as data, not only as a line' {
 
         $sandbox = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-steps-" + [Guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Path $sandbox -Force
-        $priorFolder = Get-CycleFolderAnchor
+        $savedFolderGlobals = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
         try {
             Set-CycleFolderAnchor -Path $sandbox
             Write-CycleStepEvent -Phase 'start' -Index 2 -Total 11 -Name 'workload.guest.example' -Kind 'guest'
@@ -200,7 +189,7 @@ Describe 'a step boundary is available as data, not only as a line' {
             Assert-StringEqual -Expected 'fail' -Actual ([string]$steps[1].outcome) `
                 'the outcome should be a stable token, lower-case, not the printed word'
         } finally {
-            Set-CycleFolderAnchor -Path $priorFolder
+            Restore-YurunaTestGlobal -Saved $savedFolderGlobals
             Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -210,9 +199,9 @@ Describe 'localized transcript notification and MCP boundaries' {
     BeforeAll {
         Import-Module (Join-Path $here 'Test.Notify.psm1') -DisableNameChecking
         Import-Module (Join-Path $here 'Test.Catalog.psm1') -DisableNameChecking
-        $priorNoRun = $env:YURUNA_MCP_SERVER_NO_RUN
+        $priorNoRun = Save-YurunaTestEnvironment -Name 'YURUNA_MCP_SERVER_NO_RUN'
         try { $env:YURUNA_MCP_SERVER_NO_RUN = '1'; . (Join-Path $script:RepoRoot 'test/service/Start-McpServer.ps1') }
-        finally { $env:YURUNA_MCP_SERVER_NO_RUN = $priorNoRun }
+        finally { Restore-YurunaTestEnvironment -Saved $priorNoRun }
         Get-Module -Name 'default' -All | Remove-Module -Force -ErrorAction SilentlyContinue
         Import-Module (Join-Path $script:RepoRoot 'test/extension/notification/default.psm1') -DisableNameChecking
     }
@@ -255,14 +244,13 @@ Describe 'localized transcript notification and MCP boundaries' {
         & $module {
             param($target, $hostile)
             function Invoke-TranscriptCapture {
-                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '', Justification = 'Redirects the existing transcript anchor to an isolated fixture and restores it immediately.')]
                 [CmdletBinding()]
                 param($Destination, $Detail)
-                $prior = $global:__YurunaLogFile
+                $saved = Save-YurunaTestGlobal -Name '__YurunaLogFile'
                 try {
-                    $global:__YurunaLogFile = $Destination
+                    Set-YurunaTestGlobal -Value @{ __YurunaLogFile = $Destination }
                     Add-YurunaLogLine (New-YurunaStepRuleLine -Index 1 -Total 2 -Name $Detail)
-                } finally { $global:__YurunaLogFile = $prior }
+                } finally { Restore-YurunaTestGlobal -Saved $saved }
             }
             Invoke-TranscriptCapture -Destination $target -Detail $hostile
         } $target $hostile

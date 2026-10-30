@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a296aa-3108-4ad0-928d-3bf246b2d537
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,19 +141,19 @@ Describe 'vm-sizing -- guest New-VM.ps1 declares and applies the overrides' {
     }
     It 'declares -MemoryStartupBytes so the dispatcher forwards it: <name>' -TestCases $script:guestCase {
         param($name, $path)
-        $src = Get-Content -Raw -LiteralPath $path
+        $src = Get-YurunaTestSourceText -Path $path
         Assert-True ($src -match '(?m)^\s*\[string\]\$MemoryStartupBytes\s*=\s*''''') `
             "$name has no [string]`$MemoryStartupBytes = '' parameter; Invoke-PerGuestNewVm would drop the cascade to Verbose"
     }
     It 'declares -Cores so the dispatcher forwards it: <name>' -TestCases $script:guestCase {
         param($name, $path)
-        $src = Get-Content -Raw -LiteralPath $path
+        $src = Get-YurunaTestSourceText -Path $path
         Assert-True ($src -match '(?m)^\s*\[string\]\$Cores\s*=\s*''''') `
             "$name has no [string]`$Cores = '' parameter"
     }
     It 'resolves memory through ConvertTo-MemoryStartupBytes: <name>' -TestCases $script:guestCase {
         param($name, $path)
-        $src = Get-Content -Raw -LiteralPath $path
+        $src = Get-YurunaTestSourceText -Path $path
         # A guest script that delegates to its host's shared Ubuntu builder applies the sizing there.
         $shared = Join-Path (Split-Path -Parent (Split-Path -Parent $path)) 'modules/New-UbuntuServerVM.ps1'
         if ($src -match 'New-UbuntuServerVM\.ps1' -and (Test-Path -LiteralPath $shared)) { $src = Get-Content -Raw -LiteralPath $shared }
@@ -162,7 +162,7 @@ Describe 'vm-sizing -- guest New-VM.ps1 declares and applies the overrides' {
     }
     It 'guards the cores override on a non-empty -Cores: <name>' -TestCases $script:guestCase {
         param($name, $path)
-        $src = Get-Content -Raw -LiteralPath $path
+        $src = Get-YurunaTestSourceText -Path $path
         $shared = Join-Path (Split-Path -Parent (Split-Path -Parent $path)) 'modules/New-UbuntuServerVM.ps1'
         if ($src -match 'New-UbuntuServerVM\.ps1' -and (Test-Path -LiteralPath $shared)) { $src = Get-Content -Raw -LiteralPath $shared }
         Assert-True ($src -match [regex]::Escape('if ($Cores) {')) `
@@ -204,7 +204,7 @@ Describe 'vm-sizing -- the dispatcher forwards under the declare-or-drop rule' {
 Describe 'vm-sizing -- host-contract New-VM wrappers declare the pass-through params' {
     It 'declares -MemoryStartupBytes and -Cores: <name>' -TestCases $script:hostCase {
         param($name, $path)
-        $src = Get-Content -Raw -LiteralPath $path
+        $src = Get-YurunaTestSourceText -Path $path
         Assert-True ($src -match '(?m)^\s*\[string\]\$MemoryStartupBytes\b') `
             "$name New-VM wrapper must declare -MemoryStartupBytes so @PSBoundParameters carries it to the dispatcher"
         Assert-True ($src -match '(?m)^\s*\[string\]\$Cores\b') `
@@ -237,13 +237,13 @@ Describe 'nested-virt -- exposeVirtualizationExtensions travels the same cascade
     }
     It 'declares -ExposeVirtualizationExtensions defaulting to unset: <name>' -TestCases $script:hyperVGuestCase {
         param($name, $path)
-        $src = Get-Content -Raw -LiteralPath $path
+        $src = Get-YurunaTestSourceText -Path $path
         Assert-True ($src -match '(?m)^\s*\[string\]\$ExposeVirtualizationExtensions\s*=\s*''''') `
             "$name has no [string]`$ExposeVirtualizationExtensions = '' parameter; Invoke-PerGuestNewVm would drop the cascade to Verbose"
     }
     It 'never hardcodes -ExposeVirtualizationExtensions $true on Set-VMProcessor: <name>' -TestCases $script:hyperVGuestCase {
         param($name, $path)
-        $src = Get-Content -Raw -LiteralPath $path
+        $src = Get-YurunaTestSourceText -Path $path
         $shared = Join-Path (Split-Path -Parent (Split-Path -Parent $path)) 'modules/New-UbuntuServerVM.ps1'
         if ($src -match 'New-UbuntuServerVM\.ps1' -and (Test-Path -LiteralPath $shared)) { $src = Get-Content -Raw -LiteralPath $shared }
         Assert-True ($src -notmatch [regex]::Escape('-ExposeVirtualizationExtensions $true')) `
@@ -265,7 +265,7 @@ Describe 'nested-virt -- exposeVirtualizationExtensions travels the same cascade
     }
     It 'host-contract New-VM wrappers declare -ExposeVirtualizationExtensions: <name>' -TestCases $script:hostCase {
         param($name, $path)
-        $src = Get-Content -Raw -LiteralPath $path
+        $src = Get-YurunaTestSourceText -Path $path
         Assert-True ($src -match '(?m)^\s*\[string\]\$ExposeVirtualizationExtensions\b') `
             "$name New-VM wrapper must declare -ExposeVirtualizationExtensions so @PSBoundParameters carries it to the dispatcher"
     }

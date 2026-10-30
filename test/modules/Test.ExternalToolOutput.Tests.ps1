@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c8b0e7-91d4-4a36-b5f8-2e7c19d3a640
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -148,7 +148,11 @@ Describe 'an adapter state is read from the value, not the word' {
         # record that carries no value at all. Any OTHER site deciding an
         # adapter's state from that word is the defect this closes.
         $findings = @()
-        foreach ($rel in @('host/windows.hyper-v/modules/Yuruna.Host.psm1', 'automation/Get-SystemDiagnostic.ps1')) {
+        # Every file of the Hyper-V driver, each scanned on its own so a finding names its file.
+        Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.DriverSource.psm1') -DisableNameChecking
+        $scanned = @(Get-YurunaDriverFile -Driver windows.hyper-v | ForEach-Object { [IO.Path]::GetRelativePath($script:RepoRoot, $_).Replace('\', '/') }) +
+            @('automation/Get-SystemDiagnostic.ps1')
+        foreach ($rel in $scanned) {
             $path = Join-Path $script:RepoRoot $rel
             $lines = [IO.File]::ReadAllLines($path)
             for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -233,15 +237,27 @@ Describe 'a Windows principal is identified by its value, not its display name' 
 
 Describe 'virsh is asked for its output in a language the code can read' {
 
-    It 'pins the message locale in the wrapper every caller goes through' {
-        $text = Get-NamedFunctionText -Path $script:KvmHost -Name 'Invoke-Virsh'
-        Assert-True ([bool]$text) 'the KVM host module has no Invoke-Virsh'
-        Assert-True ($text -match "LC_MESSAGES\s*=\s*'C'") `
-            'Invoke-Virsh does not pin LC_MESSAGES, so a host in another language gets translated states'
-        Assert-True ($text -match '\$env:LC_ALL\s*=\s*\$null') `
-            'Invoke-Virsh does not clear LC_ALL, which outranks LC_MESSAGES and would translate the output anyway'
-        Assert-True ($text -match 'finally') `
-            'Invoke-Virsh does not restore the locale, so it leaks the pin into everything the process runs afterward'
+    It 'pins the message locale in the wrapper every caller goes through' -Skip:$IsWindows {
+        $names = 'Invoke-Virsh', 'Invoke-VirshBounded', 'Test-DriverNativeResultComplete', 'Test-VirshLastCallUnanswered'
+        $source = ($names | ForEach-Object { Get-NamedFunctionText -Path $script:KvmHost -Name $_ }) -join "`n"
+        $bin = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $bin
+        [IO.File]::WriteAllText((Join-Path $bin 'virsh'), "#!/bin/sh`necho `"LC_MESSAGES=`$LC_MESSAGES LC_ALL=`$LC_ALL`"`n")
+        & chmod +x (Join-Path $bin 'virsh')
+        $priorPath = $env:PATH; $priorAll = $env:LC_ALL
+        try {
+            $env:PATH = "$bin$([IO.Path]::PathSeparator)$priorPath"
+            $env:LC_ALL = 'de_DE.UTF-8'
+            $lines = & {
+                Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -DisableNameChecking
+                $script:VirshUri = 'qemu:///system'; $script:VirshCallTimeoutSeconds = 20; $script:VirshLastCallUnanswered = $false
+                . ([scriptblock]::Create($source))
+                Invoke-Virsh -VirshArgs @('domstate', 'vm')
+            }
+            Assert-True ((@($lines) -join ' ') -match '^LC_MESSAGES=C LC_ALL=\s*$') `
+                "Invoke-Virsh must run virsh with LC_MESSAGES=C and LC_ALL cleared (LC_ALL outranks LC_MESSAGES); virsh saw: $($lines -join ' ')"
+            Assert-Equal -Expected 'de_DE.UTF-8' -Actual $env:LC_ALL -Because 'the pin reaches the child only, never everything the process runs afterward'
+        } finally { $env:PATH = $priorPath; $env:LC_ALL = $priorAll }
     }
 
     It 'never branches on unpinned virsh output' {

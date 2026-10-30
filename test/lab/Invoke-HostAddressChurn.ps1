@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 425762d1-bc4e-40e3-b368-b17d66f8461a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     cycle can be shown to survive a known number of address changes.
 
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-006f.
 .PARAMETER IntervalSeconds
     Seconds between renewals. The default puts three or more changes inside a
     typical ~50-minute AmisAd cycle without sitting on top of the cycle's own

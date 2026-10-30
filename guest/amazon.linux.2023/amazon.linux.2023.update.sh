@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42886c08-6caf-4bfc-9fec-fdd0afc21982
@@ -367,7 +367,6 @@ if yuruna_host_env; then
   fi
 fi
 
-# See https://yuruna.link/42fa6f45-000c
 # host.env keeps clone URLs available while the status service is unreachable.
 : "${FRAMEWORK_URL:=${YURUNA_FRAMEWORK_URL:-}}"
 : "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"

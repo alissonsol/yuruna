@@ -4,7 +4,7 @@
 
 // Pool-wide aggregation. The local host's stashes come from its SQLite index
 // (live, including pending/buffered); every OTHER host's come from its
-// on-share sidecars. To keep memory bounded as the pool ages (section 3.2), the
+// on-share sidecars. To keep memory bounded as the pool ages (https://yuruna.link/429e934f-0012), the
 // in-memory pool index holds only the last windowDays of remote sidecars,
 // refreshed periodically; queries reaching older dates do an on-demand
 // date-pruned deep scan instead.
@@ -25,7 +25,7 @@ import (
 )
 
 // defaultPoolRefreshInterval is the cadence of the background rescan that
-// picks up other hosts' new sidecars (section 3.2). Overridable per instance.
+// picks up other hosts' new sidecars (https://yuruna.link/429e934f-0012). Overridable per instance.
 const defaultPoolRefreshInterval = 60 * time.Second
 
 // Item is one remote-host stash discovered from a sidecar.
@@ -118,7 +118,7 @@ func (p *PoolIndex) Evict(hostID, id string) {
 
 // DeepScan reads remote sidecars whose day is within [from,to], bypassing
 // the cache. Used when a query's date range predates the in-memory window
-// (section 3.2). from/to are inclusive day bounds; a zero from means "no lower
+// (https://yuruna.link/429e934f-0012). from/to are inclusive day bounds; a zero from means "no lower
 // bound" and a zero to means "up to today". The bool return is true when the
 // walk could not read every directory it should have, so the caller can flag
 // a partial result instead of trusting a short/empty list.
@@ -148,7 +148,7 @@ func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, bool, int) {
 	if err != nil {
 		// stashRoot unavailable (share offline/unmounted, or not yet created)
 		// just means there are no remote stashes to show right now -- graceful
-		// degradation (section 8.4), not a hard error. The common offline case is
+		// degradation (https://yuruna.link/429e934f-000e), not a hard error. The common offline case is
 		// ErrNotExist (silent); a genuinely broken mount (EIO/EACCES/ESTALE)
 		// is logged ONCE per state change so it stays diagnosable without
 		// spamming every rescan.
@@ -414,7 +414,7 @@ func containsFold(haystack, needle string) bool {
 }
 
 // fromBeforeWindow reports whether the query's lower bound reaches before the
-// cached window, requiring a deep scan (section 3.2).
+// cached window, requiring a deep scan (https://yuruna.link/429e934f-0012).
 func (p *PoolIndex) fromBeforeWindow(from time.Time) bool {
 	return !from.IsZero() && from.Before(p.windowCutoffUTC())
 }
@@ -457,7 +457,7 @@ func sortColumn(col string) string {
 }
 
 // sortViews orders views by one column. Ascending when asc; the default view
-// (newest first) is sortCreated descending (section 4.1).
+// (newest first) is sortCreated descending (https://yuruna.link/429e934f-0014).
 //
 // Every ordering is TOTAL, not merely sorted: ties break on created-then-id, in
 // a fixed direction, so two stashes of the same size (or the same status, which

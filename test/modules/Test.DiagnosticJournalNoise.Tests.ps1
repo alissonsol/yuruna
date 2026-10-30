@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a6b0a3-6ac8-4209-8138-98b813018d22
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -190,5 +190,65 @@ Describe 'diagnostic: a libvirt host is asked about the DHCP service it runs' {
     It 'does not report a libvirt host as having no libvirt when it cannot connect' {
         $script:LibvirtBlock | Should -Match 'Invoke-PrivProbe -Tool ''virsh''' `
             -Because 'a runner account outside the libvirt group must be retried, not reported as a host without libvirt'
+    }
+}
+
+Describe 'diagnostic: a failed unit is shown with its own reason' {
+
+    BeforeAll {
+        . ([scriptblock]::Create((Get-PsFunctionText -Source $script:DiagText -Name 'Get-FailedUnitName')))
+        # The Linux error list and everything after it, up to the macOS branch.
+        $ast = [Management.Automation.Language.Parser]::ParseInput($script:DiagText, [ref]$null, [ref]$null)
+        $probe = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Write-Sub' -and $node.Extent.Text -match 'journalctl -p err -n 20' }, $true)
+        $start = $probe.Extent.StartOffset
+        $script:LinuxEventsBlock = $script:DiagText.Substring($start, $script:DiagText.IndexOf('} elseif ($IsMacOS) {', $start) - $start)
+        # One sshd that lost its host keys, in systemd's own layout: header,
+        # rows, the legend systemd prints beside them, and the count.
+        $script:FailedListing = @(
+            'UNIT        LOAD   ACTIVE SUB    DESCRIPTION'
+            'ssh.service loaded failed failed OpenBSD Secure Shell server'
+            'ssh.socket  loaded failed failed OpenBSD Secure Shell server socket'
+            ''
+            'Legend: LOAD   -> Reflects whether the unit definition was properly loaded.'
+            '        ACTIVE -> The high-level unit activation state, i.e. generalization of SUB.'
+            '        SUB    -> The low-level unit activation state, values depend on unit type.'
+            ''
+            '2 loaded units listed.'
+        )
+    }
+
+    It 'reads each failed unit from the listing and nothing else' {
+        @(Get-FailedUnitName -Line $script:FailedListing) | Should -Be @('ssh.service', 'ssh.socket')
+    }
+
+    It 'reads no unit from a listing with nothing failed' {
+        @(Get-FailedUnitName -Line @('UNIT LOAD ACTIVE SUB DESCRIPTION', '', '0 loaded units listed.')).Count | Should -Be 0
+    }
+
+    It 'stops at the unit cap, so a guest with many failures cannot crowd out the capture' {
+        $rows = @(1..12 | ForEach-Object { "unit$_.service loaded failed failed Unit $_" })
+        $names = @(Get-FailedUnitName -Line $rows)
+        $names.Count | Should -Be 8
+        $names[0] | Should -BeExactly 'unit1.service'
+    }
+
+    It 'lists failed units in the layout the parser reads' {
+        # Without --plain, systemd puts a bullet before each failed row and
+        # the unit name is no longer the first column.
+        $script:LinuxEventsBlock | Should -Match "Invoke-PrivProbe -Tool 'systemctl' -ToolArgs @\('--failed','--plain','--no-pager'\)"
+    }
+
+    It 'prints each failed unit''s newest lines of this boot at every priority' {
+        # The unit's own reason is its stdout or stderr, which the journal keeps
+        # at info priority. A -p filter here would drop exactly that line.
+        $read = [regex]::Match($script:LinuxEventsBlock, "Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @\([^)]*\`$unit[^)]*\)").Value
+        $read | Should -Not -BeNullOrEmpty
+        $read | Should -Match "'-b','-u',\`$unit,'-n','10'"
+        $read | Should -Not -Match "'-p'"
+    }
+
+    It 'is evidence only and raises no problem' {
+        $section = $script:LinuxEventsBlock.Substring($script:LinuxEventsBlock.IndexOf('Get-FailedUnitName'))
+        $section | Should -Not -Match 'Add-Problem'
     }
 }

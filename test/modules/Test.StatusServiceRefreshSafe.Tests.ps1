@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 424389c7-e56a-4c48-9b73-1d24e21c6aa1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,9 +57,10 @@ function Test-RefreshSafeGuarded {
     .DESCRIPTION
         Walks up from the node. It is guarded when an enclosing if-clause
         condition reads "-not $RefreshSafe" or tests $Restart (a Normal-only
-        parameter), when it sits in the else branch or a later elseif of an
-        "if ($RefreshSafe)", or when it is inside a function only Normal code
-        calls.
+        parameter) or $ReplaceWedged (an opt-in only the beacon's wedged-
+        listener replacement passes; a host refresh never does), when it sits
+        in the else branch or a later elseif of an "if ($RefreshSafe)", or
+        when it is inside a function only Normal code calls.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -72,7 +73,7 @@ function Test-RefreshSafeGuarded {
                 $condition = $parent.Clauses[$i].Item1.Extent.Text
                 $body = $parent.Clauses[$i].Item2
                 if ([object]::ReferenceEquals($body, $child)) {
-                    if ($condition -match '-not \$RefreshSafe' -or $condition -match '^\$Restart\b') { return $true }
+                    if ($condition -match '-not \$RefreshSafe' -or $condition -match '^\$Restart\b' -or $condition -match '\$ReplaceWedged\b') { return $true }
                     if ($i -gt 0 -and $parent.Clauses[0].Item1.Extent.Text -eq '$RefreshSafe') { return $true }
                 }
             }
@@ -128,6 +129,10 @@ Describe 'the refresh-safe start reaches no destructive call' {
             Assert-True ($visited[$name] -ge 1) "the scan found no $name call, so it proves nothing about it"
         }
         Assert-NoFinding $findings 'a call the refresh-safe start must never make is reachable in that mode'
+        # The host refresh's start never opts into the wedged-listener stop.
+        $refreshModule = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'test/modules/Test.HostRefresh.psm1'))
+        Assert-True ($refreshModule -match "'-RefreshSafe'") 'the host refresh starts the listener refresh-safe'
+        Assert-False ($refreshModule -match 'ReplaceWedged') 'the host refresh never stops a listener'
     }
 
     It 'bounds its own git call and never restarts a server for a changed commit' {
@@ -158,10 +163,10 @@ Describe 'the refresh-safe start reaches no destructive call' {
         Assert-Match '^break$' $statements[-1].Extent.Text.Trim() 'the error still propagates'
     }
 
-    It 'bakes the configuration path on every branch' {
+    It 'passes the configuration path on every branch' {
         $text = [IO.File]::ReadAllText($script:ServicePath)
-        $needle = '`$serverConfigPath = ' + "'" + '$($ServerConfigPath -replace'
-        Assert-True $text.Contains($needle) 'the generated server gets the escaped, always-resolved config path'
+        $needle = '-ServerConfigPath $(& $quoteLiteral $ServerConfigPath)'
+        Assert-True $text.Contains($needle) 'the launcher passes the quoted, always-resolved config path'
         Assert-Match '\$ServerConfigPath = Join-Path \$TestRoot ''test.config.yml''' $text
     }
 }
@@ -321,6 +326,65 @@ Describe 'the refresh-safe start in its own process' {
         } finally {
             try { $holder.Stop() } catch { $null = $_ }
             Remove-YurunaTestTempDir $scratch.Root
+        }
+    }
+
+    It 'leaves a silent server whose lease shows it serving, in a full start and a refresh-safe one, and replaces one whose lease reads wedged' {
+        $scratch = New-RefreshSafeScratch
+        $port = Get-FreePort
+        $standIn = $null
+        $listenerProcess = $null
+        try {
+            # A listener busy with one long request: alive, owned, and silent.
+            $serverScript = Join-Path $scratch.Runtime '.status-service.ps1'
+            [IO.File]::WriteAllText($serverScript, 'Start-Sleep -Seconds 120')
+            $startOptions = @{ FilePath = $script:Pwsh; ArgumentList = @('-NoProfile', '-NonInteractive', '-File', ('"' + $serverScript + '"')); PassThru = $true }
+            if ($IsWindows) { $startOptions.WindowStyle = 'Hidden' }
+            $standIn = Start-Process @startOptions
+            Start-Sleep -Milliseconds 500
+            [IO.File]::WriteAllText((Join-Path $scratch.Runtime 'server.pid'), [string]$standIn.Id)
+            $leasePath = Join-Path $scratch.Runtime 'server.lease.json'
+            $writeLease = {
+                param([string]$State, [long]$AgeMs)
+                $now = [Environment]::TickCount64
+                $record = [ordered]@{ schemaVersion = 1; pid = $standIn.Id; startTimeUnixMs = [DateTimeOffset]::new($standIn.StartTime).ToUnixTimeMilliseconds()
+                    state = $State; route = 'archive/fixture.zip'; sinceUtc = ''; sinceTick = $now - $AgeMs; renewedUtc = ''; renewedTick = $now - $AgeMs; served = 1 }
+                [IO.File]::WriteAllText($leasePath, ($record | ConvertTo-Json -Compress))
+            }
+            & $writeLease 'busy' 30000
+            $full = Invoke-RefreshSafeStart -Scratch $scratch -Argument @('-Port', "$port")
+            Assert-Equal 0 $full.ExitCode "unexpected exit: $($full.Output)"
+            Assert-True ($full.Output -match 'archive/fixture\.zip') "the start names the request the listener is serving: $($full.Output)"
+            Assert-False $standIn.HasExited 'a full start leaves a listener that is serving a request running'
+            $busy = Invoke-RefreshSafeStart -Scratch $scratch -Argument ((Get-RefreshSafeArgument -Scratch $scratch -Port $port) + '-ReplaceWedged')
+            Assert-Equal 2 $busy.ExitCode "unexpected exit: $($busy.Output)"
+            Assert-StringEqual 'existing-unresponsive' $busy.Result.outcome
+            Assert-StringEqual 'lease-busy' $busy.Result.reason
+            Assert-False $standIn.HasExited 'a busy listener is not replaced'
+            & $writeLease 'idle' 200000
+            $replaced = Invoke-RefreshSafeStart -Scratch $scratch -Argument ((Get-RefreshSafeArgument -Scratch $scratch -Port $port -DeadlineMs 45000) + '-ReplaceWedged')
+            if ($replaced.Result.outcome -eq 'port-privilege-required') {
+                Assert-True $IsWindows 'wildcard URL reservations are a Windows privilege boundary'
+            } else {
+                Assert-Equal 0 $replaced.ExitCode "unexpected exit: $($replaced.Output)"
+                Assert-StringEqual 'started' $replaced.Result.outcome
+                Assert-NotEqual $standIn.Id $replaced.Result.pid 'a new listener was started'
+                $listenerProcess = Get-Process -Id $replaced.Result.pid -ErrorAction Stop
+                $status = Invoke-RestMethod -Uri "http://localhost:$port/runtime/status.json" -TimeoutSec 5
+                Assert-StringEqual 'running' $status.overallStatus
+            }
+            Assert-True ($standIn.WaitForExit(5000)) 'the wedged listener was stopped'
+        } finally {
+            if ($standIn -and -not $standIn.HasExited) { try { $standIn.Kill(); [void]$standIn.WaitForExit(5000) } catch { $null = $_ } }
+            # A failed assertion must still release any listener a start here
+            # launched; the scratch pidfile names it once its command line
+            # proves it runs this test's launcher.
+            if (-not $listenerProcess) {
+                $ownership = Get-StatusServerOwnership -PidFile (Join-Path $scratch.Runtime 'server.pid') -ExpectedScriptPath (Join-Path $scratch.Runtime '.status-service.ps1')
+                if ($ownership.State -eq 'AliveOwned' -and $ownership.Reason -eq 'command-line') { $listenerProcess = Get-Process -Id $ownership.Pid -ErrorAction SilentlyContinue }
+            }
+            if ($listenerProcess) { try { $listenerProcess.Kill(); [void]$listenerProcess.WaitForExit(5000) } catch { $null = $_ } }
+            Remove-YurunaTestTempDir $scratch.Root -Attempts 5
         }
     }
 

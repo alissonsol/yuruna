@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42bf15a1-0a45-4de9-b937-54eada83f868
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -283,5 +283,179 @@ command git -C '$root/checkout' status --porcelain | wc -l | sed 's/^/STATUS-LIN
         Assert-Match 'ISSUE Could not rebuild' $r.Output 'the failed reset is recorded'
         Assert-Match 'STATUS-LINES 0' $r.Output 'the emptied index is restored from HEAD, so nothing reads as deleted'
         Assert-Match 'CONTINUED' $r.Output 'the run goes on'
+    }
+}
+
+Describe 'installer outcome record' -Skip:$IsWindows {
+    # Each installer ends with one JSON record of its outcome, so a caller reads
+    # it instead of parsing the closing text. The bash installers carry the
+    # writer word for word; the Windows installer writes the same fields.
+    BeforeAll {
+        $script:OutcomeFunctions = @('yuruna_json_string', 'write_install_result')
+        $script:OutcomeBodies = @{}
+        foreach ($installer in @('install/ubuntu.kvm.sh', 'install/macos.utm.sh')) {
+            $script:OutcomeBodies[$installer] = ($script:OutcomeFunctions | ForEach-Object { Get-YurunaTestShellFunction -Text $script:Texts[$installer] -Name $_ }) -join "`n"
+        }
+        function Invoke-OutcomeShell {
+            param([int]$Code, [string[]]$Issue = @(), [string]$Installer = 'ubuntu.kvm')
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Path (Join-Path $root 'state'), (Join-Path $root 'checkout'), (Join-Path $root 'logs') -Force
+            Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.10.30'
+            $issueLines = ($Issue | ForEach-Object { "YURUNA_ISSUES+=('" + $_.Replace("'", "'\''") + "')" }) -join "`n"
+            $body = @(
+                'set -euo pipefail', 'YURUNA_ISSUES=()', $issueLines,
+                "XDG_STATE_HOME='$root/state'; YURUNA_DIR='$root/checkout'; YURUNA_INSTALL_LOG='$root/logs/ubuntu.kvm.install.1.log'",
+                '_yuruna_step="Installing libvirt"',
+                $script:OutcomeBodies['install/ubuntu.kvm.sh'],
+                "write_install_result $Code '$Installer'; echo rc=`$?"
+            ) -join "`n"
+            $run = Invoke-YurunaTestShell -Body $body
+            $file = Join-Path $root 'state/yuruna/install-result.json'
+            return @{ Run = $run; File = $file; Root = $root }
+        }
+    }
+
+    It 'is the same writer in both bash installers, called from the EXIT handler' {
+        $script:OutcomeBodies['install/macos.utm.sh'] | Should -BeExactly $script:OutcomeBodies['install/ubuntu.kvm.sh']
+        $script:Texts['install/ubuntu.kvm.sh'] | Should -Match 'write_install_result "\$rc" "ubuntu\.kvm"\r?\n  _yuruna_flush_log'
+        $script:Texts['install/macos.utm.sh'] | Should -Match 'write_install_result "\$rc" "macos\.utm"\r?\n  _yuruna_flush_log'
+    }
+
+    It 'records a clean run as succeeded, beside the log too' {
+        $r = Invoke-OutcomeShell -Code 0
+        $r.Run.Output | Should -Match 'rc=0'
+        $record = Get-Content -LiteralPath $r.File -Raw | ConvertFrom-Json
+        $record.outcome | Should -Be 'succeeded'
+        $record.exitCode | Should -Be 0
+        $record.version | Should -Be '2026.10.30'
+        $record.step | Should -Be 'Installing libvirt'
+        @($record.issues).Count | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $r.Root 'logs/ubuntu.kvm.install.1.result.json') | Should -BeTrue
+    }
+
+    It 'carries every deferred issue verbatim, quotes and backslashes included' {
+        $issue = 'path C:\yuruna has a "quote" & a tab' + "`t" + 'here'
+        $r = Invoke-OutcomeShell -Code 0 -Issue @('first issue', $issue)
+        $record = Get-Content -LiteralPath $r.File -Raw | ConvertFrom-Json
+        $record.outcome | Should -Be 'succeeded-with-issues'
+        @($record.issues) | Should -Be @('first issue', $issue)
+    }
+
+    It 'records a failed run with its exit code' {
+        $r = Invoke-OutcomeShell -Code 3 -Installer 'macos.utm'
+        $r.Run.Output | Should -Match 'rc=0' -Because 'the writer never changes the exit status of the trap'
+        $record = Get-Content -LiteralPath $r.File -Raw | ConvertFrom-Json
+        $record.outcome | Should -Be 'failed'
+        $record.exitCode | Should -Be 3
+        $record.installer | Should -Be 'macos.utm'
+    }
+
+    It 'has the Windows installer write the same record at its end and from its trap' {
+        $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'install/windows.hyper-v.ps1') -Raw
+        $text | Should -Match 'Write-InstallResult\r?\n# Close the transcript'
+        $text | Should -Match "trap \{\r?\n    Write-InstallResult -Outcome 'failed'\r?\n    break\r?\n\}"
+        $ast = [Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
+        $fn = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Write-InstallResult' }, $true)
+        $root = Join-Path $TestDrive 'win'
+        $null = New-Item -ItemType Directory -Path (Join-Path $root 'checkout'), (Join-Path $root 'local') -Force
+        Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.10.30'
+        $saved = $env:LOCALAPPDATA
+        try {
+            $env:LOCALAPPDATA = Join-Path $root 'local'
+            $record = & ([scriptblock]::Create(@"
+`$YurunaDir = '$root/checkout'; `$LogPath = '$root/windows.hyper-v.install.1.log'
+`$script:RestartNeeded = `$false; `$script:InstallSucceeded = `$true
+`$script:YurunaIssue = [System.Collections.Generic.List[string]]::new(); `$script:YurunaIssue.Add('winget "x" failed')
+$($fn.Extent.Text)
+Write-InstallResult
+Get-Content -LiteralPath (Join-Path `$env:LOCALAPPDATA 'yuruna/install-result.json') -Raw | ConvertFrom-Json
+"@))
+        } finally { $env:LOCALAPPDATA = $saved }
+        $record.installer | Should -Be 'windows.hyper-v'
+        $record.outcome | Should -Be 'succeeded-with-issues'
+        @($record.issues) | Should -Be @('winget "x" failed')
+        Test-Path -LiteralPath (Join-Path $root 'windows.hyper-v.install.1.result.json') | Should -BeTrue
+    }
+}
+
+Describe 'Windows installer elevation runs only a checked, administrator-only copy' {
+    # The elevated stage must not execute a file in a folder the unelevated
+    # account can write. It starts from an encoded command that copies the
+    # installer into a folder only Administrators and SYSTEM can write, checks
+    # the copy against the hash taken at startup, and runs the copy.
+    BeforeAll {
+        $script:WinText = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'install/windows.hyper-v.ps1') -Raw
+        $ast = [Management.Automation.Language.Parser]::ParseInput($script:WinText, [ref]$null, [ref]$null)
+        $fn = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'New-ElevatedInstallerCommand' }, $true)
+        . ([scriptblock]::Create($fn.Extent.Text))
+        function Get-ElevatedScript { param($Source, $Sha, $Parameter) [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String((New-ElevatedInstallerCommand -SourcePath $Source -Sha256 $Sha -Parameter $Parameter))) }
+        # The Windows-only ACL calls are the one part replaced to run the rest here.
+        function Invoke-ElevatedScript {
+            param([string]$Text, [string]$ProgramData)
+            $portable = [regex]::Replace($Text, '(?ms)^\$security = New-Object.*?^if \(\$PSVersionTable\.PSVersion\.Major -ge 6\)[^\n]*$', '[void][System.IO.Directory]::CreateDirectory($dir)')
+            $file = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.ps1')
+            Set-Content -LiteralPath $file -Value ("function Start-Sleep { }`n" + $portable)
+            $saved = @{ ProgramData = $env:ProgramData; NO_COLOR = $env:NO_COLOR }
+            try {
+                $env:ProgramData = $ProgramData; $env:NO_COLOR = '1'
+                $output = & ([Environment]::ProcessPath) -NoProfile -File $file 2>&1
+                return @{ Code = $LASTEXITCODE; Output = (($output -join "`n") -replace '[\x00-\x08\x0B\x0C\x0E-\x1F]', '') }
+            } finally { $env:ProgramData = $saved.ProgramData; $env:NO_COLOR = $saved.NO_COLOR }
+        }
+    }
+
+    It 'elevates through the encoded command, never through -File on the original path' {
+        $block = $script:WinText.Substring($script:WinText.IndexOf("if (-not `$isAdmin) {"))
+        $block = $block.Substring(0, $block.IndexOf('Start-Process'))
+        $block | Should -Match "'-EncodedCommand', \`$encoded"
+        $block | Should -Not -Match "'-File', `"``\`"\`$PSCommandPath"
+        $script:WinText.IndexOf('$script:InstallerSelfSha256 = (Get-FileHash') | Should -BeLessThan $script:WinText.IndexOf('# --- REGION: Single-fetch materialization')
+    }
+
+    It 'always busts the CDN cache when it materializes the installer' {
+        $gate = $script:WinText.Substring($script:WinText.IndexOf("if (-not `$PSCommandPath) {"))
+        $gate = $gate.Substring(0, $gate.IndexOf('Invoke-RestMethod'))
+        $gate | Should -Match ([regex]::Escape("`$installerUrl += '?nocache=' + [uri]::EscapeDataString(`$cacheBuster)"))
+        $gate | Should -Not -Match 'if \(\$env:YurunaCacheContent\) \{ \$installerUrl \+='
+    }
+
+    It 'locks the copy to Administrators and SYSTEM and quotes every value' {
+        $text = Get-ElevatedScript -Source "C:\Users\o'brien\x.ps1" -Sha ('a' * 64) -Parameter ([ordered]@{ SkipPreflight = $true; LogPath = "C:\logs\it's.log" })
+        $errors = $null; [void][Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$errors)
+        $errors | Should -HaveCount 0
+        $text | Should -Match ([regex]::Escape("`$source = 'C:\Users\o''brien\x.ps1'"))
+        $text | Should -Match ([regex]::Escape("LogPath = 'C:\logs\it''s.log'"))
+        $text | Should -Match ([regex]::Escape("SkipPreflight = `$true"))
+        $text | Should -Match ([regex]::Escape("SetAccessRuleProtection(`$true, `$false)"))
+        $text | Should -Match ([regex]::Escape("@('S-1-5-32-544', 'S-1-5-18')"))
+        $text.IndexOf('if ($actual -ne $expected)') | Should -BeLessThan $text.IndexOf('& $target @parameters')
+    }
+
+    It 'runs the copy with the forwarded parameters when the installer is unchanged' {
+        $source = Join-Path $TestDrive 'installer-ok.ps1'
+        $record = Join-Path $TestDrive 'ran.json'
+        Set-Content -LiteralPath $source -Value "param([switch]`$SkipPreflight, [string]`$LogPath) @{ skip = [bool]`$SkipPreflight; log = `$LogPath; path = `$PSCommandPath } | ConvertTo-Json | Set-Content -LiteralPath '$record'"
+        $sha = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+        $programData = Join-Path $TestDrive 'pd-ok'; $null = New-Item -ItemType Directory -Path $programData
+        $r = Invoke-ElevatedScript -Text (Get-ElevatedScript -Source $source -Sha $sha -Parameter ([ordered]@{ SkipPreflight = $true; LogPath = "/tmp/it's.log" })) -ProgramData $programData
+        $r.Code | Should -Be 0
+        $ran = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
+        $ran.skip | Should -BeTrue
+        $ran.log | Should -Be "/tmp/it's.log"
+        $ran.path | Should -BeLike (Join-Path $programData 'yuruna*')
+        @(Get-ChildItem -LiteralPath (Join-Path $programData 'yuruna') -Force) | Should -HaveCount 0 -Because 'the copy is removed after the run'
+    }
+
+    It 'refuses to run an installer that changed after its hash was taken' {
+        $source = Join-Path $TestDrive 'installer-swapped.ps1'
+        $record = Join-Path $TestDrive 'swapped-ran.txt'
+        Set-Content -LiteralPath $source -Value 'Write-Output original'
+        $sha = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+        Set-Content -LiteralPath $source -Value "Set-Content -LiteralPath '$record' -Value swapped"
+        $programData = Join-Path $TestDrive 'pd-swap'; $null = New-Item -ItemType Directory -Path $programData
+        $r = Invoke-ElevatedScript -Text (Get-ElevatedScript -Source $source -Sha $sha -Parameter ([ordered]@{ SkipPreflight = $true })) -ProgramData $programData
+        $r.Code | Should -Be 1
+        $r.Output | Should -Match 'changed after it started'
+        Test-Path -LiteralPath $record | Should -BeFalse
     }
 }

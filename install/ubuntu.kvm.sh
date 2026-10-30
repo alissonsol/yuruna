@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42c18f3d-326c-467e-a500-0668e518bf56
@@ -266,6 +266,61 @@ yuruna_cleanup_tmp_paths() {
   done
   YURUNA_TMP_PATHS=()
 }
+# --- REGION: Machine-readable outcome
+# One JSON record of how the run ended, at a fixed path and beside the log, so a
+# caller (automation, a nested host) reads the outcome instead of parsing the
+# closing text: outcome succeeded | succeeded-with-issues | failed, the exit code,
+# the last step, every deferred issue, the installed VERSION and the log path.
+# Best-effort: it runs from the EXIT trap and never changes the exit code.
+yuruna_json_string() {
+  # A character loop rather than ${s//...}: bash 3.2 (macOS) and 5.x treat a
+  # backslash in a pattern replacement differently, while double-quote escaping
+  # below means the same in every version.
+  local s="$1" out="" c i
+  for (( i = 0; i < ${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      '\') out="$out\\\\" ;;
+      '"') out="$out\\\"" ;;
+      $'\n') out="$out\\n" ;;
+      $'\r') out="$out\\r" ;;
+      $'\t') out="$out\\t" ;;
+      *) out="$out$c" ;;
+    esac
+  done
+  out="$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\010\013\014\016-\037')"
+  printf '"%s"' "$out"
+}
+write_install_result() {
+  local rc="$1" installer="$2" outcome dir file issues_json="" issue version=""
+  if [[ "$rc" -ne 0 ]]; then
+    outcome="failed"
+  elif [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
+    outcome="succeeded-with-issues"
+  else
+    outcome="succeeded"
+  fi
+  if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
+    for issue in "${YURUNA_ISSUES[@]}"; do
+      [[ -z "$issues_json" ]] || issues_json="$issues_json,"
+      issues_json="$issues_json$(yuruna_json_string "$issue")"
+    done
+  fi
+  if [[ -n "${YURUNA_DIR:-}" && -r "${YURUNA_DIR:-}/VERSION" ]]; then
+    version="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION" 2>/dev/null || true)"
+  fi
+  dir="${XDG_STATE_HOME:-$HOME/.local/state}/yuruna"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  file="$dir/install-result.json"
+  if printf '{"schema":1,"installer":%s,"version":%s,"outcome":"%s","exitCode":%d,"step":%s,"issues":[%s],"log":%s,"finishedUtc":"%s"}\n' \
+       "$(yuruna_json_string "$installer")" "$(yuruna_json_string "$version")" "$outcome" "$rc" \
+       "$(yuruna_json_string "${_yuruna_step:-}")" "$issues_json" "$(yuruna_json_string "${YURUNA_INSTALL_LOG:-}")" \
+       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$file.tmp" 2>/dev/null && mv -f "$file.tmp" "$file" 2>/dev/null; then
+    if [[ -n "${YURUNA_INSTALL_LOG:-}" ]]; then cp -f "$file" "${YURUNA_INSTALL_LOG%.log}.result.json" 2>/dev/null || true; fi
+  fi
+  return 0
+}
+
 yuruna_install_cleanup() {
   local rc=$? command="${BASH_COMMAND:-?}"
   kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
@@ -279,6 +334,7 @@ yuruna_install_cleanup() {
     printf '   command : %s\n' "$command" >&2
     printf '   log     : %s\n' "${YURUNA_INSTALL_LOG:-<none>}" >&2
   fi
+  write_install_result "$rc" "ubuntu.kvm"
   _yuruna_flush_log
 }
 trap yuruna_install_cleanup EXIT

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42df925f-3353-4a16-aae2-7e8a097c522c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -386,17 +386,15 @@ try {
 Write-Line '  wrote cycle-transcript.html  <- Test.Log.psm1 + Yuruna.Log.psm1'
 
 # --- REGION: Log directory listing
-# The builder lives inside the status-service here-string template, where every
-# runtime variable is backtick-escaped. Extracting the block and undoing that
-# escaping runs the CHARACTERS THAT DEPLOY -- a re-implementation here would
-# certify markup no service emits.
+# The builder lives inside the status-service runtime. Extracting the block runs
+# the CHARACTERS THAT DEPLOY -- a re-implementation here would certify markup no
+# service emits.
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.Catalog.psm1') -Force -DisableNameChecking
-$serviceSource = [IO.File]::ReadAllText((Join-Path $RepoRoot 'test/service/Start-StatusService.ps1'))
-$blockStart = $serviceSource.IndexOf('`$sb = [System.Text.StringBuilder]::new()', [StringComparison]::Ordinal)
+$serviceSource = [IO.File]::ReadAllText((Join-Path $RepoRoot 'test/service/Invoke-StatusServiceRuntime.ps1'))
+$blockStart = $serviceSource.IndexOf('$sb = [System.Text.StringBuilder]::new()', [StringComparison]::Ordinal)
 $blockEnd = $serviceSource.IndexOf("'</main></body></html>')", [StringComparison]::Ordinal)
-if ($blockStart -lt 0 -or $blockEnd -lt 0) { throw 'directory-listing block not found in the status-service template' }
+if ($blockStart -lt 0 -or $blockEnd -lt 0) { throw 'directory-listing block not found in the status-service runtime' }
 $block = $serviceSource.Substring($blockStart, ($blockEnd - $blockStart) + "'</main></body></html>')".Length)
-$block = $block.Replace('`$', '$').Replace('`@', '@')
 
 $listingDir = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-listing-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 $null = New-Item -ItemType Directory -Path $listingDir -Force
@@ -428,7 +426,7 @@ try {
 } finally {
     Remove-Item -LiteralPath $listingDir -Recurse -Force -ErrorAction SilentlyContinue
 }
-Write-Line '  wrote log-directory-index.html  <- Start-StatusService.ps1 template block'
+Write-Line '  wrote log-directory-index.html  <- Invoke-StatusServiceRuntime.ps1 listing block'
 
 # The listing links a stylesheet at the site root, and the gate serves this
 # directory as the root, so the real stylesheet has to be here or every color
@@ -546,6 +544,139 @@ foreach ($producer in $provisioned) {
 }
 Write-Line "  $($provisioned.Count) provisioned page(s) extracted from their seeds"
 
+# --- REGION: Populated dashboards
+# Served from the working tree, the status overview and the performance page
+# read their rows from runtime/status.json and control/perf-aggregates, which a
+# checkout either lacks (the empty state) or holds from whatever this machine
+# last ran. The shipped pages are copied unchanged into a folder of their own
+# with fixture answers at those relative URLs, so the populated tables, history
+# and timelines are measured on every host the same way. The values include the
+# long unbroken identifiers and the failure text that stress reflow.
+$populated = Join-Path $OutputDirectory 'status-populated'
+foreach ($folder in @($populated, (Join-Path $populated 'runtime'), (Join-Path $populated 'control'))) {
+    $null = New-Item -ItemType Directory -Path $folder -Force
+}
+foreach ($asset in @('index.html', 'performance.html', 'yuruna.common.css', 'yuruna.common.js')) {
+    Copy-Item -LiteralPath (Join-Path $statusSource $asset) -Destination (Join-Path $populated $asset) -Force
+}
+$populatedStatus = @'
+{
+  "schemaVersion": 1,
+  "host": "host.ubuntu.kvm",
+  "hostname": "lab-host-01",
+  "hostId": "426d17ef0b88426b922180dad1a9e921",
+  "cycleStartUtc": "2026-10-20T08:00:00Z",
+  "startedAt": "2026-10-20T08:00:00Z",
+  "finishedAt": null,
+  "overallStatus": "running",
+  "stepPaused": false,
+  "cyclePaused": false,
+  "labHold": false,
+  "labHoldAreas": [],
+  "gitCommits": [
+    { "sha": "0123456789", "repoUrl": "https://example.test/framework" },
+    { "sha": "abcdef0", "repoUrl": "https://example.test/project" }
+  ],
+  "repoUrl": "https://example.test/framework",
+  "lastGetImageAt": "2026-10-19T22:00:00Z",
+  "cycle": 214,
+  "cycleFolderUrl": "log/000214.2026-10-20.08-00-00.426d17ef0b88426b922180dad1a9e921/",
+  "lastFailure": null,
+  "guests": [
+    { "guestKey": "guest.ubuntu.server.26", "vmName": "test-guest.ubuntu.server.26-01", "topLevel": "workload.guest.ubuntu.server.26.k8s.website",
+      "status": "pass", "quarantined": false, "quarantinedUntilCommit": "",
+      "failureArtifacts": "log/000214.2026-10-20.08-00-00.426d17ef0b88426b922180dad1a9e921/test-guest.ubuntu.server.26-01/",
+      "steps": [
+        { "name": "New-VM", "status": "pass", "startedAt": "2026-10-20T08:00:05Z", "finishedAt": "2026-10-20T08:00:09Z", "skipped": false, "errorMessage": null },
+        { "name": "Start-VM", "status": "pass", "startedAt": "2026-10-20T08:00:09Z", "finishedAt": "2026-10-20T08:00:10Z", "skipped": false, "errorMessage": null },
+        { "name": "Start-GuestOS", "status": "pass", "startedAt": "2026-10-20T08:00:10Z", "finishedAt": "2026-10-20T08:06:58Z", "skipped": false, "errorMessage": null },
+        { "name": "Start-GuestWorkload", "status": "pass", "startedAt": "2026-10-20T08:06:58Z", "finishedAt": "2026-10-20T08:13:32Z", "skipped": false, "errorMessage": null }
+      ] },
+    { "guestKey": "guest.windows.11", "vmName": "test-guest.windows.11-01", "topLevel": "workload.guest.windows.11",
+      "status": "fail", "quarantined": false, "quarantinedUntilCommit": "",
+      "failureArtifacts": "log/000214.2026-10-20.08-00-00.426d17ef0b88426b922180dad1a9e921/test-guest.windows.11-01/",
+      "steps": [
+        { "name": "New-VM", "status": "pass", "startedAt": "2026-10-20T08:00:05Z", "finishedAt": "2026-10-20T08:00:08Z", "skipped": false, "errorMessage": null },
+        { "name": "Start-VM", "status": "pass", "startedAt": "2026-10-20T08:00:08Z", "finishedAt": "2026-10-20T08:00:08Z", "skipped": false, "errorMessage": null },
+        { "name": "Start-GuestOS", "status": "fail", "startedAt": "2026-10-20T08:00:08Z", "finishedAt": "2026-10-20T08:30:08Z", "skipped": false,
+          "errorMessage": "Timed out after 1800 s waiting for 'Windows Setup' on the console; the last OCR read was 'Getting ready' (C:\\Windows\\Panther\\UnattendGC\\setupact.log)" },
+        { "name": "Start-GuestWorkload", "status": "skipped", "startedAt": null, "finishedAt": null, "skipped": true, "errorMessage": null }
+      ] },
+    { "guestKey": "guest.amazon.linux.2023", "vmName": "test-guest.amazon.linux.2023-01-with-a-long-unbroken-vm-name-for-reflow", "topLevel": "workload.guest.amazon.linux.2023.postgresql.replication.with.a.long.sequence.name",
+      "status": "running", "quarantined": false, "quarantinedUntilCommit": "", "failureArtifacts": "",
+      "steps": [
+        { "name": "New-VM", "status": "pass", "startedAt": "2026-10-20T08:00:05Z", "finishedAt": "2026-10-20T08:00:11Z", "skipped": false, "errorMessage": null },
+        { "name": "Start-VM", "status": "running", "startedAt": "2026-10-20T08:00:11Z", "finishedAt": null, "skipped": false, "errorMessage": null }
+      ] }
+  ],
+  "sequences": [
+    { "name": "workload.guest.ubuntu.server.26.k8s.website", "guests": [ "guest.ubuntu.server.26" ] },
+    { "name": "workload.guest.windows.11", "guests": [ "guest.windows.11" ] },
+    { "name": "workload.guest.amazon.linux.2023.postgresql.replication.with.a.long.sequence.name", "guests": [ "guest.amazon.linux.2023" ] }
+  ],
+  "nested": {},
+  "history": [
+    { "cycleStartUtc": "2026-10-20T06:00:00Z", "startedAt": "2026-10-20T06:00:00Z", "finishedAt": "2026-10-20T06:41:12Z", "totalDurationSeconds": 2472,
+      "overallStatus": "fail", "host": "host.ubuntu.kvm", "hostname": "lab-host-01",
+      "gitCommits": [ { "sha": "0123456789", "repoUrl": "https://example.test/framework" } ],
+      "cycleFolderUrl": "log/000213.2026-10-20.06-00-00.426d17ef0b88426b922180dad1a9e921/",
+      "guestSummary": { "guest.ubuntu.server.26": { "status": "pass" }, "guest.windows.11": { "status": "fail" } },
+      "sequenceSummary": [ { "name": "workload.guest.ubuntu.server.26.k8s.website", "status": "pass" }, { "name": "workload.guest.windows.11", "status": "fail" } ] },
+    { "cycleStartUtc": "2026-10-20T04:00:00Z", "startedAt": "2026-10-20T04:00:00Z", "finishedAt": "2026-10-20T04:28:44Z", "totalDurationSeconds": 1724,
+      "overallStatus": "pass", "host": "host.ubuntu.kvm", "hostname": "lab-host-01",
+      "gitCommits": [ { "sha": "fedcba9876", "repoUrl": "https://example.test/framework" } ],
+      "cycleFolderUrl": "log/000212.2026-10-20.04-00-00.426d17ef0b88426b922180dad1a9e921/",
+      "guestSummary": { "guest.ubuntu.server.26": { "status": "pass" }, "guest.windows.11": { "status": "pass" } },
+      "sequenceSummary": [ { "name": "workload.guest.ubuntu.server.26.k8s.website", "status": "pass" }, { "name": "workload.guest.windows.11", "status": "pass" } ] },
+    { "cycleStartUtc": "2026-10-20T02:00:00Z", "startedAt": "2026-10-20T02:00:00Z", "finishedAt": "2026-10-20T02:03:10Z", "totalDurationSeconds": 190,
+      "overallStatus": "aborted", "host": "host.ubuntu.kvm", "hostname": "lab-host-01",
+      "gitCommits": [ { "sha": "fedcba9876", "repoUrl": "https://example.test/framework" } ],
+      "cycleFolderUrl": "log/000211.2026-10-20.02-00-00.426d17ef0b88426b922180dad1a9e921/",
+      "guestSummary": { "guest.ubuntu.server.26": { "status": "aborted" } },
+      "sequenceSummary": [ { "name": "workload.guest.ubuntu.server.26.k8s.website", "status": "aborted" } ] }
+  ]
+}
+'@
+$populatedPerf = @'
+{
+  "generatedAtUtc": "2026-10-20T08:14:00Z",
+  "sequences": {
+    "workload.guest.ubuntu.server.26.k8s.website": [
+      { "sequenceInvocationId": "4a1b2c3d-0001", "cycleStartUtc": "2026-10-20T04:00:00Z", "cycleStartedAtUtc": "2026-10-20T04:00:00Z",
+        "invocationStartedAtUtc": "2026-10-20T04:00:05Z", "vmName": "test-guest.ubuntu.server.26-01",
+        "durationMs": 806000, "stepCount": 3, "failCount": 0, "retryFailureCount": 0,
+        "steps": [
+          { "name": "boot", "kind": "waitForText", "startedMs": 1000, "endedMs": 409000, "durationMs": 408000, "outcome": "pass" },
+          { "name": "workload", "kind": "fetchAndExecute", "startedMs": 409000, "endedMs": 803000, "durationMs": 394000, "outcome": "pass",
+            "checkpoints": [ { "name": "packages", "offsetMs": 20000 }, { "name": "kubernetes", "offsetMs": 140000 }, { "name": "website", "offsetMs": 300000 } ] },
+          { "name": "verify", "kind": "httpCheck", "startedMs": 803000, "endedMs": 807000, "durationMs": 4000, "outcome": "pass" }
+        ] },
+      { "sequenceInvocationId": "4a1b2c3d-0002", "cycleStartUtc": "2026-10-20T06:00:00Z", "cycleStartedAtUtc": "2026-10-20T06:00:00Z",
+        "invocationStartedAtUtc": "2026-10-20T06:00:05Z", "vmName": "test-guest.ubuntu.server.26-01",
+        "durationMs": 851000, "stepCount": 3, "failCount": 0, "retryFailureCount": 1,
+        "steps": [
+          { "name": "boot", "kind": "waitForText", "startedMs": 1000, "endedMs": 431000, "durationMs": 430000, "outcome": "pass" },
+          { "name": "workload", "kind": "retry", "startedMs": 431000, "endedMs": 848000, "durationMs": 417000, "outcome": "pass" },
+          { "name": "workload attempt 1", "kind": "fetchAndExecute", "startedMs": 431000, "endedMs": 470000, "durationMs": 39000, "outcome": "fail", "parentAction": "workload", "parentAttempt": 1 },
+          { "name": "verify", "kind": "httpCheck", "startedMs": 848000, "endedMs": 852000, "durationMs": 4000, "outcome": "pass" }
+        ] }
+    ],
+    "workload.guest.windows.11": [
+      { "sequenceInvocationId": "5b2c3d4e-0001", "cycleStartUtc": "2026-10-20T06:00:00Z", "cycleStartedAtUtc": "2026-10-20T06:00:00Z",
+        "invocationStartedAtUtc": "2026-10-20T06:00:05Z", "vmName": "test-guest.windows.11-01",
+        "durationMs": 1800000, "stepCount": 1, "failCount": 1, "retryFailureCount": 0, "diagnosticIncompleteCount": 1,
+        "steps": [
+          { "name": "Windows Setup", "kind": "waitForText", "startedMs": 1000, "endedMs": 1801000, "durationMs": 1800000, "outcome": "timeout",
+            "diagnosticOutcome": "timeout", "evidenceCaptureDurationMs": 15000 }
+        ] }
+    ]
+  }
+}
+'@
+[IO.File]::WriteAllText((Join-Path $populated 'runtime/status.json'), $populatedStatus)
+[IO.File]::WriteAllText((Join-Path $populated 'control/perf-aggregates'), $populatedPerf)
+Write-Line '  wrote status-populated/  <- status/index.html + performance.html with fixture runtime data'
+
 # --- REGION: Fixture content
 # A page that renders nothing passes every check it should have failed. Silencing a
 # preference also silences the log tee, leaving a transcript with no step headings and no
@@ -571,6 +702,10 @@ $expected = [ordered]@{
         'qps-Plocm.pool.js', 'data-yuruna-globalization-reference', 'frameworkAccessState')
     'squid-no-upstream.html'       = @('<!doctype html>', '<html lang="en-US" dir="ltr">', '<meta charset="utf-8">',
                                        '<title data-i18n=', '<main>', '<h1 data-i18n=')
+    'status-populated/index.html'  = @('<html lang="en"', 'id="menu-button"', 'yuruna.common.js')
+    'status-populated/performance.html' = @('<html lang="en"', 'id="perf-body"', 'yuruna.common.js')
+    'status-populated/runtime/status.json' = @('"guests"', '"history"', '"errorMessage": "Timed out')
+    'status-populated/control/perf-aggregates' = @('"sequences"', '"checkpoints"', '"diagnosticOutcome"')
 }
 $missing = [Collections.Generic.List[string]]::new()
 foreach ($file in $expected.Keys) {

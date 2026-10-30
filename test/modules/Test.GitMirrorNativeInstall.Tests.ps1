@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4258b834-1062-42d9-98d6-f3e2b1ac55f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -8,6 +8,7 @@
 #>
 #requires -Version 7
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
     $script:Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $script:Driver = Join-Path $script:Root 'tools/Initialize-GitMirrorNativeInstall.ps1'
     $script:Recipes = (Get-Content (Join-Path $script:Root 'test/fixtures/git-mirror/native-install-recipes.json') -Raw | ConvertFrom-Json -AsHashtable).recipes
@@ -21,6 +22,24 @@ BeforeAll {
         $arguments += $ExtraArguments
         $output = & (Get-Process -Id $PID).Path @arguments 2>&1 | Out-String
         return @{ ExitCode=$LASTEXITCODE; Output=$output }
+    }
+    # The driver in its own process, started from a thread job so the caller can
+    # act while it runs; the job returns the same shape as Invoke-NativeInstallFixture.
+    function Start-NativeInstallFixtureJob {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
+            Justification = 'The arguments arrive through -ArgumentList into the job param() block; the analyzer does not follow that path.')]
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+            Justification = 'Test fixture: starts the disposable driver against TestDrive paths.')]
+        param([string[]]$ExtraArguments = @())
+        $arguments = @('-NoProfile', '-NonInteractive', '-File', $script:CopiedDriver, '-Mode', 'Main',
+            '-TargetRoot', $script:Target, '-OldRoot', $script:Old, '-StatePath', $script:State,
+            '-RuntimeDir', (Join-Path $script:State runtime), '-ConfigPath', $script:Config,
+            '-ConfigSourcePath', $script:ConfigSource, '-DisposableTarget') + $ExtraArguments
+        return Start-ThreadJob -ScriptBlock {
+            param([string]$Pwsh, [string[]]$Arguments)
+            $output = & $Pwsh @Arguments 2>&1 | Out-String
+            @{ ExitCode = $LASTEXITCODE; Output = $output }
+        } -ArgumentList (Get-Process -Id $PID).Path, $arguments
     }
     function Initialize-LifecycleModuleFixture {
         $modules = Join-Path $script:Candidate 'test/modules'
@@ -54,8 +73,7 @@ Describe 'Native installer fixture preparation' {
             (Join-Path $script:Candidate tools), (Join-Path $script:Candidate 'test/fixtures/git-mirror') -Force
         $script:CopiedDriver = Join-Path $script:Candidate 'tools/Initialize-GitMirrorNativeInstall.ps1'
         Copy-Item $script:Driver $script:CopiedDriver
-        & git init -q $script:Old
-        & git -C $script:Old -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty -qm initial
+        $null = New-YurunaTestGitRepository -Path $script:Old -CommitMessage 'initial'
         if ($LASTEXITCODE) { throw 'Could not create native installer Git fixture.' }
         $script:OldCommit = ([string](& git -C $script:Old rev-parse HEAD)).Trim()
         # The driver is unchanged; a disposable candidate contract binds its
@@ -91,10 +109,11 @@ Describe 'Native installer fixture preparation' {
         ([string](& git -C $controlled rev-parse HEAD)).Trim() | Should -BeExactly $script:OldCommit
         $upstream = Join-Path $script:Fixture prepared-upstream
         & git clone -q $script:Old $upstream
+        Set-YurunaTestGitIdentity -Path $upstream
         & git -C $upstream checkout -q -B main
         [IO.File]::WriteAllText((Join-Path $upstream VERSION), "prepared`n")
         & git -C $upstream add VERSION
-        & git -C $upstream -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm prepared
+        & git -C $upstream commit -qm prepared
         if ($LASTEXITCODE) { throw 'Could not advance the disposable candidate.' }
         $candidate = ([string](& git -C $upstream rev-parse HEAD)).Trim()
         $tree = ([string](& git -C $upstream rev-parse 'HEAD^{tree}')).Trim()
@@ -168,7 +187,7 @@ Describe 'Native installer fixture preparation' {
         Test-Path $script:Config | Should -BeFalse
     }
     It 'rejects an old checkout that differs from the frozen fixture commit' {
-        & git -C $script:Old -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty -qm changed
+        & git -C $script:Old commit --allow-empty -qm changed
         $result = Invoke-NativeInstallFixture
         $result.ExitCode | Should -Not -Be 0
         $result.Output | Should -Match 'not the frozen public fixture'
@@ -243,6 +262,38 @@ Describe 'Native installer fixture preparation' {
         # Reports expose fingerprints, never the raw key or unrelated config.
         (Get-Content (Join-Path $script:State enrollment.json) -Raw) | Should -Not -Match ([regex]::Escape($public))
     }
+    It 'enrolls from the file as another writer left it while the enrollment waited for the config lock' {
+        (Invoke-NativeInstallFixture).ExitCode | Should -Be 0
+        Initialize-LifecycleModuleFixture
+        $rsa = [Security.Cryptography.RSA]::Create(3072)
+        try { $public = [Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo()) } finally { $rsa.Dispose() }
+        Import-Module (Join-Path $script:Root 'test/modules/Test.ConfigSync.psm1') -DisableNameChecking
+        Import-Module (Join-Path $script:Root 'test/modules/Test.SingleFlightLock.psm1') -DisableNameChecking
+        $export = Join-Path $script:State export.json
+        @{publicKey=$public; keyId=(Get-ConfigMirrorKeyId -Value $public)} | ConvertTo-Json | Set-Content $export
+        # Another writer holds the config's write lock; the enrollment starts and
+        # must wait for it before it reads anything it will write back.
+        $lock = Enter-YurunaSingleFlightLock -Path ([IO.Path]::GetFullPath($script:Config) + '.lock') -WaitMilliseconds 0
+        $lock.Held | Should -BeTrue
+        $job = $null
+        try {
+            $job = Start-NativeInstallFixtureJob -ExtraArguments @('-Action', 'Enroll', '-MirrorKeyExportPath', $export, '-MirrorUrl', 'http://127.0.0.1:8765')
+            # Long enough for the driver to start and reach its config work.
+            Start-Sleep -Seconds 10
+            $edited = (Get-Content $script:Config -Raw) -replace '(?m)^logLevel: Warning$', 'logLevel: Information'
+            [IO.File]::WriteAllText($script:Config, $edited)
+        } finally {
+            Exit-YurunaSingleFlightLock -Lock $lock
+        }
+        $result = $job | Wait-Job -Timeout 120 | Receive-Job
+        $job | Remove-Job -Force -ErrorAction SilentlyContinue
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $current = Get-Content $script:Config -Raw | ConvertFrom-Yaml
+        $current.logLevel | Should -BeExactly Information -Because 'the other writer''s change must survive the enrollment'
+        $current.repositories.projectUrl | Should -BeExactly file:///operator/project
+        @($current.repositories.mirror.verificationPublicKeys) | Should -Contain $public
+    }
+
     It 'rejects a mismatched export without rewriting the selected config' {
         (Invoke-NativeInstallFixture).ExitCode | Should -Be 0
         Initialize-LifecycleModuleFixture
@@ -337,6 +388,31 @@ Describe 'Frozen native install recipes' {
             $recipe.cleanupCommands[0].arguments | Should -Contain StopFixture
             $recipe.cleanupCommands[0].arguments | Should -Contain '-DisposableTarget'
             $recipe.cleanupCommands[0].arguments | Should -Contain '${TargetRoot}'
+        }
+    }
+}
+
+Describe 'Qualification drivers rewrite the configuration only under its write lock' {
+    It 'keeps every configuration write of <Driver> inside a Use-TestConfigLock block' -ForEach @(
+        @{ Driver = 'tools/Initialize-GitMirrorNativeInstall.ps1'; ExpectedWrites = 3 }
+        @{ Driver = 'tools/Invoke-GitMirrorNativeProvision.ps1'; ExpectedWrites = 3 }
+    ) {
+        # A read-modify-write whose read happens outside the lock can overwrite a
+        # change another writer made in between with values read before it; the
+        # documented writer locks only its own write.
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:Root $Driver), [ref]$null, [ref]$null)
+        $configWrites = @($ast.FindAll({ param($node)
+                    ($node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Write-DocumentedTestConfig') -or
+                    ($node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Member.Value -ceq 'WriteAllBytes' -and
+                        $node.Arguments.Count -gt 0 -and $node.Arguments[0].Extent.Text -match '^\$[Cc]onfigPath$')
+                }, $true))
+        $configWrites.Count | Should -Be $ExpectedWrites
+        foreach ($write in $configWrites) {
+            $locked = $false
+            for ($parent = $write.Parent; $parent; $parent = $parent.Parent) {
+                if ($parent -is [Management.Automation.Language.CommandAst] -and $parent.GetCommandName() -ceq 'Use-TestConfigLock') { $locked = $true; break }
+            }
+            $locked | Should -BeTrue -Because "line $($write.Extent.StartLineNumber) of $Driver writes the configuration"
         }
     }
 }

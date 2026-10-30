@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a369ad-01e2-44e3-b547-f5faae54a6ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,7 +99,7 @@ if ($CacheIp -and -not (Test-IpAddress $CacheIp)) {
 # See https://yuruna.link/42e220c4-0008
 Write-Output ""
 Write-Output "== Step 1: tear down any legacy host-side forwarders =="
-[void](Remove-PortMap -Confirm:$false)
+[void](Remove-PortMap -Owner 'caching-proxy-service' -Confirm:$false)
 
 # --- REGION: Step 2: locate + verify the cache
 Write-Output ""

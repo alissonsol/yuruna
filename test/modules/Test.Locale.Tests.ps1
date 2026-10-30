@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4208b036-072e-4d6f-8fd5-e970879b1912
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -215,6 +215,53 @@ Describe 'the rules a resolver is easy to get wrong' {
         Assert-StringEqual -Expected '' -Actual $p.Version 'an absent catalog set should read as empty, not raise'
     }
 
+    It 'reads the set version and hash from a manifest that carries comments and trailing commas' {
+        # The reader that replaced ConvertFrom-Json must accept what that
+        # cmdlet accepted, or a hand-touched set manifest would lose its
+        # version while still hashing as a different set.
+        $path = Join-Path $TestDrive 'commented-set.json'
+        [IO.File]::WriteAllText($path, "// set manifest`n{ `"schema`": `"yuruna.catalog-set/v1`", `"compilerVersion`": `"2026.01.02`", }")
+        $p = Get-CatalogProvenance -Path $path
+        Assert-StringEqual -Expected '2026.01.02' -Actual $p.Version 'the compiler version was not read from the set manifest'
+        $expected = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        Assert-StringEqual -Expected $expected -Actual $p.Hash 'the provenance hash is not the SHA-256 of the set manifest bytes'
+    }
+
+    It 'keeps the hash and leaves the version empty for a set manifest that does not parse' {
+        $path = Join-Path $TestDrive 'truncated-set.json'
+        [IO.File]::WriteAllText($path, '{ "compilerVersion": "2026.01.02", "inputs": {')
+        $p = Get-CatalogProvenance -Path $path
+        Assert-StringEqual -Expected '' -Actual $p.Version 'a truncated set manifest should give no version'
+        Assert-StringEqual -Expected ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()) -Actual $p.Hash `
+            'a truncated set manifest should still be named by its bytes'
+    }
+
+    It 'reads one string from a large set manifest without building every entry' {
+        # Every process pays this on its first render. A set manifest the size
+        # of the real one (megabytes of inputs, translations and artifacts)
+        # must cost a small fraction of converting it into objects; both are
+        # timed back to back in this process so load on the machine moves them
+        # together, and the best of three takes out a one-off pause.
+        $entries = [Text.StringBuilder]::new()
+        for ($i = 0; $i -lt 60000; $i++) {
+            if ($i) { [void]$entries.Append(',') }
+            [void]$entries.Append(('"globalization/catalogs/xx-XX/domain{0}.json": {{"sourceHash": "{1}", "origin": "machine"}}' -f $i, ('{0:x64}' -f $i)))
+        }
+        $path = Join-Path $TestDrive 'large-set.json'
+        [IO.File]::WriteAllText($path, '{"schema": "yuruna.catalog-set/v1", "compilerVersion": "2026.01.02", "translations": {' + $entries.ToString() + '}}')
+        $null = Get-CatalogProvenance -Path $path
+        $null = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path))
+        $read = [double]::MaxValue
+        $convert = [double]::MaxValue
+        for ($round = 0; $round -lt 3; $round++) {
+            $read = [Math]::Min($read, (Measure-Command { $script:LargeSet = Get-CatalogProvenance -Path $path }).TotalMilliseconds)
+            $convert = [Math]::Min($convert, (Measure-Command { $null = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path)) }).TotalMilliseconds)
+        }
+        Assert-StringEqual -Expected '2026.01.02' -Actual $script:LargeSet.Version 'the version was not read from the large set manifest'
+        Assert-True ($read * 4 -lt $convert) `
+            ('reading the provenance took {0:N0} ms against {1:N0} ms to convert the whole manifest; it should cost under a quarter' -f $read, $convert)
+    }
+
     It 'costs one manifest read per process, not one per resolution' {
         # A resolver that re-read the manifest per message would put file I/O
         # inside the render loop.
@@ -222,5 +269,53 @@ Describe 'the rules a resolver is easy to get wrong' {
         $second = Get-LocaleManifest
         Assert-True ([object]::ReferenceEquals($first, $second)) `
             'the manifest is being re-read rather than cached for the process'
+    }
+}
+
+Describe 'the locale manifest contract' {
+
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.LocalizationExchange.psm1') -Force -Global -DisableNameChecking
+        $script:ManifestText = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'globalization/locale-manifest.json'))
+        $script:ManifestSchema = Join-Path $script:RepoRoot 'globalization/schema/locale-manifest.schema.json'
+
+        # The shipped manifest with one change, as text the validator reads.
+        function Get-EditedManifestText {
+            param([Parameter(Mandatory)][scriptblock]$Edit)
+            $document = ConvertFrom-Json -InputObject $script:ManifestText -AsHashtable
+            & $Edit $document
+            return ConvertTo-Json -InputObject $document -Depth 10
+        }
+    }
+
+    It 'holds the shipped manifest to its schema' {
+        # The compiler, the embed and the resolver each read the fields they
+        # need and default the rest, so a missing separator or an unknown
+        # status would not fail a compile: it would ship empty separators to
+        # Go and the browser, or a locale nothing can select.
+        $problem = Get-YurunaJsonSchemaError -Json $script:ManifestText -SchemaFile $script:ManifestSchema
+        Assert-True ($null -eq $problem) "globalization/locale-manifest.json does not satisfy its schema: $problem"
+    }
+
+    It 'refuses a locale with no number format, even a planned one' {
+        # A planned locale's data is embedded for review before it ships, so
+        # it needs separators as much as a supported one.
+        $text = Get-EditedManifestText { param($m) $m.locales['pt-BR'].status = 'planned'; $m.locales['pt-BR'].Remove('numberFormat') }
+        $problem = Get-YurunaJsonSchemaError -Json $text -SchemaFile $script:ManifestSchema
+        Assert-True ($null -ne $problem) 'a locale without numberFormat satisfied the manifest schema'
+    }
+
+    It 'refuses a status the runtimes do not act on' {
+        $text = Get-EditedManifestText { param($m) $m.locales['he-IL'].status = 'enabled' }
+        $problem = Get-YurunaJsonSchemaError -Json $text -SchemaFile $script:ManifestSchema
+        Assert-True ($null -ne $problem) "a locale with status 'enabled' satisfied the manifest schema"
+    }
+
+    It 'refuses plural categories without the other form' {
+        # Every rule falls back to 'other', so a locale without it has a count
+        # no message form can render.
+        $text = Get-EditedManifestText { param($m) $m.locales['he-IL'].pluralCategories = @('one', 'two') }
+        $problem = Get-YurunaJsonSchemaError -Json $text -SchemaFile $script:ManifestSchema
+        Assert-True ($null -ne $problem) "plural categories without 'other' satisfied the manifest schema"
     }
 }

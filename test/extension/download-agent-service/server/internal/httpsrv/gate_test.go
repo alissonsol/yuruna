@@ -264,13 +264,13 @@ func TestTheDaemonThrottlesPerClientRatherThanLeaningOnTheAggregator(t *testing.
 func TestUnlockAttemptsAreAudited(t *testing.T) {
 	agg := newFakeAggregator(t, labCode)
 	dir := t.TempDir()
-	srv, _ := newServer(t, Options{AggregatorURL: agg.srv.URL, Store: state.New(dir, time.Now())})
+	srv, _ := newServer(t, Options{AggregatorURL: agg.srv.URL, Store: state.New(dir, "agent-a", time.Now())})
 
 	login(t, srv, "zz9999")
 	login(t, srv, labCode)
 
 	var outcomes []string
-	for _, line := range strings.Split(strings.TrimSpace(readFile(t, filepath.Join(dir, "audit.jsonl"))), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(readFile(t, filepath.Join(dir, state.AuditFile("agent-a")))), "\n") {
 		var e struct {
 			Action  string `json:"action"`
 			Outcome string `json:"outcome"`

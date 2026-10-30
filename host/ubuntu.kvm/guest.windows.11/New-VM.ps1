@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4210ad59-ce3d-4890-bc1a-eb6a22a42087
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,7 +73,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # --- REGION: Seek the base image
 # See https://yuruna.link/42e220c4-0003
-# Run Get-Image once for all missing ISOs, then fail if manual Windows media is still absent.
+# Fetch missing media once; fail if manual-download requirements remain unmet.
 $downloadDir   = "$HOME/yuruna/image/windows.11"
 $baseImageName = "host.ubuntu.kvm.guest.windows.11"
 $winIso    = Join-Path $downloadDir "$baseImageName.iso"
@@ -176,14 +176,13 @@ try {
         Copy-Item -Path $ovmfVars -Destination $nvram
     }
 
-    # --- REGION: Create and configure the libvirt domain
-    # See https://yuruna.link/42fa6f45-0015
+    # --- REGION: https://yuruna.link/42fa6f45-0015
     $hostCores = [int](& nproc --all)
     if ($hostCores -lt 4) {
         Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_243943232cde57ac' -Arguments @{ hostCores = "$hostCores" })
         exit 1
     }
-    # --- REGION: https://yuruna.link/42fa6f45-0015
+    # See https://yuruna.link/42fa6f45-0015
     # Reserve at least one host thread while applying the shared guest core policy.
     $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 
@@ -192,6 +191,7 @@ try {
     $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
     Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
 
+    # --- REGION: Create and configure the libvirt domain
     $installArgs = @(
         '--connect',     $virshUri,
         '--name',        $VMName,
@@ -214,9 +214,15 @@ try {
     )
 
     Write-Verbose "virt-install $($installArgs -join ' ')"
-    & virt-install @installArgs
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_385530ac2faec54f' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" })
+    # Bounded like every other libvirt call: a daemon that stops answering is
+    # recorded as such for the runner instead of holding the build.
+    $installed = Invoke-BoundedNativeCommand -FilePath 'virt-install' -ArgumentList $installArgs -TimeoutSeconds 300
+    Get-BoundedNativeOutputLine -Result $installed -IncludeError | ForEach-Object { Write-Information "$_" -InformationAction Continue }
+    $virtInstallExit = if (Test-BoundedNativeResultComplete -Result $installed) { $installed.ExitCode } else { -1 }
+    if ($virtInstallExit -ne 0) {
+        $message = Format-YurunaOperatorMessage -Key 'host.operator_385530ac2faec54f' -Arguments @{ lASTEXITCODE = "$virtInstallExit" }
+        Write-YurunaProvisionResult -Kind $(if ($installed.Started -and $virtInstallExit -eq -1) { 'unresponsive' } else { 'tool' }) -Message $message
+        Write-Error $message
         exit 1
     }
 } finally {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 424bc4ee-97e2-4b3d-8eae-1a1eaa47317c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -120,10 +120,46 @@ Describe 'Get-CachingProxyServiceAdoptDecision (strict adopt)' {
     It 'refuses when the health probe did not fully succeed (half-wedged proxy rebuilds)' {
         Assert-Equal -Expected $false -Actual (Get-CachingProxyServiceAdoptDecision -VmState 'running' -ProbeSuccess $false -Ip '192.168.7.50').Adoptable
     }
-    It 'refuses when there is no recorded IP' {
-        $d = Get-CachingProxyServiceAdoptDecision -VmState 'running' -ProbeSuccess $true -Ip ''
+    It 'refuses when the driver resolves no live address, whatever the record holds' {
+        $d = Get-CachingProxyServiceAdoptDecision -VmState 'running' -ProbeSuccess $true -Ip '' -RecordedIp '192.168.7.50'
         Assert-Equal -Expected $false -Actual $d.Adoptable
-        Assert-Equal -Expected 'no-recorded-ip' -Actual $d.Reason
+        Assert-Equal -Expected 'no-live-address' -Actual $d.Reason
+    }
+    It 'adopts at the live address and reports a recorded address that moved' {
+        $d = Get-CachingProxyServiceAdoptDecision -VmState 'running' -ProbeSuccess $true -Ip '192.168.7.61' -RecordedIp '192.168.7.50'
+        Assert-True $d.Adoptable 'healthy at the live address'
+        Assert-Equal -Expected '192.168.7.61' -Actual $d.Ip
+        Assert-True $d.Moved 'the recorded address is stale'
+        Assert-True ($d.Reason -like '*moved from 192.168.7.50*') 'the reason names the stale record'
+    }
+}
+
+Describe 'Test-CachingProxyServiceAdoptable probes the live address' {
+    BeforeAll {
+        $script:Probed = [Collections.Generic.List[string]]::new()
+        function global:Get-VMState { param($VMName) $null = $VMName; 'running' }
+        function global:Get-VMIp { param($VMName) $null = $VMName; $script:LiveIp }
+        function global:Read-CachingProxyServiceState { @{ ipAddress = '192.168.7.50' } }
+        function global:Invoke-CachingProxyServiceProbe { param($CacheIp) $script:Probed.Add($CacheIp); @{ Success = ($CacheIp -eq '192.168.7.61') } }
+    }
+    AfterAll {
+        foreach ($name in 'Get-VMState', 'Get-VMIp', 'Read-CachingProxyServiceState', 'Invoke-CachingProxyServiceProbe') {
+            Remove-Item -LiteralPath "function:global:$name" -ErrorAction SilentlyContinue
+        }
+    }
+    It 'never probes the recorded address when the live one differs' {
+        $script:Probed.Clear()
+        $script:LiveIp = '192.168.7.61'
+        $d = Test-CachingProxyServiceAdoptable -VMName 'cache-fixture'
+        Assert-True $d.Adoptable 'the proxy answers at its live address'
+        Assert-Equal -Expected '192.168.7.61' -Actual ($script:Probed -join ',') -Because 'only the live address is probed'
+    }
+    It 'rebuilds when the driver has no address, even though a recorded one would answer' {
+        $script:Probed.Clear()
+        $script:LiveIp = ''
+        $d = Test-CachingProxyServiceAdoptable -VMName 'cache-fixture'
+        Assert-Equal -Expected $false -Actual $d.Adoptable
+        Assert-Equal -Expected 0 -Actual $script:Probed.Count -Because 'nothing at the recorded address is trusted'
     }
 }
 

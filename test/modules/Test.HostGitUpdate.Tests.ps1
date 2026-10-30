@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421e5032-3844-4d14-b69c-9033a127d516
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,14 +28,13 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -Force -DisableNameChecking
     $script:RealUpdateGit = & (Get-Module Test.HostGit) { Get-Command Invoke-GitUpdateCommand }
 
     function Invoke-FixtureGit {
         param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string[]]$Arguments)
-        $output = @(& git -C $Path @Arguments 2>&1)
-        if ($LASTEXITCODE -ne 0) { throw "Fixture Git failed: $($Arguments -join ' '): $($output -join ' ')" }
-        return ($output -join "`n").Trim()
+        return ((Invoke-YurunaTestGit -Path $Path -Argument $Arguments) -join "`n").Trim()
     }
 
     function Set-FixtureFile {
@@ -55,9 +54,7 @@ BeforeAll {
         $remote = Join-Path $root 'remote'
         $local = Join-Path $root 'customer'
         [IO.Directory]::CreateDirectory($remote) | Out-Null
-        $null = Invoke-FixtureGit $remote @('init', '--quiet', '--initial-branch=main')
-        $null = Invoke-FixtureGit $remote @('config', 'user.name', 'fixture')
-        $null = Invoke-FixtureGit $remote @('config', 'user.email', 'fixture@example.invalid')
+        $null = New-YurunaTestGitRepository -Path $remote
         Set-FixtureFile -Root $remote -Name 'source.txt' -Text 'old source'
         Set-FixtureFile -Root $remote -Name 'removed.txt' -Text 'removed by the next release'
         Set-FixtureFile -Root $remote -Name '.gitignore' -Text "test.config.yml`nruntime/`nprivate/`nlog/`noperator-*`n"
@@ -67,8 +64,7 @@ BeforeAll {
         $arguments = @('clone', '--quiet')
         if ($Shallow) { $arguments += @('--depth', '1') }
         $null = Invoke-FixtureGit $root ($arguments + @($url, $local))
-        $null = Invoke-FixtureGit $local @('config', 'user.name', 'fixture')
-        $null = Invoke-FixtureGit $local @('config', 'user.email', 'fixture@example.invalid')
+        Set-YurunaTestGitIdentity -Path $local
         return @{ Root = $root; Remote = $remote; Local = $local; Url = $url;
             Original = (Invoke-FixtureGit $local @('rev-parse', 'HEAD')) }
     }

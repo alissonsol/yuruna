@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,6 +20,45 @@
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.HostAutomationState.psm1') -Global -DisableNameChecking
+# Invoke-BoundedNativeCommand bounds the powercfg reads below. Imported -Global
+# and without -Force so an already-loaded copy, whose commands other modules
+# hold, is reused instead of being evicted into this module's private scope.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking
+
+# The condition the last Assert-WindowsHostConditionSet refused on; see
+# Get-WindowsHostConditionFailure.
+$script:HostConditionFailure = $null
+
+function Read-WindowsPowerSetting {
+    <#
+    .SYNOPSIS
+    The AC and DC index of one setting of the current power scheme, read
+    through a bounded powercfg call, or $null when it could not be read.
+    .DESCRIPTION
+    powercfg asks the power service, and a power service that stops answering
+    held an unbounded call -- and with it the host-condition gate -- until the
+    preamble watchdog ended the cycle. Bounded, a read that times out, cannot
+    start or exits non-zero is "could not be read", which both callers already
+    treat as a reason to refuse rather than as a safe value.
+    .OUTPUTS
+    [pscustomobject] Ac and Dc ([Nullable[long]] each), or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Subgroup,
+        [Parameter(Mandatory)][string]$Setting,
+        [ValidateRange(1, 300)][int]$TimeoutSeconds = 15
+    )
+    $read = Invoke-BoundedNativeCommand -FilePath 'powercfg' -ArgumentList @('/query', 'SCHEME_CURRENT', $Subgroup, $Setting) -TimeoutSeconds $TimeoutSeconds
+    if ($read.TimedOut -or -not $read.Started -or $read.ExitCode -ne 0) { return $null }
+    $output = @("$($read.StdOut)" -split '\r?\n')
+    return [pscustomobject]@{
+        Ac = ConvertFrom-YurunaPowerSettingIndex -Output $output -Scheme AC
+        Dc = ConvertFrom-YurunaPowerSettingIndex -Output $output -Scheme DC
+    }
+}
+
 function Test-YurunaUsbmmiddDevice {
     <#
     .SYNOPSIS
@@ -1367,9 +1406,9 @@ function Set-WindowsHostConditionSet {
     }
 
     # --- REGION: Display timeout -> Never
-    $powerOutput = @(powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null)
-    $currentAc = if ($LASTEXITCODE -eq 0) { ConvertFrom-YurunaPowerSettingIndex -Output $powerOutput -Scheme AC } else { $null }
-    $currentDc = if ($LASTEXITCODE -eq 0) { ConvertFrom-YurunaPowerSettingIndex -Output $powerOutput -Scheme DC } else { $null }
+    $displayIdle = Read-WindowsPowerSetting -Subgroup 'SUB_VIDEO' -Setting 'VIDEOIDLE'
+    $currentAc = if ($displayIdle) { $displayIdle.Ac } else { $null }
+    $currentDc = if ($displayIdle) { $displayIdle.Dc } else { $null }
 
     if ($null -eq $currentAc -or $null -eq $currentDc) {
         $unmet.Add('Display timeout could not be read from powercfg.')
@@ -1405,9 +1444,9 @@ function Set-WindowsHostConditionSet {
 
     # --- REGION: Lock screen on resume -> disabled
     # power-plan consolelock via powercfg
-    $powerOutput = @(powercfg /query SCHEME_CURRENT SUB_NONE CONSOLELOCK 2>$null)
-    $consoleLockVal = if ($LASTEXITCODE -eq 0) { ConvertFrom-YurunaPowerSettingIndex -Output $powerOutput -Scheme AC } else { $null }
-    $consoleLockDc = if ($LASTEXITCODE -eq 0) { ConvertFrom-YurunaPowerSettingIndex -Output $powerOutput -Scheme DC } else { $null }
+    $consoleLock = Read-WindowsPowerSetting -Subgroup 'SUB_NONE' -Setting 'CONSOLELOCK'
+    $consoleLockVal = if ($consoleLock) { $consoleLock.Ac } else { $null }
+    $consoleLockDc = if ($consoleLock) { $consoleLock.Dc } else { $null }
 
     if ($null -eq $consoleLockVal -or $null -eq $consoleLockDc) {
         $unmet.Add('Resume lock setting could not be read from powercfg.')
@@ -1686,14 +1725,19 @@ function Assert-WindowsHostConditionSet {
     the host clock -- warn-only, never a reason to refuse.
     #>
     param([string]$HostType)
+    $script:HostConditionFailure = $null
     if ($HostType -ne "host.windows.hyper-v") { return $true }
 
     # --- REGION: Elevation check
-    if (-not (Assert-Elevation -HostType $HostType)) { return $false }
+    if (-not (Assert-Elevation -HostType $HostType)) {
+        $script:HostConditionFailure = [pscustomobject]@{ Condition = 'elevation'; Detail = '' }
+        return $false
+    }
 
     # --- REGION: Hyper-V management service must be running
     $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
     if (-not $svc -or $svc.Status -ne 'Running') {
+        $script:HostConditionFailure = [pscustomobject]@{ Condition = 'hypervisor-service'; Detail = "vmms=$(if ($svc) { $svc.Status } else { 'absent' })" }
         Write-Warning "========"
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f5be34e2fa47f964')
         Write-Warning ""
@@ -1709,14 +1753,16 @@ function Assert-WindowsHostConditionSet {
 
     # --- REGION: Screen lock / display timeout -- warn if display will turn off
     try {
-        $powerOutput = @(powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null)
-        $seconds = if ($LASTEXITCODE -eq 0) { ConvertFrom-YurunaPowerSettingIndex -Output $powerOutput -Scheme AC } else { $null }
+        $displayIdle = Read-WindowsPowerSetting -Subgroup 'SUB_VIDEO' -Setting 'VIDEOIDLE'
+        $seconds = if ($displayIdle) { $displayIdle.Ac } else { $null }
         if ($null -eq $seconds) {
             Write-Warning 'Display timeout could not be read from powercfg.'
+            $script:HostConditionFailure = [pscustomobject]@{ Condition = 'display-timeout'; Detail = 'VIDEOIDLE unreadable' }
             return $false
         }
         if ($null -ne $seconds) {
             if ($seconds -ne 0) {
+                $script:HostConditionFailure = [pscustomobject]@{ Condition = 'display-timeout'; Detail = "VIDEOIDLE=$seconds" }
                 $minutes = [math]::Round($seconds / 60)
                 Write-Warning "========"
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a19fdf9bda60abcf' -Arguments @{ minutes = "$minutes" })
@@ -1730,7 +1776,10 @@ function Assert-WindowsHostConditionSet {
             }
         }
     } catch {
-        Write-Debug "Display timeout check failed: $_"
+        # A read that threw is as undetermined as one that returned nothing.
+        Write-Warning "Display timeout could not be read from powercfg: $($_.Exception.Message)"
+        $script:HostConditionFailure = [pscustomobject]@{ Condition = 'display-timeout'; Detail = 'VIDEOIDLE unreadable' }
+        return $false
     }
 
     # --- REGION: Lock screen timeout -- warn if machine will lock
@@ -1741,6 +1790,7 @@ function Assert-WindowsHostConditionSet {
             $lockTimeoutSeconds = $regProps.InactivityTimeoutSecs
         }
         if ($lockTimeoutSeconds -and $lockTimeoutSeconds -gt 0) {
+            $script:HostConditionFailure = [pscustomobject]@{ Condition = 'lock-timeout'; Detail = "InactivityTimeoutSecs=$lockTimeoutSeconds" }
             Write-Warning "========"
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_09bf54ad310b792e' -Arguments @{ lockTimeoutSeconds = "$lockTimeoutSeconds" })
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dbbaafd4998deae3')
@@ -1762,6 +1812,20 @@ function Assert-WindowsHostConditionSet {
     Write-HostClockDriftWarning -HostType $HostType
 
     return $true
+}
+
+function Get-WindowsHostConditionFailure {
+    <#
+    .SYNOPSIS
+    The condition the last Assert-WindowsHostConditionSet refused on, or $null
+    after a pass; the host-condition provider's Failure reader.
+    .OUTPUTS
+    [pscustomobject] Condition, Detail.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    return $script:HostConditionFailure
 }
 
 function Get-WindowsUplinkVerdictRemedy {
@@ -2258,4 +2322,4 @@ function Initialize-WindowsHostMetricsExporter {
 }
 
 Export-ModuleMember -Function Initialize-WindowsHostMetricsExporter
-Export-ModuleMember -Function Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Test-WindowsGuestNetworkHealth, Sync-WindowsHostClock, Install-YurunaVirtualDisplay, Remove-YurunaVirtualDisplay, Set-YurunaDisplayCloneAndResolution, Set-YurunaDisplayScale100, Test-YurunaVirtualDisplayEnabled, Get-WindowsDisplayScaleSetting, Get-WindowsDisplayScaleIssue, Get-WindowsVhdxFilterProfile, Get-WindowsVhdxFilterIssue
+Export-ModuleMember -Function Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Get-WindowsHostConditionFailure, Test-WindowsHostMinimum, Test-WindowsGuestNetworkHealth, Sync-WindowsHostClock, Install-YurunaVirtualDisplay, Remove-YurunaVirtualDisplay, Set-YurunaDisplayCloneAndResolution, Set-YurunaDisplayScale100, Test-YurunaVirtualDisplayEnabled, Get-WindowsDisplayScaleSetting, Get-WindowsDisplayScaleIssue, Get-WindowsVhdxFilterProfile, Get-WindowsVhdxFilterIssue

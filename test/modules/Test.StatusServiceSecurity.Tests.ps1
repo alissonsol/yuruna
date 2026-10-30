@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427642c0-6914-46fa-a327-c4a7e4ddc547
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Exercise the generated status server's file authorization and configuration
+    Exercise the status server runtime's file authorization and configuration
     redaction against disposable files, without starting a host service.
 #>
 
@@ -28,13 +28,10 @@ BeforeAll {
     Import-Module (Join-Path $here 'Test.Config.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.ConfigSync.psm1') -Force -DisableNameChecking
     $repo = Get-YurunaTestRepoRoot -SuiteDirectory $here
-    $source = [IO.File]::ReadAllText((Join-Path $repo 'test/service/Start-StatusService.ps1'))
-    $template = [regex]::Match($source, '(?ms)^\$serverScript = @"\r?\n(.*?)^"@')
-    Assert-True $template.Success 'the server template must exist'
-    $script:ServerText = $ExecutionContext.InvokeCommand.ExpandString($template.Groups[1].Value)
+    $script:ServerText = [IO.File]::ReadAllText((Join-Path $repo 'test/service/Invoke-StatusServiceRuntime.ps1'))
     $parseErrors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseInput($script:ServerText, [ref]$null, [ref]$parseErrors)
-    Assert-Equal 0 @($parseErrors).Count 'the generated server must parse'
+    Assert-Equal 0 @($parseErrors).Count 'the server runtime must parse'
     $shapeAssignment = $ast.FindAll({
         param($node)
         $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$secretNameShapes'
@@ -49,7 +46,7 @@ BeforeAll {
         Log = (Join-Path $script:Work 'logs')
     }
     foreach ($dir in $script:Roots.Values) { $null = [IO.Directory]::CreateDirectory($dir) }
-    $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+    $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     $env:YURUNA_RUNTIME_DIR = $script:Roots.Runtime
     foreach ($relative in @('test/test.config.yml', '.git/config', 'test/status/ssh/yuruna_ed25519',
             'test/status/runtime/host-config-ca/ca.pfx', 'test/status/runtime/host-config-ca/server.pfx',
@@ -151,8 +148,7 @@ return [pscustomobject]@{Status=$res.StatusCode;Reports=$reports.ToArray()}
 }
 
 AfterAll {
-    if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
-    else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+    Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
     Remove-YurunaTestTempDir $script:Work
 }
 
@@ -401,9 +397,7 @@ Describe 'control routes accept the scope that covers them' {
     # A pause-scoped proof is what the pool-wide pause and continue carries; it
     # must open the four pause and resume routes and none of the others.
     BeforeAll {
-        $line = @($script:ServerText -split "`r?`n" | Where-Object { $_ -match '^\s*\$ctlScope = ' })
-        Assert-Equal 1 $line.Count 'the route scope rule must exist once'
-        $script:ScopeRule = [scriptblock]::Create("param([string]`$path)`n" + $line[0].Trim() + "`nreturn ,`$ctlScope")
+        Import-Module (Join-Path $here 'Test.StatusControlRoute.psm1') -Force -DisableNameChecking
     }
     It 'gives <Route> the scopes <Expected>' -TestCases @(
         @{ Route = 'control/step-pause'; Expected = 'pause' }
@@ -418,10 +412,49 @@ Describe 'control routes accept the scope that covers them' {
         @{ Route = 'control/host-diagnostic'; Expected = '' }
     ) {
         param($Route, $Expected)
-        ((& $script:ScopeRule -path $Route) -join ',') | Should -BeExactly $Expected
+        ((Get-StatusControlRouteGuard -Path $Route -Method 'POST').ProofScope -join ',') | Should -BeExactly $Expected
     }
     It 'hands the route''s scopes to the verifier' {
+        $script:ServerText | Should -Match ([regex]::Escape('$ctlScope = $routeGuard.ProofScope'))
         $script:ServerText | Should -Match ([regex]::Escape('Test-YurunaControlProof -Token $ctlToken -Wire $ctlWire -Audience (Get-ArchiveHostId) -AllowedScope $ctlScope'))
+    }
+}
+
+Describe 'the control route guard table' {
+    # One table states each route's guard; the listener reads it for the
+    # header check, the control proof and the preflight answer.
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.StatusControlRoute.psm1') -Force -DisableNameChecking
+    }
+    It 'guards <Route> on every method' -TestCases @(
+        @{ Route = 'control/start-cycle' }, @{ Route = 'control/break-continue' }, @{ Route = 'control/test-caching-proxy-service' }
+        @{ Route = 'control/host-diagnostic' }, @{ Route = 'control/step-pause' }, @{ Route = 'control/step-resume' }
+        @{ Route = 'control/cycle-pause' }, @{ Route = 'control/cycle-resume' }, @{ Route = 'control/lab-hold-release' }
+        @{ Route = 'control/host-refresh' }
+    ) {
+        param($Route)
+        foreach ($method in @('GET', 'HEAD', 'POST', 'PUT', 'DELETE')) {
+            (Get-StatusControlRouteGuard -Path $Route -Method $method).RequiresHeader | Should -BeTrue -Because "$method $Route changes state"
+        }
+    }
+    It 'guards <Route> on its write methods only' -TestCases @(@{ Route = 'control/test-config' }, @{ Route = 'control/perf-aggregates' }) {
+        param($Route)
+        (Get-StatusControlRouteGuard -Path $Route -Method 'POST').RequiresHeader | Should -BeTrue
+        (Get-StatusControlRouteGuard -Path $Route -Method 'PUT').RequiresHeader | Should -BeTrue
+        (Get-StatusControlRouteGuard -Path $Route -Method 'GET').RequiresHeader | Should -BeFalse -Because 'the read path stays open'
+        (Get-StatusControlRouteGuard -Path $Route -Method 'HEAD').RequiresHeader | Should -BeFalse
+    }
+    It 'leaves the read route <Route> open' -TestCases @(
+        @{ Route = 'control/runner-status' }, @{ Route = 'control/control-status' }, @{ Route = 'control/host-facts' }
+        @{ Route = 'control/runtime-env' }, @{ Route = 'index.html' }, @{ Route = '' }
+    ) {
+        param($Route)
+        Get-StatusControlRouteGuard -Path $Route -Method 'POST' | Should -BeNullOrEmpty
+    }
+    It 'is the only guard list the listener reads, and the listener cannot start without it' {
+        $script:ServerText | Should -Match ([regex]::Escape('$routeGuard = Get-StatusControlRouteGuard -Path $path -Method $req.HttpMethod'))
+        $script:ServerText | Should -Match "Test\.StatusControlRoute\.psm1'\) -Force -DisableNameChecking -Verbose:\`$false -ErrorAction Stop"
+        $script:ServerText | Should -Not -Match "'control/start-cycle','control/break-continue'" -Because 'a second hand-kept list would drift from the table'
     }
 }
 
@@ -589,6 +622,18 @@ Describe 'control configuration writer preserves and validates mirror enrollment
         (Read-TestConfig -Path $script:MirrorConfig -NoCache -ThrowOnError).repositories.mirror.mode | Should -BeExactly 'off'
     }
 
+    It 'keeps the version a UI save replaces as a config journal entry' {
+        $config = Join-Path $script:Work ('journal-' + [guid]::NewGuid().ToString('N') + '.yml')
+        $script:MirrorDoc | ConvertTo-Yaml | Set-Content $config
+        $before = [IO.File]::ReadAllText($config)
+        $posted = @{repositories=@{projectUrl='file:///operator/project.git'};secrets=@{};setting='edited'}
+        $result = & $script:WriteView $config $posted
+        $result.Status | Should -Be 200
+        $entries = @(Get-ChildItem -LiteralPath (Get-TestConfigJournalPath -ConfigPath $config) -Filter '*-status-editor.backup' -File)
+        $entries.Count | Should -Be 1
+        [IO.File]::ReadAllText($entries[0].FullName) | Should -BeExactly $before
+    }
+
     It 'leaves the file unchanged when a posted key is malformed' {
         $before = [IO.File]::ReadAllBytes($script:MirrorConfig)
         $script:MirrorDoc.repositories.mirror.verificationPublicKeys = @('invalid-key')
@@ -596,6 +641,32 @@ Describe 'control configuration writer preserves and validates mirror enrollment
         $result.Status | Should -Be 500
         [IO.File]::ReadAllBytes($script:MirrorConfig) | Should -BeExactly $before
         @($result.Reports | Where-Object text -Like '*mirror-key-invalid*').Count | Should -Be 1
+    }
+}
+
+Describe 'the configuration editor saves under the config write lock' {
+    It 'holds the lock for the whole save and releases it afterwards' {
+        Import-Module (Join-Path $PSScriptRoot 'Test.SingleFlightLock.psm1') -DisableNameChecking
+        $ast = [Management.Automation.Language.Parser]::ParseInput($script:ServerText, [ref]$null, [ref]$null)
+        $locked = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Invoke-LockedTestConfigWrite' }, $true)
+        $locked | Should -Not -BeNullOrEmpty
+        $repoRoot = Join-Path $script:Work ('lock-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $repoRoot 'test')
+        $config = Join-Path $repoRoot 'test/test.config.yml'
+        $script:LockSeenBySave = $null
+        # Stands in for the save: it reads the lock's state from inside.
+        function Invoke-TestConfigWrite {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Mirrors the real save''s signature; the stand-in only probes the lock.')]
+            param($RequestContext, $BodyBytes)
+            $probe = Enter-YurunaSingleFlightLock -Path "$config.lock" -WaitMilliseconds 0
+            $script:LockSeenBySave = $probe.Reason
+            if ($probe.Held) { Exit-YurunaSingleFlightLock -Lock $probe }
+        }
+        . ([scriptblock]::Create($locked.Extent.Text))
+        Invoke-LockedTestConfigWrite -RequestContext ([pscustomobject]@{}) -BodyBytes ([byte[]]@())
+        $script:LockSeenBySave | Should -Be 'held-by-this-process'
+        $after = Enter-YurunaSingleFlightLock -Path "$config.lock" -WaitMilliseconds 0
+        try { $after.Held | Should -BeTrue } finally { if ($after.Held) { Exit-YurunaSingleFlightLock -Lock $after } }
     }
 }
 

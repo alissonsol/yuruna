@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4215a4b8-4fbf-82d7-effd-933fdbd2dd43
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,41 @@
 # locale: zh-CN  domain: automation
 
 @{
+    'automation.deploy_phase_reused' = @(
+        '已跳过'
+        @{
+            'arg' = 'phase'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '阶段：它在'
+        @{
+            'arg' = 'failedPhase'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '阶段失败之前已使用这些输入通过，且其输出仍然存在。删除'
+        @{
+            'arg' = 'ledgerPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '即可重新运行所有阶段。'
+    )
+    'automation.deploy_tool_deadline' = @(
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '未在'
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '秒内完成，已被停止。这计为超时，其停止前执行了哪些操作未知。'
+    )
     'automation.diagnostic_checkout_unavailable' = '（不适用：检出目录的证据不可用；请传入 -CheckoutRoot 以使用现有的 Yuruna 检出目录）'
     'automation.diagnostic_phase_log_limits' = '阶段日志扫描最多读取 100 个文件、12 层目录，耗时不超过 10 秒；每个日志最多显示最后 64 KiB。'
     'automation.host_setup_module_install_skipped' = @(
@@ -35,6 +70,27 @@
             'trust' = 'internal'
         }
         ' -Scope CurrentUser'
+    )
+    'automation.memory_commit_charge' = @(
+        '提交 : 已占用 '
+        @{
+            'arg' = 'charged'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '（上限 '
+        @{
+            'arg' = 'limit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '），未占用 '
+        @{
+            'arg' = 'uncharged'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '（虚拟机启动按此上限计费，而非按空闲物理内存）'
     )
     'automation.memory_plan' = @{
         'kind' = 'plural'
@@ -112,6 +168,15 @@
             )
         }
     }
+    'automation.network_dhcp_lease' = @(
+        '默认路由设备上的 DHCP 租约（'
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '）'
+    )
     'automation.operator_00010ebe540ede32' = '此宿主机未报告其已安装的内存'
     'automation.operator_0006b705ae0abd93' = @(
         '!! '
@@ -4924,6 +4989,38 @@
         }
     )
     'automation.runtime_ipc_remove_action' = '删除已不存在的进程遗留的 .NET 运行时条目'
+    'automation.seed_value_unsafe' = @(
+        @{
+            'arg' = 'placeholder'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 的种子值无法放入其 '
+        @{
+            'arg' = 'context'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' 上下文（模板第 '
+        @{
+            'arg' = 'line'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 行）：其中包含 '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '。请更改该值；共拒绝了 '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 处占位符。'
+    )
     'automation.setup_service_vm_reason_intended_stopped' = '此前被有意停止；因已要求安装程序启动它，正在重建'
     'automation.setup_service_vm_reason_lock_unavailable' = '无法获取其操作锁'
     'automation.setup_service_vm_reason_operation_busy' = '此服务的另一个启动或停止操作仍在运行'
@@ -5084,4 +5181,5 @@
         }
         '秒内返回完整结果；上方列表可能不完整（UTM可能未响应Apple Events）。'
     )
+    'automation.top_processes_private_bytes' = '私有字节（提交占用）前10项'
 }

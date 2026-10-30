@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a18897-339a-0499-216e-65f73137ab64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,12 +185,16 @@
     'aggregator.failed_to_encode_scrape_targets' = 'failed to encode scrape targets'
     'aggregator.failed_to_seal_the_token' = 'failed to seal the token'
     'aggregator.forget_host_disabled_no_auth_token_configured' = 'forget-host disabled (no auth token configured)'
+    'aggregator.framework_ring_canary_invalid' = 'canary must list 42-prefixed host IDs (at most 64), separated by commas'
+    'aggregator.framework_ring_passes_invalid' = 'passes must be a whole number from 1 to 1000'
     'aggregator.help_address_to_listen_on_59add3f5' = 'address to listen on'
     'aggregator.help_allow_pseudo' = 'Enable diagnostic pseudo locales'
     'aggregator.help_display_language' = 'Display language: auto or a supported locale'
     'aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083' = 'distinct hosts that must fail within -cross-host-window to open a pool-wide incident'
     'aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1' = 'drop a host from the pool view this long after last contact; its per-cycle dedup state is kept an hour longer so a re-appearing host cannot double-count, and dashboard deep links resolve over at least 24h regardless. Cumulative pass/fail counters are not expired by this -- use POST /api/v1/forget-host'
     'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = 'file containing the shared bearer token required for POST /ingest, POST /api/v1/forget-host, POST /api/v1/handover-host, and GET /api/v1/host-history; an empty path, absent file, or empty file disables these operations (no unauthenticated control route)'
+    'aggregator.help_framework_ring_state_file' = 'file that keeps the framework revision each host''s completed cycles ran, so the canary ring survives a restart (empty keeps it in memory)'
+    'aggregator.help_loki_outbox_dir' = 'folder that keeps Loki lines until Loki accepts them (empty keeps them in memory, lost on restart)'
     'aggregator.help_loki_push_api_url_c89d9321' = 'Loki push API URL'
     'aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f' = 'on startup, restore cycle counts from Loki over this trailing window (0 to disable)'
     'aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc' = 'open an incident after this many failed cycles within -incident-window'
@@ -209,6 +213,7 @@
     'aggregator.host_not_known_to_the_pool' = 'host not known to the pool'
     'aggregator.hostid_must_be_a_42_prefixed_32_hex_id' = 'hostId must be a 42-prefixed 32-hex id'
     'aggregator.ingest_disabled' = 'ingest disabled'
+    'aggregator.ingest_queue_full' = 'the collector cannot hold these lines now; try again later'
     'aggregator.invalid_control_scope' = 'invalid control scope'
     'aggregator.invalid_hostid' = 'invalid hostId'
     'aggregator.invalid_hostid_or_area' = 'invalid hostId or area'
@@ -273,6 +278,36 @@
             'trust' = 'external'
         }
         '); the entry stays suppressed until the service re-announces or the announce TTL reaps it'
+    )
+    'aggregator.log_framework_ring_state_unreadable' = @(
+        'framework ring: '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' cannot be read ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); starting from what the hosts report next'
+    )
+    'aggregator.log_framework_ring_state_unwritten' = @(
+        'framework ring: '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' cannot be written ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); the revisions stay in memory until a write succeeds'
     )
     'aggregator.log_host_metrics_port_value1_is_not_a_valid_port_keeping_t_e686d724' = @(
         'host-metrics-port '
@@ -360,6 +395,76 @@
             'trust' = 'external'
         }
         '); keeping previous codes'
+    )
+    'aggregator.log_loki_not_ready' = @(
+        'Loki was not ready after '
+        @{
+            'arg' = 'duration'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; reading it anyway'
+    )
+    'aggregator.log_loki_outbox_enqueue_failed' = @(
+        @{
+            'arg' = 'what'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': the line could not be queued for Loki: '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'aggregator.log_loki_outbox_full' = @(
+        'Loki outbox is full ('
+        @{
+            'arg' = 'lines'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' lines); new lines are refused until Loki takes some'
+    )
+    'aggregator.log_loki_outbox_memory_only' = @(
+        'Loki outbox: '
+        @{
+            'arg' = 'dir'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' cannot be used ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); lines wait in memory and a restart loses them'
+    )
+    'aggregator.log_loki_outbox_refused' = @(
+        'Loki refused a queued line ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); it is dropped'
+    )
+    'aggregator.log_loki_outbox_unreadable' = @(
+        'Loki outbox: '
+        @{
+            'arg' = 'name'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' cannot be read ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); it is dropped'
     )
     'aggregator.log_pool_aggregator_service_listening_on_value1_value2_poo_b30f8764' = @(
         'pool-aggregator-service listening on '

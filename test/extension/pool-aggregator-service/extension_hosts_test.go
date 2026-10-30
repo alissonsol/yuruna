@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"yuruna.com/test/extension/pool-aggregator-service/internal/hostpoll"
 )
 
 // Extension hosts are discovered from each host's registration record
@@ -223,7 +224,7 @@ func TestFetchCurrentActionStepPause(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(body))
 		}))
-		got, err := fetchCurrentAction(srv.Client(), srv.URL)
+		got, err := hostpoll.FetchCurrentAction(srv.Client(), srv.URL)
 		srv.Close()
 		if err != nil {
 			t.Errorf("%s: unexpected error: %v", c.name, err)
@@ -270,7 +271,7 @@ func TestFetchCurrentActionPauseCode(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(body))
 		}))
-		got, err := fetchCurrentAction(srv.Client(), srv.URL)
+		got, err := hostpoll.FetchCurrentAction(srv.Client(), srv.URL)
 		srv.Close()
 		if err != nil {
 			t.Errorf("%s: unexpected error: %v", c.name, err)
@@ -307,7 +308,7 @@ func TestFetchRunnerStopped(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(body))
 		}))
-		got, err := fetchRunnerStopped(srv.Client(), srv.URL)
+		got, err := hostpoll.FetchRunnerStopped(srv.Client(), srv.URL)
 		srv.Close()
 		if err != nil {
 			t.Errorf("%s: unexpected error: %v", c.name, err)

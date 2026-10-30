@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2257,35 +2257,40 @@ function Set-CachingProxyGitMirrorEnrollment {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Read inside the block handed to Use-TestConfigLock, which the rule does not follow.')]
     param([Parameter(Mandatory)][string]$ConfigPath, [Parameter(Mandatory)][string]$ProxyIp)
     Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1') -DisableNameChecking
     $templatePath = "$ConfigPath.template"
     $template = Get-Content -LiteralPath $templatePath -Raw | ConvertFrom-Yaml -Ordered
     if (-not $template.repositories.mirror) { throw 'mirror-template-not-installed' }
-    $current = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Yaml -Ordered
-    $config = ConvertTo-MergedHashtable -Template $template -Current $current
-    if ($current.Contains('secrets')) { $config['secrets'] = $current.secrets }
-    $previousIp = [string]$config.vmStart.cachingProxyIp
-    if ($previousIp -and $previousIp -ne $ProxyIp) { return $false }
-    $config.vmStart.cachingProxyIp = $ProxyIp
-    $runtime = Split-Path -Parent (Get-CachingProxyServiceStatePath)
-    $publicPath = Join-Path $runtime 'git-mirror-public-key.json'
-    $endpoint = [string]$config.repositories.mirror.url
-    $ownEndpoint = 'http://' + (ConvertTo-CachingProxyUrlHost -Address $ProxyIp)
-    if ((-not $endpoint -or $endpoint.TrimEnd('/') -eq $ownEndpoint) -and (Test-Path -LiteralPath $publicPath)) {
-        $export = Get-Content -LiteralPath $publicPath -Raw | ConvertFrom-Json
-        $id = [string](Get-ConfigMirrorKeyId -Value $export.publicKey)
-        if ($id -cne [string]$export.keyId) { throw 'mirror-public-key-export-invalid' }
-        $keys = @($config.repositories.mirror.verificationPublicKeys)
-        if ($keys -cnotcontains [string]$export.publicKey) { $config.repositories.mirror.verificationPublicKeys = @($keys) + @([string]$export.publicKey) }
-    }
-    $changes = @(Get-ConfigMirrorChange -Current $current -Proposed $config)
-    if ($previousIp -eq $ProxyIp -and $changes.Count -eq 0) { return $false }
-    if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Enroll own caching proxy')) { return $false }
-    Copy-Item -LiteralPath $ConfigPath -Destination "$ConfigPath.backup" -Force
-    if ($previousIp -cne $ProxyIp) { Write-Information "vmStart.cachingProxyIp: $previousIp -> $ProxyIp (backup: $ConfigPath.backup)" -InformationAction Continue }
-    foreach ($change in $changes) { Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $ConfigPath.backup)" -InformationAction Continue }
-    return (Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $config -TemplatePath $templatePath -Confirm:$false)
+    # Read and write under the config's write lock, so another writer's change
+    # cannot land between them and be lost.
+    return [bool](Use-TestConfigLock -Path $ConfigPath -Action {
+        $current = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Yaml -Ordered
+        $config = ConvertTo-MergedHashtable -Template $template -Current $current
+        if ($current.Contains('secrets')) { $config['secrets'] = $current.secrets }
+        $previousIp = [string]$config.vmStart.cachingProxyIp
+        if ($previousIp -and $previousIp -ne $ProxyIp) { return $false }
+        $config.vmStart.cachingProxyIp = $ProxyIp
+        $runtime = Split-Path -Parent (Get-CachingProxyServiceStatePath)
+        $publicPath = Join-Path $runtime 'git-mirror-public-key.json'
+        $endpoint = [string]$config.repositories.mirror.url
+        $ownEndpoint = 'http://' + (ConvertTo-CachingProxyUrlHost -Address $ProxyIp)
+        if ((-not $endpoint -or $endpoint.TrimEnd('/') -eq $ownEndpoint) -and (Test-Path -LiteralPath $publicPath)) {
+            $export = Get-Content -LiteralPath $publicPath -Raw | ConvertFrom-Json
+            $id = [string](Get-ConfigMirrorKeyId -Value $export.publicKey)
+            if ($id -cne [string]$export.keyId) { throw 'mirror-public-key-export-invalid' }
+            $keys = @($config.repositories.mirror.verificationPublicKeys)
+            if ($keys -cnotcontains [string]$export.publicKey) { $config.repositories.mirror.verificationPublicKeys = @($keys) + @([string]$export.publicKey) }
+        }
+        $changes = @(Get-ConfigMirrorChange -Current $current -Proposed $config)
+        if ($previousIp -eq $ProxyIp -and $changes.Count -eq 0) { return $false }
+        if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Enroll own caching proxy')) { return $false }
+        Copy-Item -LiteralPath $ConfigPath -Destination "$ConfigPath.backup" -Force
+        if ($previousIp -cne $ProxyIp) { Write-Information "vmStart.cachingProxyIp: $previousIp -> $ProxyIp (backup: $ConfigPath.backup)" -InformationAction Continue }
+        foreach ($change in $changes) { Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $ConfigPath.backup)" -InformationAction Continue }
+        return (Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $config -TemplatePath $templatePath -Writer 'proxy-enrollment' -Confirm:$false)
+    })
 }
 
 function Repair-CachingProxyPoolCaTrust {
@@ -2568,4 +2573,4 @@ function Get-CachingProxyGitMirrorSeedSetting {
     }
 }
 
-Export-ModuleMember -Function Repair-CachingProxyPoolCaTrust, Initialize-CachingProxyGitMirrorToken, Set-CachingProxyGitMirrorEnrollment, Get-CachingProxyGitMirrorSeedSetting, Get-CachingProxyServiceStateIp, Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Test-SequenceRequiresCacheRegistry, Test-CachingProxyRegistryReady, Wait-CachingProxyServiceSettled, Resolve-CachingProxyZotOverride, Get-CachingProxyZotSelfTestReport, Wait-CachingProxyZotSelfTest, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Wait-YurunaAggregatorReady, Get-PoolConfigurationSeedUrl, Sync-PoolConfigurationAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem, Get-YurunaCertificateSha256, Get-YurunaBumpCa, Get-CachingProxyServiceLegacyCa, Resolve-YurunaPinnedProxyCa, ConvertTo-YurunaProxyCaStatement, Test-YurunaProxyCaStatement, Get-YurunaProxyCaVerificationKey, Get-CachingProxyServiceCaStatement, Write-YurunaProxyCaRefusal, Get-YurunaSourceIntegrityExitCode
+Export-ModuleMember -Function Repair-CachingProxyPoolCaTrust, Initialize-CachingProxyGitMirrorToken, Set-CachingProxyGitMirrorEnrollment, Get-CachingProxyGitMirrorSeedSetting, Get-CachingProxyServiceStateIp, Get-CachingProxyServiceStatePath, Read-CachingProxyServiceState, Save-CachingProxyServiceState, Test-TcpPortReachable, Invoke-CachingProxyServiceProbe, Test-SequenceRequiresCacheRegistry, Test-CachingProxyRegistryReady, Wait-CachingProxyServiceSettled, Resolve-CachingProxyZotOverride, Get-CachingProxyZotSelfTestReport, Wait-CachingProxyZotSelfTest, Resolve-CachingProxyServiceEndpoint, Get-PoolAggregatorServiceSeedUrl, Get-PoolAggregatorServiceClaim, Wait-YurunaAggregatorReady, Get-PoolConfigurationSeedUrl, Sync-PoolConfigurationAliasOnProxy, Test-CachingProxyServiceCaPem, Get-CachingProxyServiceCaCertBase64, Resolve-CachingProxyServiceCaCertPem, Get-YurunaCertificateSha256, Get-YurunaBumpCa, Get-CachingProxyServiceLegacyCa, Resolve-YurunaPinnedProxyCa, ConvertTo-YurunaProxyCaStatement, Test-YurunaProxyCaStatement, Get-YurunaProxyCaVerificationKey, Get-CachingProxyServiceCaStatement, Write-YurunaProxyCaRefusal, Get-YurunaSourceIntegrityExitCode

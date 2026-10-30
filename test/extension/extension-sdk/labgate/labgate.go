@@ -184,10 +184,12 @@ func New(opts Options) *Gate {
 			// The same trusted-LAN posture as the beacon and the pool read: the
 			// aggregator listener is routinely plain HTTP or carries a leaf no
 			// guest trusts, so demanding a verifiable certificate would disable
-			// this gate outright. What crosses the wire is a code the aggregator
-			// already publishes on its open /metrics, and the reply is discarded
-			// unread.
-			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}}, //nolint:gosec // trusted-LAN; the payload is a published rotating code
+			// this gate outright. What crosses the wire is the rotating code the
+			// pool dashboard shows to anyone on the LAN who opens it (anonymous
+			// Grafana viewer), redeemable for a few minutes, and the reply is
+			// discarded unread. The aggregator's /metrics, which carries the
+			// same code, is served to its own machine only.
+			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}}, //nolint:gosec // trusted-LAN; the payload is a rotating code the dashboard displays
 		}
 	}
 	key := make([]byte, 32)

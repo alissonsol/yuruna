@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427703ae-4857-433b-ab5f-5f81a7ae94c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,10 +38,15 @@
     the rest. Rows are emitted as objects (pipe to ConvertTo-Json, Where-Object,
     etc.); a human-readable summary goes to the information stream.
 
-    The "latest"-tracked dependencies (Flannel, mkcert, PowerShell) are not
-    pinned -- the guest scripts intentionally fetch their newest release at
-    install time -- so they are reported for visibility only and never flagged
-    as out of date. Pass -PinnedOnly to omit them.
+    The "latest"-tracked dependency (PowerShell) is not pinned -- the guest
+    scripts intentionally fetch its newest release at install time and check it
+    against that release's own checksum file -- so it is reported for
+    visibility only and never flagged as out of date. Pass -PinnedOnly to omit
+    it.
+
+    A pinned version whose installer artifact is downloaded carries SHA-256
+    pins beside it in the manifest; bumping the version means replacing those
+    digests from the source each pin's comment names.
     Yuruna.Requirement.yml is checked alongside it. Those entries are host-tool
     FLOORS -- the versions a host is probed against, not versions anything
     installs -- so a newer upstream is reported for visibility and never fails
@@ -267,6 +272,8 @@ $pinnedDeps = @(
     @{ Name = 'Kubernetes (minor)'; Key = 'YURUNA_K8S_MINOR';       Kind = 'minor'; Source = 'dl.k8s.io/release/stable.txt';      Resolve = { Get-K8sLatestStableVersion } }
     @{ Name = 'OpenTofu';           Key = 'YURUNA_OPENTOFU_VERSION'; Kind = 'full';  Source = 'github.com/opentofu/opentofu';      Resolve = { Get-GitHubLatestTag -Repo 'opentofu/opentofu' } }
     @{ Name = 'Helm';               Key = 'YURUNA_HELM_VERSION';     Kind = 'full';  Source = 'github.com/helm/helm';              Resolve = { Get-GitHubLatestTag -Repo 'helm/helm' } }
+    @{ Name = 'Flannel';            Key = 'YURUNA_FLANNEL_VERSION';  Kind = 'full';  Source = 'github.com/flannel-io/flannel';     Resolve = { Get-GitHubLatestTag -Repo 'flannel-io/flannel' } }
+    @{ Name = 'mkcert';             Key = 'YURUNA_MKCERT_VERSION';   Kind = 'full';  Source = 'github.com/FiloSottile/mkcert';     Resolve = { Get-GitHubLatestTag -Repo 'FiloSottile/mkcert' } }
     @{ Name = 'nvm';                Key = 'YURUNA_NVM_VERSION';      Kind = 'full';  Source = 'github.com/nvm-sh/nvm';             Resolve = { Get-GitHubLatestTag -Repo 'nvm-sh/nvm' } }
     @{ Name = 'Node.js (LTS major)'; Key = 'YURUNA_NODE_MAJOR';      Kind = 'major'; Source = 'nodejs.org/dist/index.json';        Resolve = { Get-NodeLatestLtsVersion } }
 )
@@ -274,8 +281,6 @@ $pinnedDeps = @(
 # "latest"-tracked dependencies: the guest scripts fetch the newest release at
 # install time, so there is no pin to bump. Reported for visibility only.
 $trackedDeps = @(
-    @{ Name = 'Flannel (tracks latest)';    Source = 'github.com/flannel-io/flannel';          Resolve = { Get-GitHubLatestTag -Repo 'flannel-io/flannel' } }
-    @{ Name = 'mkcert (tracks latest)';     Source = 'github.com/FiloSottile/mkcert';          Resolve = { Get-GitHubLatestTag -Repo 'FiloSottile/mkcert' } }
     @{ Name = 'PowerShell (tracks latest)'; Source = 'github.com/PowerShell/PowerShell';        Resolve = { Get-GitHubLatestTag -Repo 'PowerShell/PowerShell' } }
 )
 

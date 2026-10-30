@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4238dc49-0c94-4ba6-a7be-b24343a6ca42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -330,6 +330,28 @@ function ConvertTo-PoolGatingRecord {
     return $rec
 }
 
+function ConvertTo-PoolFrameworkRingRecord {
+    <#
+    .SYNOPSIS
+        Normalizes the operator-authored pools.yml frameworkRing block to the record
+        pool.state.json carries to the framework update: lowercase canary hostIds and
+        the required pass count. $null when the block is absent or not usable, so a
+        malformed ring never changes how a host updates.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([Parameter()][AllowNull()]$Ring)
+    if ($Ring -isnot [System.Collections.IDictionary] -or -not $Ring.Contains('requiredPasses') -or -not $Ring.Contains('canaryMembers')) { return $null }
+    $passes = 0
+    if (-not [int]::TryParse([string]$Ring['requiredPasses'], [ref]$passes) -or $passes -lt 1) { return $null }
+    $canaries = [System.Collections.Generic.List[string]]::new()
+    foreach ($member in @($Ring['canaryMembers'])) {
+        $id = ([string]$member).Trim().ToLowerInvariant()
+        if ($id -match '^42[0-9a-f]{30}$' -and -not $canaries.Contains($id)) { $canaries.Add($id) }
+    }
+    return [ordered]@{ canaryMembers = @($canaries); requiredPasses = $passes }
+}
+
 # Write-YurunaPoolState persists the per-cycle pull result to
 # runtime/pool.state.json so the FRESH inner-runner process (which writes the host
 # registration record) can stamp the derived poolId + gating without re-pulling --
@@ -353,7 +375,9 @@ function Write-YurunaPoolState {
         [Parameter(Mandatory)][string]$ConfiguredState,
         [Parameter(Mandatory)][bool]$ConfigurationOk,
         [Parameter()][AllowNull()]$Gating,
-        [Parameter()][AllowNull()][string]$PoolGuid
+        [Parameter()][AllowNull()][string]$PoolGuid,
+        # The normalized frameworkRing record, or $null when the pool authored none.
+        [Parameter()][AllowNull()]$FrameworkRing
     )
     $runtimeDir = $env:YURUNA_RUNTIME_DIR
     if ([string]::IsNullOrWhiteSpace($runtimeDir)) { return $false }
@@ -367,6 +391,9 @@ function Write-YurunaPoolState {
         gating       = $Gating
         lastSyncUtc  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
     }
+    # Written only for a pool that authored a ring, so every other pool's state
+    # file keeps its existing shape.
+    if ($null -ne $FrameworkRing) { $state['frameworkRing'] = $FrameworkRing }
     if (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue) {
         return [bool](Write-YurunaStateFileJson -Path $path -InputObject $state -Depth 4 -Confirm:$false)
     }
@@ -573,7 +600,10 @@ function Sync-YurunaPoolConfiguration {
     $gating = if (($pool -is [System.Collections.IDictionary]) -and $pool.Contains('gating')) {
         ConvertTo-PoolGatingRecord -Gating $pool['gating']
     } else { $null }
-    $null = Write-YurunaPoolState -PoolId $poolId -PoolGuid $poolGuid -ConfiguredState $state -ConfigurationOk:$pullOk -Gating $gating -Confirm:$false
+    $ring = if (($pool -is [System.Collections.IDictionary]) -and $pool.Contains('frameworkRing')) {
+        ConvertTo-PoolFrameworkRingRecord -Ring $pool['frameworkRing']
+    } else { $null }
+    $null = Write-YurunaPoolState -PoolId $poolId -PoolGuid $poolGuid -ConfiguredState $state -ConfigurationOk:$pullOk -Gating $gating -FrameworkRing $ring -Confirm:$false
     # Publish (or clear, when this host is unpooled or its pool carries no
     # repositories) the pool's framework and project repositories for the
     # inner runner. The target-pool id is read from the same parsed document so
@@ -589,4 +619,4 @@ Export-ModuleMember -Function `
     Resolve-YurunaPoolForHost, Resolve-YurunaPoolConfiguredState, `
     Test-PoolConfigurationHasMember, `
     Write-YurunaPoolState, Write-YurunaPoolManifest, Invoke-PoolSyncGit, Invoke-PoolSyncGitCapture, `
-    ConvertTo-PoolGatingRecord, ConvertTo-PoolConfigurationSchemaV4
+    ConvertTo-PoolGatingRecord, ConvertTo-PoolFrameworkRingRecord, ConvertTo-PoolConfigurationSchemaV4

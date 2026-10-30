@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,13 @@ $ErrorActionPreference = 'Stop'
 # any non-zero native exit into a terminating error, so the preference is pinned off (a no-op
 # on PS 5.1).
 $PSNativeCommandUseErrorActionPreference = $false
+
+# The bytes this process runs, hashed before anything else can rewrite the file:
+# the elevated stage runs only a copy that still matches them.
+$script:InstallerSelfSha256 = ''
+if ($PSCommandPath) {
+    try { $script:InstallerSelfSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant() } catch { $script:InstallerSelfSha256 = '' }
+}
 
 $script:YurunaRepoPublic  = 'https://github.com/alissonsol/yuruna.git'
 $script:YurunaRepoPrivate = 'https://github.com/alissonsol/yurunadev.git'
@@ -128,6 +135,44 @@ function Stop-InstallLog {
     if (-not $script:InstallLogActive) { return }
     try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { $null = $_ }
     $script:InstallLogActive = $false
+}
+
+# --- REGION: Machine-readable outcome
+# One JSON record of how the elevated run ended, at a fixed path and beside the
+# log, so a caller reads the outcome instead of parsing the closing text: outcome
+# succeeded | succeeded-with-issues | restart-required | failed, the exit code,
+# every deferred issue, the installed VERSION and the log path. Best-effort.
+function Write-InstallResult {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Best-effort outcome record of this run; it must be written even under a failed install.')]
+    param([string]$Outcome = '')
+    try {
+        if (-not $Outcome) {
+            $Outcome = if ($script:RestartNeeded) { 'restart-required' }
+                elseif (-not $script:InstallSucceeded) { 'failed' }
+                elseif ($script:YurunaIssue.Count -gt 0) { 'succeeded-with-issues' }
+                else { 'succeeded' }
+        }
+        $version = ''
+        $versionFile = Join-Path $YurunaDir 'VERSION'
+        if (Test-Path -LiteralPath $versionFile) { $version = ([IO.File]::ReadAllText($versionFile)).Trim() }
+        $record = [ordered]@{
+            schema      = 1
+            installer   = 'windows.hyper-v'
+            version     = $version
+            outcome     = $Outcome
+            exitCode    = $(if ($Outcome -eq 'failed') { 1 } else { 0 })
+            issues      = @($script:YurunaIssue | ForEach-Object { [string]$_ })
+            log         = [string]$LogPath
+            finishedUtc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture)
+        }
+        $json = ConvertTo-Json -InputObject $record -Depth 3 -Compress
+        $dir = Join-Path $env:LOCALAPPDATA 'yuruna'
+        New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null
+        $file = Join-Path $dir 'install-result.json'
+        [IO.File]::WriteAllText($file, $json + "`n", (New-Object System.Text.UTF8Encoding $false))
+        if ($LogPath) { Copy-Item -LiteralPath $file -Destination ($LogPath -replace '\.log$', '.result.json') -Force -ErrorAction SilentlyContinue }
+    } catch { $null = $_ }
 }
 
 $LogPath = Resolve-InstallLogPath -Provided $LogPath
@@ -395,7 +440,10 @@ Get-ChildItem -LiteralPath $env:TEMP -Filter 'yuruna-windows-hyper-v-*.ps1' -Err
 
 if (-not $PSCommandPath) {
     $installerUrl = 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/windows.hyper-v.ps1'
-    if ($env:YurunaCacheContent) { $installerUrl += '?nocache=' + [uri]::EscapeDataString($env:YurunaCacheContent) }
+    # Always past the CDN cache: a cached copy can be older than the one this
+    # console is running, and the materialized file is what every later stage runs.
+    $cacheBuster = if ($env:YurunaCacheContent) { $env:YurunaCacheContent } else { (Get-Date -Format 'yyyyMMddHHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8) }
+    $installerUrl += '?nocache=' + [uri]::EscapeDataString($cacheBuster)
     $matTmp = Join-Path $env:TEMP ('yuruna-windows-hyper-v-' + [guid]::NewGuid().ToString('N') + '.ps1')
     Write-Step 'Materializing installer to a temp file (single fetch; relaunches use -File)'
     $src = Invoke-RestMethod $installerUrl
@@ -445,6 +493,57 @@ $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administ
 
 '@ | Write-Output
 
+# --- REGION: New-ElevatedInstallerCommand
+# The elevated stage must not run a file in a folder this account can write: a
+# process at the same unelevated level could replace it between the UAC prompt
+# and the elevated read. The elevated shell therefore starts from an encoded
+# command, not the file: it copies the installer into a new folder only
+# Administrators and SYSTEM can write, checks the copy against the SHA-256 this
+# process took of its own file at startup, and runs the copy.
+function New-ElevatedInstallerCommand {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds a command string; changes nothing.')]
+    param(
+        [Parameter(Mandatory)][string]$SourcePath,
+        [Parameter(Mandatory)][string]$Sha256,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Parameter
+    )
+    $quote = { param($value) "'" + ([string]$value).Replace("'", "''") + "'" }
+    $entries = foreach ($name in $Parameter.Keys) {
+        $value = $Parameter[$name]
+        if ($value -is [bool]) { "$name = `$$($value.ToString().ToLowerInvariant())" } else { "$name = $(& $quote $value)" }
+    }
+    $script = @"
+`$ErrorActionPreference = 'Stop'
+`$source = $(& $quote $SourcePath)
+`$expected = $(& $quote $Sha256)
+`$dir = Join-Path `$env:ProgramData ('yuruna\installer-' + [guid]::NewGuid().ToString('N'))
+`$security = New-Object System.Security.AccessControl.DirectorySecurity
+`$security.SetAccessRuleProtection(`$true, `$false)
+foreach (`$sid in @('S-1-5-32-544', 'S-1-5-18')) {
+    `$security.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule((New-Object System.Security.Principal.SecurityIdentifier `$sid), 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))
+}
+if (`$PSVersionTable.PSVersion.Major -ge 6) { [void][System.IO.FileSystemAclExtensions]::CreateDirectory(`$security, `$dir) } else { [void][System.IO.Directory]::CreateDirectory(`$dir, `$security) }
+`$target = Join-Path `$dir 'windows.hyper-v.ps1'
+[System.IO.File]::Copy(`$source, `$target)
+`$actual = (Get-FileHash -LiteralPath `$target -Algorithm SHA256).Hash.ToLowerInvariant()
+if (`$actual -ne `$expected) {
+    Remove-Item -LiteralPath `$dir -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Warning "The installer at `$source changed after it started (SHA-256 `$actual, expected `$expected); refusing to run it elevated."
+    Start-Sleep -Seconds 60
+    exit 1
+}
+`$parameters = @{ $($entries -join '; ') }
+& `$target @parameters
+`$ok = `$?
+`$code = if (`$ok) { 0 } elseif (`$LASTEXITCODE) { `$LASTEXITCODE } else { 1 }
+Remove-Item -LiteralPath `$dir -Recurse -Force -ErrorAction SilentlyContinue
+if ((Split-Path -Leaf `$source) -match '^yuruna-windows-hyper-v-[0-9a-fA-F]{32}\.ps1`$') { Remove-Item -LiteralPath `$source -Force -ErrorAction SilentlyContinue }
+exit `$code
+"@
+    return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+}
+
 if (-not $isAdmin) {
     Write-Step 'Relaunching elevated (UAC prompt)'
     $currentShellExe = $null
@@ -453,12 +552,14 @@ if (-not $isAdmin) {
     # $PSCommandPath is always set here (the materialization gate above relaunches
     # the irm|iex case via -File), so the elevated child runs from a file and
     # never re-fetches in the elevated context.
-    $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File', "`"$PSCommandPath`"", '-SkipPreflight')
-    if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $argList += @('-YurunaDir',    "`"$YurunaDir`"") }
-    if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $argList += @('-YurunaRepo',   "`"$YurunaRepo`"") }
-    if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $argList += @('-YurunaBranch', "`"$YurunaBranch`"") }
-    if ($PinVersion) { $argList += '-PinVersion' }
-    $argList += @('-LogPath', "`"$LogPath`"")
+    if (-not $script:InstallerSelfSha256) { Write-Die "Could not hash the installer file $PSCommandPath; refusing to elevate a file that cannot be checked." }
+    $elevatedParameter = [ordered]@{ SkipPreflight = $true; LogPath = $LogPath }
+    if ($PSBoundParameters.ContainsKey('YurunaDir'))    { $elevatedParameter['YurunaDir']    = $YurunaDir }
+    if ($PSBoundParameters.ContainsKey('YurunaRepo'))   { $elevatedParameter['YurunaRepo']   = $YurunaRepo }
+    if ($PSBoundParameters.ContainsKey('YurunaBranch')) { $elevatedParameter['YurunaBranch'] = $YurunaBranch }
+    if ($PinVersion) { $elevatedParameter['PinVersion'] = $true }
+    $encoded = New-ElevatedInstallerCommand -SourcePath $PSCommandPath -Sha256 $script:InstallerSelfSha256 -Parameter $elevatedParameter
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded)
     # The elevated window closes the moment it finishes or fails, so name the
     # log file here -- in THIS window, which stays open -- before launching it.
     Write-Step ''
@@ -485,6 +586,12 @@ if (-not $isAdmin) {
 
 # Elevated from here on. Begin the on-disk transcript so a failure in this
 # window (which closes on exit) is recoverable afterward, and echo the path.
+# A terminating error outside the main try (a preflight refusal) still leaves
+# an outcome record; the error then ends the run as before.
+trap {
+    Write-InstallResult -Outcome 'failed'
+    break
+}
 Start-InstallLog -Path $LogPath
 if ($script:InstallLogActive) {
     Write-Step "Logging this elevated session to: $LogPath"
@@ -2112,6 +2219,7 @@ if ($script:RestartNeeded -or -not $script:InstallSucceeded) {
     Start-Sleep -Seconds 60
 }
 
+Write-InstallResult
 # Close the transcript (best-effort). A hard failure earlier already flushed
 # its content to disk even if this footer line is never reached.
 Stop-InstallLog

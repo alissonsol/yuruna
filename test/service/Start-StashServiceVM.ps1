@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
+.TAGS yuruna stash service extension service
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -33,6 +33,9 @@
     Legitimate off-LAN, where the mirror is the only source there is.
 .PARAMETER AllowPseudoLocale
     Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
+.PARAMETER ForceRebuild
+    Rebuild the VM even when the running one serves the current build or is
+    still building it. Without it a re-run keeps such a VM (adopts it).
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -40,7 +43,8 @@ param(
     [Parameter(Position = 0)]
     [string]$VMName = 'yuruna-stash-service',
     [switch]$AllowMirrorSource,
-    [switch]$AllowPseudoLocale
+    [switch]$AllowPseudoLocale,
+    [switch]$ForceRebuild
 )
 
 # --- REGION: Confirm the service operation
@@ -74,11 +78,11 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 # --- REGION: Elevation check
 # See https://yuruna.link/42e220c4-0008
 if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Verbose ""
+    Write-Output ""
     Write-Output "This script requires elevation (Run as Administrator)."
     Write-Output "Start-StashServiceVM needs an elevated session to:"
-    Write-Verbose "  * query Hyper-V for the VHD folder (Get-VMHost)"
-    Write-Verbose "  * create and remove the '$VMName' VM and its disk"
+    Write-Output "  * query Hyper-V for the VHD folder (Get-VMHost)"
+    Write-Output "  * create and remove the '$VMName' VM and its disk"
     Write-Output "Re-launch PowerShell as Administrator and run this script again."
     Write-Error "Start-StashServiceVM requires Administrator on Windows. Nothing was changed."
     exit $ExitFailure
@@ -207,15 +211,38 @@ if (-not (Assert-GuestFrameworkSource -RepoRoot $RepoRoot -StatusDecision $statu
     exit $ExitFailure
 }
 
-# --- REGION: Create the VM
-# Each New-VM runs Get-Image auto-fetch when the base image is missing, tears
-# down any prior VM, creates the new one, and (Hyper-V + KVM) starts it. UTM only
-# builds the bundle; Invoke-YurunaServiceVmBuild registers and starts it.
-Write-Verbose ""
-Write-Output "== Bringing up '$VMName' on $HostType =="
-$build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VMName $VMName -OperationContext $serviceOp -AllowPseudoLocale:$AllowPseudoLocale -Confirm:$false
-if (-not $build.Ok) { Write-Error $build.Error -ErrorAction Continue; exit $build.ExitCode }
-$serviceOpResult = 'confirmed'
+# --- REGION: Adopt a running VM
+# See https://yuruna.link/42e220c4-0008
+# A running guest that serves the current build, or is still building it, is
+# kept: a re-run only re-asserts what the host publishes about it.
+Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
+$adoption = if ($ForceRebuild) { [pscustomobject]@{ Decision = 'rebuild'; Reason = '-ForceRebuild'; Address = '' } } else {
+    Resolve-YurunaServiceVmAdoption -VMName $VMName -Port 80 -GuestKey 'guest.stash-service' -User 'stash-admin' -SourceCheck {
+        param($Address)
+        $deployed = Test-ServiceVmFrameworkSource -Address $Address -Port 80 -GuestKey 'guest.stash-service' -User 'stash-admin' -Expected $frameworkExpected
+        -not ($deployed.Verified -and -not $deployed.Matches -and -not $AllowMirrorSource)
+    }
+}
+$buildDegraded = @()
+if ($adoption.Decision -ne 'rebuild') {
+    Write-Output (Format-YurunaOperatorMessage -Key 'runner.service_adopted' -Arguments @{ vmName = $VMName; reason = [string]$adoption.Reason; address = [string]$adoption.Address })
+    $stashVmIp = [string]$adoption.Address
+} else {
+    # --- REGION: Create the VM
+    # The builder's plan runs first, while the working VM and its advertisement
+    # are still in place; only an accepted plan withdraws the advertisement and
+    # lets the builder tear down the prior VM, create the new one, and
+    # (Hyper-V + KVM) start it. UTM only builds the bundle;
+    # Invoke-YurunaServiceVmBuild registers and starts it.
+    Write-Verbose ""
+    Write-Output "== Bringing up '$VMName' on $HostType ($($adoption.Reason)) =="
+    $plan = Test-YurunaServiceVmBuildPlan -BuilderPath $newVm -VMName $VMName -AllowPseudoLocale:$AllowPseudoLocale
+    if (-not $plan.Ok) { Write-Error $plan.Error -ErrorAction Continue; exit $ExitFailure }
+    [void](Remove-YurunaServiceVmAdvertisement -Area 'stash-service' -HostType $HostType -RepoRoot $RepoRoot -Confirm:$false)
+    $build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VMName $VMName -OperationContext $serviceOp -AllowPseudoLocale:$AllowPseudoLocale -Confirm:$false
+    if (-not $build.Ok) { Write-Error $build.Error -ErrorAction Continue; exit $build.ExitCode }
+    $buildDegraded = @($build.Degraded)
+}
 
 # --- REGION: Configure Shared NAT forwarding
 # See https://yuruna.link/42e220c4-0008
@@ -228,7 +255,7 @@ if ($HostType -eq 'host.macos.utm') {
     if ($bundleMode -eq 'Shared') {
         $stashVmIp = Get-VMIp -VMName $VMName
         if ($stashVmIp) {
-            $mapped = Add-PortMap -VMIp $stashVmIp -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false
+            $mapped = Add-PortMap -Owner 'stash-service' -VMIp $stashVmIp -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false
             if ($mapped) { Write-Output "  Shared NAT: peers reach this stash service at $(Get-BestHostIp):2222 (forwarded to ${stashVmIp}:22), not at the VM's address." }
             else { Write-Warning "Shared NAT: could not forward host port 2222 to ${stashVmIp}:22; this stash service is reachable from this host only." }
         } else {
@@ -238,6 +265,7 @@ if ($HostType -eq 'host.macos.utm') {
 }
 
 # --- REGION: Initialize the runtime directory
+# See https://yuruna.link/42e220c4-0008
 # See https://yuruna.link/42f52e37-0020
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
 Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
@@ -247,6 +275,7 @@ try {
 } catch { Write-Verbose "stash-service runtime directory: $($_.Exception.Message)" }
 
 # --- REGION: Probe service readiness
+# See https://yuruna.link/42e220c4-0008
 # See https://yuruna.link/42d69dfa-0024
 # See https://yuruna.link/42f52e37-0020
 $stashReadyTimeoutSeconds = Get-ExtensionServiceReadyTimeoutSeconds -Area 'stash-service'
@@ -263,7 +292,7 @@ $stashEndpoint = Wait-YurunaServiceVmDaemon -VMName $VMName -Port 80 `
     -OnAddressChanged {
         param($newAddress)
         if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
-            if (Add-PortMap -VMIp $newAddress -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false) {
+            if (Add-PortMap -Owner 'stash-service' -VMIp $newAddress -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false) {
                 Write-Verbose "  Re-pointed host :2222 -> ${newAddress}:22."
             }
         }
@@ -291,7 +320,7 @@ if ((Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint).IsFailure) {
         $stashEndpoint = New-ServiceVmRecoveredEndpoint -Endpoint $stashEndpoint -Address $stashRecovery.Address
         if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
             try {
-                if (Add-PortMap -VMIp $stashVmIp -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false) {
+                if (Add-PortMap -Owner 'stash-service' -VMIp $stashVmIp -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false) {
                     Write-Verbose "  Re-pointed host :2222 -> ${stashVmIp}:22."
                 }
             } catch { Write-Verbose "stash forwarder re-point after recovery: $($_.Exception.Message)" }
@@ -325,16 +354,38 @@ dashboard's Extension cell links to it. The bring-up is NOT failed over this.
     }
 }
 
+# --- REGION: Report the deployed source
+# See https://yuruna.link/42fffc2c-0013
+# The daemon is serving, so this is the first point where the framework it
+# was built from can be answered from evidence rather than prediction. It is
+# read before anything is published, so a refused build is never advertised.
+$sourceAccepted = $true
+if ($stashVerdict.Outcome -eq 'Ready') {
+    $sourceAccepted = Assert-ServiceVmFrameworkSource -Address ([string]$stashVmIp) -Port 80 `
+        -GuestKey 'guest.stash-service' -User 'stash-admin' `
+        -Expected $frameworkExpected -ServiceLabel 'stash-service' `
+        -AllowMirrorSource:$AllowMirrorSource
+}
+
+# --- REGION: Decide the start outcome
+# One record decides the census result, the advertisement and the exit. A stop
+# requested while this start ran wins: nothing is advertised for it.
+$stillWanted = Test-YurunaServiceOperationCurrent -Context $serviceOp
+$startOutcome = Resolve-YurunaServiceStartOutcome -Verdict $stashVerdict -StillWanted $stillWanted -SourceAccepted $sourceAccepted -Degraded $buildDegraded
+if ($startOutcome.Result -eq 'confirmed') { $serviceOpResult = 'confirmed' }
+if (-not $stillWanted) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_start_stop_requested' -Arguments @{ vmName = $VMName; stopScript = 'Stop-StashServiceVM.ps1' })
+}
+
 # --- REGION: Publish service readiness
 # See https://yuruna.link/42fffc2c-0008
-$stashDaemonReady = $stashVerdict.Outcome -in @('Ready', 'Unreachable')
 if ($runtimeDir) {
     try {
         [void](Write-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $runtimeDir `
-            -Active $stashDaemonReady -VMName $VMName -HostType $HostType -HostingMode 'vm')
+            -Active $startOutcome.Advertise -VMName $VMName -HostType $HostType -HostingMode 'vm')
     } catch { Write-Verbose "stash-service marker write: $($_.Exception.Message)" }
 }
-if ($runtimeDir -and $stashVerdict.Outcome -eq 'Ready') {
+if ($runtimeDir -and $startOutcome.Advertise -and $stashVerdict.Outcome -eq 'Ready') {
     try {
         $stashUrl = Update-StashServiceMarkerAddress -RuntimeDir $runtimeDir -VMName $VMName -TimeoutSeconds 180
         if ($stashUrl) { Write-Output "  Stash VM address: $stashUrl (Extension cell deep-links here)." }
@@ -348,7 +399,7 @@ if ($runtimeDir -and $stashVerdict.Outcome -eq 'Ready') {
             $settledIp = Get-VMIp -VMName $VMName
             if ($settledIp -and $settledIp -ne $stashVmIp) {
                 Write-Verbose "  '$VMName' settled on $settledIp (was $stashVmIp) -- re-pointing host :2222."
-                if (Add-PortMap -VMIp $settledIp -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false) {
+                if (Add-PortMap -Owner 'stash-service' -VMIp $settledIp -Port @() -PortRemap @{ 2222 = 22 } -Confirm:$false) {
                     Write-Verbose "  Shared NAT: peers reach this stash service at $(Get-BestHostIp):2222 (forwarded to ${settledIp}:22)."
                 } else {
                     Write-Warning "Could not re-point host port 2222 to ${settledIp}:22. Peers following the old address will hang until it is corrected; re-run this script to retry."
@@ -428,6 +479,14 @@ if ($statusDecision -and $statusDecision.ShouldStart) {
     }
 }
 
+if ($startOutcome.Degraded.Count -gt 0) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_start_degraded' -Arguments @{ vmName = $VMName; names = ($startOutcome.Degraded -join ', ') })
+}
+if ($startOutcome.State -eq 'stop-requested') {
+    Write-Output "Stop with: test/service/Stop-StashServiceVM.ps1"
+    exit $ExitFailure
+}
+
 Write-Verbose ""
 # "Complete" is claimed only where the daemon was actually observed serving. A
 # guest that is still compiling has not completed anything yet -- it is a
@@ -449,14 +508,7 @@ if ($stashVerdict.Outcome -eq 'StillBuilding') {
     exit $ExitOk
 }
 
-# --- REGION: Report the deployed source
-# See https://yuruna.link/42fffc2c-0013
-# The daemon is serving, so this is the first point where the framework it was
-# built from can be answered from evidence rather than prediction.
-if (-not (Assert-ServiceVmFrameworkSource -Address ([string]$stashVmIp) -Port 80 `
-            -GuestKey 'guest.stash-service' -User 'stash-admin' `
-            -Expected $frameworkExpected -ServiceLabel 'stash-service' `
-            -AllowMirrorSource:$AllowMirrorSource)) {
+if ($startOutcome.State -eq 'wrong-build') {
     Write-Verbose ""
     Write-Verbose "== stash-service start: FAILED (deployed an obsolete framework snapshot) =="
     Write-Verbose "  VM:       $VMName"

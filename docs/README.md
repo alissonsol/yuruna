@@ -151,9 +151,12 @@ review; English remains the source of truth.
 - **[source-consistency.md](source-consistency.md)** -- shared region vocabulary,
   workflow ordering, and the OS and hypervisor differences to retain.
 - **[host-implementation-notes.md](host-implementation-notes.md)**,
-  **[framework-implementation-notes.md](framework-implementation-notes.md)**, and
-  **[project-implementation-notes.md](project-implementation-notes.md)** -- detailed
-  rationale linked from host, runner, and example source files.
+  **[framework-implementation-notes.md](framework-implementation-notes.md)**,
+  **[project-implementation-notes.md](project-implementation-notes.md)**,
+  **[stash-implementation-notes.md](stash-implementation-notes.md)**, and
+  **[pool-aggregator-implementation-notes.md](pool-aggregator-implementation-notes.md)** -- detailed
+  rationale linked from host, runner, example, stash service, and pool aggregator
+  source files.
 - **[host-source-rationale.md](host-source-rationale.md)** -- supplemental host rationale
   for the `host/` scripts, read after the host implementation notes.
 
@@ -305,6 +308,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

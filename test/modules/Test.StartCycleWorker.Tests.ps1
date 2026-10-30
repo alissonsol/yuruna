@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42de8e40-1c77-40c0-96f2-3a5e144992e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -160,8 +160,7 @@ function Invoke-StartCycleWorker {
         [int]$LockWaitSeconds = 2,
         [int]$CleanupTimeoutSeconds = 120
     )
-    $saved = @{}
-    foreach ($name in @('HOME', 'USERPROFILE', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR', 'YURUNA_TEST_STUB_DIR')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+    $saved = Save-YurunaTestEnvironment -Name @('HOME', 'USERPROFILE', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR', 'YURUNA_TEST_STUB_DIR')
     try {
         # Windows derives the home directory from USERPROFILE, not HOME.
         $env:HOME = $Scratch.Home
@@ -178,10 +177,7 @@ function Invoke-StartCycleWorker {
             -Stub (Join-Path $Scratch.Stub 'stub.psm1') -ArgumentFile $argumentFile 2>&1 | Out-String
         $code = $LASTEXITCODE
     } finally {
-        foreach ($name in $saved.Keys) {
-            if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
-            else { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
-        }
+        Restore-YurunaTestEnvironment -Saved $saved
     }
     $statePath = Join-Path $Scratch.Runtime 'start-cycle.state.json'
     $state = if (Test-Path -LiteralPath $statePath) { ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($statePath)) } else { $null }

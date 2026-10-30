@@ -3,6 +3,16 @@
   "domain": "status",
   "locale": "zh-CN",
   "messages": {
+    "status.api_guest_channel_key_absent": {
+      "sourceHash": "a86a7d9cbef73fb87b3047edf5b3dc0aeb5b54c433917ef13f78b42a2df7c725",
+      "origin": "machine",
+      "message": "此主机尚无来宾通道密钥；密钥会在主机首次生成来宾种子时创建"
+    },
+    "status.api_query_invalid": {
+      "sourceHash": "87e6ae34e924853bf34dda6ededd3c5521162c85a5cfcfb05033bf4aba6e3f13",
+      "origin": "machine",
+      "message": "无效的查询：{field} {reason}"
+    },
     "status.runner_attempt_failed": {
       "sourceHash": "7a69b47ccd1e2f997ec3eccecbde42dc8b9e58777428046dca0ded05d4003526",
       "message": "运行器尝试失败：{failureClass}"
@@ -797,6 +807,11 @@
       "origin": "machine",
       "message": "此宿主机下的所有客户机文件夹均已在列表中"
     },
+    "status.explain_details": {
+      "sourceHash": "c2d8d0d0c7b20ff59f1b2e164a60c48399a3eeb68f10aa8e2d09a3fb97f37ea6",
+      "message": "详细信息",
+      "origin": "machine"
+    },
     "status.external_detail": {
       "sourceHash": "0e170252dc136b5efb624111cebf305a81efef1aa7ee125a239eb4a4490ca648",
       "origin": "machine",
@@ -1327,6 +1342,11 @@
       "sourceHash": "146a96eb9a4cf9ed231ed1f6b5abc2c91ad469ff6cb81ee56f63eed182e315ba",
       "origin": "machine",
       "message": "显示全部"
+    },
+    "status.performance_select_bar": {
+      "sourceHash": "d1fb64d481617237ae4b687f72fa436cde7cc313eb9df6b7d22375ce7e1ca8cb",
+      "message": "选择一个时长或一个条形，即可在此处查看其详细信息。",
+      "origin": "machine"
     },
     "status.performance_zoom": {
       "sourceHash": "eb17fcdc5f28e69509dfe2c811e41b1f65368090ee6557a7744ebe21e4c64a5a",

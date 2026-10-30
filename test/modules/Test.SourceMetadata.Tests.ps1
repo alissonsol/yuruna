@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ba21e6-945f-48b7-aacb-cdc136e03c30
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 $script:Tool = Join-Path $script:RepoRoot 'tools/Test-SourceMetadata.ps1'
+Import-Module (Join-Path $script:RepoRoot 'tools/Source.Identity.psm1') -Force -Global
 $script:SavedEnvironment = @{}
 foreach ($name in 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE') {
     $script:SavedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
@@ -67,22 +68,14 @@ function Write-FixtureFile {
 
 function Invoke-FixtureGit {
     param([Parameter(Mandatory)][string]$Repository, [Parameter(Mandatory)][string[]]$Argument)
-    $output = & git -C $Repository -c commit.gpgsign=false -c core.autocrlf=false @Argument 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "git $($Argument -join ' ') failed in ${Repository}: $output" }
-    return @($output | ForEach-Object { [string]$_ })
+    return @(Invoke-YurunaTestGit -Path $Repository -Argument $Argument)
 }
 
 function New-FixtureRepository {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Creates a disposable repository under TestDrive.')]
     param([Parameter(Mandatory)][string]$Name, [string]$Leaf = 'yuruna')
-    $repository = Join-Path (Join-Path $TestDrive $Name) $Leaf
-    [void][IO.Directory]::CreateDirectory($repository)
-    $null = Invoke-FixtureGit -Repository $repository -Argument @('init', '--quiet', '--initial-branch=main')
-    foreach ($setting in @(@('user.name', 'Synthetic test'), @('user.email', 'fixture@example.invalid'))) {
-        $null = Invoke-FixtureGit -Repository $repository -Argument (@('config') + $setting)
-    }
-    return $repository
+    return New-YurunaTestGitRepository -Path (Join-Path (Join-Path $TestDrive $Name) $Leaf)
 }
 
 function Save-FixtureCommit {
@@ -101,18 +94,13 @@ function Add-FixtureStage {
 function Get-HeaderText {
     param([Parameter(Mandatory)][string]$Style, [switch]$NoGuid)
     $text = ($script:Wrapper[$Style] -f $script:Pointer) + "`n" + ($script:Wrapper[$Style] -f $script:Copyright) + "`n"
-    if (-not $NoGuid) { $text += ($script:Wrapper[$Style] -f "GUID: $(Get-TestGuid)") + "`n" }
+    if (-not $NoGuid) { $text += ($script:Wrapper[$Style] -f "GUID: $(New-SourceGuid)") + "`n" }
     return $text
 }
 
-function Get-TestGuid {
-    $n = [guid]::NewGuid().ToString('N')
-    return '42' + $n.Substring(2, 6) + '-' + $n.Substring(8, 4) + '-' + $n.Substring(12, 4) + '-' + $n.Substring(16, 4) + '-' + $n.Substring(20, 12)
-}
-
 function Get-PsInfoText {
-    param([string]$Guid = (Get-TestGuid), [switch]$NoGuid, [switch]$NoCopyright, [switch]$NoPointer)
-    $lines = @('<#PSScriptInfo', '.VERSION 2026.10.26')
+    param([string]$Guid = (New-SourceGuid), [switch]$NoGuid, [switch]$NoCopyright, [switch]$NoPointer)
+    $lines = @('<#PSScriptInfo', '.VERSION 2026.10.30')
     if (-not $NoGuid) { $lines += ".GUID $Guid" }
     $lines += '.AUTHOR Alisson Sol et al.'
     if (-not $NoCopyright) { $lines += '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.' }
@@ -228,7 +216,7 @@ Describe 'what counts as a copyright line' {
     BeforeAll {
         $script:LineRepo = New-FixtureRepository -Name 'copyright-lines'
         $r = $script:LineRepo
-        Write-FixtureFile -Repository $r -Path 'ok/one-year.sh' -Text "# $script:Pointer`n# Copyright (c) 2026 by Alisson Sol et al.`n# GUID: $(Get-TestGuid)`n"
+        Write-FixtureFile -Repository $r -Path 'ok/one-year.sh' -Text "# $script:Pointer`n# Copyright (c) 2026 by Alisson Sol et al.`n# GUID: $(New-SourceGuid)`n"
         Write-FixtureFile -Repository $r -Path 'ok/crlf.sh' -Text ((Get-HeaderText -Style 'hash') -replace "`n", "`r`n")
         Write-FixtureFile -Repository $r -Path 'ok/bom.go' -Text ([string][char]0xFEFF + (Get-HeaderText -Style 'slash'))
         Write-FixtureFile -Repository $r -Path 'ok/last-line-of-window.sh' -Text ((('#' + "`n") * 37) + (Get-HeaderText -Style 'hash'))
@@ -261,9 +249,9 @@ Describe 'the license pointer rule' {
         Write-FixtureFile -Repository $r -Path 'bad/wrong-url.sh' -Text "# LICENSEURI https://example.invalid/license`n$copyright"
         Write-FixtureFile -Repository $r -Path 'bad/longer-url.sh' -Text "# LICENSEURI https://yuruna.link/license-old`n$copyright"
         Write-FixtureFile -Repository $r -Path 'bad/no-uri.ps1' -Text (Get-PsInfoText -NoPointer)
-        Write-FixtureFile -Repository $r -Path 'ok/blank-between.sh' -Text "# $script:Pointer`n`n$copyright# GUID: $(Get-TestGuid)`n"
-        Write-FixtureFile -Repository $r -Path 'ok/one-block.html' -Text "<!--`n  $script:Pointer`n  $script:Copyright`n  GUID: $(Get-TestGuid)`n-->`n"
-        Write-FixtureFile -Repository $r -Path 'ok/after-shebang.sh' -Text "#!/bin/sh`n# Version: 1`n# $script:Pointer`n$copyright# GUID: $(Get-TestGuid)`n"
+        Write-FixtureFile -Repository $r -Path 'ok/blank-between.sh' -Text "# $script:Pointer`n`n$copyright# GUID: $(New-SourceGuid)`n"
+        Write-FixtureFile -Repository $r -Path 'ok/one-block.html' -Text "<!--`n  $script:Pointer`n  $script:Copyright`n  GUID: $(New-SourceGuid)`n-->`n"
+        Write-FixtureFile -Repository $r -Path 'ok/after-shebang.sh' -Text "#!/bin/sh`n# Version: 1`n# $script:Pointer`n$copyright# GUID: $(New-SourceGuid)`n"
         Write-FixtureFile -Repository $r -Path 'ok/psinfo.ps1' -Text (Get-PsInfoText)
         Add-FixtureStage -Repository $r
         $script:Run = Invoke-MetadataGate -Argument @('-Staged', '-Root', $r, '-ExemptionsPath', $script:NoExemption)
@@ -328,8 +316,8 @@ Describe 'GUID uniqueness' {
     BeforeAll {
         $script:GuidRepo = New-FixtureRepository -Name 'unique'
         $r = $script:GuidRepo
-        $script:Taken = Get-TestGuid
-        $script:Twin = Get-TestGuid
+        $script:Taken = New-SourceGuid
+        $script:Twin = New-SourceGuid
         Write-FixtureFile -Repository $r -Path 'lib/taken.psm1' -Text (Get-PsInfoText -Guid $script:Taken.ToUpperInvariant())
         Write-FixtureFile -Repository $r -Path 'lib/other.psm1' -Text (Get-PsInfoText)
         Save-FixtureCommit -Repository $r
@@ -366,7 +354,7 @@ Describe 'the exemptions' {
     BeforeAll {
         $script:ExemptRepo = New-FixtureRepository -Name 'exempt'
         $r = $script:ExemptRepo
-        $script:Shared = Get-TestGuid
+        $script:Shared = New-SourceGuid
         $script:ExemptFile = Write-Exemption -Name 'exempt' -Body @{
             generated = @(@{ repo = 'yuruna'; generator = 'tools/Make-Stuff.ps1'; paths = @('gen/*.go'); reason = 'Written whole by the fixture generator.' })
             vendored = @(@{ repo = 'yuruna'; paths = @('third/*.js'); reason = 'Upstream header kept.' })
@@ -602,7 +590,7 @@ Describe 'the whole-tree report' {
     BeforeAll {
         $script:TreeRepo = New-FixtureRepository -Name 'tree'
         $r = $script:TreeRepo
-        $script:Anchor = Get-TestGuid
+        $script:Anchor = New-SourceGuid
         Write-FixtureFile -Repository $r -Path 'ok/a.sh' -Text ("#!/bin/sh`n" + (Get-HeaderText -Style 'hash'))
         Write-FixtureFile -Repository $r -Path 'ok/b.go' -Text (Get-HeaderText -Style 'slash')
         Write-FixtureFile -Repository $r -Path 'debt/c.sh' -Text "#!/bin/sh`necho c`n"
@@ -675,7 +663,7 @@ Describe 'the whole-tree report' {
     }
 
     It 'compares GUIDs across the repositories it is given' {
-        $shared = Get-TestGuid
+        $shared = New-SourceGuid
         $one = New-FixtureRepository -Name 'cross-one' -Leaf 'yuruna'
         $two = New-FixtureRepository -Name 'cross-two' -Leaf 'yuruna-project'
         Write-FixtureFile -Repository $one -Path 'a.ps1' -Text (Get-PsInfoText -Guid $shared)
@@ -724,12 +712,12 @@ Describe 'the GUID line outside PowerShell' {
         }
         $pointer = $script:Pointer
         $copyright = $script:Copyright
-        Write-FixtureFile -Repository $r -Path 'good/spaced.sh' -Text "# $pointer`n# $copyright`n#`n`n# GUID: $(Get-TestGuid)`necho spaced`n"
-        Write-FixtureFile -Repository $r -Path 'good/block.html' -Text "<!--`n  $pointer`n  $copyright`n  GUID: $(Get-TestGuid)`n-->`n<p>block</p>`n"
-        Write-FixtureFile -Repository $r -Path 'good/block.css' -Text "/*`n * $pointer`n * $copyright`n * GUID: $(Get-TestGuid)`n */`nbody {}`n"
+        Write-FixtureFile -Repository $r -Path 'good/spaced.sh' -Text "# $pointer`n# $copyright`n#`n`n# GUID: $(New-SourceGuid)`necho spaced`n"
+        Write-FixtureFile -Repository $r -Path 'good/block.html' -Text "<!--`n  $pointer`n  $copyright`n  GUID: $(New-SourceGuid)`n-->`n<p>block</p>`n"
+        Write-FixtureFile -Repository $r -Path 'good/block.css' -Text "/*`n * $pointer`n * $copyright`n * GUID: $(New-SourceGuid)`n */`nbody {}`n"
         Write-FixtureFile -Repository $r -Path 'bad/block.html' -Text "<!--`n  $pointer`n  $copyright`n-->`n<p>no GUID</p>`n"
-        Write-FixtureFile -Repository $r -Path 'bad/stray.py' -Text "# GUID: $(Get-TestGuid)`n# $pointer`n# $copyright`nprint('stray')`n"
-        Write-FixtureFile -Repository $r -Path 'bad/later.go' -Text "// $pointer`n// $copyright`n// Package later.`n// GUID: $(Get-TestGuid)`npackage later`n"
+        Write-FixtureFile -Repository $r -Path 'bad/stray.py' -Text "# GUID: $(New-SourceGuid)`n# $pointer`n# $copyright`nprint('stray')`n"
+        Write-FixtureFile -Repository $r -Path 'bad/later.go' -Text "// $pointer`n// $copyright`n// Package later.`n// GUID: $(New-SourceGuid)`npackage later`n"
         Write-FixtureFile -Repository $r -Path 'bad/not-42.go' -Text "// $pointer`n// $copyright`n// GUID: 1f2e3d4c-aaaa-4bbb-8ccc-0123456789ab`npackage bad`n"
         Write-FixtureFile -Repository $r -Path 'bad/malformed.js' -Text "// $pointer`n// $copyright`n// GUID: 42-not-a-guid`n"
         Add-FixtureStage -Repository $r
@@ -782,10 +770,18 @@ Describe 'sequences and generated files' {
         $script:SequenceRepo = New-FixtureRepository -Name 'sequences'
         $r = $script:SequenceRepo
         $header = Get-HeaderText -Style 'hash' -NoGuid
-        Write-FixtureFile -Repository $r -Path 'seq/named.yml' -Text ($header + "sequenceGuid: $(Get-TestGuid)`nsequenceRevision: 1`nsteps: []`n")
-        Write-FixtureFile -Repository $r -Path 'seq/quoted.yml' -Text ($header + "sequenceGuid: `"$(Get-TestGuid)`"`nsteps: []`n")
-        Write-FixtureFile -Repository $r -Path 'seq/both.yml' -Text ((Get-HeaderText -Style 'hash') + "sequenceGuid: $(Get-TestGuid)`nsteps: []`n")
+        Write-FixtureFile -Repository $r -Path 'seq/named.yml' -Text ($header + "sequenceGuid: $(New-SourceGuid)`nsequenceRevision: 1`nsteps: []`n")
+        Write-FixtureFile -Repository $r -Path 'seq/quoted.yml' -Text ($header + "sequenceGuid: `"$(New-SourceGuid)`"`nsteps: []`n")
+        Write-FixtureFile -Repository $r -Path 'seq/both.yml' -Text ((Get-HeaderText -Style 'hash') + "sequenceGuid: $(New-SourceGuid)`nsteps: []`n")
         Write-FixtureFile -Repository $r -Path 'seq/not-42.yml' -Text ($header + "sequenceGuid: 1f2e3d4c-aaaa-4bbb-8ccc-0123456789ab`nsteps: []`n")
+        # A guest sequence (resource: map, keystrokeMechanism:) is the kind a
+        # sequenceGuid names; an orchestration sequence takes the GUID line.
+        $script:GuestLineGuid = New-SourceGuid
+        Write-FixtureFile -Repository $r -Path 'seq/guest-line.yml' -Text ($header + "# GUID: $script:GuestLineGuid`ndescription: guest`nkeystrokeMechanism: gui`nresource:`n  guest.key:`n    - start.guest.key`n")
+        Write-FixtureFile -Repository $r -Path 'seq/guest-none.yml' -Text ($header + "description: guest`nresource: {}`n")
+        Write-FixtureFile -Repository $r -Path 'seq/guest-named.yml' -Text ($header + "sequenceGuid: $(New-SourceGuid)`ndescription: guest`nkeystrokeMechanism: ssh`nresource:`n  guest.key: []`n")
+        Write-FixtureFile -Repository $r -Path 'seq/orchestration.yml' -Text ((Get-HeaderText -Style 'hash') + "name: chain`nsteps:`n  - action: InvokeTestSequence`n")
+        Write-FixtureFile -Repository $r -Path 'lib/annotated.py' -Text ((Get-HeaderText -Style 'hash') + "resource: int = 1`nkeystrokeMechanism: str = 'gui'`n")
         Write-FixtureFile -Repository $r -Path 'gen/banner.sh' -Text ("#!/bin/sh`n" + $header + "# Generated by tools/Make.sh; edit the source instead.`necho generated`n")
         Write-FixtureFile -Repository $r -Path 'gen/plain.sh' -Text "#!/bin/sh`n# Generated by tools/Make.sh`necho plain`n"
         Write-FixtureFile -Repository $r -Path 'full/stamped.sh' -Text ("#!/bin/sh`n" + (Get-HeaderText -Style 'hash') + "echo stamped`n")
@@ -812,6 +808,21 @@ Describe 'sequences and generated files' {
         Assert-True (Test-Flagged -Output $script:Run.Output -Path 'seq/not-42.yml' -Rule 'guid') $script:Run.Output
     }
 
+    It 'refuses a guest sequence named by a GUID line, and offers its value as the sequenceGuid' {
+        Assert-True (Test-Flagged -Output $script:Run.Output -Path 'seq/guest-line.yml' -Rule 'guid') $script:Run.Output
+        Assert-Match -Pattern 'is a guest sequence \(a top-level resource: or keystrokeMechanism: key\), which is named by a top-level sequenceGuid' -Actual $script:Run.Output
+        Assert-Match -Pattern ([regex]::Escape("sequenceGuid: $script:GuestLineGuid")) -Actual $script:Run.Output
+    }
+
+    It 'asks a guest sequence with no identity for a sequenceGuid, not a GUID line' {
+        Assert-True (Test-Flagged -Output $script:Run.Output -Path 'seq/guest-none.yml' -Rule 'guid') $script:Run.Output
+        Assert-Match -Pattern 'is a guest sequence with no top-level sequenceGuid' -Actual $script:Run.Output
+    }
+
+    It 'passes a guest sequence named by its sequenceGuid, an orchestration sequence with a GUID line, and a non-YAML file with look-alike keys' {
+        Assert-False ($script:Run.Output -match 'seq/guest-named\.yml|seq/orchestration\.yml|lib/annotated\.py') $script:Run.Output
+    }
+
     It 'asks no GUID of a generated file, with or without the standard header' {
         Assert-False ($script:Run.Output -match 'gen/') $script:Run.Output
     }
@@ -827,15 +838,15 @@ Describe 'GUID uniqueness across the forms a file declares one in' {
     BeforeAll {
         $script:CrossRepo = New-FixtureRepository -Name 'cross-form'
         $r = $script:CrossRepo
-        $script:PsTaken = Get-TestGuid
-        $script:LineTaken = Get-TestGuid
-        $script:SequenceTaken = Get-TestGuid
+        $script:PsTaken = New-SourceGuid
+        $script:LineTaken = New-SourceGuid
+        $script:SequenceTaken = New-SourceGuid
         Write-FixtureFile -Repository $r -Path 'lib/old.ps1' -Text (Get-PsInfoText -Guid $script:PsTaken)
         Write-FixtureFile -Repository $r -Path 'lib/old.sh' -Text ("#!/bin/sh`n" + (Get-HeaderText -Style 'hash' -NoGuid) + "# GUID: $script:LineTaken`necho old`n")
         Write-FixtureFile -Repository $r -Path 'lib/old.yml' -Text ((Get-HeaderText -Style 'hash' -NoGuid) + "sequenceGuid: $script:SequenceTaken`nsteps: []`n")
         # A runtime that embeds a kernel byte for byte, header and all, quotes the
         # kernel's GUID line inside its own first lines without declaring it.
-        $script:KernelGuid = Get-TestGuid
+        $script:KernelGuid = New-SourceGuid
         $kernel = (Get-HeaderText -Style 'slash' -NoGuid) + "// GUID: $script:KernelGuid`n(function () {})();`n"
         Write-FixtureFile -Repository $r -Path 'lib/runtime.js' -Text ((Get-HeaderText -Style 'slash') + "// embedded block`n" + $kernel)
         Save-FixtureCommit -Repository $r
@@ -864,7 +875,7 @@ Describe 'GUID uniqueness across the forms a file declares one in' {
     }
 
     It 'lets copies declared across repositories share a GUID, and flags an undeclared one' {
-        $shared = Get-TestGuid
+        $shared = New-SourceGuid
         $one = New-FixtureRepository -Name 'span-one' -Leaf 'yuruna'
         $two = New-FixtureRepository -Name 'span-two' -Leaf 'yuruna-project'
         $text = "#!/usr/bin/env python3`n" + (Get-HeaderText -Style 'hash' -NoGuid) + "# GUID: $shared`nprint('tool')`n"
@@ -882,7 +893,7 @@ Describe 'GUID uniqueness across the forms a file declares one in' {
         Assert-False ($run.Output -match '\[exemption\]') $run.Output
         $alone = Invoke-MetadataGate -Argument @('-All', '-Detail', '-Root', $one, '-ExemptionsPath', $exemption)
         Assert-False ($alone.Output -match '\[exemption\]') "a group is judged on the copies of the repositories given:`n$($alone.Output)"
-        Write-FixtureFile -Repository $two -Path 'tools/Tool.py' -Text ($text -replace $shared, (Get-TestGuid))
+        Write-FixtureFile -Repository $two -Path 'tools/Tool.py' -Text ($text -replace $shared, (New-SourceGuid))
         $drift = Invoke-MetadataGate -Argument @('-All', '-Detail', '-Root', "$one,$two", '-ExemptionsPath', $exemption)
         Assert-Match -Pattern 'tools/Check\.ps1 declare 2 different GUIDs' -Actual $drift.Output
     }
@@ -948,8 +959,8 @@ Describe 'The Markdown footer report' {
     It 'passes a footer with a translated stamp and navigation links, and names a missing footer and content left after one' {
         $repository = New-FixtureRepository -Name 'markdown-footer'
         $footer = "---`n`nLICENSEURI https://yuruna.link/license`n`nCopyright (c) 2019-2026 by Alisson Sol et al.`n"
-        [IO.File]::WriteAllText((Join-Path $repository 'good.md'), "# Good`n`nBody.`n`n" + $footer + "`nLast review: 2026.10.26`n`nBack to [Yuruna](README.md)`n")
-        [IO.File]::WriteAllText((Join-Path $repository 'translated.md'), "# Bom`n`n" + $footer + "`n`u{00DA}ltima revis`u{00E3}o: 2026.10.26`n`nVoltar para [projeto](README.md) - [Yuruna](https://yuruna.com)`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'good.md'), "# Good`n`nBody.`n`n" + $footer + "`nLast review: 2026.10.30`n`nBack to [Yuruna](README.md)`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'translated.md'), "# Bom`n`n" + $footer + "`n`u{00DA}ltima revis`u{00E3}o: 2026.10.30`n`nVoltar para [projeto](README.md) - [Yuruna](https://yuruna.com)`n")
         [IO.File]::WriteAllText((Join-Path $repository 'AGENTS.md'), "# Agent rules`n`nRead them first.`n")
         $null = New-Item -ItemType Directory -Path (Join-Path $repository 'nested')
         [IO.File]::WriteAllText((Join-Path $repository 'nested/CLAUDE.md'), "Read and follow AGENTS.md.`n")
@@ -957,7 +968,7 @@ Describe 'The Markdown footer report' {
         $clean = Invoke-MetadataGate -Argument @('-Markdown', '-Root', $repository)
         $clean.Code | Should -Be 0 -Because $clean.Output
         $clean.Output | Should -Match '2 file\(s\) with the footer, 0 with content after it, 0 without one'
-        [IO.File]::WriteAllText((Join-Path $repository 'late.md'), "# Late`n`n" + $footer + "`nLast review: 2026.10.26`n`nA paragraph that landed under the license.`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'late.md'), "# Late`n`n" + $footer + "`nLast review: 2026.10.30`n`nA paragraph that landed under the license.`n")
         [IO.File]::WriteAllText((Join-Path $repository 'nofooter.md'), "# Notes`n`nNo footer here.`n")
         Save-FixtureCommit -Repository $repository
         $late = Invoke-MetadataGate -Argument @('-Markdown', '-Root', $repository)
@@ -966,5 +977,33 @@ Describe 'The Markdown footer report' {
         $late.Output | Should -Match '(?m)^FAIL  yuruna/nofooter\.md \[markdown-footer-missing\]'
         $late.Output | Should -Match '3 file\(s\) with the footer, 1 with content after it, 1 without one'
         $late.Output | Should -Not -Match 'good\.md|translated\.md|AGENTS\.md|CLAUDE\.md'
+    }
+}
+
+Describe 'the identity reader the gate shares with the suites' {
+    It 'masks the value of every identity form and keeps its markers and line endings' {
+        $text = "<#PSScriptInfo`r`n.GUID 42aaaaaa-1111-4222-8333-444444444444`r`n#>`r`n# GUID: 42bbbbbb-1111-4222-8333-444444444444`r`n" +
+            "sequenceGuid: `"42cccccc-1111-4222-8333-444444444444`"`n/* GUID: 42dddddd-1111-4222-8333-444444444444 */`n" +
+            "<!-- GUID: 42eeeeee-1111-4222-8333-444444444444 -->`n  GUID: 42ffffff-1111-4222-8333-444444444444`n"
+        $expected = "<#PSScriptInfo`r`n.GUID ID`r`n#>`r`n# GUID: ID`r`nsequenceGuid: ID`n/* GUID: ID */`n<!-- GUID: ID -->`n  GUID: ID`n"
+        Assert-StringEqual -Expected $expected -Actual (Hide-SourceIdentity -Text $text) 'an identity value survived, or a marker or line ending did not'
+    }
+
+    It 'leaves prose that mentions a GUID alone, and keeps a copy without its identity line different' {
+        $prose = "# Copy the GUID: it names the file.`necho 'GUID: in a string'`n"
+        Assert-StringEqual -Expected $prose -Actual (Hide-SourceIdentity -Text $prose) 'prose about a GUID was rewritten'
+        $withLine = Hide-SourceIdentity -Text "# GUID: 42aaaaaa-1111-4222-8333-444444444444`necho one`n"
+        $withoutLine = Hide-SourceIdentity -Text "echo one`n"
+        Assert-True ($withLine -cne $withoutLine) 'a copy that lost its identity line compared equal to one that has it'
+    }
+
+    It 'reads the value one line declares in each form, and nothing from any other line' {
+        $guid = '42aaaaaa-1111-4222-8333-444444444444'
+        foreach ($line in @(".GUID $guid", "# GUID: $guid", "// GUID: $guid", "sequenceGuid: $guid", "sequenceGuid: '$guid'")) {
+            Assert-StringEqual -Expected $guid -Actual (Get-SourceIdentityLineValue -Text $line) "the value of '$line' was not read"
+        }
+        foreach ($line in @('echo GUID', "  sequenceGuid: $guid", "# Copyright (c) 2019-2026 by Alisson Sol et al.")) {
+            Assert-True ($null -eq (Get-SourceIdentityLineValue -Text $line)) "'$line' does not declare an identity"
+        }
     }
 }

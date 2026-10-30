@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 424c3d85-6f03-4c68-b42d-34204ceb41ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,11 +80,11 @@ Import-Module $cachingProxyModule -Force -DisableNameChecking
 
 Describe 'Resolve-CachingProxyServiceEndpoint source precedence' {
     BeforeEach {
-        $script:PreviousProxyIp = [Environment]::GetEnvironmentVariable('YURUNA_CACHING_PROXY_SERVICE_IP', 'Process')
+        $script:PreviousProxyIp = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
     }
     AfterEach {
-        [Environment]::SetEnvironmentVariable('YURUNA_CACHING_PROXY_SERVICE_IP', $script:PreviousProxyIp, 'Process')
+        Restore-YurunaTestEnvironment -Saved $script:PreviousProxyIp
     }
 
     Context 'config candidate is probed first' {

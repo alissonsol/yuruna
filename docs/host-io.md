@@ -115,6 +115,26 @@ paid only when a frame captured afterward differs from the one the repair was
 made against; the console reconnect for a frozen feed works the same way. A
 feed the repair did not reach keeps its normal budget.
 
+**How a failed send failed.** Every `Send-Key*` and `Send-Text*` backend still
+returns `[bool]`, and records why it returned `$false` with
+`Set-HostInputFault`: `deterministic` for a send every retry would repeat
+(text with a character the transport's key map lacks, a key name no map
+defines) and `transient` for one that may clear (no connection, a refused
+write, an `osascript` that did not finish), with the count of characters
+written before the failure. A text backend checks the whole text against its map before it
+types anything, so a character with no key refuses the send instead of being
+dropped from it; the warning names characters by code point and position,
+never by value. The `Send-Key` / `Send-Text` / `Send-Click` dispatchers in
+`Test.SequenceEngine` copy the fault of a step's last failed send into its
+failure state, where it reclassifies a deterministic fault as `plan_invalid`
+and stops a `retry` around it (see `hostInputFault` in
+[the failure schema](failure-schema.md)). The UTM text provider reads the
+count when VNC fails part-way: the JXA path types only the characters VNC did
+not write, or, when the step asked for the shell escape, erases the partial
+line with Ctrl-U and types the whole text escaped, since the escape wrapper
+must start a line. With the escape, `Send-TextUTM` also spells a character its
+key map lacks, so text VNC refused can still reach a shell prompt.
+
 **Screenshot capture is the same shape**, in `Test.ScreenshotProvider`:
 per-host capture implementations register, and `Wait-ForText` /
 `saveDebugScreenshot` dispatch through `Invoke-ScreenshotProvider`. The
@@ -132,15 +152,27 @@ captured, and the ring holds the run-up a failure is read against, so
 normalized uppercase by the validator), it drives a guest over SSH instead of
 through the registry above. A per-host ed25519 key pair lives under
 `test/status/ssh/` (runtime, gitignored) and is injected into each guest's
-cloud-init user-data via `SSH_AUTHORIZED_KEY_PLACEHOLDER`. Host-key checking
-is deliberately disabled: Yuruna recreates guests constantly and reuses VM
-names and NAT-assigned IPs, so a fresh guest routinely presents a different
-host key on an address that previously answered with a different one. Every
-SSH call site must therefore pass all three of `-o StrictHostKeyChecking=no`,
-`-o UserKnownHostsFile=/dev/null`, and `-o GlobalKnownHostsFile=/dev/null` --
-the third closes the trap where `ssh-keyscan` would otherwise still write
-into `/etc/ssh/ssh_known_hosts`. Microsoft's OpenSSH port accepts
-`/dev/null` verbatim, so the same one-liner works on every host.
+cloud-init user-data via `SSH_AUTHORIZED_KEY_PLACEHOLDER`. Every SSH call site
+takes its host-key options from `Get-YurunaSshHostKeyOption`. For a named guest
+the host key is pinned per guest name: the first connection records the key the
+guest presents (`-o StrictHostKeyChecking=accept-new`) in that guest's own file
+under `test/status/ssh/known_hosts.d/`, keyed by `-o HostKeyAlias` on the name
+rather than the address, and every later connection must present the same key.
+A different responder at the guest's address -- a stale lease handed to another
+machine, another host's guest on a bridged network -- is refused with "Host key
+verification failed" instead of receiving the command, and the result names the
+pin file. Yuruna recreates guests and reuses their names, so the pin is
+forgotten wherever a guest is built (the runner's and the orchestrator's New-VM
+step, `Debug-TestSequence.ps1`, and the service VM builders); for a guest rebuilt
+by hand, `Reset-GuestHostKeyPin -VMName <name>` does the same. When
+`saveDiskSnapshot` renames a guest to its snapshot id, `Move-GuestHostKeyPin`
+moves the pin to the new name, replacing the one an earlier guest of that name
+left, and rewrites the host field because ssh may store it hashed. An address
+target carries no identity -- NAT addresses move between guests -- so it keeps
+unpinned checking: `-o StrictHostKeyChecking=no`, `-o UserKnownHostsFile=/dev/null`
+and `-o GlobalKnownHostsFile=/dev/null` (the third closes the trap where
+`ssh-keyscan` would otherwise still write into `/etc/ssh/ssh_known_hosts`).
+Microsoft's OpenSSH port accepts `/dev/null` verbatim.
 
 <a id="4222e5f2-0005"></a>
 
@@ -358,6 +390,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

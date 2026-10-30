@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f41a3a-96b8-4ab6-ac90-5f5f7b020de7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,8 @@ Import-Module powershell-yaml -Force -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.Notify.psm1') -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+# Each block drives the anchor; the suite puts back what the process held.
+$script:SavedCycleGlobals = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
 
 # --- REGION: https://yuruna.link/42d69dfa-0015
 function Initialize-TestCycleFolder {
@@ -50,11 +52,9 @@ function Initialize-TestCycleFolder {
         Set the cross-module cycle-folder anchor the notifier reads when no
         -CycleFolder argument is passed.
     #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'global:__YurunaCycleFolder is the cycle-folder anchor Test.Log sets and Test.Notify reads; the test has to drive it to exercise the fallback.')]
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
-    $global:__YurunaCycleFolder = $Path
+    Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $Path }
 }
 
 function Initialize-NotifyCapture {
@@ -111,7 +111,7 @@ function Get-ActiveNotifyExtension {
 # end without any transport being contacted, on this host or an operator's.
 $script:UnsubscribedEventCode = 'test.selfcheck.unit'
 
-$script:SavedPublicUrl = $env:YURUNA_STATUS_PUBLIC_URL
+$script:SavedPublicUrl = Save-YurunaTestEnvironment -Name 'YURUNA_STATUS_PUBLIC_URL'
 
 $TempRoot = [System.IO.Path]::GetTempPath()
 $PayloadDir = Join-Path $TempRoot ('yuruna-notify-payload-' + [guid]::NewGuid().ToString('N'))
@@ -123,6 +123,7 @@ $script:PayloadFailureFile = Join-Path $PayloadDir 'last_failure.json'
 # classify these payloads on the suite's behalf.
 $script:PayloadLogRoot = Join-Path $TempRoot ('yuruna-notify-logroot-' + [guid]::NewGuid().ToString('N'))
 $script:PayloadLogRootFailureFile = Join-Path $script:PayloadLogRoot 'last_failure.json'
+$script:SuiteLogEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
 $env:YURUNA_LOG_DIR = $script:PayloadLogRoot
 $LedgerDir = Join-Path $TempRoot ('yuruna-notify-ledger-' + [guid]::NewGuid().ToString('N'))
 $script:LedgerMissingDir = Join-Path $LedgerDir 'no-such-subfolder'
@@ -194,8 +195,7 @@ Describe 'Get-FailureEventData' {
     }
     AfterAll {
         Initialize-TestCycleFolder -Path ''
-        if ($null -eq $script:SavedPublicUrl) { Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_STATUS_PUBLIC_URL = $script:SavedPublicUrl }
+        Restore-YurunaTestEnvironment -Saved $script:SavedPublicUrl
         Remove-Item -LiteralPath $PayloadDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     BeforeEach { Remove-Item -LiteralPath $script:PayloadFailureFile -Force -ErrorAction SilentlyContinue }
@@ -325,14 +325,14 @@ Describe 'Get-FailureEventData per-guest attribution' {
         $script:AttrRoot = Join-Path $TempRoot ('yuruna-notify-attr-' + [guid]::NewGuid().ToString('N'))
         $script:AttrCycle = Join-Path $script:AttrRoot 'cycle'
         $script:AttrLogRoot = Join-Path $script:AttrRoot 'logroot'
-        $script:AttrSavedLogDir = $env:YURUNA_LOG_DIR
+        $script:AttrSavedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         $null = New-Item -ItemType Directory -Path (Join-Path $script:AttrCycle 'vm-a') -Force
         $null = New-Item -ItemType Directory -Path (Join-Path $script:AttrCycle 'vm-b') -Force
         $null = New-Item -ItemType Directory -Path $script:AttrLogRoot -Force
         $env:YURUNA_LOG_DIR = $script:AttrLogRoot
     }
     AfterAll {
-        $env:YURUNA_LOG_DIR = $script:AttrSavedLogDir
+        Restore-YurunaTestEnvironment -Saved $script:AttrSavedLogDir
         Remove-Item -LiteralPath $script:AttrRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
     BeforeEach {
@@ -675,6 +675,7 @@ Describe 'Send-EmailViaResend -- the message every subscriber actually reads' {
         Assert-Equal -Expected "line one`nline two <b>" -Actual $payload.text -Because 'the text part is the message as written, not an encoded copy'
         Assert-True ($payload.html -match 'lang="[A-Za-z]{2,3}(-[A-Za-z0-9]+)*"')          'the html part declares a document language'
         Assert-True ($payload.html -match 'pre-wrap')            'the html part wraps instead of scrolling horizontally'
+        Assert-True ($payload.html -match '<meta name="viewport" content="width=device-width, initial-scale=1">') 'a phone mail client lays the html part out at its own width'
         Assert-True ($payload.html -match 'line two &lt;b&gt;')  'the html part is still encoded'
     }
 }
@@ -945,4 +946,9 @@ Describe 'dispatcher transport lookup' {
         Assert-Equal -Expected 'yznlive' -Actual $records[0].extension
         Assert-Equal -Expected 'ok' -Actual $records[0].status
     }
+}
+
+AfterAll {
+    Restore-YurunaTestEnvironment -Saved $script:SuiteLogEnvironment
+    Restore-YurunaTestGlobal -Saved $script:SavedCycleGlobals
 }

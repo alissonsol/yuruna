@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4257205b-1908-49c3-840b-b2b3559b3337
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,11 +42,13 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableName
     Parity covers those two vars only: the bash side's per-attempt
     stall bound and heal hook (YURUNA_RETRY_STALL_TIMEOUT_SECONDS,
     YURUNA_*_STALL_TIMEOUT, YURUNA_RETRY_HEAL) are guest-side knobs
-    built on timeout(1) with no counterpart here.
+    built on timeout(1) with no counterpart here. The per-attempt bound
+    here is the caller's -TimeoutSeconds (Invoke-YurunaToolWithDeadline),
+    which every deploy tool call passes.
 
     Callers that should retry only a subset of failures pass a
     -ShouldRetry predicate. It receives a hashtable
-    (@{ Attempt; MaxAttempts; ExitCode; Output; Error }) and returns
+    (@{ Attempt; MaxAttempts; ExitCode; Output; Error; TimedOut }) and returns
     $true to keep retrying or $false to fail fast. Omitting it retries
     on any non-zero exit (the tofu-init contract).
 #>
@@ -258,11 +260,186 @@ function Get-YurunaOutputTail {
     return $tail
 }
 
+# --- REGION: Tool call deadline
+# The watchdog runs in a runspace of its own, so it keeps time while the
+# caller's thread is blocked inside the native tool. At the deadline it kills
+# every process tree this process started since the call began: the tool runs
+# in-process through PowerShell's own native-command handling, which keeps the
+# caller's streams, environment and function stand-ins exactly as they were,
+# and a dead tool returns control to the caller like any other exit. The start
+# time is taken a second early because a process start time read back from the
+# system can trail the clock by a few milliseconds.
+$script:ToolDeadlineWatchdog = {
+    param($ParentId, $StartedUtc, $DueMilliseconds, $State)
+    Start-Sleep -Milliseconds $DueMilliseconds
+    $State.Fired = $true
+    foreach ($process in [System.Diagnostics.Process]::GetProcesses()) {
+        try {
+            if ($process.Id -eq $ParentId) { continue }
+            $parent = $process.Parent
+            if ($null -eq $parent -or $parent.Id -ne $ParentId) { continue }
+            if ($process.StartTime.ToUniversalTime() -lt $StartedUtc) { continue }
+            # Recorded before the kill, so a caller woken by the kill already
+            # finds the call marked as stopped.
+            $null = $State.Stopped.Add("$($process.Id) $($process.ProcessName)")
+            $process.Kill($true)
+        } catch {
+            $null = $State.Errors.Add($_.Exception.Message)
+        }
+    }
+}
+
+function Enter-YurunaToolDeadline {
+    # Enter/Exit rather than Start/Stop with ShouldProcess: an ambient -WhatIf
+    # must never disarm the bound a caller was promised.
+    param([Parameter(Mandatory)][int]$TimeoutSeconds)
+    $state = [hashtable]::Synchronized(@{
+        Fired   = $false
+        Stopped = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())
+        Errors  = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())
+    })
+    $watchdog = [powershell]::Create()
+    $null = $watchdog.AddScript($script:ToolDeadlineWatchdog).
+        AddArgument($PID).
+        AddArgument([DateTime]::UtcNow.AddSeconds(-1)).
+        AddArgument([long]$TimeoutSeconds * 1000).
+        AddArgument($state)
+    $handle = $watchdog.BeginInvoke()
+    return @{ PowerShell = $watchdog; Handle = $handle; State = $state; TimeoutSeconds = $TimeoutSeconds }
+}
+
+function Exit-YurunaToolDeadline {
+    <#
+    .SYNOPSIS
+        Disarm a tool deadline; $true when the watchdog stopped the call.
+    .DESCRIPTION
+        A deadline that passed while no child process was left to stop -- the
+        tool exited as it fired, or the work was PowerShell code of the
+        caller's own -- did not stop anything, so it does not count.
+    #>
+    param([Parameter(Mandatory)][hashtable]$Deadline)
+    try { $Deadline.PowerShell.Stop() } catch { Write-Verbose "tool deadline watchdog stop: $($_.Exception.Message)" }
+    $Deadline.PowerShell.Dispose()
+    foreach ($message in @($Deadline.State.Errors)) { Write-Verbose "tool deadline watchdog: $message" }
+    return ($Deadline.State.Stopped.Count -gt 0)
+}
+
+<#
+.SYNOPSIS
+    Runs one tool call under a deadline: at the deadline every process the call
+    started is killed, the call reports exit code 124 (timeout(1)'s code) and
+    -Outcome.TimedOut is set.
+.DESCRIPTION
+    The scriptblock runs in the caller's pipeline, so its output, redirections,
+    environment changes and $LASTEXITCODE reach the caller as they would from a
+    direct call. Only external processes can be stopped: work the scriptblock
+    does in PowerShell itself runs to its end.
+
+    A stopped call's outcome is unknown -- the tool may have acted before it was
+    killed -- so callers treat it as a failure and do not replay a mutation from
+    the exit code alone. The output gains one closing line saying the call was
+    stopped, and the same line is written as a warning.
+
+    The watchdog stops every child process this process started while the call
+    ran, so it belongs in a process that runs one tool call at a time, as the
+    deploy phases do; a process that starts other children concurrently (a
+    runner with background work) must bound its calls with
+    Invoke-BoundedNativeCommand instead.
+.PARAMETER Outcome
+    Optional hashtable that receives TimedOut ($true/$false) and TimeoutSeconds.
+#>
+function Invoke-YurunaToolWithDeadline {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][scriptblock]$ScriptBlock,
+        [Parameter(Mandatory)][ValidateRange(1, 86400)][int]$TimeoutSeconds,
+        [hashtable]$Outcome
+    )
+    if ($Outcome) { $Outcome['TimedOut'] = $false; $Outcome['TimeoutSeconds'] = $TimeoutSeconds }
+    $deadline = Enter-YurunaToolDeadline -TimeoutSeconds $TimeoutSeconds
+    $stopped = $false
+    try {
+        & $ScriptBlock
+    } finally {
+        $stopped = Exit-YurunaToolDeadline -Deadline $deadline
+    }
+    if ($stopped) {
+        if ($Outcome) { $Outcome['TimedOut'] = $true }
+        $global:LASTEXITCODE = 124
+        $line = Format-YurunaOperatorMessage -Key 'automation.deploy_tool_deadline' -Arguments @{ label = (Protect-YurunaSecretText -Text $Label); seconds = "$TimeoutSeconds" }
+        Write-Warning $line
+        $line
+    }
+}
+
+# Built-in bound of each deploy tool call, in seconds. Each is well past the
+# call's normal duration, so it ends only a call that stopped making progress:
+# an apply that creates a managed cluster runs tens of minutes, and helm's own
+# --atomic wait is five minutes on top of the chart fetch and its hooks.
+$script:ToolCallDefaultSeconds = @{
+    'tofu init'       = 600
+    'tofu plan'       = 3600
+    'tofu apply'      = 3600
+    'tofu output'     = 300
+    'tofu destroy'    = 3600
+    'helm lint'       = 300
+    'helm status'     = 300
+    'helm rollback'   = 600
+    'helm uninstall'  = 600
+    'helm upgrade'    = 1800
+    'deployment'      = 1800
+    'az account'      = 120
+    'image presence'  = 60
+}
+
+<#
+.SYNOPSIS
+    The bound for a deploy tool call: the record's commandTimeoutSeconds, else
+    the document's globalVariables.commandTimeoutSeconds, else the call's
+    built-in bound.
+.DESCRIPTION
+    The same key, range and precedence as a component's commandTimeoutSeconds:
+    a configured value bounds every tool call made for that record. Valid is
+    $false when a configured value is not an integer from 1 through 3600; the
+    caller reports that as a configuration error.
+.PARAMETER Call
+    The tool call, as named in the built-in table ('tofu init', 'helm upgrade',
+    'deployment', ...).
+.OUTPUTS
+    [pscustomobject] @{ Seconds; Configured; Valid }
+#>
+function Get-YurunaCommandTimeout {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][ValidateScript({ $script:ToolCallDefaultSeconds.ContainsKey($_) })][string]$Call,
+        [AllowNull()]$Entry,
+        [AllowNull()]$GlobalVariables
+    )
+    $default = [int]$script:ToolCallDefaultSeconds[$Call]
+    $raw = $null
+    if ($Entry -is [System.Collections.IDictionary] -and $Entry.Contains('commandTimeoutSeconds')) { $raw = $Entry['commandTimeoutSeconds'] }
+    elseif ($GlobalVariables -is [System.Collections.IDictionary] -and $GlobalVariables.Contains('commandTimeoutSeconds')) { $raw = $GlobalVariables['commandTimeoutSeconds'] }
+    if ($null -eq $raw) { return [pscustomobject]@{ Seconds = $default; Configured = $false; Valid = $true } }
+    $seconds = 0
+    $valid = [int]::TryParse([string]$raw, [ref]$seconds) -and $seconds -ge 1 -and $seconds -le 3600
+    if (-not $valid) { $seconds = $default }
+    return [pscustomobject]@{ Seconds = $seconds; Configured = $true; Valid = $valid }
+}
+
 <#
 .SYNOPSIS
     Runs a scriptblock under capped exponential backoff with optional jitter,
     retrying on non-zero exit (or per the -ShouldRetry predicate) and returning
     a result object describing the outcome.
+.DESCRIPTION
+    With -TimeoutSeconds every attempt runs under Invoke-YurunaToolWithDeadline's
+    deadline. A stopped attempt ends with exit code 124 and the stopped line in
+    its output, and the result's TimedOut says whether the last attempt was
+    stopped. The predicate sees TimedOut too; without one, a stopped attempt is
+    retried like any other non-zero exit, and the classifier never matches the
+    stopped line, so a classifier-gated call is not retried after a stop.
 #>
 function Invoke-WithYurunaRetry {
     [OutputType([pscustomobject])]
@@ -278,7 +455,8 @@ function Invoke-WithYurunaRetry {
         [string]$RcFile,
         [scriptblock]$OnAttempt,
         [scriptblock]$OnRetry,
-        [scriptblock]$ShouldRetry
+        [scriptblock]$ShouldRetry,
+        [ValidateRange(0, 86400)][int]$TimeoutSeconds = 0
     )
 
     if ($MaxAttempts -le 0) {
@@ -300,6 +478,7 @@ function Invoke-WithYurunaRetry {
     $lastOutput = @()
     $lastError  = $null
     $success    = $false
+    $lastTimedOut = $false
 
     while ($attempt -le $MaxAttempts) {
         if ($OnAttempt) {
@@ -311,6 +490,8 @@ function Invoke-WithYurunaRetry {
         $global:LASTEXITCODE = 0
         $lastOutput          = @()
         $lastError           = $null
+        $lastTimedOut        = $false
+        $deadline = if ($TimeoutSeconds -gt 0) { Enter-YurunaToolDeadline -TimeoutSeconds $TimeoutSeconds } else { $null }
         try {
             $lastOutput = & $ScriptBlock 2>&1
             $lastExit   = if ($null -ne $global:LASTEXITCODE) { [int]$global:LASTEXITCODE } else { 0 }
@@ -318,6 +499,19 @@ function Invoke-WithYurunaRetry {
         } catch {
             $lastError = $_
             $lastExit  = if ($null -ne $global:LASTEXITCODE -and $global:LASTEXITCODE -ne 0) { [int]$global:LASTEXITCODE } else { 1 }
+        } finally {
+            if ($deadline) { $lastTimedOut = Exit-YurunaToolDeadline -Deadline $deadline }
+        }
+        if ($lastTimedOut) {
+            # The tool was killed, so whatever it printed and returned is not a
+            # verdict: even an exit 0 from a tool whose child was stopped counts
+            # as a failure of unknown outcome.
+            $success  = $false
+            $lastExit = 124
+            $global:LASTEXITCODE = 124
+            $stoppedLine = Format-YurunaOperatorMessage -Key 'automation.deploy_tool_deadline' -Arguments @{ label = $Label; seconds = "$TimeoutSeconds" }
+            Write-Warning $stoppedLine
+            $lastOutput = @($lastOutput) + $stoppedLine
         }
 
         if ($LogPath) {
@@ -352,7 +546,7 @@ function Invoke-WithYurunaRetry {
                 # fault so the predicate bug stays diagnosable.
                 $retryThis = $true
                 try {
-                    $retryThis = [bool](& $ShouldRetry @{ Attempt = $attempt; MaxAttempts = $MaxAttempts; ExitCode = $lastExit; Output = $lastOutput; Error = $lastError })
+                    $retryThis = [bool](& $ShouldRetry @{ Attempt = $attempt; MaxAttempts = $MaxAttempts; ExitCode = $lastExit; Output = $lastOutput; Error = $lastError; TimedOut = $lastTimedOut })
                 } catch {
                     Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_5bb127d98fea6728' -Arguments @{ label = "${Label}"; message = "$($_.Exception.Message)" })
                 }
@@ -392,6 +586,7 @@ function Invoke-WithYurunaRetry {
         LastOutput  = $lastOutput
         LastError   = $lastError
         Label       = $Label
+        TimedOut    = $lastTimedOut
     }
 }
 
@@ -421,6 +616,19 @@ function Get-YurunaRetryBackoff {
 .SYNOPSIS
     Runs `tofu init -input=false` for the named resource under the shared retry
     policy, returning the Invoke-WithYurunaRetry result object.
+.DESCRIPTION
+    Each attempt is bounded by -TimeoutSeconds, or by the built-in 'tofu init'
+    bound when it is zero. A stopped attempt is retried like any other failed
+    one: init only fetches providers and modules, and a fetch that stalled is
+    the failure a retry clears.
+
+    Init takes one attempt more than the shared default, unless the caller or
+    YURUNA_RETRY_MAX_ATTEMPTS sets the count. It is the call that must reach
+    the provider registry, and an attempt that cannot reach it fails within
+    seconds on OpenTofu's own client timeout, so five attempts span only about
+    four minutes of backoff. A registry that stays unreachable through the
+    caching proxy for five minutes outlasts that; six attempts span about
+    seven.
 #>
 function Invoke-TofuInitWithRetry {
     [OutputType([pscustomobject])]
@@ -430,12 +638,17 @@ function Invoke-TofuInitWithRetry {
         [string]$LogPath,
         [string]$RcFile,
         [int]$MaxAttempts         = 0,
-        [int]$InitialDelaySeconds = 0
+        [int]$InitialDelaySeconds = 0,
+        [ValidateRange(0, 86400)][int]$TimeoutSeconds = 0
     )
+    if ($TimeoutSeconds -le 0) { $TimeoutSeconds = $script:ToolCallDefaultSeconds['tofu init'] }
+    if ($MaxAttempts -le 0) {
+        $MaxAttempts = Get-YurunaRetryDefault -EnvName 'YURUNA_RETRY_MAX_ATTEMPTS' -Fallback ($script:RetryDefaults.MaxAttempts + 1)
+    }
     $label = "tofu init ($ResourceName)"
     return Invoke-WithYurunaRetry -Label $label -ScriptBlock {
         & tofu init -input=false
-    } -MaxAttempts $MaxAttempts -InitialDelaySeconds $InitialDelaySeconds -LogPath $LogPath -RcFile $RcFile
+    } -MaxAttempts $MaxAttempts -InitialDelaySeconds $InitialDelaySeconds -LogPath $LogPath -RcFile $RcFile -TimeoutSeconds $TimeoutSeconds
 }
 
-Export-ModuleMember -Function 'Invoke-WithYurunaRetry','Invoke-TofuInitWithRetry','Get-YurunaRetryBackoff','Get-YurunaRetryDefault','Get-YurunaTransientPattern','Test-YurunaTransientFailure','Write-YurunaToolLogSection','Get-YurunaSecretValue','Protect-YurunaSecretText','Get-YurunaOutputTail'
+Export-ModuleMember -Function 'Invoke-WithYurunaRetry','Invoke-TofuInitWithRetry','Invoke-YurunaToolWithDeadline','Get-YurunaCommandTimeout','Get-YurunaRetryBackoff','Get-YurunaRetryDefault','Get-YurunaTransientPattern','Test-YurunaTransientFailure','Write-YurunaToolLogSection','Get-YurunaSecretValue','Protect-YurunaSecretText','Get-YurunaOutputTail'

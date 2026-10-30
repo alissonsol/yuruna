@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 4221843a-c40e-4a85-9988-8cf2fe9942f1
@@ -17,6 +17,7 @@
 YURUNA_HOST_ENV_FILE="${YURUNA_HOST_ENV_FILE:-/etc/yuruna/host.env}"
 YURUNA_HOSTS_FILE="${YURUNA_HOSTS_FILE:-/etc/hosts}"
 YURUNA_WGETRC_FILE="${YURUNA_WGETRC_FILE:-/etc/wgetrc}"
+YURUNA_GUEST_CHANNEL_KEY_FILE="${YURUNA_GUEST_CHANNEL_KEY_FILE:-/etc/yuruna/guest-channel.key}"
 
 # See https://yuruna.link/4220a755-002e
 # Bound unreachable peers; the ordinary probe costs one LAN round trip.
@@ -57,11 +58,60 @@ __yhl_http_get() {
     return 1
 }
 
-# Does a status service answer at this base URL? The one question that
-# decides everything else in this file.
+# --- REGION: Guest-channel proof
+# The host's guest-channel key, seeded with the guest, or nothing. A guest built
+# before the key existed has no file and keeps the unverified probe.
+__yhl_channel_key() {
+    local key=''
+    if [ -r "$YURUNA_GUEST_CHANNEL_KEY_FILE" ]; then
+        key="$(head -n 1 "$YURUNA_GUEST_CHANNEL_KEY_FILE" 2>/dev/null | tr -d '[:space:]')"
+    fi
+    if [[ "$key" =~ ^[0-9a-f]{64}$ ]]; then printf '%s' "$key"; fi
+    return 0
+}
+
+# hex(HMAC-SHA256) of the livecheck question under the key, as the host's
+# Get-YurunaGuestChannelProof computes it. The key is used as the ASCII bytes of
+# its hex form, which every openssl (and LibreSSL) takes through -hmac.
+__yhl_channel_proof() {
+    printf 'yuruna-livecheck/1\n%s\n%s' "$2" "$3" | openssl dgst -sha256 -hmac "$1" 2>/dev/null | awk '{ print $NF }'
+}
+
+# Does this guest's own host answer at this base URL? The one question that
+# decides everything else in this file. With the guest-channel key, only a
+# status service that answers a fresh nonce with the key's HMAC counts, so a
+# directory answer or a stale address cannot hand this guest to another
+# responder; the reason a responder was refused goes to stderr.
 __yhl_livecheck() {
-    local base="$1"
-    __yhl_http_get "${base%/}/livecheck" "$YURUNA_LOCATE_PROBE_TIMEOUT" >/dev/null 2>&1
+    local base="$1" key nonce body proof host_id expected
+    key="$(__yhl_channel_key)"
+    if [ -z "$key" ]; then
+        __yhl_http_get "${base%/}/livecheck" "$YURUNA_LOCATE_PROBE_TIMEOUT" >/dev/null 2>&1
+        return
+    fi
+    if ! command -v openssl >/dev/null 2>&1; then
+        __yhl_note "yuruna-host-locate: openssl is missing, so ${base} cannot be checked against this host's guest-channel key; not accepted"
+        return 1
+    fi
+    nonce="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+    [[ "$nonce" =~ ^[0-9a-f]{32}$ ]] || return 1
+    body="$(__yhl_http_get "${base%/}/livecheck?nonce=${nonce}" "$YURUNA_LOCATE_PROBE_TIMEOUT")" || return 1
+    proof="$(printf '%s' "$body" | sed -n 's/.*"proof":"\([0-9a-f]\{64\}\)".*/\1/p' | head -n 1)"
+    host_id="$(printf '%s' "$body" | sed -n 's/.*"hostId":"\([^"]*\)".*/\1/p' | head -n 1)"
+    if [ -z "$proof" ]; then
+        __yhl_note "yuruna-host-locate: ${base} answered without proving this host's guest-channel key; not accepted"
+        return 1
+    fi
+    if [ -n "${YURUNA_HOST_ID:-}" ] && [ "$host_id" != "$YURUNA_HOST_ID" ]; then
+        __yhl_note "yuruna-host-locate: ${base} speaks for host '${host_id}', not this guest's host '${YURUNA_HOST_ID}'; not accepted"
+        return 1
+    fi
+    expected="$(__yhl_channel_proof "$key" "$host_id" "$nonce")"
+    if [ "$proof" != "$expected" ]; then
+        __yhl_note "yuruna-host-locate: ${base} did not prove this host's guest-channel key; not accepted"
+        return 1
+    fi
+    return 0
 }
 
 # --- REGION: https://yuruna.link/4220a755-0030
@@ -179,6 +229,29 @@ __yhl_persist() {
     fi
 }
 
+# --- REGION: yuruna_read_env_file
+# host.env is data, not a script: KEY=VALUE lines the seed and the host-locate
+# refresh write. Sourcing it would run whatever a value spells as shell, so
+# only YURUNA_* names are taken, each value literally, with one level of
+# matching quotes removed. The same function is in fetch-and-execute.sh,
+# yuruna-host-locate.sh and yuruna-retry.sh, each of which is deployed alone.
+yuruna_read_env_file() {
+    local file="$1" line key value
+    [ -r "$file" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        key="${line%%=*}"
+        [ "$key" != "$line" ] || continue
+        [[ "$key" =~ ^YURUNA_[A-Z0-9_]+$ ]] || continue
+        value="${line#*=}"
+        value="${value%$'\r'}"
+        case "$value" in
+            \'*\'|\"*\") value="${value:1:${#value}-2}" ;;
+        esac
+        printf -v "$key" '%s' "$value"
+    done < "$file"
+    return 0
+}
+
 # --- REGION: https://yuruna.link/4220a755-0033
 # Probe the seeded address first; export only a guest-verified endpoint.
 yuruna_host_locate() {
@@ -186,10 +259,7 @@ yuruna_host_locate() {
     # left unscoped here lands in the caller's shell.
     local base new_base ip port attempt
 
-    if [ -r "$YURUNA_HOST_ENV_FILE" ]; then
-        # shellcheck disable=SC1090
-        . "$YURUNA_HOST_ENV_FILE"
-    fi
+    yuruna_read_env_file "$YURUNA_HOST_ENV_FILE" || true
 
     if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
         base="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}"

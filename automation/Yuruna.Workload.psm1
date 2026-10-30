@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,9 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Global -Force
 # imports Workload only; -Global -Force so the import does not evict an
 # instance another module loaded.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.DeploymentKind.psm1') -Global -Force
+# The deploy phase ledger: the workloads phase passing ends a deployment's
+# run, and its failure is what lets a retry reuse the phases before it.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.DeployLedger.psm1') -Global -Force
 
 function Invoke-WorkloadChartDeployment {
     <#
@@ -54,7 +57,10 @@ function Invoke-WorkloadChartDeployment {
     .DESCRIPTION
         Self-contained: pushes into the per-install work folder and pops
         it before every exit path. Reads $sw live so a failure manifest
-        carries the elapsed-at-failure duration.
+        carries the elapsed-at-failure duration. Every helm call is bounded:
+        the deployment's commandTimeoutSeconds, else the one in
+        $GlobalVariables, else each call's built-in bound; a call stopped at
+        it ends the deployment as tool_timeout.
     .OUTPUTS
         $null when the chart applied cleanly (caller continues the loop),
         or a New-YurunaResultManifest failure [hashtable] when the
@@ -69,7 +75,8 @@ function Invoke-WorkloadChartDeployment {
         $deployment,
         $deploymentVars,
         $workloadsFile,
-        $sw
+        $sw,
+        $GlobalVariables
     )
     $chartName = $deployment['chart']
     if ([string]::IsNullOrEmpty($chartName)) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_1506eb75a8975ce0' -Arguments @{ workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "context.chart cannot be null or empty in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
@@ -122,12 +129,17 @@ function Invoke-WorkloadChartDeployment {
     # explicitly (required argument on helm 4).
     # --- REGION: https://yuruna.link/42d69dfa-003e
     Write-Debug "Helm lint"
-    $lintOutput = helm lint . *>&1
+    $lintOutcome = @{}
+    $lintSeconds = (Get-YurunaCommandTimeout -Call 'helm lint' -Entry $deployment -GlobalVariables $GlobalVariables).Seconds
+    $lintOutput = Invoke-YurunaToolWithDeadline -Label 'helm lint' -TimeoutSeconds $lintSeconds -Outcome $lintOutcome -ScriptBlock { helm lint . *>&1 }
     $lintExit = $LASTEXITCODE
     Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm lint (exit=$lintExit) ==" -Line @($lintOutput | ForEach-Object { [string]$_ })
     $secretValues = Get-YurunaSecretValue
     $lintOutput | ForEach-Object { Write-Verbose (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
     Set-Content -LiteralPath $helmRcFile -Value $lintExit -NoNewline
+    if ($lintOutcome['TimedOut']) {
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "helm lint for chart '$installName' in $workFolder was stopped after $lintSeconds seconds: $(Get-YurunaOutputTail -Output $lintOutput -SecretValue $secretValues)" -FailureClass 'tool_timeout' -ExitCode $lintExit -DurationMs $sw.ElapsedMilliseconds)
+    }
     if ($lintExit -ne 0) {
         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_e1738c24bf654188' -Arguments @{ lintExit = "$lintExit"; installName = "$installName"; workFolder = "$workFolder" })
         $lintOutput | ForEach-Object { Write-Information (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
@@ -139,7 +151,8 @@ function Invoke-WorkloadChartDeployment {
     # every later upgrade. Detect and clear it via rollback before installing.
     # --- REGION: https://yuruna.link/42d69dfa-003f
     Write-Debug "Helm status probe for $installName"
-    $statusOutput = helm status $installName 2>&1
+    $statusSeconds = (Get-YurunaCommandTimeout -Call 'helm status' -Entry $deployment -GlobalVariables $GlobalVariables).Seconds
+    $statusOutput = Invoke-YurunaToolWithDeadline -Label "helm status $installName" -TimeoutSeconds $statusSeconds -ScriptBlock { helm status $installName 2>&1 }
     $statusExit   = $LASTEXITCODE
     if ($statusExit -eq 0) {
         $statusLine = ($statusOutput | Where-Object { $_ -match '^STATUS:\s*(\S+)' }) | Select-Object -First 1
@@ -147,7 +160,8 @@ function Invoke-WorkloadChartDeployment {
             $pendingState = $Matches[1]
             Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_5010c107b9432bae' -Arguments @{ installName = "$installName"; pendingState = "$pendingState" })
             Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== pre-flight helm status (state=$pendingState; recovering) ==" -Line @($statusOutput | ForEach-Object { [string]$_ })
-            $rollbackOutput = helm rollback $installName 0 2>&1
+            $rollbackSeconds = (Get-YurunaCommandTimeout -Call 'helm rollback' -Entry $deployment -GlobalVariables $GlobalVariables).Seconds
+            $rollbackOutput = Invoke-YurunaToolWithDeadline -Label "helm rollback $installName 0" -TimeoutSeconds $rollbackSeconds -ScriptBlock { helm rollback $installName 0 2>&1 }
             $rollbackExit = $LASTEXITCODE
             Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm rollback $installName 0 (exit=$rollbackExit) ==" -Line @($rollbackOutput | ForEach-Object { [string]$_ })
             if ($rollbackExit -ne 0) {
@@ -155,7 +169,8 @@ function Invoke-WorkloadChartDeployment {
                 # upgrade was the one killed): fall through to uninstall
                 # --no-hooks so the next upgrade --install lands fresh.
                 Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_712c78ee18789584' -Arguments @{ rollbackExit = "$rollbackExit" })
-                $uninstallOutput = helm uninstall $installName --no-hooks 2>&1
+                $uninstallSeconds = (Get-YurunaCommandTimeout -Call 'helm uninstall' -Entry $deployment -GlobalVariables $GlobalVariables).Seconds
+                $uninstallOutput = Invoke-YurunaToolWithDeadline -Label "helm uninstall $installName --no-hooks" -TimeoutSeconds $uninstallSeconds -ScriptBlock { helm uninstall $installName --no-hooks 2>&1 }
                 $uninstallExit = $LASTEXITCODE
                 Write-YurunaToolLogSection -LogFile $helmLogFile -Header "== helm uninstall $installName --no-hooks (exit=$uninstallExit) ==" -Line @($uninstallOutput | ForEach-Object { [string]$_ })
             }
@@ -179,11 +194,15 @@ function Invoke-WorkloadChartDeployment {
         param($info)
         ((@($info.Output) | ForEach-Object { [string]$_ }) -join "`n") -match $transientPattern
     }.GetNewClosure()
-    $install = Invoke-WithYurunaRetry -Label "helm upgrade --install --atomic $installName --debug" -ScriptBlock $installBlock -LogPath $helmLogFile -ShouldRetry $installRetry
+    $installSeconds = (Get-YurunaCommandTimeout -Call 'helm upgrade' -Entry $deployment -GlobalVariables $GlobalVariables).Seconds
+    $install = Invoke-WithYurunaRetry -Label "helm upgrade --install --atomic $installName --debug" -ScriptBlock $installBlock -LogPath $helmLogFile -ShouldRetry $installRetry -TimeoutSeconds $installSeconds
     $installOutput = @($install.LastOutput)
     $installExit = [int]$install.LastExit
     $installOutput | ForEach-Object { Write-Verbose (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
     Set-Content -LiteralPath $helmRcFile -Value $installExit -NoNewline
+    if ($install.TimedOut) {
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "helm upgrade --install --atomic '$installName' in $workFolder was stopped after $installSeconds seconds: $(Get-YurunaOutputTail -Output $installOutput -SecretValue $secretValues)" -FailureClass 'tool_timeout' -ExitCode $installExit -DurationMs $sw.ElapsedMilliseconds)
+    }
     # Match only helm's terminal error shapes: a real error line starts at column
     # 0 with "Error: " (helm's stderr format), so an indented --debug / rendered
     # line that merely contains "Error:" (a NOTES or manifest value) is not a helm
@@ -212,6 +231,8 @@ function Invoke-WorkloadToolDeployment {
         the block in its own scope, which cannot see this module's private
         import by name.
         Reads $sw live so a failure manifest carries elapsed-at-failure ms.
+        Each attempt is bounded as a chart's helm calls are; a stopped one
+        ends the deployment as tool_timeout.
     .OUTPUTS
         $null when the tool applied cleanly (caller continues the loop),
         or a New-YurunaResultManifest failure [hashtable] when the
@@ -226,7 +247,8 @@ function Invoke-WorkloadToolDeployment {
         $contextName,
         $deployment,
         $deploymentVars,
-        $sw
+        $sw,
+        $GlobalVariables
     )
     # Push deploymentVars to the environment: a non-chart deployment reads the
     # same merged variable set a chart gets, but through ${env:<key>} in its
@@ -283,7 +305,8 @@ function Invoke-WorkloadToolDeployment {
         $text = (@($info.Output) | ForEach-Object { [string]$_ }) -join "`n"
         return ($text -match $transientPattern)
     }.GetNewClosure()
-    $retry = Invoke-WithYurunaRetry -Label $loggedExpression -ScriptBlock $execBlock -LogPath $toolLogFile -ShouldRetry $shouldRetryTransient
+    $toolSeconds = (Get-YurunaCommandTimeout -Call 'deployment' -Entry $deployment -GlobalVariables $GlobalVariables).Seconds
+    $retry = Invoke-WithYurunaRetry -Label $loggedExpression -ScriptBlock $execBlock -LogPath $toolLogFile -ShouldRetry $shouldRetryTransient -TimeoutSeconds $toolSeconds
     $output   = $retry.LastOutput
     $toolExit = $retry.LastExit
     Set-Content -LiteralPath $toolRcFile -Value $toolExit -NoNewline
@@ -302,12 +325,30 @@ function Invoke-WorkloadToolDeployment {
         # times out minutes later -- masking the real fault.
         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_796c5d30f7816aa9' -Arguments @{ toolExit = "$toolExit"; expression = "$loggedExpression" })
         $output | ForEach-Object { Write-Information (Protect-YurunaSecretText -Text ([string]$_) -SecretValue $secretValues) }
-        return (New-YurunaResultManifest -Success $false -ErrorMessage "$toolName exit $toolExit for: ${loggedExpression}: $(Get-YurunaOutputTail -Output $output -SecretValue $secretValues)" -FailureClass 'tool_failed' -ExitCode $toolExit -DurationMs $sw.ElapsedMilliseconds)
+        $failureClass = if ($retry.TimedOut) { 'tool_timeout' } else { 'tool_failed' }
+        return (New-YurunaResultManifest -Success $false -ErrorMessage "$toolName exit $toolExit for: ${loggedExpression}: $(Get-YurunaOutputTail -Output $output -SecretValue $secretValues)" -FailureClass $failureClass -ExitCode $toolExit -DurationMs $sw.ElapsedMilliseconds)
     }
     } finally { Pop-Location }
 }
 
 function Publish-WorkloadList {
+    <#
+    .SYNOPSIS
+        Publish the workloads of a configuration through the deploy phase
+        ledger: its pass ends the deployment's run, and its failure lets a
+        retry reuse the phases before it (Yuruna.DeployLedger).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param (
+        $project_root,
+        $config_subfolder
+    )
+    return (Invoke-YurunaDeployPhase -ProjectRoot ([string]$project_root) -ConfigSubfolder ([string]$config_subfolder) -Phase 'workloads' `
+        -Operation { Invoke-WorkloadListPublish $project_root $config_subfolder })
+}
+
+function Invoke-WorkloadListPublish {
     <#
     .SYNOPSIS
         Publish every workload declared in config/<subfolder>/workloads.yml.
@@ -417,6 +458,10 @@ function Publish-WorkloadList {
             $kind = Resolve-YurunaDeploymentKind -Deployment $deployment
             $expectedKinds = Get-YurunaDeploymentKindExpectedText
             if ($null -eq $kind) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_29e3eefb95c92048' -Arguments @{ expectedKinds = "$expectedKinds"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "context.deployment must be $expectedKinds in $workloadsFile" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
+            # The same key, range and precedence as a component's bound.
+            if (-not (Get-YurunaCommandTimeout -Call 'deployment' -Entry $deployment -GlobalVariables $workloadsYaml.globalVariables).Valid) {
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "commandTimeoutSeconds must be an integer between 1 and 3600 (context '$contextName' in $workloadsFile)." -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds)
+            }
 
             # Build the merged variable set: resources.output + workloads
             # globals + workload locals + deployment locals (latter wins).
@@ -429,10 +474,10 @@ function Publish-WorkloadList {
             Set-ExpandedVariableHashtable -Variables $deployment.variables -Sink $deploymentVars -DebugLabel 'deploymentVariables' -WarnOnEmpty
 
             if ($kind.IsChart) {
-                $deploymentFailure = Invoke-WorkloadChartDeployment -project_root $project_root -config_subfolder $config_subfolder -contextName $contextName -deployment $deployment -deploymentVars $deploymentVars -workloadsFile $workloadsFile -sw $sw
+                $deploymentFailure = Invoke-WorkloadChartDeployment -project_root $project_root -config_subfolder $config_subfolder -contextName $contextName -deployment $deployment -deploymentVars $deploymentVars -workloadsFile $workloadsFile -sw $sw -GlobalVariables $workloadsYaml.globalVariables
             }
             else {
-                $deploymentFailure = Invoke-WorkloadToolDeployment -kind $kind -project_root $project_root -config_subfolder $config_subfolder -contextName $contextName -deployment $deployment -deploymentVars $deploymentVars -sw $sw
+                $deploymentFailure = Invoke-WorkloadToolDeployment -kind $kind -project_root $project_root -config_subfolder $config_subfolder -contextName $contextName -deployment $deployment -deploymentVars $deploymentVars -sw $sw -GlobalVariables $workloadsYaml.globalVariables
             }
             if ($null -ne $deploymentFailure) { return $deploymentFailure }
         }

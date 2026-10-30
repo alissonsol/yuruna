@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -379,6 +379,26 @@ function Test-PublishedChecksumSignature {
     }
 }
 
+function Write-ImageFailureKind {
+    <#
+    .SYNOPSIS
+        Tell the runner which kind of failure stopped an image download, when
+        the host driver that runs the stage records provisioning results.
+    .DESCRIPTION
+        A download that never arrived and bytes that failed their checksum end
+        the stage the same way, and only the first is one a retry can clear.
+        The record writer arrives with the host driver's global import of
+        Yuruna.HostProvision; without it (a caller with no driver) there is no
+        runner to tell, and nothing is written.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateSet('network', 'integrity', 'unsupported', 'tool')][string]$Kind,
+        [AllowEmptyString()][string]$Message = ''
+    )
+    if (Get-Command Write-YurunaProvisionResult -ErrorAction SilentlyContinue) { Write-YurunaProvisionResult -Kind $Kind -Message $Message }
+}
+
 function Invoke-UnverifiedDownloadPolicy {
     <#
     .SYNOPSIS
@@ -398,8 +418,11 @@ function Invoke-UnverifiedDownloadPolicy {
     param(
         [Parameter(Mandatory)][ValidateSet('WarnAndContinue','WarnAndDelete','Throw')][string]$Policy,
         [Parameter(Mandatory)][string]$DestPath,
-        [Parameter(Mandatory)][string]$Reason
+        [Parameter(Mandatory)][string]$Reason,
+        # The failure kind to record when the policy refuses the file.
+        [ValidateSet('network', 'integrity')][string]$Kind = 'integrity'
     )
+    if ($Policy -ne 'WarnAndContinue') { Write-ImageFailureKind -Kind $Kind -Message $Reason }
     switch ($Policy) {
         'WarnAndDelete' {
             Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
@@ -463,9 +486,10 @@ function Save-ImageWithChecksum {
         hundreds of MB and routinely travel through a squid cache provisioned
         minutes earlier, so a mid-stream truncation ("The response ended
         prematurely, with at least N additional bytes expected") is transient,
-        not a reason to abort a bring-up. Neither Save-CachedHttpUri nor
-        Invoke-WebRequest resumes, so each retry restarts from zero and the
-        partial file is removed between attempts. 0 disables retrying.
+        not a reason to abort a bring-up. Save-CachedHttpUri keeps the bytes of
+        a failed attempt beside the destination (<DestPath>.partial), so a
+        retry asks only for the rest; the fallback with no host driver
+        (Invoke-WebRequest) restarts from zero. 0 disables retrying.
     .OUTPUTS
         [bool] $true when the download landed successfully (regardless
         of checksum outcome under WarnAndContinue); $false when the
@@ -495,9 +519,9 @@ function Save-ImageWithChecksum {
         New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
     }
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_2e8b800c04e6bb54' -Arguments @{ sourceUrl = "$SourceUrl"; destPath = "$DestPath" }) -InformationAction Continue
-    # A resumed transfer is not available on either path, so every attempt must
-    # start from an absent destination: a truncated file left in place would
-    # otherwise be appended to or mistaken for a complete one.
+    # Every attempt starts from an absent destination, so a truncated file is
+    # never mistaken for a complete one; Save-CachedHttpUri resumes from its own
+    # partial file, which only a complete transfer renames into place.
     $fetch = {
         Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
         if (Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue) {
@@ -517,11 +541,13 @@ function Save-ImageWithChecksum {
         }
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ba3dea3cf3e04883' -Arguments @{ sourceUrl = "$SourceUrl"; message = "$($_.Exception.Message)" })
+        Write-ImageFailureKind -Kind network -Message "$SourceUrl : $($_.Exception.Message)"
         Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue
         return $false
     }
     if (-not (Test-Path -LiteralPath $DestPath)) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_90da3eeded93b7ec' -Arguments @{ destPath = "$DestPath" })
+        Write-ImageFailureKind -Kind network -Message "$SourceUrl served nothing to $DestPath"
         return $false
     }
     $expected = $ExpectedSha256
@@ -550,7 +576,7 @@ function Save-ImageWithChecksum {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a99dc6eac87b11d7')
                 Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d902ad2cc7a838c6' -Arguments @{ onUnreachableChecksum = "$OnUnreachableChecksum" })
                 Write-Warning ('=' * 72)
-                return (Invoke-UnverifiedDownloadPolicy -Policy $OnUnreachableChecksum -DestPath $DestPath `
+                return (Invoke-UnverifiedDownloadPolicy -Policy $OnUnreachableChecksum -DestPath $DestPath -Kind network `
                         -Reason "Publisher checksum unreachable at $ChecksumUrl : $($published.Detail)")
             }
             if ($published.State -eq 'fetched' -and $VerifyUbuntuSignature) {
@@ -572,6 +598,11 @@ function Save-ImageWithChecksum {
                         }
                         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ee1c5f4b650b2c16' -Arguments @{ onMismatch = "$OnMismatch" })
                         Write-Warning ('=' * 72)
+                        # A signature that could not be fetched may come back;
+                        # one that is wrong comes back wrong.
+                        if ($OnMismatch -ne 'WarnAndContinue') {
+                            Write-ImageFailureKind -Kind $(if ($unchecked) { 'network' } else { 'integrity' }) -Message "$ChecksumUrl : signature $_"
+                        }
                         switch ($OnMismatch) {
                             'WarnAndContinue' { }
                             'WarnAndDelete'   { Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue; return $false }
@@ -631,6 +662,7 @@ function Save-ImageWithChecksum {
     if ($ChecksumUrl)   { Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3b56c54914ea034a' -Arguments @{ checksumUrl = "$ChecksumUrl" }) }
     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ee1c5f4b650b2c16' -Arguments @{ onMismatch = "$OnMismatch" })
     Write-Warning ('=' * 72)
+    if ($OnMismatch -ne 'WarnAndContinue') { Write-ImageFailureKind -Kind integrity -Message "$SourceUrl : SHA-256 $actual, expected $expected" }
     switch ($OnMismatch) {
         'WarnAndContinue' { return $true }
         'WarnAndDelete'   {
@@ -1025,7 +1057,9 @@ function Save-UbuntuExtensionImage {
     )
     foreach ($dependency in @('Test-DownloadAlreadyCurrent', 'Write-ImageSentinel')) {
         if (-not (Get-Command -Name $dependency -ErrorAction SilentlyContinue)) {
-            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_df4ea4bfb57c50d3' -Arguments @{ dependency = "$dependency" })
+            $message = Format-YurunaOperatorMessage -Key 'host.operator_df4ea4bfb57c50d3' -Arguments @{ dependency = "$dependency" }
+            Write-ImageFailureKind -Kind tool -Message $message
+            Write-Error $message
             return $false
         }
     }
@@ -1105,7 +1139,10 @@ function Save-UbuntuExtensionImage {
     # against the publisher's Content-Length next run.
     $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
     if ($downloadedSize -lt $MinimumBytes) {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9326163f5beaeed4' -Arguments @{ mB = "$([math]::Round($downloadedSize / 1MB, 1))" })
+        # An error page or a cut transfer, which another attempt can replace.
+        $message = Format-YurunaOperatorMessage -Key 'host.operator_9326163f5beaeed4' -Arguments @{ mB = "$([math]::Round($downloadedSize / 1MB, 1))" }
+        Write-ImageFailureKind -Kind network -Message $message
+        Write-Error $message
         Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
         return $false
     }
@@ -1120,7 +1157,9 @@ function Save-UbuntuExtensionImage {
         # Convert-Qcow2ToVhdx owns qemu-img discovery and the NTFS sparse-flag
         # clear, so the Resize-VHD sparse-file fix lives in one place.
         if (-not (Convert-Qcow2ToVhdx -SourcePath $downloadFile -DestPath $stagedFile)) {
-            Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_e7460979e261a022')
+            $message = Format-YurunaOperatorMessage -Key 'host.operator_e7460979e261a022'
+            Write-ImageFailureKind -Kind tool -Message $message
+            Write-Error $message
             Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
             return $false
         }

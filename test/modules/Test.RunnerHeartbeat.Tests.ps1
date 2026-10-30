@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42fba86f-4ea4-4dbf-82c2-0ea57b04218c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,8 +134,8 @@ Describe 'Write-RunnerStepHeartbeat reports a heartbeat it cannot write' {
 
 Describe 'Runner phase evidence' {
     It 'retains earlier attempt phases after the live marker is replaced and cleared' {
-        $savedRuntime = $env:YURUNA_RUNTIME_DIR
-        $savedGeneration = $env:YURUNA_CYCLE_GENERATION
+        $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $savedGeneration = Save-YurunaTestEnvironment -Name 'YURUNA_CYCLE_GENERATION'
         try {
             $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'phase-history'
             $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR
@@ -152,20 +152,20 @@ Describe 'Runner phase evidence' {
             $lines[1] | Should -Match "pid=$PID generation=attempt-two phase=host-conditions"
             [datetime]::Parse(($lines[0] -split ' ')[0]).ToUniversalTime() | Should -BeLessOrEqual ([datetime]::UtcNow)
         } finally {
-            $env:YURUNA_RUNTIME_DIR = $savedRuntime
-            $env:YURUNA_CYCLE_GENERATION = $savedGeneration
+            Restore-YurunaTestEnvironment -Saved $savedRuntime
+            Restore-YurunaTestEnvironment -Saved $savedGeneration
         }
     }
 
     It 'still publishes the live phase when the persistent timeline cannot be written' {
-        $savedRuntime = $env:YURUNA_RUNTIME_DIR
+        $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'phase-no-log'
             $null = New-Item -ItemType Directory -Path (Join-Path $env:YURUNA_RUNTIME_DIR 'outer.log') -Force
             Write-RunnerPhase -Phase 'host-driver'
             (Get-Content -Raw (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.phase')) | Should -BeExactly 'host-driver'
             Test-Path (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat') | Should -BeTrue
-        } finally { $env:YURUNA_RUNTIME_DIR = $savedRuntime }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedRuntime }
     }
 }
 

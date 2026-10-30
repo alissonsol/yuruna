@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b667c7-9705-40d2-b7ab-42c08bffb2a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,9 +86,11 @@ Describe 'hostgit-install -- the PSGallery install policy is shared by one helpe
         Assert-True (Test-AstCallsCommand -Ast $yaml -CommandName $script:helper) 'Install-PowerShellYamlIfMissing must delegate to the shared policy'
         Assert-True (Test-AstCallsCommand -Ast $psa -CommandName $script:helper) 'Install-PSScriptAnalyzerIfMissing must delegate to the shared policy'
     }
-    It 'the raw Install-Module call now appears exactly once (inside the helper)' {
+    It 'installs only pinned, digest-checked packages, never through an unpinned Install-Module' {
         $n = Get-CommandCallCount -Ast $rootAst -CommandName 'Install-Module'
-        Assert-True ($n -eq 1) "expected exactly one Install-Module call (inside the shared helper), found $n"
+        Assert-True ($n -eq 0) "Install-Module resolves whatever the gallery serves; found $n call(s)"
+        $helperAst = Get-FunctionAst -RootAst $rootAst -FunctionName $script:helper
+        Assert-True (Test-AstCallsCommand -Ast $helperAst -CommandName 'Install-YurunaGalleryPackage') 'the helper installs through the verified package installer'
     }
     It 'the helper stays private; both public wrappers remain exported' {
         $exportCalls = $rootAst.FindAll({
@@ -99,5 +101,103 @@ Describe 'hostgit-install -- the PSGallery install policy is shared by one helpe
         Assert-True ($exportText -notmatch [regex]::Escape($script:helper)) 'the shared policy helper must not be exported'
         Assert-True ($exportText -match 'Install-PowerShellYamlIfMissing') 'Install-PowerShellYamlIfMissing must remain exported'
         Assert-True ($exportText -match 'Install-PSScriptAnalyzerIfMissing') 'Install-PSScriptAnalyzerIfMissing must remain exported'
+    }
+}
+
+Describe 'hostgit-install -- a gallery module is installed only from the pinned, verified package' {
+    BeforeAll {
+        Import-Module (Join-Path $repoRoot 'test/modules/Test.HostGit.psm1') -Force -DisableNameChecking
+
+        # A package laid out the way the gallery serves one: the module files plus
+        # the NuGet packaging entries PowerShellGet leaves out of the module.
+        function New-FixturePackage {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes a throwaway package under TestDrive.')]
+            param([string]$Path, [hashtable]$Entry)
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [IO.Compression.ZipFile]::Open($Path, 'Create')
+            try {
+                foreach ($name in $Entry.Keys) {
+                    $writer = [IO.StreamWriter]::new($zip.CreateEntry($name).Open())
+                    try { $writer.Write($Entry[$name]) } finally { $writer.Dispose() }
+                }
+            } finally { $zip.Dispose() }
+            $sha = [Security.Cryptography.SHA512]::Create()
+            try { return [Convert]::ToBase64String($sha.ComputeHash([IO.File]::ReadAllBytes($Path))) } finally { $sha.Dispose() }
+        }
+        $script:FixtureEntries = @{
+            'yuruna-fixture.psd1'            = "@{ ModuleVersion = '1.2.3'; RootModule = 'yuruna-fixture.psm1' }"
+            'yuruna-fixture.psm1'            = 'function Get-Fixture { 1 }'
+            'yuruna-fixture.nuspec'          = '<package/>'
+            '[Content_Types].xml'            = '<Types/>'
+            '_rels/.rels'                    = '<Relationships/>'
+            'package/services/metadata/x.ps' = 'meta'
+        }
+    }
+
+    BeforeEach {
+        $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $script:Package = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.nupkg')
+    }
+
+    It 'refuses a package whose SHA-512 differs from the pin and installs nothing' {
+        $null = New-FixturePackage -Path $script:Package -Entry $script:FixtureEntries
+        InModuleScope Test.HostGit -Parameters @{ Package = $script:Package; Root = $script:Root } {
+            param($Package, $Root)
+            $script:YurunaGalleryModulePin['yuruna-fixture'] = @{ Version = '1.2.3'; Sha512 = ('A' * 86) + '==' }
+            $script:FixturePackagePath = $Package
+            $script:FixtureModuleRoot = $Root
+            Mock Get-YurunaGalleryPackage { Copy-Item -LiteralPath $script:FixturePackagePath -Destination $OutFile }
+            Mock Get-YurunaUserModuleRoot { $script:FixtureModuleRoot }
+            Mock Write-Warning { }
+            try {
+                Install-YurunaGalleryModuleIfMissing -Name 'yuruna-fixture' -Confirm:$false | Should -BeFalse
+                Should -Invoke Get-YurunaGalleryPackage -Times 1 -Exactly
+                Should -Invoke Write-Warning -Times 1 -Exactly -ParameterFilter { $Message -like '*SHA-512*does not match the pinned digest*' }
+                Test-Path -LiteralPath (Join-Path $Root 'yuruna-fixture') | Should -BeFalse
+            } finally { $script:YurunaGalleryModulePin.Remove('yuruna-fixture') }
+        }
+    }
+
+    It 'installs a matching package as Name/Version without the NuGet packaging entries' {
+        $digest = New-FixturePackage -Path $script:Package -Entry $script:FixtureEntries
+        InModuleScope Test.HostGit -Parameters @{ Package = $script:Package; Root = $script:Root; Digest = $digest } {
+            param($Package, $Root, $Digest)
+            $script:YurunaGalleryModulePin['yuruna-fixture'] = @{ Version = '1.2.3'; Sha512 = $Digest }
+            $script:FixturePackagePath = $Package
+            $script:FixtureModuleRoot = $Root
+            Mock Get-YurunaGalleryPackage { Copy-Item -LiteralPath $script:FixturePackagePath -Destination $OutFile }
+            Mock Get-YurunaUserModuleRoot { $script:FixtureModuleRoot }
+            try {
+                Install-YurunaGalleryModuleIfMissing -Name 'yuruna-fixture' -Confirm:$false 6>$null | Should -BeTrue
+                $installed = @(Get-ChildItem -LiteralPath (Join-Path $Root 'yuruna-fixture') -Recurse -File -Force |
+                        ForEach-Object { [IO.Path]::GetRelativePath($Root, $_.FullName).Replace('\', '/') } | Sort-Object)
+                $installed | Should -Be @('yuruna-fixture/1.2.3/yuruna-fixture.psd1', 'yuruna-fixture/1.2.3/yuruna-fixture.psm1')
+            } finally { $script:YurunaGalleryModulePin.Remove('yuruna-fixture') }
+        }
+    }
+
+    It 'refuses a package entry that would land outside the module directory' {
+        $entries = $script:FixtureEntries.Clone()
+        $entries['../escaped.ps1'] = 'outside'
+        $null = New-FixturePackage -Path $script:Package -Entry $entries
+        InModuleScope Test.HostGit -Parameters @{ Package = $script:Package; Root = $script:Root } {
+            param($Package, $Root)
+            $thrown = $null
+            try { Install-YurunaGalleryPackage -PackagePath $Package -Name 'yuruna-fixture' -Version '1.2.3' -ModuleRoot $Root -Confirm:$false }
+            catch { $thrown = $_ }
+            "$thrown" | Should -BeLike '*escapes the module directory*'
+            Test-Path -LiteralPath (Join-Path $Root 'yuruna-fixture/escaped.ps1') | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $Root 'yuruna-fixture/1.2.3') | Should -BeFalse
+            @(Get-ChildItem -LiteralPath (Join-Path $Root 'yuruna-fixture') -Force) | Should -HaveCount 0
+        }
+    }
+
+    It 'keeps the macOS installer''s powershell-yaml pin equal to the host''s' {
+        $installer = Get-Content -LiteralPath (Join-Path $repoRoot 'install/macos.utm.sh') -Raw
+        $pin = InModuleScope Test.HostGit { $script:YurunaGalleryModulePin['powershell-yaml'] }
+        ([regex]::Match($installer, '(?m)^POWERSHELL_YAML_VERSION="([^"]+)"')).Groups[1].Value | Should -BeExactly $pin.Version
+        ([regex]::Match($installer, '(?m)^POWERSHELL_YAML_SHA512="([^"]+)"')).Groups[1].Value | Should -BeExactly $pin.Sha512
+        $installer | Should -Not -Match 'Install-Module -Name powershell-yaml -Scope CurrentUser -Force'
     }
 }

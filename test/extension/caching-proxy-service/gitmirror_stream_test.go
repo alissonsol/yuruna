@@ -5,7 +5,10 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -253,5 +256,101 @@ func TestMirrorUseRecordsStopAtTheCap(t *testing.T) {
 	mirrorTestGit(t, dir, "fetch", "--depth=1", server.URL+"/git/example/repo.git", ready.SelectedSHA)
 	if after := count(); after != before {
 		t.Fatalf("the use folder grew past the cap: %d -> %d", before, after)
+	}
+}
+
+func mirrorPktLine(line string) string { return fmt.Sprintf("%04x%s", len(line)+4, line) }
+
+func mirrorGzip(t *testing.T, text string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write([]byte(text)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// git sends a large upload-pack request gzip-encoded. The want it names must be
+// recorded like a plain one, or a pin used only that way expires; and git,
+// which inflates the body itself, must still be served.
+func TestMirrorRecordsTheWantsOfAGzipRequest(t *testing.T) {
+	h := newMirrorHarness(t)
+	ready := h.resolve(t, "HEAD")
+	uses := filepath.Join(mirrorReaderDir(h.c.options, "example/repo"), "uses")
+	countUses := func() int {
+		entries, _ := os.ReadDir(uses)
+		n := 0
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), ready.SelectedSHA+".") {
+				n++
+			}
+		}
+		return n
+	}
+	before := countUses()
+	// git compresses only a large request, so this one carries the haves of a
+	// long negotiation; a small body can come out of gzip as a stored block, with
+	// the want readable in clear.
+	haves := strings.Repeat(mirrorPktLine("have "+strings.Repeat("c", 40)+"\n"), 512)
+	body := mirrorGzip(t, mirrorPktLine("want "+ready.SelectedSHA+"\n")+"0000"+haves+mirrorPktLine("done\n"))
+	if bytes.Contains(body, []byte(ready.SelectedSHA)) {
+		t.Fatal("the compressed request carries the want in clear; the case would not test inflation")
+	}
+	server := mirrorTestHTTP(t, h)
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/git/example/repo.git/git-upload-pack", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-git-upload-pack-request")
+	req.Header.Set("Content-Encoding", "gzip")
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !bytes.Contains(reply, []byte("PACK")) {
+		t.Fatalf("gzip upload-pack = %d, want a pack: %.200q", resp.StatusCode, reply)
+	}
+	if after := countUses(); after != before+1 {
+		t.Fatalf("use records for the wanted pin: %d -> %d, want one more", before, after)
+	}
+}
+
+// The scan inflates only the opening of a gzip body, passes every byte to git
+// unchanged, and fails the request when a use cannot be recorded, as the plain
+// path does.
+func TestMirrorGzipWantScanIsBoundedAndPassesTheBodyThrough(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	late := strings.Repeat("b", 40)
+	text := mirrorPktLine("want "+sha+"\n") + strings.Repeat(mirrorPktLine("have "+strings.Repeat("c", 40)+"\n"), mirrorInflatedScanCap/50+1) + mirrorPktLine("want "+late+"\n")
+	body := mirrorGzip(t, text)
+	var recorded []string
+	got, err := io.ReadAll(mirrorRequestBody(bytes.NewReader(body), "gzip", func(s string) error {
+		recorded = append(recorded, s)
+		return nil
+	}))
+	if err != nil || !bytes.Equal(got, body) {
+		t.Fatalf("body passed through = %d bytes, err %v; want the %d raw bytes", len(got), err, len(body))
+	}
+	if len(recorded) != 1 || recorded[0] != sha {
+		t.Fatalf("recorded %v, want only the want inside the scan cap", recorded)
+	}
+
+	refused := errors.New("use folder unwritable")
+	_, err = io.ReadAll(mirrorRequestBody(bytes.NewReader(mirrorGzip(t, mirrorPktLine("want "+sha+"\n"))), "gzip", func(string) error { return refused }))
+	if !errors.Is(err, refused) {
+		t.Fatalf("a failed record = %v, want the request to fail with it", err)
+	}
+
+	// A body that is not gzip after all is git's to refuse; the scan neither
+	// blocks nor invents an error.
+	got, err = io.ReadAll(mirrorRequestBody(strings.NewReader("not gzip"), "gzip", func(string) error { return nil }))
+	if err != nil || string(got) != "not gzip" {
+		t.Fatalf("non-gzip body = %q, %v", got, err)
 	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1007,6 +1007,85 @@ Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
         Invoke-ScriptedWait -Frames @('', '', 'yuhost26 login: _') -Livelock $null -TimeoutSeconds 4 | Should -BeFalse
         (Get-ProbeFailSlot 'WaitForTextBlankScreenSeconds') | Should -Be 0
     }
+
+    Context 'a guest kernel that wedged with one processor silent' {
+        BeforeAll {
+            # The Hyper-V driver's serial accessor, scripted inside the engine.
+            # The capture ends at 5000 bytes when the wait marks it.
+            . (Get-Module Test.SequenceEngine) {
+                function Read-VMSerialCapture {
+                    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                        Justification = 'Stub: the signature has to match the driver accessor so the caller binds.')]
+                    param([string]$VMName, [long]$FromOffset = 0, [int]$MaxBytes = 4194304)
+                    if ($MaxBytes -ne 0) { $script:KernelStallSerialReads += @($FromOffset) }
+                    return [pscustomobject]@{ Length = 5000L; Offset = $FromOffset; Text = $script:KernelStallSerialText; Truncated = $false; Replaced = $false }
+                }
+            }
+            $script:rcuStall = @(
+                '[  962.456816] rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:'
+                '[  962.479483] rcu: rcu_preempt kthread starved for 60024 jiffies! g234369 f0x2 RCU_GP_WAIT_FQS(5) ->state=0x0 ->cpu=1'
+            ) -join "`n"
+            function Set-KernelStallSerial {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test stub helper: reseeds an in-memory console; no external state.')]
+                param([string]$Text)
+                & (Get-Module Test.SequenceEngine) { param($t) $script:KernelStallSerialText = $t; $script:KernelStallSerialReads = @() } $Text
+            }
+            # Processor 0 serviced no interrupt for the given run; processor 1 kept running.
+            function New-SilentProcessorVerdict {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test helper: returns an in-memory verdict.')]
+                param([int]$Seconds)
+                return [pscustomobject]@{ Verdict = 'not-livelocked'; LivelockedSeconds = 0; Detail = 'running'
+                    ProcessorWindow = [pscustomobject]@{ Processors = @(
+                        [pscustomobject]@{ Processor = '0'; NoInterruptsServicedSeconds = $Seconds; NoInterruptsServicedSinceUtc = '2026-10-29T08:56:28.0000000Z' }
+                        [pscustomobject]@{ Processor = '1'; NoInterruptsServicedSeconds = 0; NoInterruptsServicedSinceUtc = '' }) } }
+            }
+        }
+        AfterAll {
+            . (Get-Module Test.SequenceEngine) { Remove-Item -LiteralPath function:\Read-VMSerialCapture -ErrorAction SilentlyContinue }
+        }
+
+        It 'ends at once on a processor silent three minutes and a kernel stall reported since the wait began' {
+            Set-KernelStallSerial -Text $script:rcuStall
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            Invoke-ScriptedWait -Frames @('Pulling 192.168.7.42:5000/dotnet/sdk:10.0') -Livelock (New-SilentProcessorVerdict -Seconds 1305) -TimeoutSeconds 60 -EndOnGuestLivelock | Should -BeFalse
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 15 -Because 'the wedge is judged before the first capture, not at the deadline'
+            $end = Get-ProbeFailSlot 'WaitForTextKernelStallEnd'
+            @($end.processors) | Should -Be @('0')
+            $end.noInterruptsServicedSeconds | Should -Be 1305
+            $end.noInterruptsServicedSinceUtc | Should -Be '2026-10-29T08:56:28.0000000Z'
+            @($end.kinds) | Should -Be @('rcu-kthread-starved', 'rcu-stall')
+            $end.waitedSeconds | Should -BeLessThan 15
+            @(& (Get-Module Test.SequenceEngine) { $script:KernelStallSerialReads }) | Should -Be @(5000) -Because 'only what reached the console after the wait began can end it'
+            (Get-ProbeFailSlot 'WaitForTextGuestLivelocked') | Should -BeFalse -Because 'the other processor still ran, and the record keeps the verdict that was judged'
+            @((Get-ProbeFailSlot 'WaitForTextGuestLivelock').ProcessorWindow.Processors)[0].NoInterruptsServicedSeconds | Should -Be 1305
+        }
+
+        It 'waits out its budget on a silent processor when the console holds no kernel report' {
+            Set-KernelStallSerial -Text '[  900.000000] systemd[1]: Started session-3.scope.'
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            Invoke-ScriptedWait -Frames @('booting') -Livelock (New-SilentProcessorVerdict -Seconds 1305) -TimeoutSeconds 3 -EndOnGuestLivelock | Should -BeFalse
+            $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 2.5
+            Get-ProbeFailSlot 'WaitForTextKernelStallEnd' | Should -BeNullOrEmpty
+        }
+
+        It 'waits out its budget on a kernel report when no processor has been silent three minutes' {
+            Set-KernelStallSerial -Text $script:rcuStall
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            Invoke-ScriptedWait -Frames @('booting') -Livelock (New-SilentProcessorVerdict -Seconds 150) -TimeoutSeconds 3 -EndOnGuestLivelock | Should -BeFalse
+            $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 2.5
+            Get-ProbeFailSlot 'WaitForTextKernelStallEnd' | Should -BeNullOrEmpty
+        }
+
+        It 'never ends early for a caller that did not ask' {
+            Set-KernelStallSerial -Text $script:rcuStall
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            Invoke-ScriptedWait -Frames @('booting') -Livelock (New-SilentProcessorVerdict -Seconds 1305) -TimeoutSeconds 3 | Should -BeFalse
+            $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 2.5
+            Get-ProbeFailSlot 'WaitForTextKernelStallEnd' | Should -BeNullOrEmpty
+        }
+    }
 }
 
 Describe 'Wait-ForText ends on a display the emulator keeps reporting inactive' {
@@ -1214,5 +1293,55 @@ Describe 'Wait-ForText pays a capture repair''s grace only for a feed that moved
     It 'grants the grace once a frame after the repair differs' {
         $warnings = Invoke-RepairWait -FrameMoves $true
         ($warnings -join "`n") | Should -Match '\+\d+s degradation grace'
+    }
+}
+
+Describe 'The input dispatcher keeps how the step''s last send failed' {
+    BeforeAll {
+        $script:DispatchStore = Get-Variable -Name 'YurunaHostIOProviders' -Scope Global -ValueOnly
+        Register-HostIOProvider -HostType 'test.seq.dispatch' -Action 'Send-Text' -Implementation {
+            param([hashtable]$a)
+            if ($a.Text -eq 'ok') { return $true }
+            Set-HostInputFault -Kind deterministic -Reason 'unmappable-character' -Transport 'test' -Detail 'U+00E9 at 0' -Delivered 0 -Total 1
+            return $false
+        }
+        Register-HostIOProvider -HostType 'test.seq.dispatch' -Action 'Send-Key' -Implementation {
+            param([hashtable]$a)
+            $null = $a
+            return $false
+        }
+    }
+    AfterAll { $script:DispatchStore.Remove('test.seq.dispatch') }
+    BeforeEach {
+        $script:FailState = Get-SequenceFailureState
+        $script:FailState.StepHostInputFault = $null
+        $script:FailState.LastFailedStepInvocationId = 'step-x'
+    }
+
+    It 'records the transport''s fault with the step that made the call' {
+        Assert-False (Send-Text -HostType 'test.seq.dispatch' -VMName 'vm' -Text 'bad') 'the send failed'
+        $fault = $script:FailState.StepHostInputFault
+        Assert-Equal -Expected 'deterministic' -Actual $fault.kind
+        Assert-Equal -Expected 'unmappable-character' -Actual $fault.reason
+        Assert-Equal -Expected 'Send-Text' -Actual $fault.action
+        Assert-Equal -Expected 'step-x' -Actual $fault.stepInvocationId
+    }
+
+    It 'forgets the fault once a later send of the step succeeds' {
+        $null = Send-Text -HostType 'test.seq.dispatch' -VMName 'vm' -Text 'bad'
+        Assert-True (Send-Text -HostType 'test.seq.dispatch' -VMName 'vm' -Text 'ok') 'the second send succeeded'
+        Assert-True ($null -eq $script:FailState.StepHostInputFault) 'a repaired failure is not the step''s cause'
+    }
+
+    It 'calls a failure the transport did not describe transient' {
+        Assert-False (Send-Key -HostType 'test.seq.dispatch' -VMName 'vm' -KeyName 'Enter') 'the send failed'
+        Assert-Equal -Expected 'transient' -Actual $script:FailState.StepHostInputFault.kind
+        Assert-Equal -Expected 'unspecified' -Actual $script:FailState.StepHostInputFault.reason
+    }
+
+    It 'calls an action the host never registered deterministic' {
+        Assert-False (Send-Click -HostType 'test.seq.dispatch' -VMName 'vm' -X 1 -Y 1 3>$null) 'the click failed'
+        Assert-Equal -Expected 'deterministic' -Actual $script:FailState.StepHostInputFault.kind
+        Assert-Equal -Expected 'action-unavailable' -Actual $script:FailState.StepHostInputFault.reason
     }
 }

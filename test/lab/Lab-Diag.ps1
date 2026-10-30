@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b17423-c407-4384-96bd-8aa338c885ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Show, step by step, where a Lab token exchange stops.
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-0071.
 .PARAMETER LabToken
     The 6-character code from the Yuruna hosts dashboard's Lab token tile.
 .PARAMETER CachingProxyService

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427a68b2-7a5f-432f-b773-6b5bb75b5a2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,6 +99,9 @@ $callerWhatIf = $WhatIfPreference
 $WhatIfPreference = $false
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+# The level the process that started this one resolved (YURUNA_LOG_LEVEL).
+Import-Module (Join-Path $PSScriptRoot 'Test.LogLevel.psm1') -DisableNameChecking
+Use-LogLevelFromEnv
 # Every other module is imported best effort, one at a time. A module that
 # fails to load leaves its commands missing, and the dependency check below
 # refuses before any control is touched; failing here instead would end the
@@ -107,7 +110,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 # API) is imported last.
 $script:StartCycleImportFailure = [System.Collections.Generic.List[string]]::new()
 foreach ($moduleRelativePath in @('../../automation/Yuruna.Common.psm1', 'Test.StateFile.psm1', 'Test.SingleFlightLock.psm1',
-        'Test.SingleInstance.psm1', 'Test.InnerSpawn.psm1', 'Test.StatusControlRoute.psm1', 'Test.HostRefreshIntent.psm1')) {
+        'Test.SingleInstance.psm1', 'Test.InnerSpawn.psm1', 'Test.StatusControlRoute.psm1', 'Test.Status.psm1', 'Test.HostRefreshIntent.psm1')) {
     try {
         Import-Module (Join-Path $PSScriptRoot $moduleRelativePath) -Global -Force -DisableNameChecking -ErrorAction Stop
     } catch {
@@ -215,19 +218,16 @@ function Clear-StartCycleControl {
             $complete = $false
         }
     }
-    # Read-modify-write straight from disk: a runner-side write between the
-    # read and the replace would otherwise be clobbered by a cached copy.
+    # Read-modify-write under the shared status-file lock: a runner-side write
+    # between the read and the replace would otherwise be clobbered.
     $statusPath = Join-Path $RuntimeDir 'status.json'
     if ([System.IO.File]::Exists($statusPath)) {
         try {
-            $document = [System.IO.File]::ReadAllText($statusPath) | ConvertFrom-Json -AsHashtable
-            $document['cyclePaused'] = $false
-            $document['stepPaused'] = $false
-            $document['cyclePausedSinceUtc'] = ''
-            $document['stepPausedSinceUtc'] = ''
-            $document['labHold'] = $false
-            $document['labHoldAreas'] = @()
-            if (-not (Write-YurunaStateFile -Path $statusPath -Content ($document | ConvertTo-Json -Depth 20) -Confirm:$false)) { $complete = $false }
+            $fields = [ordered]@{
+                cyclePaused = $false; stepPaused = $false; cyclePausedSinceUtc = ''; stepPausedSinceUtc = ''
+                labHold = $false; labHoldAreas = @()
+            }
+            if (-not (Update-StatusDocumentField -StatusPath $statusPath -Field $fields -Confirm:$false)) { $complete = $false }
         } catch {
             Write-Verbose "Invoke-StartCycleWorker: status.json rewrite failed: $($_.Exception.Message)"
             $complete = $false
@@ -300,7 +300,7 @@ try {
         'Start-YurunaDetachedProcess', 'Enter-YurunaSingleFlightLock', 'Get-YurunaLockRank', 'Exit-YurunaSingleFlightLock',
         'Write-YurunaStateFile', 'Write-YurunaStateFileJson', 'Invoke-BoundedNativeCommand', 'Test-BoundedNativeResultComplete', 'New-YurunaDeadline',
         'Get-StatusWorkerDirectory', 'Get-StartCycleRunnerDecision', 'Get-StartCycleRefusalReason', 'Test-StatusWorkerArgument',
-        'Get-StartCycleRunnerArgument', 'Get-PwshExePath')
+        'Get-StartCycleRunnerArgument', 'Get-PwshExePath', 'Update-StatusDocumentField')
     $absent = @($required | Where-Object { -not (Get-Command -Name $_ -ErrorAction SilentlyContinue) })
     # The runner's state is read through the identity classifier or, without
     # it, the older pidfile classification; with neither, nothing may be

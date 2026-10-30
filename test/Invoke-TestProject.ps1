@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     finishes.
 
 .DESCRIPTION
-    See https://yuruna.link/42010605-0002.
+    See https://yuruna.link/42010605-0021.
 .PARAMETER ConfigPath
     test.config.yml path (default: next to this script)
 .PARAMETER logLevel
@@ -94,7 +94,7 @@ Initialize-YurunaEntryPointModuleSet -For Project -ModulesDir $ModulesDir
 # run then takes for itself.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0020
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
@@ -134,7 +134,7 @@ function Close-ProjectRun {
 }
 
 # --- REGION: Elevation check
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-001f
 if (-not (Assert-Elevation -HostType (Get-HostType))) {
     Stop-WithReason -Code $ExitFailure -Step 'Pre-flight (elevation)' `
         -Reason 'This host requires an elevated shell. Re-run from an elevated PowerShell -- stopping now, before <RepoRoot>/project is wiped and re-cloned.'
@@ -192,12 +192,9 @@ if (-not $PSCmdlet.ShouldProcess((Join-Path $RepoRoot 'project'), (Format-Yuruna
 }
 
 # --- REGION: Bootstrap runtime + log dirs, claim the runtime
-# Initialize-YurunaOneShotEntryPoint publishes YURUNA_RUNTIME_DIR /
-# YURUNA_LOG_DIR (the inner inherits them, so its pidfile, heartbeats,
-# status.json and per-cycle log land where a Start-TestRunner cycle would
-# write), takes the one-shot lease and refuses while another run owns the
-# runtime. The lease is released by Stop-WithReason and by the finally block
-# at the end of the script.
+# Publish the runtime and log dirs the inner inherits, take the one-shot lease
+# and refuse while another run owns the runtime. Stop-WithReason and the finally
+# block at the end of the script release the lease.
 # See https://yuruna.link/42010605-001e
 if (-not (Initialize-YurunaOneShotEntryPoint -CallerName 'Invoke-TestProject')) {
     Stop-WithReason -Code $ExitFailure -Step 'Pre-flight (single-instance)' `
@@ -211,7 +208,7 @@ if (-not (Initialize-YurunaOneShotEntryPoint -CallerName 'Invoke-TestProject')) 
 # See https://yuruna.link/42010605-0002
 $script:CancelState = Register-EntryPointCancelHandler -ExitAfterLabel 'cycle'
 
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-001d
 if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
     $null = Clear-StaleControlState -Scope PreSpawn -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
 }
@@ -227,15 +224,10 @@ Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9b5f387caf6f42b
 Write-Output '========'
 
 # --- REGION: Run one runner cycle
-# The cycle runs the way a Start-TestRunner cycle runs, through the runner's
-# own dispatcher: the per-cycle process arms the step watchdog, syncs the pool
-# configuration (a drained or paused pool holds the run), clears the last
-# cycle's runtime files and runs the cycle-end hooks; its inner runs the
-# configuration gate, replaces <RepoRoot>/project with a fresh clone of the
-# project pin that gate selected, and runs the cycle. This process waits under
-# the runner's cycle ceiling and scores the cycle from its outcome record. The
-# framework stays as installed: the cycle never pulls it.
-# See https://yuruna.link/42010605-0002
+# Run the cycle through the runner's own dispatcher, as a Start-TestRunner cycle
+# runs, and score it from its outcome record. The framework stays as installed:
+# the cycle never pulls it.
+# See https://yuruna.link/42010605-001b
 Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $ModulesDir
 $previousGeneration = $env:YURUNA_CYCLE_GENERATION
 $env:YURUNA_CYCLE_GENERATION = [guid]::NewGuid().ToString('N') + ':1'

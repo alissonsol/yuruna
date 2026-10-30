@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421a5b0c-c7c1-4612-9a9e-d61b0c836775
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Validate every file in the pool configuration store against its schema. Read-only.
 .DESCRIPTION
-    See https://yuruna.link/42010605-0004.
+    See https://yuruna.link/42010605-0099.
 .EXAMPLE
     test/pool/Test-PoolConfiguration.ps1 -ConfigurationGitUrl /var/lib/yuruna/pool-configuration.git
 #>
@@ -112,7 +112,7 @@ if (Test-Path -LiteralPath $poolsPath) {
         if ($dupes -eq 0) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_eb9468440861e598') -InformationAction Continue }
         else { $failures += $dupes }
 
-        # See https://yuruna.link/42010605-0004
+        # See https://yuruna.link/42010605-0098
         $targetPoolId = if ($poolsDoc['autoEnrollment']) { [string]$poolsDoc['autoEnrollment']['targetPoolId'] } else { '' }
         if ($schemaCurrent -and $targetPoolId) {
             $violations = 0
@@ -126,6 +126,20 @@ if (Test-Path -LiteralPath $poolsPath) {
             }
             if ($violations -eq 0) { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f4ce3623f58ca8ac' -Arguments @{ targetPoolId = "$targetPoolId" }) -InformationAction Continue }
             else { $failures += $violations }
+        }
+        # A canary that is not a member never runs the pool's cycles, so its
+        # passes would never count and the ring would wait on it forever. The
+        # schema cannot compare the two arrays, so the rule lives here.
+        foreach ($p in @($poolsDoc['pools'])) {
+            if ($p -isnot [System.Collections.IDictionary] -or $p['frameworkRing'] -isnot [System.Collections.IDictionary]) { continue }
+            $memberIds = @($p['members'] | ForEach-Object { ([string]$_).ToLowerInvariant() })
+            foreach ($canary in @($p['frameworkRing']['canaryMembers'])) {
+                if ($null -eq $canary) { continue }
+                if ($memberIds -notcontains ([string]$canary).ToLowerInvariant()) {
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.pool_framework_ring_canary_not_member' -Arguments @{ poolId = [string]$p['poolId']; hostId = [string]$canary })
+                    $failures++
+                }
+            }
         }
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4b7f2e4a23f336a0' -Arguments @{ message = "$($_.Exception.Message)" })

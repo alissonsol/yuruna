@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1559,8 +1559,10 @@ function Sync-HostConfiguration {
 
     $configPath = Join-Path $RepoRoot 'test/test.config.yml'
     $local = $null
+    $localText = $null
     if (Test-Path -LiteralPath $configPath) {
-        $local = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
+        $localText = [string](Get-Content -Raw -LiteralPath $configPath)
+        $local = ConvertFrom-Yaml -Yaml $localText -Ordered
     }
 
     $merge = Merge-ConfigSyncReferenceConfig -Reference $reference -Local $local -HostType $hostType -NoPool:$NoPool
@@ -1588,16 +1590,26 @@ function Sync-HostConfiguration {
     if ([string]::Equals($yaml, $currentYaml, [StringComparison]::Ordinal)) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_8611bc4c42a9779a') -InformationAction Continue
     } elseif ($PSCmdlet.ShouldProcess($configPath, (Format-YurunaOperatorMessage -Key 'runner.operator_26170942123e2fb5' -Arguments @{ referenceHost = "$ReferenceHost" }))) {
-        foreach ($change in $mirrorChanges) {
-            Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $configPath.backup)" -InformationAction Continue
-        }
-        if ($local) {
-            # Same recoverability convention as the template reconcile: the
-            # pre-sync file is always one copy away.
-            $backupPath = "$configPath.backup"
-            Copy-Item -LiteralPath $configPath -Destination $backupPath -Force
-        }
-        $wrote = [bool](Write-YurunaStateFile -Path $configPath -Content $yaml -Confirm:$false)
+        # The confirmations above run without the config's write lock, so under
+        # it the file must still hold what the merge read: a write that landed
+        # since is refused rather than overwritten with values read before it.
+        $wrote = [bool](Use-TestConfigLock -Path $configPath -Action {
+            $onDisk = if (Test-Path -LiteralPath $configPath) { [string](Get-Content -Raw -LiteralPath $configPath) } else { $null }
+            if (-not [string]::Equals($onDisk, $localText, [StringComparison]::Ordinal)) {
+                throw "config-changed: $configPath changed while the reference configuration was merged; nothing was written. Run the sync again."
+            }
+            foreach ($change in $mirrorChanges) {
+                Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $configPath.backup)" -InformationAction Continue
+            }
+            if ($local) {
+                # Same recoverability convention as the template reconcile: the
+                # pre-sync file is always one copy away.
+                Copy-Item -LiteralPath $configPath -Destination "$configPath.backup" -Force
+            }
+            $null = Save-TestConfigJournalEntry -ConfigPath $configPath -Writer 'config-sync' -NewContent $yaml
+            [bool](Write-YurunaStateFile -Path $configPath -Content $yaml -Confirm:$false)
+        })
+        if ($local) { $backupPath = "$configPath.backup" }
         if (-not $wrote) {
             throw (Format-YurunaOperatorMessage -Key 'configsync.operator_acd19bbbd8ecb77b' -Arguments @{ configPath = "$configPath" })
         }

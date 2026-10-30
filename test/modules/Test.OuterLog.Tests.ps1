@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4218a8b5-0788-4d72-b8ee-d63d1a86be71
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@ BeforeAll {
     $script:Pwsh = (Get-Process -Id $PID).Path
     if (-not $script:Pwsh) { $script:Pwsh = 'pwsh' }
     $script:HadRuntimeDir = Test-Path -LiteralPath Env:YURUNA_RUNTIME_DIR
-    $script:SavedRuntimeDir = $env:YURUNA_RUNTIME_DIR
+    $script:SavedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
 
     function Reset-OuterLogWarning {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -52,7 +52,7 @@ BeforeAll {
     # by every child process.
     function Restore-RuntimeDir {
         param()
-        if ($script:HadRuntimeDir) { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntimeDir }
+        if ($script:HadRuntimeDir) { Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeDir }
         else { Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
     }
 }

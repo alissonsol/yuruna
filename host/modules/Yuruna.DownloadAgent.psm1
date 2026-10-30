@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4221a024-d615-4d3e-9f0b-4a285f85b611
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,12 @@
 #requires -version 7
 
 # See https://yuruna.link/42e5cdfd-000e
+
+# The resumable download engine every image path shares. A driver has already
+# imported it globally; a caller that imported only this module still gets it.
+if (-not (Get-Command -Name Invoke-YurunaResumableDownload -ErrorAction SilentlyContinue)) {
+    Import-Module (Join-Path $PSScriptRoot 'Yuruna.HostDownload.psm1') -DisableNameChecking
+}
 
 # The service VM name the local-VM rung of the ladder asks the driver about, and
 # the extension area slug the pool rung asks the aggregator about.
@@ -475,15 +481,18 @@ function Invoke-DownloadAgentEnsure {
 function Save-DownloadAgentArtifact {
     <#
     .SYNOPSIS
-        Stream one generation to $OutFile, resuming with Range instead of
-        restarting when a transfer comes up short.
+        Stream one generation to $OutFile on the resumable download engine,
+        resuming with Range instead of restarting when a transfer comes up
+        short.
     .DESCRIPTION
         A multi-GB artifact that stops at 90% must not be re-fetched from zero:
         the byte route is http.ServeContent, so it honors Range and a resumed
         attempt costs only the remainder. An exception mid-body and a body that
         simply ended early (a proxy that truncated, a peer that stopped
         relaying) are treated the same, because to the file on disk they ARE the
-        same: both leave a short file, answered by asking for the rest.
+        same: both leave a short file, answered by asking for the rest. The
+        artifact is content-named, so the bytes behind one URI never change and
+        a transfer resumes without a validator, in this call or a later one.
 
         Attempts are bounded so a server that hands back nothing cannot loop
         forever, and the wall-clock deadline is honored between attempts so the
@@ -505,156 +514,24 @@ function Save-DownloadAgentArtifact {
         [Parameter(Mandatory)][string]$Uri,
         [Parameter(Mandatory)][string]$OutFile,
         [int64]$ExpectedByteCount = 0,
-        [datetime]$Deadline = [datetime]::MaxValue
-    )
-
-    Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
-    $parent = Split-Path -Parent $OutFile
-    if ($parent -and -not (Test-Path -LiteralPath $parent)) {
-        New-Item -ItemType Directory -Force -Path $parent | Out-Null
-    }
-
-    $client = [System.Net.Http.HttpClient]::new()
-    # No client-level timeout: a cold ISO legitimately takes hours, and the
-    # caller's deadline is the budget that governs this fetch.
-    $client.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
-    $written = 0L
-    $lastError = ''
-    try {
-        for ($attempt = 1; $attempt -le $script:MaxFetchAttempt; $attempt++) {
-            if ([datetime]::UtcNow -ge $Deadline) {
-                $lastError = 'the deadline expired before the artifact finished transferring'
-                break
-            }
-            $written = 0L
-            if (Test-Path -LiteralPath $OutFile) { $written = (Get-Item -LiteralPath $OutFile).Length }
-            if ($ExpectedByteCount -gt 0 -and $written -ge $ExpectedByteCount) { $lastError = ''; break }
-
-            try {
-                $written = Copy-DownloadAgentStream -Client $client -Uri $Uri -OutFile $OutFile -Offset $written -ExpectedByteCount $ExpectedByteCount -Deadline $Deadline
-                $lastError = ''
-            } catch {
-                $lastError = $_.Exception.Message
-                Write-Verbose "Save-DownloadAgentArtifact: attempt $attempt of $Uri failed after $written byte(s): $lastError"
-                if (Test-Path -LiteralPath $OutFile) { $written = (Get-Item -LiteralPath $OutFile).Length }
-                continue
-            }
-
-            if ($ExpectedByteCount -le 0 -or $written -ge $ExpectedByteCount) { break }
-            $lastError = "the transfer ended at $written of $ExpectedByteCount byte(s)"
-            Write-Verbose "Save-DownloadAgentArtifact: attempt $attempt came up short ($lastError); resuming with a Range request."
-        }
-    } finally {
-        $client.Dispose()
-        Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_90cb61bda0fc16e4' -Arguments @{ uri = "$Uri" }) -Completed
-    }
-
-    if ($lastError) {
-        return @{ Ok = $false; ByteCount = $written; Error = $lastError }
-    }
-    if ($ExpectedByteCount -gt 0 -and $written -lt $ExpectedByteCount) {
-        if ($lastError -eq '') { $lastError = "the transfer ended at $written of $ExpectedByteCount byte(s)" }
-        return @{ Ok = $false; ByteCount = $written; Error = $lastError }
-    }
-    if ($written -le 0) {
-        if ($lastError -eq '') { $lastError = 'the agent served no bytes' }
-        return @{ Ok = $false; ByteCount = 0; Error = $lastError }
-    }
-    return @{ Ok = $true; ByteCount = $written; Error = '' }
-}
-
-function Copy-DownloadAgentStream {
-    <#
-    .SYNOPSIS
-        One GET (optionally ranged) copied onto $OutFile at $Offset. Returns the
-        file's total length afterwards.
-    .PARAMETER Client
-        HttpClient to send on.
-    .PARAMETER Uri
-        Byte-route URL.
-    .PARAMETER OutFile
-        Staging path.
-    .PARAMETER Offset
-        Bytes already on disk; a positive value asks for the remainder.
-    .PARAMETER ExpectedByteCount
-        Size the agent's metadata reports, for progress only.
-    .OUTPUTS
-        [int64]
-    #>
-    [CmdletBinding()]
-    [OutputType([int64])]
-    param(
-        [Parameter(Mandatory)][System.Net.Http.HttpClient]$Client,
-        [Parameter(Mandatory)][string]$Uri,
-        [Parameter(Mandatory)][string]$OutFile,
-        [int64]$Offset = 0,
-        [int64]$ExpectedByteCount = 0,
         [datetime]$Deadline = [datetime]::MaxValue,
         [ValidateRange(1, 3600)][int]$IdleTimeoutSeconds = 60
     )
-
-    $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, [System.Uri]$Uri)
-    if ($Offset -gt 0) {
-        $request.Headers.Range = [System.Net.Http.Headers.RangeHeaderValue]::new($Offset, $null)
-    }
-    $deadlineCancellation = [System.Threading.CancellationTokenSource]::new()
-    if ($Deadline -ne [datetime]::MaxValue) {
-        $remaining = [Math]::Max(0, ($Deadline - [datetime]::UtcNow).TotalMilliseconds)
-        $deadlineCancellation.CancelAfter([int][Math]::Min([int]::MaxValue, $remaining))
-    }
-    $idleCancellation = [System.Threading.CancellationTokenSource]::CreateLinkedTokenSource($deadlineCancellation.Token)
-    $response = $null
+    Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
     try {
-        $idleCancellation.CancelAfter([TimeSpan]::FromSeconds($IdleTimeoutSeconds))
-        $response = $Client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead, $idleCancellation.Token).GetAwaiter().GetResult()
-        $status = [int]$response.StatusCode
-        if ($status -eq 416) {
-            # The server says there is nothing past our offset: the file on disk
-            # is already whole as far as it is concerned.
-            return (Get-Item -LiteralPath $OutFile).Length
-        }
-        if (-not $response.IsSuccessStatusCode) {
-            throw (Format-YurunaOperatorMessage -Key 'exceptions.host_5e82d7a32d22a269' -Arguments @{ status = "$status"; reasonPhrase = "$($response.ReasonPhrase)"; uri = "$Uri" })
-        }
-        # A server that answers 200 to a ranged request ignored the range and is
-        # sending the whole artifact again; appending would splice two copies.
-        $append = ($Offset -gt 0 -and $status -eq 206)
-        $mode = if ($append) { [System.IO.FileMode]::Append } else { [System.IO.FileMode]::Create }
-
-        $activity = "Fetching $Uri from the download agent"
-        $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
-        try {
-            $out = [System.IO.FileStream]::new($OutFile, $mode, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
-            try {
-                $buffer = [byte[]]::new(256 * 1024)
-                $total = if ($append) { $Offset } else { 0L }
-                $next = [datetime]::UtcNow.AddSeconds(2)
-                while ($true) {
-                    $idleCancellation.CancelAfter([TimeSpan]::FromSeconds($IdleTimeoutSeconds))
-                    $read = $stream.ReadAsync($buffer, 0, $buffer.Length, $idleCancellation.Token).GetAwaiter().GetResult()
-                    if ($read -eq 0) { break }
-                    $out.Write($buffer, 0, $read)
-                    $total += $read
-                    if ([datetime]::UtcNow -gt $next) {
-                        if ($ExpectedByteCount -gt 0) {
-                            $percent = [Math]::Min(100, [Math]::Round($total * 100.0 / $ExpectedByteCount, 1))
-                            Write-Progress -Activity $activity -PercentComplete $percent `
-                                -Status (Format-YurunaOperatorMessage -Key 'host.operator_c67e69b1dce2a237' -FormatValues (($total / 1MB), ($ExpectedByteCount / 1MB), $percent) -FormatBindings @{ mB = '0:N1'; mB2 = '1:N1'; percent = '2' })
-                        } else {
-                            Write-Progress -Activity $activity -Status (Format-YurunaOperatorMessage -Key 'host.operator_a9dcf6d3662588bf' -FormatValues (($total / 1MB)) -FormatBindings @{ mB = '0:N1' })
-                        }
-                        $next = [datetime]::UtcNow.AddSeconds(2)
-                    }
-                }
-            } finally { $out.Dispose() }
-        } finally { $stream.Dispose() }
-    } finally {
-        if ($response) { $response.Dispose() }
-        $request.Dispose()
-        $idleCancellation.Dispose()
-        $deadlineCancellation.Dispose()
+        $written = Invoke-YurunaResumableDownload -Uri $Uri -OutFile $OutFile -ExpectedByteCount $ExpectedByteCount -AssumeImmutable `
+            -Deadline $Deadline -IdleTimeoutSeconds $IdleTimeoutSeconds -MaxAttempt $script:MaxFetchAttempt `
+            -Activity (Format-YurunaOperatorMessage -Key 'host.operator_90cb61bda0fc16e4' -Arguments @{ uri = "$Uri" })
+    } catch {
+        $partial = "$OutFile.partial"
+        $staged = if (Test-Path -LiteralPath $partial) { (Get-Item -LiteralPath $partial).Length } else { 0L }
+        return @{ Ok = $false; ByteCount = $staged; Error = $_.Exception.Message }
     }
-    return (Get-Item -LiteralPath $OutFile).Length
+    if ($written -le 0) {
+        Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+        return @{ Ok = $false; ByteCount = 0; Error = 'the agent served no bytes' }
+    }
+    return @{ Ok = $true; ByteCount = $written; Error = '' }
 }
 
 function Test-DownloadAgentArtifactShape {

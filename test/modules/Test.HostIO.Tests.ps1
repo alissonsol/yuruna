@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42708dea-607b-47cf-bf37-876b347859d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,5 +150,56 @@ Describe 'Invoke-HostIOAction does a single hot-path registry lookup' {
     It 'does not call Test-HostIOActionAvailable from the dispatch path' {
         Assert-True (-not (Test-AstCallsCommand -Ast $script:invokeAst -CommandName 'Test-HostIOActionAvailable')) `
             'the duplicate availability check (its own registry Get) is inlined as a local Contains branch'
+    }
+}
+
+Describe 'The UTM text provider never types a character twice' {
+    # VNC is tried first and the JXA path takes over when it fails. Characters
+    # VNC wrote before it failed are already in the guest.
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.HostIO.Utm.psm1') -Force -DisableNameChecking -Global
+        $script:UtmText = (Get-Variable -Name 'YurunaHostIOProviders' -Scope Global -ValueOnly)['host.macos.utm']['Send-Text']
+    }
+    BeforeEach {
+        $script:UtmCalls = [System.Collections.Generic.List[string]]::new()
+        Mock Send-TextUTM -ModuleName Test.HostIO.Utm { $script:UtmCalls.Add("text:$Text|escape:$([bool]$ShellEscape)"); $true }
+        Mock Send-KeyUTM -ModuleName Test.HostIO.Utm { $script:UtmCalls.Add("key:$KeyName"); $true }
+    }
+
+    It 'types only the rest after VNC wrote part of the text' {
+        Mock Send-TextVNC -ModuleName Test.HostIO.Utm {
+            Set-HostInputFault -Kind transient -Reason 'write-failed' -Transport 'VNC' -Delivered 3 -Total 6
+            $false
+        }
+        Assert-True (& $script:UtmText @{ VMName = 'vm'; Text = 'abcdef'; CharDelayMs = 0; ShellEscape = $false }) 'the fallback finished the text'
+        Assert-Equal -Expected 'text:def|escape:False' -Actual ($script:UtmCalls -join ';')
+    }
+
+    It 'erases the half line before retyping it whole through the shell escape' {
+        # The escape wrapper is a command of its own; after half a line it would join that half.
+        Mock Send-TextVNC -ModuleName Test.HostIO.Utm {
+            Set-HostInputFault -Kind transient -Reason 'write-failed' -Transport 'VNC' -Delivered 3 -Total 6
+            $false
+        }
+        Assert-True (& $script:UtmText @{ VMName = 'vm'; Text = 'ls -A*'; CharDelayMs = 0; ShellEscape = $true }) 'the fallback finished the text'
+        Assert-Equal -Expected 'key:CtrlU;text:ls -A*|escape:True' -Actual ($script:UtmCalls -join ';')
+    }
+
+    It 'types the whole text when VNC wrote nothing' {
+        Mock Send-TextVNC -ModuleName Test.HostIO.Utm {
+            Set-HostInputFault -Kind deterministic -Reason 'unmappable-character' -Transport 'VNC' -Delivered 0 -Total 3
+            $false
+        }
+        Assert-True (& $script:UtmText @{ VMName = 'vm'; Text = 'abc'; CharDelayMs = 0; ShellEscape = $true }) 'the fallback typed it'
+        Assert-Equal -Expected 'text:abc|escape:True' -Actual ($script:UtmCalls -join ';')
+    }
+
+    It 'types nothing more when VNC wrote every character before failing' {
+        Mock Send-TextVNC -ModuleName Test.HostIO.Utm {
+            Set-HostInputFault -Kind transient -Reason 'write-failed' -Transport 'VNC' -Delivered 3 -Total 3
+            $false
+        }
+        Assert-True (& $script:UtmText @{ VMName = 'vm'; Text = 'abc'; CharDelayMs = 0; ShellEscape = $false }) 'the text is complete'
+        Assert-Equal -Expected 0 -Actual $script:UtmCalls.Count
     }
 }

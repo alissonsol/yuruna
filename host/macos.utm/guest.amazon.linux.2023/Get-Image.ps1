@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f8008d-9acf-4ba5-8a9f-c29d843ce6a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,11 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
     Import-Module $_logLevelMod -Global
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+
+# --- REGION: Failure records
+# A failure this script can name is recorded for the runner before it exits:
+# https://yuruna.link/42820e91-000a
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.HostProvision.psm1') -DisableNameChecking
 
 # --- REGION: Platform guard
 if (-not $IsMacOS) {
@@ -148,7 +153,9 @@ $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 try {
     $keptPrevious = Publish-YurunaBaseImage -DownloadFile $downloadFile -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $downloadedSize -Confirm:$false
 } catch {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+    $message = Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" }
+    Write-YurunaProvisionResult -Kind tool -Message $message
+    Write-Error $message
     exit 1
 }
 if ($keptPrevious) {

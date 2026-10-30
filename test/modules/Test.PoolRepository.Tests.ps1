@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d2a293-af6c-4dd9-a606-42daae4a745b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,7 @@ BeforeAll {
 
     # The CLIs resolve their runtime directory from this variable; pointing it
     # at TestDrive keeps every child process off the operator's own runtime.
-    $script:PriorRuntimeDir = $env:YURUNA_RUNTIME_DIR
+    $script:PriorRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'runtime'
     $null = New-Item -ItemType Directory -Force -Path $env:YURUNA_RUNTIME_DIR
 
@@ -68,13 +68,14 @@ BeforeAll {
         $null = New-YurunaPoolConfigurationStore -Path $store -Confirm:$false
         if ($Pools -or $Library) {
             $seed = Join-Path $root 'seed'
-            & git clone --quiet -- $store $seed 2>&1 | Out-Null
+            $null = Invoke-YurunaTestGit -Path $root -Argument @('clone', '--quiet', '--', $store, $seed)
+            Set-YurunaTestGitIdentity -Path $seed
             $utf8 = [Text.UTF8Encoding]::new($false)
             if ($Pools)   { [IO.File]::WriteAllText((Join-Path $seed 'pools.yml'), (ConvertTo-Yaml $Pools), $utf8) }
             if ($Library) { [IO.File]::WriteAllText((Join-Path $seed 'test-sets.yml'), $Library, $utf8) }
-            & git -C $seed add -A 2>&1 | Out-Null
-            & git -C $seed -c user.name=fixture -c user.email=fixture@yuruna.local commit --quiet -m 'fixture' 2>&1 | Out-Null
-            & git -C $seed push --quiet origin HEAD:main 2>&1 | Out-Null
+            $null = Invoke-YurunaTestGit -Path $seed -Argument @('add', '-A')
+            $null = Invoke-YurunaTestGit -Path $seed -Argument @('commit', '--quiet', '-m', 'fixture')
+            $null = Invoke-YurunaTestGit -Path $seed -Argument @('push', '--quiet', 'origin', 'HEAD:main')
         }
         return [pscustomobject]@{ Store = $store; Clone = (Join-Path $root 'clone') }
     }
@@ -122,8 +123,7 @@ BeforeAll {
 }
 
 AfterAll {
-    if ($null -eq $script:PriorRuntimeDir) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
-    else { $env:YURUNA_RUNTIME_DIR = $script:PriorRuntimeDir }
+    Restore-YurunaTestEnvironment -Saved $script:PriorRuntimeDir
 }
 
 Describe 'Set-PoolRepository.ps1 sets and clears a pool''s repositories' {

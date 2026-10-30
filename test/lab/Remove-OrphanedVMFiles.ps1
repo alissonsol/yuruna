@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42abb186-f4b8-4269-9bed-8d5f24f258e5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Delete VM files on THIS host that no longer belong to a registered VM.
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-007b.
 .PARAMETER Force
     Skip the confirmation prompt.
 .PARAMETER Quiet

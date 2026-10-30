@@ -350,7 +350,7 @@ run (no inherited cycle context) is unaffected and still gates for itself.
 
 <a id="42010605-0017"></a>
 
-### Pre-flight: elevation
+### Elevation check
 
 `yuruna/test/Debug-TestSequence.ps1`
 
@@ -468,7 +468,7 @@ control.cycle-restart for the child inner to consume as ITS own restart.
 
 <a id="42010605-001e"></a>
 
-### Refuse to start when a Start-TestRunner already owns the runtime dir. Invoke-TestProject spawns its
+### Bootstrap runtime + log dirs, claim the runtime
 
 `yuruna/test/Invoke-TestProject.ps1`
 
@@ -487,7 +487,7 @@ the script release it. Start-TestRunner's takeover path is the opposite
 
 <a id="42010605-001f"></a>
 
-### Pre-flight: elevation
+### Elevation check
 
 `yuruna/test/Invoke-TestProject.ps1`
 
@@ -851,7 +851,7 @@ above; flipping ['Requested'] there ends the loop here.
 
 <a id="42010605-0032"></a>
 
-### Pre-flight: elevation
+### Elevation check
 
 `yuruna/test/Start-TestRunner.ps1`
 
@@ -1096,7 +1096,7 @@ the runner would.
 
 <a id="canonical-path-bundle--cachingproxyservice-module-kind-loads-the-trio-testvmutility-testcachin"></a>
 
-### Canonical path bundle and caching-proxy-service module imports
+### Resolve paths
 
 `yuruna/test/Test-CachingProxyService.ps1`
 
@@ -2525,7 +2525,7 @@ driver changes nothing on the host; the gates that do are all below.
 
 <a id="42010605-008e"></a>
 
-### Elevation is asserted before anything happens rather than at the line that needs it: the sync rewrit
+### Elevation check
 
 `yuruna/test/pool/Convert-ToPoolWorker.ps1`
 
@@ -2554,7 +2554,7 @@ this script needs for the service-state probe in scope.
 
 <a id="42010605-0090"></a>
 
-### $WhatIfPreference is suppressed across the imports and restored immediately after. The host contract
+### Modules
 
 `yuruna/test/pool/Convert-ToPoolWorker.ps1`
 

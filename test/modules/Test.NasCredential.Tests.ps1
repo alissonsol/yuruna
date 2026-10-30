@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 426f60c6-12ae-47e8-bf91-92c9c1eadd18
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,8 @@ BeforeAll {
     $script:Helper = Join-Path $script:RepoRoot 'automation/yuruna-nas-credential.sh'
 
     function Invoke-NasCredentialHelper {
-        param([string]$Root, [string]$Name = 'pool', [string]$Json = '', [int]$CurlExit = 0, [switch]$NoMaterial)
+        param([string]$Root, [string]$Name = 'pool', [string]$Json = '', [int]$CurlExit = 0, [switch]$NoMaterial,
+            [string]$Mount = '', [switch]$Mounted, [int]$MountExit = 0, [string]$Existing, [switch]$Unanswering)
         $bin = Join-Path $Root 'bin'
         $cdir = Join-Path $Root 'host-config'
         $null = New-Item -ItemType Directory -Force -Path $bin, $cdir
@@ -44,7 +45,17 @@ BeforeAll {
         $curl = Join-Path $bin 'curl'
         [IO.File]::WriteAllText($curl, "#!/bin/sh`nprintf '%s\n' `"`$*`" > '$Root/curl.args'`nprintf '%s' '$Json'`nexit $CurlExit`n")
         & chmod +x $curl
+        # Stand-ins for the refresh path: whether the share is mounted, and a
+        # mount that records how it was asked to remount.
+        $mountedExit = if ($Mounted) { 0 } else { 1 }
+        [IO.File]::WriteAllText((Join-Path $bin 'mountpoint'), "#!/bin/sh`nexit $mountedExit`n")
+        [IO.File]::WriteAllText((Join-Path $bin 'mount'), "#!/bin/sh`nprintf '%s\n' `"`$*`" >> '$Root/mount.args'`nexit $MountExit`n")
+        [IO.File]::WriteAllText((Join-Path $bin 'timeout'), "#!/bin/sh`nshift`nexec `"`$@`"`n")
+        $statExit = if ($Unanswering) { 1 } else { 0 }
+        [IO.File]::WriteAllText((Join-Path $bin 'stat'), "#!/bin/sh`nexit $statExit`n")
+        & chmod +x (Join-Path $bin 'mountpoint') (Join-Path $bin 'mount') (Join-Path $bin 'timeout') (Join-Path $bin 'stat')
         $cred = Join-Path $Root 'nas.cifs.cred'
+        if ($PSBoundParameters.ContainsKey('Existing')) { [IO.File]::WriteAllText($cred, $Existing) }
         $env:PATH_SAVED = $env:PATH
         try {
             $env:PATH = "${bin}:$($env:PATH)"
@@ -52,13 +63,15 @@ BeforeAll {
             $env:YURUNA_HOST_ENV_FILE = Join-Path $Root 'host.env'
             $env:YURUNA_NAS_CREDENTIAL_ATTEMPTS = '2'
             $env:YURUNA_NAS_CREDENTIAL_PAUSE_SECONDS = '0'
-            $out = & /bin/sh $script:Helper $Name $cred 2>&1
+            $helperArgs = @($Name, $cred)
+            if ($Mount) { $helperArgs += $Mount }
+            $out = & /bin/sh $script:Helper @helperArgs 2>&1
             $code = $LASTEXITCODE
         } finally {
             $env:PATH = $env:PATH_SAVED
             Remove-Item Env:PATH_SAVED, Env:YURUNA_HOST_CONFIG_DIR, Env:YURUNA_HOST_ENV_FILE, Env:YURUNA_NAS_CREDENTIAL_ATTEMPTS, Env:YURUNA_NAS_CREDENTIAL_PAUSE_SECONDS -ErrorAction SilentlyContinue
         }
-        return [pscustomobject]@{ Code = $code; Output = ($out -join "`n"); Cred = $cred; Args = (Join-Path $Root 'curl.args') }
+        return [pscustomobject]@{ Code = $code; Output = ($out -join "`n"); Cred = $cred; Args = (Join-Path $Root 'curl.args'); MountArgs = (Join-Path $Root 'mount.args') }
     }
 }
 
@@ -87,6 +100,78 @@ Describe 'yuruna-nas-credential.sh' -Skip:$IsWindows {
     It 'refuses a name other than stash or pool' {
         $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         (Invoke-NasCredentialHelper -Root $root -Name 'other' -Json '{}').Code | Should -Be 1
+    }
+}
+
+Describe 'yuruna-nas-credential.sh as the periodic refresh' -Skip:$IsWindows {
+    BeforeAll {
+        $script:Rotated = '{"username":"ypool","password":"rotated"}'
+    }
+    It 'leaves a current credentials file and the share alone' {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path $root
+        $current = "username=ypool`npassword=rotated`n"
+        [IO.File]::WriteAllText((Join-Path $root 'nas.cifs.cred'), $current)
+        $before = (Get-Item -LiteralPath (Join-Path $root 'nas.cifs.cred')).LastWriteTimeUtc
+        Start-Sleep -Milliseconds 20
+        $r = Invoke-NasCredentialHelper -Root $root -Json $script:Rotated -Mount '/mnt/yuruna-pool' -Mounted
+        $r.Code | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Match 'are current'
+        (Get-Item -LiteralPath $r.Cred).LastWriteTimeUtc | Should -Be $before
+        Test-Path -LiteralPath $r.MountArgs | Should -BeFalse
+    }
+    It 'replaces a stale credential and remounts the mounted share in place' {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path $root
+        $r = Invoke-NasCredentialHelper -Root $root -Json $script:Rotated -Mount '/mnt/yuruna-pool' -Mounted -Existing "username=ypool`npassword=old`n"
+        $r.Code | Should -Be 0 -Because $r.Output
+        Get-Content -Raw -LiteralPath $r.Cred | Should -Be "username=ypool`npassword=rotated`n"
+        (Get-Content -Raw -LiteralPath $r.MountArgs).Trim() | Should -BeExactly '-o remount /mnt/yuruna-pool'
+    }
+    It 'remounts a mounted share that stops answering even when the credential is current' {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path $root
+        [IO.File]::WriteAllText((Join-Path $root 'nas.cifs.cred'), "username=ypool`npassword=rotated`n")
+        $r = Invoke-NasCredentialHelper -Root $root -Json $script:Rotated -Mount '/mnt/yuruna-pool' -Mounted -Unanswering
+        $r.Code | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Match 'does not answer; remounting it'
+        (Get-Content -Raw -LiteralPath $r.MountArgs).Trim() | Should -BeExactly '-o remount /mnt/yuruna-pool'
+    }
+    It 'replaces a stale credential but never mounts a share that is not mounted' {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path $root
+        $r = Invoke-NasCredentialHelper -Root $root -Json $script:Rotated -Mount '/mnt/yuruna-pool' -Existing "username=ypool`npassword=old`n"
+        $r.Code | Should -Be 0 -Because $r.Output
+        Get-Content -Raw -LiteralPath $r.Cred | Should -Be "username=ypool`npassword=rotated`n"
+        Test-Path -LiteralPath $r.MountArgs | Should -BeFalse
+    }
+    It 'reports a remount that fails and keeps the new credential on disk' {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path $root
+        $r = Invoke-NasCredentialHelper -Root $root -Json $script:Rotated -Mount '/mnt/yuruna-pool' -Mounted -MountExit 32 -Existing "username=ypool`npassword=old`n"
+        $r.Code | Should -Be 1
+        $r.Output | Should -Match 'could not be remounted'
+        Get-Content -Raw -LiteralPath $r.Cred | Should -Be "username=ypool`npassword=rotated`n"
+    }
+    It 'keeps the first-boot call writing the file even when it is current' {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path $root
+        $r = Invoke-NasCredentialHelper -Root $root -Json $script:Rotated -Mounted -Existing "username=ypool`npassword=rotated`n"
+        $r.Code | Should -Be 0 -Because $r.Output
+        $r.Output | Should -Match 'credentials written to'
+        Test-Path -LiteralPath $r.MountArgs | Should -BeFalse
+    }
+    It '<Seed> refreshes its own credential and share, and starts the timer where the NAS is configured' -ForEach @(
+        @{ Seed = 'stash-service.base.user-data'; Line = 'yuruna-nas-credential.sh stash /etc/yuruna/ystash-nas.cifs.cred /mnt/ystash-nas' }
+        @{ Seed = 'pool-control-service.base.user-data'; Line = 'yuruna-nas-credential.sh pool /etc/yuruna/pool-nas.cifs.cred /mnt/yuruna-pool' }
+        @{ Seed = 'download-agent-service.base.user-data'; Line = 'yuruna-nas-credential.sh pool /etc/yuruna/pool-nas.cifs.cred /mnt/yuruna-pool' }
+    ) {
+        $text = [IO.File]::ReadAllText((Join-Path $script:RepoRoot "host/vmconfig/$Seed"))
+        $text | Should -Match ([regex]::Escape("ExecStart=/usr/local/bin/$Line"))
+        $fetch = $text.IndexOf('/usr/local/bin/yuruna-nas-credential.sh ' + ($Line -split ' ')[1] + ' ', [StringComparison]::Ordinal)
+        $enable = $text.IndexOf('systemctl enable --now yuruna-nas-credential-refresh.timer', [StringComparison]::Ordinal)
+        $fetch | Should -BeGreaterThan 0
+        $enable | Should -BeGreaterThan $fetch
     }
 }
 

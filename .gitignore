@@ -370,6 +370,10 @@ test/test.config.yml.setup-storage.backup
 # before rewriting it, so it holds the same real credentials the live file does.
 test/test.config.yml.pre-renaming
 test/test.config.yml.pre-renaming.*
+# Every config writer keeps the version it replaces here (same credentials as
+# the live file), and holds the lock file while it reads and writes.
+test/test.config.yml.journal/
+test/test.config.yml.lock
 
 # What THIS operator answered setup.ps1, rewritten at the same path on every
 # guided run. It describes one machine -- its project path, its NAS host name

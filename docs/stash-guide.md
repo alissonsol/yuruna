@@ -9,7 +9,7 @@ download, or delete it in the web UI.
 > **Access.** The stash runs on a trusted network with **no login** --
 > anyone who can reach it can add and read stashes. Don't put secrets in
 > it. Deleting is the exception: it asks for the dashboard's Lab token
-> ([below](#delete)). Each uploaded file is capped at **100 MB**.
+> ([below](#delete)). Each uploaded file is capped at **100 MiB**.
 
 Two addresses for the same VM:
 
@@ -210,6 +210,13 @@ connection has 30 seconds to complete its SSH handshake, at most 64
 connections are served at once, and one SFTP session holds at most 16 files
 open.
 
+**Internal failures.** When the index cannot be searched, a stash cannot be
+looked up or its archive opened, or a stash cannot be stored or deleted, the
+API answers `500` with the failure's `code` (`stash.api_search_failed`,
+`stash.api_resolve_failed`, `stash.api_open_archive_failed`,
+`stash.api_create_failed`, `stash.api_delete_failed`) and a sentence that
+names no path. The cause, which names share paths, goes to the daemon's log.
+
 **Staging and stored names.** The store's `FinalizeStaging` step turns recursive
 SCP input, multiple files, or any directory entry into
 `<id>.yuruna.archive.zip`. Exactly one root-level file with no directory entry
@@ -220,12 +227,16 @@ the first received filename for a multi-file upload without a directory name.
 Successful finalization attempts to remove the staging directory; a cleanup
 failure is logged without invalidating the stored artifact.
 
+The rules the daemon's code keeps -- storage layout, artifact names, write
+order, offline buffering, sidecars, detection and safe serving -- are collected
+in the [stash implementation notes](stash-implementation-notes.md).
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

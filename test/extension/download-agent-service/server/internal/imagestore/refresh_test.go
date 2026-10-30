@@ -231,7 +231,7 @@ func TestDownloadVerifyPromoteCommitRoundTrip(t *testing.T) {
 	sha := sha256Hex(body)
 	srv := originServer(t, "img.iso", body, sha, "Thu, 23 Jul 2026 09:14:02 GMT")
 
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), AgentVersion: "2026.10.26"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), AgentVersion: "2026.10.30"})
 	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
 	res := Resolved{
 		Family: FamilyUbuntuISO, UpstreamFilename: "img.iso",
@@ -712,7 +712,7 @@ func ubuntuFixture(t *testing.T, body []byte, daily bool, headSize int) http.Rou
 
 func TestRefreshRecordsTheProbedSizeAndTheResolvedVariant(t *testing.T) {
 	body := []byte("a stand-in for the ISO the daily tree does not carry today")
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Transport: ubuntuFixture(t, body, false, 0), AgentVersion: "2026.10.26"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Transport: ubuntuFixture(t, body, false, 0), AgentVersion: "2026.10.30"})
 	// daily was asked for; only stable resolves, so the fallback fires.
 	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantDaily}
 
@@ -946,5 +946,58 @@ func TestCopyStreamStopsOneBytePastTheProbedSize(t *testing.T) {
 	}
 	if n != 17 || fi.Size() != 17 {
 		t.Fatalf("copied %d byte(s), staged %d; want 17, one past the probed 16", n, fi.Size())
+	}
+}
+
+// Delete and prune remove generations, which is the lease holder's to do: a
+// follower removing files while the holder promotes the same identity can
+// leave a pointer naming a file that is gone.
+func TestAFollowerNeitherDeletesNorPrunes(t *testing.T) {
+	a := newTestAgent(t, Options{PoolDir: t.TempDir()})
+	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
+	previous := mustCommit(t, a.store, id, "img.iso", "1212121212121212", 8, fixedNow.Add(-time.Hour))
+	current := mustCommit(t, a.store, id, "img.iso", "3434343434343434", 8, fixedNow)
+	writeLease(t, a.lease.Path, Lease{HostID: "another-agent", RenewedAtUTC: fixedNow.UTC().Format(rfc3339)})
+	if _, _, err := a.lease.Renew(fixedNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Delete(id); err == nil || err.Error() != ReasonLeaseReadOnly {
+		t.Fatalf("follower Delete = %v, want %q", err, ReasonLeaseReadOnly)
+	}
+	if n, err := a.PrunePrevious(id); err == nil || err.Error() != ReasonLeaseReadOnly || n != 0 {
+		t.Fatalf("follower PrunePrevious = (%d, %v), want %q", n, err, ReasonLeaseReadOnly)
+	}
+	for _, gen := range []string{previous, current} {
+		if _, err := os.Stat(filepath.Join(a.store.Dir(id), gen)); err != nil {
+			t.Fatalf("generation %s is gone after a follower's refused delete/prune: %v", gen, err)
+		}
+	}
+	if p, ok, _ := a.store.ReadPointer(id); !ok || p.GenerationFile != current {
+		t.Fatal("a follower's refused delete removed the pointer")
+	}
+}
+
+// While a delete runs, nothing may start a download of the same identity: a
+// host's ensure poll, an operator's refresh or the scan would land bytes that
+// the delete is removing.
+func TestNothingStartsADownloadWhileADeleteRuns(t *testing.T) {
+	a := newTestAgent(t, Options{PoolDir: t.TempDir()})
+	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
+	a.mu.Lock()
+	a.deleting[id.Key()] = true
+	a.mu.Unlock()
+
+	res := a.Ensure(fixedNow, id, Fingerprint{})
+	if res.HTTPStatus != http.StatusServiceUnavailable || res.State != StateUnavailable || res.Reason != ReasonDeleting {
+		t.Fatalf("ensure during a delete = %+v, want 503 unavailable %q", res, ReasonDeleting)
+	}
+	if started, err := a.ForceRefresh(id); err == nil || err.Error() != ReasonDeleting || started {
+		t.Fatalf("ForceRefresh during a delete = (%t, %v), want %q", started, err, ReasonDeleting)
+	}
+	if f, started := a.startRefresh(id, false); f != nil || started {
+		t.Fatal("startRefresh began a flight for an identity being deleted")
+	}
+	if a.flights.Len() != 0 {
+		t.Fatalf("%d flight(s) started during the delete", a.flights.Len())
 	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e65ede-af28-4c1f-8f0d-b5461e23110d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -320,6 +320,62 @@ the pool dashboard to see which members are unreachable or failing.
     }
 }
 
+function New-RecoveryDisabledSpoolMessage {
+    <#
+    .SYNOPSIS
+        PURE: build the spool message for a host whose automatic recovery is
+        disabled (recovery.health.json names a ledger that cannot be read or
+        written). id = recovery-<host>-<unix>, so each disabled episode is one file.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure builder: returns a new in-memory message object and changes no external state, so ShouldProcess would be noise.')]
+    [OutputType([System.Collections.IDictionary], [System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [Parameter(Mandatory)][string]$HostName,
+        [Parameter()][string]$HostId = '',
+        [Parameter(Mandatory)][string]$State,
+        [Parameter()][string]$LedgerPath = '',
+        [Parameter()][string]$SinceUtc = '',
+        [Parameter()][long]$UnixSeconds = 0,
+        [Parameter()][string]$NowUtc = ''
+    )
+    if ($UnixSeconds -le 0) { $UnixSeconds = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
+    if (-not $NowUtc) { $NowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture) }
+    $label = if ($HostId) { $HostId } else { $HostName }
+    $subject = "Yuruna host '$HostName' automatic recovery DISABLED ($State)"
+    $body = @"
+Yuruna host automatic recovery disabled
+
+Host:            $HostName
+Host id:         $HostId
+State:           $State
+Recovery ledger: $LedgerPath
+Since (UTC):     $SinceUtc
+Detected (UTC):  $NowUtc
+
+Every automatic repair on this host runs under its recovery ledger, and the
+ledger cannot be used, so the host declines every repair until a later
+attempt writes a ledger line again. Its cycles keep running. Check that the
+ledger file and its directory are readable and writable by the runner's
+account.
+"@
+    return [ordered]@{
+        id         = "recovery-$label-$UnixSeconds"
+        eventCode  = $script:PoolAlertEventCode
+        host       = $HostName
+        hostId     = $HostId
+        event      = 'recovery_disabled'
+        state      = $State
+        ledgerPath = $LedgerPath
+        sinceUtc   = $SinceUtc
+        subject    = $subject
+        body       = $body
+        createdUtc = $NowUtc
+        attempts   = 0
+    }
+}
+
 function Write-PoolSpoolMessage {
     <#
     .SYNOPSIS
@@ -435,6 +491,62 @@ function Add-PoolAlertSpoolEntry {
     return $enqueued
 }
 
+function Add-RecoveryDisabledSpoolEntry {
+    <#
+    .SYNOPSIS
+        Queue one notice while this host's automatic recovery is disabled.
+        Returns 1 when a notice was queued, else 0.
+    .DESCRIPTION
+        Set-RecoveryLedgerHealth keeps recovery.health.json in the runtime
+        directory while the recovery ledger cannot be read or written, and
+        removes it once a ledger line is written again. Each episode, named by
+        its state and sinceUtc, is queued once: the 'recovery' entry of
+        pool.notifier.state.json holds the last one queued and is cleared with
+        the marker, so a later episode is queued again. A write that fails
+        leaves the episode pending for the next run.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][string]$SpoolRoot,
+        [Parameter()][string]$NowUtc = ''
+    )
+    $healthPath = Join-Path $RuntimeDir 'recovery.health.json'
+    $statePath = Join-Path $RuntimeDir 'pool.notifier.state.json'
+    $health = $null
+    if (Test-Path -LiteralPath $healthPath) {
+        try { $health = Get-Content -Raw -LiteralPath $healthPath -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
+        catch {
+            # A marker caught mid-write is read again on the next run.
+            Write-Verbose "Add-RecoveryDisabledSpoolEntry: $($_.Exception.Message)"
+            return 0
+        }
+    }
+    $state = Read-PoolNotifierState -StatePath $statePath
+    $kind = if ($health -is [System.Collections.IDictionary]) { [string]$health['state'] } else { '' }
+    if (-not $kind) {
+        if ($state.ContainsKey('recovery')) {
+            $null = $state.Remove('recovery')
+            $null = Write-PoolNotifierState -StatePath $statePath -State $state -Confirm:$false
+        }
+        return 0
+    }
+    $since = [string]$health['sinceUtc']
+    $last = $state['recovery']
+    if ($last -is [System.Collections.IDictionary] -and [string]$last['state'] -ceq $kind -and [string]$last['sinceUtc'] -ceq $since) { return 0 }
+    $hostId = ''
+    $hostIdPath = Join-Path $RuntimeDir 'host.uuid'
+    if (Test-Path -LiteralPath $hostIdPath) {
+        try { $hostId = ([System.IO.File]::ReadAllText($hostIdPath)).Trim() } catch { Write-Verbose "Add-RecoveryDisabledSpoolEntry: host.uuid unreadable: $($_.Exception.Message)" }
+    }
+    $msg = New-RecoveryDisabledSpoolMessage -HostName ([Environment]::MachineName) -HostId $hostId -State $kind -LedgerPath ([string]$health['ledgerPath']) -SinceUtc $since -NowUtc $NowUtc
+    if (-not (Write-PoolSpoolMessage -SpoolRoot $SpoolRoot -Message $msg -Confirm:$false)) { return 0 }
+    $state['recovery'] = @{ state = $kind; sinceUtc = $since }
+    $null = Write-PoolNotifierState -StatePath $statePath -State $state -Confirm:$false
+    return 1
+}
+
 function Send-PoolAlertViaExtension {
     <#
     .SYNOPSIS
@@ -464,7 +576,7 @@ function Send-PoolAlertViaExtension {
     $subject = [string]$Message['subject']
     $body    = [string]$Message['body']
     $eventData = @{}
-    foreach ($k in @('pool', 'event', 'healthyFraction', 'healthyThreshold', 'membersHealthy', 'membersTotal', 'id')) {
+    foreach ($k in @('pool', 'event', 'healthyFraction', 'healthyThreshold', 'membersHealthy', 'membersTotal', 'id', 'host', 'hostId', 'state', 'sinceUtc')) {
         if ($Message.Contains($k)) { $eventData[$k] = $Message[$k] }
     }
     $before = 0
@@ -618,21 +730,6 @@ function Invoke-PoolNotifierCycle {
         if ((Get-Command Test-YurunaPoolStorageMounted -ErrorAction SilentlyContinue) -and -not (Test-YurunaPoolStorageMounted -Config $psCfg)) {
             $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_d18a4be8cbf64ef3'); return $summary
         }
-        # Self-elect from transports.yml. 'unconfigured' (absent / no matching subscriber) is
-        # the clean gauge/Loki-only no-op. 'unreadable' (present but a transient read/parse
-        # failure this cycle) must NOT silently de-elect the host: warn and still drain what it
-        # already queued, but skip enqueuing new edges (electing + reading the gauge both want
-        # a healthy config).
-        $readiness = Get-PoolNotifierReadiness
-        if ($readiness.State -eq 'unconfigured') { $summary.reason = $readiness.Reason; return $summary }
-        $unreadable = ($readiness.State -eq 'unreadable')
-        if ($unreadable) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_379bb6a1df08c42b' -Arguments @{ reason = "$($readiness.Reason)" })
-            $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_780e8a99bfa18090')
-        } else {
-            $summary.ready = $true
-        }
-
         $runtimeDir = $env:YURUNA_RUNTIME_DIR
         if ([string]::IsNullOrWhiteSpace($runtimeDir)) { $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_b94d536e714a3aba'); return $summary }
         # The resident runs this between cycles and a cycle at its end; one run
@@ -649,6 +746,26 @@ function Invoke-PoolNotifierCycle {
             }
         }
         try {
+        # Every host queues its own disabled-recovery notice on the shared spool
+        # before the election below: the elected host delivers it, and a host
+        # that is not elected has no other way to reach the operator.
+        $summary.enqueued += Add-RecoveryDisabledSpoolEntry -RuntimeDir $runtimeDir -SpoolRoot $spoolRoot
+
+        # Self-elect from transports.yml. 'unconfigured' (absent / no matching subscriber) is
+        # the clean gauge/Loki-only no-op. 'unreadable' (present but a transient read/parse
+        # failure this cycle) must NOT silently de-elect the host: warn and still drain what it
+        # already queued, but skip enqueuing new edges (electing + reading the gauge both want
+        # a healthy config).
+        $readiness = Get-PoolNotifierReadiness
+        if ($readiness.State -eq 'unconfigured') { $summary.reason = $readiness.Reason; return $summary }
+        $unreadable = ($readiness.State -eq 'unreadable')
+        if ($unreadable) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_379bb6a1df08c42b' -Arguments @{ reason = "$($readiness.Reason)" })
+            $summary.reason = (Format-YurunaOperatorMessage -Key 'runner.operator_780e8a99bfa18090')
+        } else {
+            $summary.ready = $true
+        }
+
         $null = Initialize-PoolNotifierSpool -SpoolRoot $spoolRoot -Confirm:$false
 
         if (-not $unreadable) {
@@ -671,7 +788,7 @@ function Invoke-PoolNotifierCycle {
             if ($null -ne $gauge) {
                 $statePath = Join-Path $runtimeDir 'pool.notifier.state.json'
                 $state = Read-PoolNotifierState -StatePath $statePath
-                $summary.enqueued = Add-PoolAlertSpoolEntry -GaugeState $gauge -State $state -SpoolRoot $spoolRoot
+                $summary.enqueued += Add-PoolAlertSpoolEntry -GaugeState $gauge -State $state -SpoolRoot $spoolRoot
                 $null = Write-PoolNotifierState -StatePath $statePath -State $state -Confirm:$false
             }
         }
@@ -731,7 +848,7 @@ function Write-PoolNotifierSetupNotice {
 Export-ModuleMember -Function `
     Get-PoolNotifierSpoolRoot, Initialize-PoolNotifierSpool, ConvertFrom-PrometheusPoolGauge, `
     Get-PoolMetricsCandidateUrl, Get-PoolAlertGaugeState, Get-PoolNotifierReadiness, `
-    Test-PoolNotifierReady, New-PoolAlertSpoolMessage, `
+    Test-PoolNotifierReady, New-PoolAlertSpoolMessage, New-RecoveryDisabledSpoolMessage, `
     Write-PoolSpoolMessage, Read-PoolNotifierState, Write-PoolNotifierState, `
-    Add-PoolAlertSpoolEntry, Send-PoolAlertViaExtension, Invoke-PoolNotifierDelivery, `
+    Add-PoolAlertSpoolEntry, Add-RecoveryDisabledSpoolEntry, Send-PoolAlertViaExtension, Invoke-PoolNotifierDelivery, `
     Invoke-PoolNotifierCycle, Write-PoolNotifierSetupNotice

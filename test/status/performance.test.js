@@ -2,7 +2,7 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
   GUID: 423b04da-3c01-4ade-bcdb-003a0a239f01
-  Version: 2026.10.26
+  Version: 2026.10.30
   Exercise the performance page's actual rendering functions with a minimal DOM.
   Optional argument: aggregate JSON produced by the generated status handler.
 */
@@ -21,6 +21,8 @@ function element(name) {
     appendChild(child) { this.children.push(child); return child; },
     insertBefore(child) { this.children.unshift(child); return child; },
     setAttribute(key, value) { this.attributes[key] = value; },
+    hasAttribute(key) { return Object.prototype.hasOwnProperty.call(this.attributes, key); },
+    focus() { focused = this; },
     addEventListener(type, callback) { this.listeners[type] = callback; },
     listeners: {}
   };
@@ -30,6 +32,7 @@ function element(name) {
   } });
   return el;
 }
+let focused = null;
 const perfMessage = element('div');
 const perfBody = element('div');
 const zoomInput = element('input');
@@ -50,6 +53,12 @@ const catalogStart = source.indexOf('// >>> yuruna-i18n embedded block');
 const catalogEnd = source.indexOf('// <<< yuruna-i18n embedded block');
 vm.runInContext(source.slice(catalogStart, catalogEnd), scope);
 scope.t = function (key, args) { return scope.YurunaI18n.t(key, args); };
+// The page reaches the shared primitive through window.Yuruna; the real one is
+// lifted from the runtime so the chart is checked against what ships.
+const explainStart = source.indexOf('  // --- REGION: Explanations');
+const explainEnd = source.indexOf('  function onReady(fn) {', explainStart);
+assert.ok(explainStart > 0 && explainEnd > explainStart, 'the explain primitive must be available');
+vm.runInContext(source.slice(explainStart, explainEnd) + '\nthis.Yuruna.explain = explain;', scope);
 vm.runInContext(source.slice(start, end) + '\nthis.render = buildSeqCard; this.flame = buildFlame;' +
   'this.renderChart = renderSeqChart; this.renderMeasured = renderAggregatesMeasured;' +
   'this.redraw = redrawCharts; this.setZoom = function(z) { zoomFactor = z; redrawCharts(); };', scope);
@@ -152,4 +161,40 @@ scope.YurunaI18n.setLocale('pt-BR');
 scope.redraw();
 const localizedAxis = fast._perfData.plot.children[1].children[0].children.filter(child => child.name === 'text');
 assert.equal(localizedAxis[1].textContent, '50,0s', 'axis decimals follow the selected locale');
-console.log('PASS: performance rendering, shared scale, zoom, synchronized pan, narrow layout and diagnostics');
+// Bar and duration details reach a keyboard and a touch screen, not only a
+// hovering mouse: one region per card, one roving tab stop across the cells.
+scope.YurunaI18n.setLocale('en-US');
+const detailCard = renderedCard('details', [diagnostic]);
+const region = detailCard.children.find(child => child.className === 'perf-details');
+assert.ok(region, 'each chart card carries a details region');
+assert.equal(region.attributes.role, 'status');
+assert.match(region.textContent, /Select a duration or a bar/);
+const cells = detailCard._perfData.cells;
+const detailRow = chartRows(detailCard)[0];
+const duration = detailRow.children[0].children[1];
+const bars = detailRow.children[1].children.filter(child => /flame-cell/.test(child.attributes.class || ''));
+assert.equal(cells[0], duration, 'the duration label leads the card\'s cells');
+assert.deepEqual(cells.slice(1), bars, 'every bar joins the card\'s cells in time order');
+assert.deepEqual(cells.map(cell => cell.attributes.tabindex), ['0'].concat(bars.map(() => '-1')), 'one tab stop per card');
+bars[0].listeners.focus();
+assert.match(region.textContent, /Diagnostic: timeout/, 'focusing a bar shows its details');
+assert.match(region.textContent, /Evidence capture within step: 1.5s/);
+duration.listeners.click();
+assert.match(region.textContent, /Summed top-level work:/, 'tapping a duration shows its details');
+let prevented = false;
+detailCard._perfData.scroll.listeners.keydown({ target: duration, key: 'ArrowRight', preventDefault() { prevented = true; } });
+assert.ok(prevented, 'the arrow is taken by the chart');
+assert.equal(focused, bars[0], 'the arrow moves focus to the next cell');
+assert.deepEqual(cells.map(cell => cell.attributes.tabindex), ['-1', '0'].concat(bars.slice(1).map(() => '-1')));
+detailCard._perfData.scroll.listeners.keydown({ target: bars[0], key: 'End', preventDefault() {} });
+assert.equal(focused, cells[cells.length - 1]);
+detailCard._perfData.scroll.listeners.keydown({ target: cells[cells.length - 1], key: 'Home', preventDefault() {} });
+assert.equal(focused, duration);
+let ignored = true;
+detailCard._perfData.scroll.listeners.keydown({ target: duration, key: 'a', preventDefault() { ignored = false; } });
+assert.ok(ignored, 'other keys are left to the page');
+const fallbackCard = renderedCard('fallback', [{ durationMs: 2500, failCount: 0, steps: [{ durationMs: 2500 }] }]);
+const fallbackRegion = fallbackCard.children.find(child => child.className === 'perf-details');
+fallbackCard._perfData.cells[1].listeners.focus();
+assert.match(fallbackRegion.textContent, /No per-step timing was recorded/, 'a bar without step timing still explains itself');
+console.log('PASS: performance rendering, shared scale, zoom, synchronized pan, narrow layout, diagnostics and reachable details');

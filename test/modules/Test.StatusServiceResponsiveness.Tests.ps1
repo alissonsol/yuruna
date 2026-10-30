@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421acc52-385e-488d-859e-c51ce10fdcdc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
-$script:ServicePath = Join-Path $script:RepoRoot 'test/service/Start-StatusService.ps1'
+$script:RuntimePath = Join-Path $script:RepoRoot 'test/service/Invoke-StatusServiceRuntime.ps1'
 $script:Pwsh = (Get-Process -Id $PID).Path
 $script:HarnessReady = $false
 $script:HarnessSkipReason = ''
@@ -373,29 +373,18 @@ function Stop-HarnessProcess {
     $script:Tree = New-HarnessTree
     $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, 0)
     $probe.Start(); $script:Port = $probe.LocalEndpoint.Port; $probe.Stop()
-    # The template's own inputs, bound here the way the launcher binds them.
-    $Port = $script:Port
-    $StatusDir = Join-Path $script:RepoRoot 'test/status'
-    $RuntimeDir = $script:Tree.Runtime
-    $LogDir = $script:Tree.Log
-    $RepoRoot = $script:Tree.Repo
-    $detectedHost = 'host.ubuntu.kvm'
-    $ServerConfigPath = Join-Path $script:Tree.Repo 'test/test.config.yml'
-    $StatusWorkerRoot = $script:Tree.Repo
-    $lines = [IO.File]::ReadAllLines($script:ServicePath)
-    $start = -1; $end = -1
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($start -lt 0 -and $lines[$i] -match '^\$serverScript = @"$') { $start = $i + 1; continue }
-        if ($start -ge 0 -and $lines[$i] -match '^"@$') { $end = $i - 1; break }
-    }
-    $server = $ExecutionContext.InvokeCommand.ExpandString((($lines[$start..$end]) -join "`n"))
-    if ($IsWindows) { $server = $server.Replace("http://*:$Port/", "http://localhost:$Port/") }
+    # The runtime's own inputs, passed the way the launcher passes them.
+    $serverArguments = @(
+        '-Port', "$($script:Port)", '-StatusDir', (Join-Path $script:RepoRoot 'test/status'), '-RuntimeDir', $script:Tree.Runtime
+        '-LogDir', $script:Tree.Log, '-RepoRoot', $script:Tree.Repo, '-ServerHostType', 'host.ubuntu.kvm'
+        '-ServerConfigPath', (Join-Path $script:Tree.Repo 'test/test.config.yml'), '-WorkerRoot', $script:Tree.Repo
+    )
+    $server = [IO.File]::ReadAllText($script:RuntimePath)
+    if ($IsWindows) { $server = $server.Replace('"http://*:$Port/"', '"http://localhost:$Port/"') }
     $server = $server.Replace('$script:UploadBodyTimeoutMilliseconds = 30000', '$script:UploadBodyTimeoutMilliseconds = 2000')
-    $null = $Port, $StatusDir, $RuntimeDir, $LogDir, $RepoRoot, $detectedHost, $ServerConfigPath, $StatusWorkerRoot
     $script:ServerFile = Join-Path $script:Tree.Root 'server.ps1'
     [IO.File]::WriteAllText($script:ServerFile, $server)
-    $saved = @{}
-    foreach ($name in @('HOME', 'USERPROFILE', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR', 'YURUNA_TEST_STUB_DIR', 'YURUNA_TEST_PID_DIR')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+    $saved = Save-YurunaTestEnvironment -Name @('HOME', 'USERPROFILE', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR', 'YURUNA_TEST_STUB_DIR', 'YURUNA_TEST_PID_DIR')
     try {
         $env:HOME = $script:Tree.Home
         if ($IsWindows) { $env:USERPROFILE = $script:Tree.Home }
@@ -403,15 +392,12 @@ function Stop-HarnessProcess {
         $env:YURUNA_LOG_DIR = $script:Tree.Log
         $env:YURUNA_TEST_STUB_DIR = $script:Tree.Stub
         $env:YURUNA_TEST_PID_DIR = $script:Tree.Pids
-        $options = @{ FilePath = $script:Pwsh; ArgumentList = @('-NoProfile', '-NonInteractive', '-File', $script:ServerFile)
+        $options = @{ FilePath = $script:Pwsh; ArgumentList = @('-NoProfile', '-NonInteractive', '-File', $script:ServerFile) + $serverArguments
             RedirectStandardOutput = (Join-Path $script:Tree.Root 'server.stdout'); RedirectStandardError = (Join-Path $script:Tree.Root 'server.stderr'); PassThru = $true }
         if ($IsWindows) { $options.WindowStyle = 'Hidden' }
         $script:Server = Start-Process @options
     } finally {
-        foreach ($name in $saved.Keys) {
-            if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
-            else { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
-        }
+        Restore-YurunaTestEnvironment -Saved $saved
     }
     $script:Client = [System.Net.Http.HttpClient]::new()
     $script:Client.Timeout = [TimeSpan]::FromSeconds(20)
@@ -468,6 +454,24 @@ Describe 'a live listener stays responsive around bodies and workers' {
             Assert-False ($reply.Text -match 'yuruna_host_memory_available_bytes') 'an unreadable memory source is not zero available bytes'
             Assert-Equal 200 (Invoke-HarnessRequest -Path 'runtime/status.json').Status
         } finally { Remove-Item -LiteralPath $failure -Force }
+    }
+
+    It 'serves an empty file as an empty 200 instead of resetting the connection' {
+        # A stage's .err.log is empty when the stage wrote nothing to stderr.
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $folder = Join-Path $script:Tree.Log 'empty-guest'
+        $null = New-Item -ItemType Directory -Path $folder -Force
+        [IO.File]::WriteAllBytes((Join-Path $folder 'stage.err.log'), [byte[]]@())
+        $reply = Invoke-HarnessRequest -Path 'log/empty-guest/stage.err.log'
+        Assert-Equal 200 $reply.Status $reply.Text
+        Assert-StringEqual '' $reply.Text
+        Assert-Equal 200 (Invoke-HarnessRequest -Method HEAD -Path 'log/empty-guest/stage.err.log').Status
+        Assert-Equal 200 (Invoke-HarnessRequest -Path 'runtime/status.json').Status
+        # Off Windows an aborted response can still reach the client as an empty
+        # 200; the handler error the server logs before aborting is the tell.
+        $serverErr = Join-Path $script:Tree.Runtime 'server.err'
+        $logged = if (Test-Path -LiteralPath $serverErr) { [IO.File]::ReadAllText($serverErr) } else { '' }
+        Assert-False ($logged -match 'handler error: path=\S*empty-guest/stage\.err\.log') "the empty file must be answered, not aborted: $logged"
     }
 
     It 'keeps the metrics endpoint read-only and honors HEAD' {

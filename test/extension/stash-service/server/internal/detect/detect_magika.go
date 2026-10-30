@@ -53,7 +53,7 @@ func (d *magikaDetector) DetectFile(path, originalFilename string) Result {
 		return Heuristic{}.DetectFile(path, originalFilename)
 	}
 	// Reuse the shared MIME->class mapper so SVG/HTML stay download-only
-	// (ClassFromMime maps them to "other", section 7.4) regardless of backend.
+	// (ClassFromMime maps them to "other", https://yuruna.link/429e934f-0017) regardless of backend.
 	class := classFromModelMime(ct.MimeType, ct.IsText)
 	isText := ct.IsText
 	mt := ct.MimeType
@@ -66,7 +66,7 @@ func (d *magikaDetector) DetectFile(path, originalFilename string) Result {
 	// TypeScore is left 0: the public Go binding's Scan returns only
 	// (ContentType, error) and ContentType carries no confidence field (the
 	// score lives in the unexported scanScore). The spec marks typeScore
-	// optional (section 10), so the label alone is sufficient here.
+	// optional (https://yuruna.link/429e934f-0016), so the label alone is sufficient here.
 	return Result{
 		MimeType:     mt,
 		ContentClass: class,

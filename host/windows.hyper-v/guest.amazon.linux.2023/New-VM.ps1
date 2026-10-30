@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,18 +28,6 @@ param(
     [string]$Hostname = ''
 )
 
-if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
-    exit 1
-}
-if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_cd82e39650ead9bb' -Arguments @{ hostname = "$Hostname" })
-    exit 1
-}
-$GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
-
-$global:ProgressPreference = "SilentlyContinue"
-
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 
@@ -51,6 +39,18 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
     Import-Module $_logLevelMod -Global
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+
+if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
+    exit 1
+}
+if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_cd82e39650ead9bb' -Arguments @{ hostname = "$Hostname" })
+    exit 1
+}
+$GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
+
+$global:ProgressPreference = "SilentlyContinue"
 
 $commonModulePath = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
@@ -68,10 +68,9 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# Check Hyper-V. Assert-HyperVEnabled (Yuruna.Host.psm1) calls dism.exe
-# directly instead of Get-WindowsOptionalFeature, which avoids the
-# "Class not registered" COM failure that breaks the first post-install
-# run on a fresh Windows 11 machine.
+# Assert-HyperVEnabled calls dism.exe directly instead of
+# Get-WindowsOptionalFeature -- avoids the "Class not registered" COM
+# failure on first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) {
     Write-Output "Instructions: https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v"
     exit 1
@@ -80,7 +79,7 @@ if (-not (Assert-HyperVEnabled)) {
 # --- REGION: Seek the base image
 # See https://yuruna.link/42e220c4-0003
 # Fetch missing media once; fail if manual-download requirements remain unmet.
-$downloadDir = (Get-VMHost).VirtualHardDiskPath
+$downloadDir = (Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VMHost').VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
 
@@ -213,30 +212,30 @@ try {
 
     # --- REGION: Create and configure the Hyper-V VM
     Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
-    Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\New-VM' -Parameter @{ Name = $VMName; Generation = 2; MemoryStartupBytes = 12288MB; SwitchName = $switchName; VHDPath = $vhdxFile }
 
     # --- REGION: https://yuruna.link/4220a755-000a
     # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
     $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
     # Hyper-V takes bare hex, no separators.
-    Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMNetworkAdapter' -Parameter @{ VMName = $VMName; StaticMacAddress = ($YurunaGuestMac -replace ':','') }
     Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
     # Static (min=max=startup, dynamic disabled) so a hung swap/paging never
     # distorts a cycle -- see https://yuruna.link/429f3d06-001b.
-    Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
-    Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
-    Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
-    Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-    Grant-SeedMediaVmRead -Path $SeedIso -VMId (Hyper-V\Get-VM -Name $VMName -ErrorAction Stop).Id -Confirm:$false
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VM' -Parameter @{ Name = $VMName; MemoryStartupBytes = 12288MB; MemoryMinimumBytes = 12288MB; MemoryMaximumBytes = 12288MB; AutomaticCheckpointsEnabled = $false }
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMMemory' -Parameter @{ VMName = $VMName; DynamicMemoryEnabled = $false }
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMFirmware' -Parameter @{ VMName = $VMName; EnableSecureBoot = 'Off' }
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Add-VMDvdDrive' -Parameter @{ VMName = $VMName; Path = $SeedIso }
+    Grant-SeedMediaVmRead -Path $SeedIso -VMId (Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VM' -Parameter @{ Name = $VMName }).Id -Confirm:$false
     # --- REGION: https://yuruna.link/42fa6f45-0015
     $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
-    Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMProcessor' -Parameter @{ VMName = $VMName; Count = $vmCores }
 
     # WARNING: The test harness OCR is calibrated for 1920x1080.
     # Changing this resolution may break automated screen-text detection
     # in waitForText sequence steps.
-    Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMVideo' -Parameter @{ VMName = $VMName; HorizontalResolution = 1920; VerticalResolution = 1080; ResolutionType = 'Single' }
 
 } finally {
     # --- REGION: Clean up temporary files

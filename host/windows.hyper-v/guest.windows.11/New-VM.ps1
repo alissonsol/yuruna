@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,14 +24,6 @@ param(
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
-
-if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
-    exit 1
-}
-
-$ProgressPreference = 'SilentlyContinue'
-
 $ErrorActionPreference = 'Stop'
 
 # --- REGION: Log level from environment
@@ -42,6 +34,13 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
     Import-Module $_logLevelMod -Global
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+
+if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
+    exit 1
+}
+
+$ProgressPreference = 'SilentlyContinue'
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "modules/Yuruna.Host.psm1"
@@ -75,7 +74,7 @@ if (-not (Assert-HyperVEnabled)) {
     exit 1
 }
 
-$downloadDir = (Get-VMHost).VirtualHardDiskPath
+$downloadDir = (Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VMHost').VirtualHardDiskPath
 if (!(Test-Path -Path $downloadDir)) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_84177e952e2487af' -Arguments @{ downloadDir = "$downloadDir" })
     exit 1
@@ -124,7 +123,7 @@ if (Test-Path -Path $vhdxFile) {
     Remove-Item -Path $vhdxFile -Force
 }
 Write-Verbose "Creating 512GB dynamically expanding VHDX..."
-New-VHD -Path $vhdxFile -SizeBytes 512GB -Dynamic | Out-Null
+$null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\New-VHD' -Parameter @{ Path = $vhdxFile; SizeBytes = 512GB; Dynamic = $true }
 
 # --- REGION: Render the autounattend.xml + build a CD with it
 # Autounattend seed ISO: Windows Setup scans all drives for autounattend.xml.
@@ -186,9 +185,14 @@ try {
         [IO.File]::WriteAllText((Join-Path $SeedDir $seedFile), $guestBootstrap.Files[$seedFile], [Text.UTF8Encoding]::new($true))
     }
 
+    # Windows Setup applies only the answer-file components whose architecture
+    # matches the image, and Get-Image fetches ARM64 media on an ARM64 host, so
+    # an amd64-only answer file would leave Setup waiting on its first page.
+    $answerArch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64) { 'arm64' } else { 'amd64' }
     $AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
         -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
-        -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $guestBootstrap.EncodedCommand
+        -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $guestBootstrap.EncodedCommand `
+        -replace 'processorArchitecture="amd64"', "processorArchitecture=`"$answerArch`""
     Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
 
     $SeedIso = Join-Path $vmDir "seed.iso"
@@ -199,26 +203,26 @@ try {
 
     # --- REGION: Create and configure the Hyper-V VM
     Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
-    Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\New-VM' -Parameter @{ Name = $VMName; Generation = 2; MemoryStartupBytes = 12288MB; SwitchName = $switchName; VHDPath = $vhdxFile }
 
     # --- REGION: https://yuruna.link/4220a755-000a
     # Key the MAC by VM name so a rebuild presents the same address and keeps its DHCP lease.
     $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
     # Hyper-V takes bare hex, no separators.
-    Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMNetworkAdapter' -Parameter @{ VMName = $VMName; StaticMacAddress = ($YurunaGuestMac -replace ':','') }
     Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
 
     # Static (min=max=startup, dynamic disabled) so a hung swap/paging never
     # distorts a cycle -- see https://yuruna.link/429f3d06-001b.
-    Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
-    Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VM' -Parameter @{ Name = $VMName; MemoryStartupBytes = 12288MB; MemoryMinimumBytes = 12288MB; MemoryMaximumBytes = 12288MB; AutomaticCheckpointsEnabled = $false }
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMMemory' -Parameter @{ VMName = $VMName; DynamicMemoryEnabled = $false }
 
     # Enable Secure Boot with Microsoft Windows certificate (required for Windows 11)
-    Set-VMFirmware -VMName $VMName -SecureBootTemplate MicrosoftWindows | Out-Null
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMFirmware' -Parameter @{ VMName = $VMName; SecureBootTemplate = 'MicrosoftWindows' }
 
     # Add virtual TPM (required for Windows 11)
-    Set-VMKeyProtector -VMName $VMName -NewLocalKeyProtector
-    Enable-VMTPM -VMName $VMName
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMKeyProtector' -Parameter @{ VMName = $VMName; NewLocalKeyProtector = $true }
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Enable-VMTPM' -Parameter @{ VMName = $VMName }
 
     # Prune stale per-VM ACEs accumulated on this SHARED base image before
     # Hyper-V appends this VM's ACE on attach. Without it the file's DACL grows
@@ -227,12 +231,12 @@ try {
     # have permission to open attachment"). See https://yuruna.link/429f3d06-0093
     $prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
     if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
-    Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
-    Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-    Grant-SeedMediaVmRead -Path $SeedIso -VMId (Hyper-V\Get-VM -Name $VMName -ErrorAction Stop).Id -Confirm:$false
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Add-VMDvdDrive' -Parameter @{ VMName = $VMName; Path = $baseImageFile }
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Add-VMDvdDrive' -Parameter @{ VMName = $VMName; Path = $SeedIso }
+    Grant-SeedMediaVmRead -Path $SeedIso -VMId (Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VM' -Parameter @{ Name = $VMName }).Id -Confirm:$false
 
-    $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
-    Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
+    $dvdDrive = @(Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VMDvdDrive' -Parameter @{ VMName = $VMName }) | Where-Object { $_.Path -eq $baseImageFile }
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMFirmware' -Parameter @{ VMName = $VMName; FirstBootDevice = $dvdDrive }
 
     # --- REGION: https://yuruna.link/42fa6f45-0015
     $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -242,19 +246,19 @@ try {
     # guests that run no hypervisor of their own.
     $vmProcessorArgs = @{ VMName = $VMName; Count = $vmCores }
     if ($exposeVirt) { $vmProcessorArgs.ExposeVirtualizationExtensions = $true }
-    Set-VMProcessor @vmProcessorArgs | Out-Null
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMProcessor' -Parameter $vmProcessorArgs
 
     # Enable Guest Service Interface for file copy (Hyper-V Integration Services)
-    Enable-VMIntegrationService -VMName $VMName -Name "Guest Service Interface"
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Enable-VMIntegrationService' -Parameter @{ VMName = $VMName; Name = 'Guest Service Interface' }
 
     # WARNING: The test harness OCR is calibrated for 1920x1080.
     # Changing this resolution may break automated screen-text detection
     # in waitForText sequence steps.
-    Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMVideo' -Parameter @{ VMName = $VMName; HorizontalResolution = 1920; VerticalResolution = 1080; ResolutionType = 'Single' }
 
     # Disable Enhanced Session so VMConnect uses basic mode (no resolution dialog)
     # Note: EnhancedSessionTransportType only accepts VMBus or HvSocket; disable at host level instead.
-    Set-VMHost -EnableEnhancedSessionMode $false
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMHost' -Parameter @{ EnableEnhancedSessionMode = $false }
 
 } finally {
     # --- REGION: Clean up temporary files
@@ -267,7 +271,7 @@ try {
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Transport.psm1') -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'host/modules/Yuruna.WindowsInstaller.psm1') -DisableNameChecking
 Start-YurunaWindowsInstaller -VMName $VMName -StartVM {
-    Hyper-V\Start-VM -Name $VMName -ErrorAction Stop | Out-Null
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Start-VM' -Parameter @{ Name = $VMName }
 } -SendBootKey {
     Test.Transport\Send-KeyHyperV -VMName $VMName -KeyName Space
 } -Confirm:$false

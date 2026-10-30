@@ -225,6 +225,10 @@ again right after it writes `runner.pid`, because the one-shot entry
 points take the lease first and then look for `runner.pid`: of two starts
 at the same moment, at least one sees the other. A lease whose holder
 cannot be proven alive or gone is reported and does not block the runner.
+A host refresh reads the lease each time it has closed the refresh gate
+before a repair step, and runs no step while a live process holds it
+(reason code `oneshot-active`); an unproven holder is reported once and
+does not stop the repair.
 
 <a id="42f909ad-0009"></a>
 
@@ -350,6 +354,13 @@ required keys, validated at entry:
 A missing key throws `Invoke-RunnerOuterLoop: -State is missing
 required key '<name>'.` at entry, catching wiring bugs at the
 entry-point edit site rather than mid-cycle.
+
+The timing keys (the failure-pause cap, the poll and retry sleeps, the
+watchdog and cycle bounds) come from one table, `Get-RunnerTunableDefault` in
+`Test.RunnerOuterLoop.psm1`: the resident runner and the per-cycle process
+both build their state from it, so the value tuned there is the one the
+per-cycle process -- which arms the watchdog -- uses. The `testCycle` keys
+of `test.config.yml` still override the three timeouts.
 
 Three more keys are optional, each resolved to a default when absent so an
 older caller (or a unit test) that omits them still runs: `CycleScript`, the
@@ -1270,6 +1281,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

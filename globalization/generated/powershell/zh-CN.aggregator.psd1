@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421bcf2d-5f7f-8b49-9f26-41fdd197f523
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -186,12 +186,16 @@
     'aggregator.failed_to_encode_scrape_targets' = '采集目标编码失败'
     'aggregator.failed_to_seal_the_token' = '令牌封装失败'
     'aggregator.forget_host_disabled_no_auth_token_configured' = 'forget-host已禁用（未配置身份验证令牌）'
+    'aggregator.framework_ring_canary_invalid' = 'canary 必须列出以 42 开头的主机 ID（最多 64 个），以逗号分隔'
+    'aggregator.framework_ring_passes_invalid' = 'passes 必须是 1 到 1000 之间的整数'
     'aggregator.help_address_to_listen_on_59add3f5' = '监听地址'
     'aggregator.help_allow_pseudo' = '启用诊断用伪区域设置'
     'aggregator.help_display_language' = '显示语言：auto或受支持的区域设置'
     'aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083' = '在-cross-host-window内触发池级事件所需的不同故障宿主机数量'
     'aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1' = '最后一次联系后经过此时长，将宿主机从池视图中移除；其每周期去重状态额外保留一小时，以免再次出现的宿主机被重复计数，且仪表板深层链接始终至少在24h内可解析。累计通过/失败（pass/fail）计数不会因此过期，请使用POST /api/v1/forget-host'
     'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = '保存共享 Bearer 令牌的文件；POST /ingest、POST /api/v1/forget-host、POST /api/v1/handover-host 和 GET /api/v1/host-history 均需要此令牌。未指定文件、文件不存在或文件为空时，这些操作不可用（不会开放未经身份验证的控制路由）'
+    'aggregator.help_framework_ring_state_file' = '保存每个主机已完成周期所运行的框架修订版本的文件，使金丝雀环在重启后仍然保留（为空则仅保存在内存中）'
+    'aggregator.help_loki_outbox_dir' = '在 Loki 接受之前保存 Loki 日志行的文件夹（为空则保存在内存中，重启后丢失）'
     'aggregator.help_loki_push_api_url_c89d9321' = 'Loki推送API URL'
     'aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f' = '启动时，从Loki恢复此回溯窗口内的周期计数（0表示禁用）'
     'aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc' = '在-incident-window内失败周期数达到此数量时，创建事件'
@@ -210,6 +214,7 @@
     'aggregator.host_not_known_to_the_pool' = '池中无此宿主机记录'
     'aggregator.hostid_must_be_a_42_prefixed_32_hex_id' = 'hostId必须是以42开头的32位十六进制标识符'
     'aggregator.ingest_disabled' = '数据摄取已禁用'
+    'aggregator.ingest_queue_full' = '收集器现在无法保存这些日志行；请稍后重试'
     'aggregator.invalid_control_scope' = '控制范围无效'
     'aggregator.invalid_hostid' = 'hostId无效'
     'aggregator.invalid_hostid_or_area' = 'hostId或area无效'
@@ -274,6 +279,36 @@
             'trust' = 'external'
         }
         '）；该条目将保持抑制状态，直到服务重新通告或通告TTL到期将其清除'
+    )
+    'aggregator.log_framework_ring_state_unreadable' = @(
+        '框架环：无法读取 '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '（'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）；将从主机接下来报告的内容重新开始'
+    )
+    'aggregator.log_framework_ring_state_unwritten' = @(
+        '框架环：无法写入 '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '（'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）；修订版本保留在内存中，直到写入成功'
     )
     'aggregator.log_host_metrics_port_value1_is_not_a_valid_port_keeping_t_e686d724' = @(
         'host-metrics-port '
@@ -361,6 +396,76 @@
             'trust' = 'external'
         }
         '）；保留先前的代码'
+    )
+    'aggregator.log_loki_not_ready' = @(
+        'Loki 在 '
+        @{
+            'arg' = 'duration'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 后仍未就绪；仍然读取'
+    )
+    'aggregator.log_loki_outbox_enqueue_failed' = @(
+        @{
+            'arg' = 'what'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '：无法将该行排入 Loki 队列：'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'aggregator.log_loki_outbox_full' = @(
+        'Loki 发件队列已满（'
+        @{
+            'arg' = 'lines'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 行）；在 Loki 接收部分行之前拒绝新行'
+    )
+    'aggregator.log_loki_outbox_memory_only' = @(
+        'Loki 发件队列：无法使用 '
+        @{
+            'arg' = 'dir'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '（'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）；日志行在内存中等待，重启会丢失'
+    )
+    'aggregator.log_loki_outbox_refused' = @(
+        'Loki 拒绝了一条排队的日志行（'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）；已丢弃'
+    )
+    'aggregator.log_loki_outbox_unreadable' = @(
+        'Loki 发件队列：无法读取 '
+        @{
+            'arg' = 'name'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '（'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）；已丢弃'
     )
     'aggregator.log_pool_aggregator_service_listening_on_value1_value2_poo_b30f8764' = @(
         'pool-aggregator-service正在监听'

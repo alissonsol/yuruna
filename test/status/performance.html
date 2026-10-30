@@ -105,6 +105,9 @@
       paint-order: stroke; stroke: rgba(255,255,255,.85); stroke-width: 2px;
       stroke-linejoin: round; pointer-events: none;
     }
+    /* The focused duration or bar; its details show under the chart. */
+    .cycle-flame .flame-cell:focus, .cycle-dur:focus { outline: 2px solid var(--link-strong); outline-offset: 1px; }
+    .perf-details { margin: .5rem 0 0; font: .75rem/1.5 var(--font-mono); white-space: pre-line; overflow-wrap: anywhere; }
     .axis-row { margin-top: .1rem; }
     .cycle-flame .flame-axis-line { stroke: var(--fg-faint); stroke-width: 1; }
     .cycle-flame .flame-axis-text { fill: var(--fg-muted); font-size: 9px; font-family: var(--font-mono); }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,6 +29,12 @@
 # and that is a different question from "can this process elevate".
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path -Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) -ChildPath 'automation' -AdditionalChildPath 'Yuruna.Common.psm1') -Global -Force -DisableNameChecking
+
+# The condition the last Assert-MacHostConditionSet refused on (see
+# Get-MacHostConditionFailure), and the issue lines a refusing sub-gate left
+# as its detail.
+$script:HostConditionFailure = $null
+$script:HostConditionDetail = ''
 
 function Get-MacPmsetGuardList {
     <#
@@ -389,17 +395,41 @@ function Get-MacScreenLockIssue {
 
     $issues = @()
 
+    # Every read is bounded (Invoke-MacBoundedTool). A read the tool did not
+    # answer -- it timed out, or could not be started -- is an issue naming the
+    # probe: the setting is undetermined, not known to be safe, which is the
+    # rule the blocking grants and the UTM lifetime reads already follow. An
+    # unbounded read here waited on a wedged preference or power service until
+    # the preamble watchdog ended the cycle, and a read that threw was skipped
+    # and the host passed.
+    $unanswered = {
+        param([string]$Probe, [string]$Tool)
+        Format-YurunaOperatorMessage -Key 'runner.host_condition_probe_unanswered' -Arguments @{ probe = $Probe; tool = $Tool }
+    }
+    $read = {
+        param([string]$Tool, [string[]]$ToolArguments, [string]$Context, [switch]$IncludeError)
+        $outcome = Invoke-MacBoundedTool -Tool $Tool -Arguments $ToolArguments -Context $Context -IncludeError:$IncludeError
+        $outcome | Add-Member -NotePropertyName Answered -NotePropertyValue (-not $outcome.TimedOut -and $outcome.Started) -PassThru
+    }
+
+    # Read once: the display-sleep check and the sleep guards below parse the
+    # same output. Every power block counts -- see Get-MacPmsetKeyValue.
+    $pmset = & $read 'pmset' @('-g', 'custom') 'power settings check'
+    $pmCustom = $null
+    if ($pmset.Answered -and $pmset.ExitCode -eq 0 -and $pmset.Text) {
+        $pmCustom = @("$($pmset.Text)" -split '\r?\n')
+    } else {
+        $issues += (& $unanswered 'power settings (pmset -g custom)' 'pmset')
+    }
+
     # 1. Display sleep idle time (pmset -g custom -> displaysleep).
-    #    0 = never sleep (good); > 0 means display will blank. Every power
-    #    block counts -- see Get-MacPmsetKeyValue.
-    try {
-        $displayValues = @(Get-MacPmsetKeyValue -PmsetCustom (& pmset -g custom 2>$null) -Key 'displaysleep' |
+    #    0 = never sleep (good); > 0 means display will blank.
+    if ($null -ne $pmCustom) {
+        $displayValues = @(Get-MacPmsetKeyValue -PmsetCustom $pmCustom -Key 'displaysleep' |
             Where-Object { [int]$_ -ne 0 })
         if ($displayValues.Count -gt 0) {
             $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_8b0fa5c2b5f17046' -Arguments @{ join = "$(($displayValues | Sort-Object -Unique) -join '/')" })
         }
-    } catch {
-        Write-Debug "pmset check failed: $_"
     }
 
     # 2. Screen saver idleTime (defaults read com.apple.screensaver idleTime).
@@ -408,63 +438,55 @@ function Get-MacScreenLockIssue {
     #    after 20 min despite the script reporting "already disabled".
     #    Flag both missing AND non-zero. Check per-host domain too;
     #    either being unsafe engages the saver.
-    try {
-        $idleTime     = & defaults read              com.apple.screensaver idleTime 2>$null
-        $idleTimeHead = $LASTEXITCODE
-        $idleTimeHost = & defaults -currentHost read com.apple.screensaver idleTime 2>$null
-        $idleTimeHostHead = $LASTEXITCODE
-        if ($idleTimeHead -ne 0) {
-            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_1b62f363a67c071e')
-        } elseif ("$idleTime".Trim() -ne "0") {
-            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_56cf123c3865f686' -Arguments @{ trim = "$($idleTime.Trim())" })
-        }
-        if ($idleTimeHostHead -ne 0) {
-            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_e2e9e0a96208388d')
-        } elseif ("$idleTimeHost".Trim() -ne "0") {
-            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_7b67c3902dc07998' -Arguments @{ trim = "$($idleTimeHost.Trim())" })
-        }
-    } catch {
-        Write-Debug "Screen saver check failed: $_"
+    $idleTime     = & $read 'defaults' @('read', 'com.apple.screensaver', 'idleTime') 'screen saver check'
+    $idleTimeHost = & $read 'defaults' @('-currentHost', 'read', 'com.apple.screensaver', 'idleTime') 'screen saver check'
+    if (-not $idleTime.Answered) {
+        $issues += (& $unanswered 'screen saver idle time (com.apple.screensaver idleTime)' 'defaults')
+    } elseif ($idleTime.ExitCode -ne 0) {
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_1b62f363a67c071e')
+    } elseif ($idleTime.Text -ne '0') {
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_56cf123c3865f686' -Arguments @{ trim = "$($idleTime.Text)" })
+    }
+    if (-not $idleTimeHost.Answered) {
+        $issues += (& $unanswered 'per-host screen saver idle time (-currentHost com.apple.screensaver idleTime)' 'defaults')
+    } elseif ($idleTimeHost.ExitCode -ne 0) {
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_e2e9e0a96208388d')
+    } elseif ($idleTimeHost.Text -ne '0') {
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_7b67c3902dc07998' -Arguments @{ trim = "$($idleTimeHost.Text)" })
     }
 
     # 3. Password after screen saver (askForPassword). Missing key on
     #    some macOS versions defaults to 1 (on) -- flag missing AND
     #    explicit 1. Check both domains.
-    try {
-        $askPw     = & defaults read              com.apple.screensaver askForPassword 2>$null
-        $askPwHead = $LASTEXITCODE
-        $askPwHost = & defaults -currentHost read com.apple.screensaver askForPassword 2>$null
-        $askPwHostHead = $LASTEXITCODE
-        if ($askPwHead -ne 0) {
-            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_da2350792e4dd706')
-        } elseif ("$askPw".Trim() -eq "1") {
-            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_549959e2a2a1d0ef')
-        }
-        if ($askPwHostHead -ne 0) {
-            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_2b015b728a7bdc6a')
-        } elseif ("$askPwHost".Trim() -eq "1") {
-            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_bf9d6d4e7f4db662')
-        }
-    } catch {
-        Write-Debug "Screen lock password check failed: $_"
+    $askPw     = & $read 'defaults' @('read', 'com.apple.screensaver', 'askForPassword') 'screen lock password check'
+    $askPwHost = & $read 'defaults' @('-currentHost', 'read', 'com.apple.screensaver', 'askForPassword') 'screen lock password check'
+    if (-not $askPw.Answered) {
+        $issues += (& $unanswered 'password after screen saver (com.apple.screensaver askForPassword)' 'defaults')
+    } elseif ($askPw.ExitCode -ne 0) {
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_da2350792e4dd706')
+    } elseif ($askPw.Text -eq '1') {
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_549959e2a2a1d0ef')
+    }
+    if (-not $askPwHost.Answered) {
+        $issues += (& $unanswered 'per-host password after screen saver (-currentHost com.apple.screensaver askForPassword)' 'defaults')
+    } elseif ($askPwHost.ExitCode -ne 0) {
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_2b015b728a7bdc6a')
+    } elseif ($askPwHost.Text -eq '1') {
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_bf9d6d4e7f4db662')
     }
 
     # 4. Hot corners bound to Start Screen Saver / Sleep Display / Lock
     #    Screen. A drifting cursor during an unattended run can trigger
-    #    these and drop the UTM window from CGWindowList.
-    try {
-        $dangerousCorners = Get-MacDangerousHotCornerMap
-        foreach ($corner in @('tl','tr','bl','br')) {
-            $val = & defaults read com.apple.dock "wvous-$corner-corner" 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                $valTrim = "$val".Trim()
-                if ($dangerousCorners.ContainsKey($valTrim)) {
-                    $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_d65c1830c2c11e5f' -Arguments @{ corner = "$corner"; valTrim = "$($dangerousCorners[$valTrim])" })
-                }
-            }
+    #    these and drop the UTM window from CGWindowList. A missing key
+    #    (non-zero exit) is no corner.
+    $dangerousCorners = Get-MacDangerousHotCornerMap
+    foreach ($corner in @('tl','tr','bl','br')) {
+        $val = & $read 'defaults' @('read', 'com.apple.dock', "wvous-$corner-corner") 'hot corner check'
+        if (-not $val.Answered) {
+            $issues += (& $unanswered "hot corner $corner (com.apple.dock wvous-$corner-corner)" 'defaults')
+        } elseif ($val.ExitCode -eq 0 -and $dangerousCorners.ContainsKey($val.Text)) {
+            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_d65c1830c2c11e5f' -Arguments @{ corner = "$corner"; valTrim = "$($dangerousCorners[$val.Text])" })
         }
-    } catch {
-        Write-Debug "Hot-corner check failed: $_"
     }
 
     # 5. sysadminctl unified screen lock (Ventura+). Overrides legacy
@@ -474,31 +496,30 @@ function Get-MacScreenLockIssue {
     #      * "screenLock delay is -1(.000000) seconds"
     #      * "screenLock is off"
     #    Anything else (e.g. "delay is 300 seconds") means a lock delay is active.
-    try {
-        $slParsed = Get-MacScreenLockDisabled -Raw (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1)
+    #    The tool writes its answer to stderr.
+    $screenLock = & $read 'sysadminctl' @('-screenLock', 'status') 'screen lock check' -IncludeError
+    if (-not $screenLock.Answered) {
+        $issues += (& $unanswered 'unified screen lock (sysadminctl -screenLock status)' 'sysadminctl')
+    } else {
+        $slParsed = Get-MacScreenLockDisabled -Raw ("$($screenLock.Text)" -split '\r?\n' | Select-Object -First 1)
         if (-not $slParsed.Disabled) {
             $issues += "sysadminctl $($slParsed.Status)"
         }
-    } catch {
-        Write-Debug "sysadminctl -screenLock check failed: $_"
     }
 
     # 6. Auto-logout after inactivity ("Log out after N minutes" in
     #    Security / Advanced). Kicks user to loginwindow -- same
     #    password-demand symptom as a lock. System-level pref;
-    #    world-readable, no sudo.
-    try {
-        $autoLogout = & defaults read /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay 2>$null
-        if ($LASTEXITCODE -eq 0 -and "$autoLogout".Trim() -ne "0") {
-            $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_225df9df5b487f6f' -Arguments @{ trim = "$($autoLogout.Trim())" })
-        }
-    } catch {
-        Write-Debug "AutoLogOutDelay check failed: $_"
+    #    world-readable, no sudo. A missing key is no auto-logout.
+    $autoLogout = & $read 'defaults' @('read', '/Library/Preferences/.GlobalPreferences', 'com.apple.autologout.AutoLogOutDelay') 'auto-logout check'
+    if (-not $autoLogout.Answered) {
+        $issues += (& $unanswered 'auto-logout delay (com.apple.autologout.AutoLogOutDelay)' 'defaults')
+    } elseif ($autoLogout.ExitCode -eq 0 -and $autoLogout.Text -ne '0') {
+        $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_225df9df5b487f6f' -Arguments @{ trim = "$($autoLogout.Text)" })
     }
 
     # See https://yuruna.link/4213a0b3-0065
-    try {
-        $pmCustom = & pmset -g custom 2>$null
+    if ($null -ne $pmCustom) {
         foreach ($g in (Get-MacSleepGuardList)) {
             # Per key, and across every power block: sleep and disksleep drift
             # independently, and so do the AC and battery copies of each.
@@ -515,8 +536,6 @@ function Get-MacScreenLockIssue {
                 $issues += (Format-YurunaOperatorMessage -Key 'runner.operator_0be72af605d7b720' -Arguments @{ key = "$($g.Key)"; join = "$(($gBad | Sort-Object -Unique) -join '/')"; want = "$($g.Want)" })
             }
         }
-    } catch {
-        Write-Debug "pmset system-sleep / extended-guard check failed: $_"
     }
 
     return [string[]]@($issues)
@@ -535,6 +554,7 @@ function Assert-ScreenLock {
 
     $issues = @(Get-MacScreenLockIssue)
     if ($issues.Count -eq 0) { return $true }
+    $script:HostConditionDetail = $issues -join '; '
 
     Write-Warning "========"
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_21416a6b53e4ffb2')
@@ -657,6 +677,7 @@ function Assert-MacUtmLifetime {
 
     $issues = @(Get-MacUtmLifetimeIssue)
     if ($issues.Count -eq 0) { return $true }
+    $script:HostConditionDetail = $issues -join '; '
 
     Write-Warning "========"
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ebc4945da644f501')
@@ -2687,14 +2708,27 @@ function Assert-MacHostConditionSet {
     refuse. Invoke once at startup and again before each test cycle.
     #>
     param([string]$HostType)
+    $script:HostConditionFailure = $null
     if ($HostType -ne "host.macos.utm") { return $true }
 
     # --- REGION: Accessibility, Screen Recording and screen-lock gates
-    if (-not (Assert-Accessibility    -HostType $HostType)) { return $false }
-    if (-not (Assert-ScreenRecording  -HostType $HostType)) { return $false }
-    if (-not (Assert-ScreenLock       -HostType $HostType)) { return $false }
-    if (-not (Assert-MacUtmAppData    -HostType $HostType)) { return $false }
-    if (-not (Assert-MacUtmLifetime   -HostType $HostType)) { return $false }
+    # In order; the first refusal is the condition the cycle is filed under.
+    # The screen-lock and UTM-lifetime gates leave their issue lines as the
+    # detail.
+    $gates = [ordered]@{
+        'accessibility'    = { Assert-Accessibility   -HostType $HostType }
+        'screen-recording' = { Assert-ScreenRecording -HostType $HostType }
+        'screen-lock'      = { Assert-ScreenLock      -HostType $HostType }
+        'utm-app-data'     = { Assert-MacUtmAppData   -HostType $HostType }
+        'utm-lifetime'     = { Assert-MacUtmLifetime  -HostType $HostType }
+    }
+    foreach ($condition in $gates.Keys) {
+        $script:HostConditionDetail = ''
+        if (-not (& $gates[$condition])) {
+            $script:HostConditionFailure = [pscustomobject]@{ Condition = $condition; Detail = $script:HostConditionDetail }
+            return $false
+        }
+    }
     # --- REGION: Host clock drift warning
     # See https://yuruna.link/42d38664-001a
     # Warn-only and once per cycle: the repair needs a privilege this process
@@ -2703,6 +2737,20 @@ function Assert-MacHostConditionSet {
     Write-HostClockDriftWarning -HostType $HostType
 
     return $true
+}
+
+function Get-MacHostConditionFailure {
+    <#
+    .SYNOPSIS
+    The condition the last Assert-MacHostConditionSet refused on, or $null
+    after a pass; the host-condition provider's Failure reader.
+    .OUTPUTS
+    [pscustomobject] Condition, Detail.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    return $script:HostConditionFailure
 }
 
 function Test-MacHostMinimum {
@@ -2735,4 +2783,4 @@ function Test-MacHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Assert-ScreenLock, Get-MacScreenLockIssue, Assert-MacUtmLifetime, Get-MacUtmLifetimeIssue, Assert-MacUtmAppData, Test-MacUtmAppDataGrant, Get-MacUtmContainerPreferencePath, Initialize-SudoCache, Test-MacSudoAvailable, Get-MacPmsetGuardList, Get-MacDefaultsCommandArgument, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Invoke-MacBoundedTool, Get-MacUtmctlBundlePath
+Export-ModuleMember -Function Assert-ScreenLock, Get-MacScreenLockIssue, Get-MacHostConditionFailure, Assert-MacUtmLifetime, Get-MacUtmLifetimeIssue, Assert-MacUtmAppData, Test-MacUtmAppDataGrant, Get-MacUtmContainerPreferencePath, Initialize-SudoCache, Test-MacSudoAvailable, Get-MacPmsetGuardList, Get-MacDefaultsCommandArgument, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Invoke-MacBoundedTool, Get-MacUtmctlBundlePath

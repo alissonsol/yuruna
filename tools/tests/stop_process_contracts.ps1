@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4258c050-6380-4115-a3fa-d4c318889f35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,12 @@ $start = $source.IndexOf('$m = Read-ExtensionServiceMarker')
 $end = $source.IndexOf('# --- REGION: Publish the service withdrawal', $start)
 $body = $source.Substring($start, $end-$start).Replace('exit $ExitFailure', "throw 'stop-incomplete'")
 . ([scriptblock]::Create('function Invoke-StopFixture { [CmdletBinding(SupportsShouldProcess)] param() ' + $body + ' }'))
+# The stop region calls the shared identity-verified stop; lift it so it runs
+# against this fixture's process commands below, never the real ones.
+$moduleAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'test/modules/Test.ExtensionService.psm1'), [ref]$null, [ref]$null)
+$sharedStop = $moduleAst.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Stop-ExtensionServiceHostProcess' }, $true)
+if (-not $sharedStop) { throw 'Test.ExtensionService.psm1 no longer defines Stop-ExtensionServiceHostProcess.' }
+. ([scriptblock]::Create($sharedStop.Extent.Text))
 function Format-YurunaOperatorMessage { param($Key, $Arguments) $Key }
 function Read-ExtensionServiceMarker { return @{ Pid=42 } }
 function Remove-ExtensionServiceMarker { [CmdletBinding(SupportsShouldProcess)] param($Area,$RuntimeDir) if ($PSCmdlet.ShouldProcess('fixture', 'remove marker')) { $script:removed++; return $script:mode -ne 'marker-denied' } }

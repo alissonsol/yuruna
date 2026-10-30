@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42eb9613-e03b-4f67-8b89-1b1e1b198727
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,9 +128,9 @@ Describe 'Get-EntryPointExitCode -- the mapping the operator scripts exit throug
 Describe 'localized boundary identity survives changed display prose' {
     BeforeAll {
         Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.Catalog.psm1') -DisableNameChecking
-        $priorNoRun = $env:YURUNA_MCP_SERVER_NO_RUN
+        $priorNoRun = Save-YurunaTestEnvironment -Name 'YURUNA_MCP_SERVER_NO_RUN'
         try { $env:YURUNA_MCP_SERVER_NO_RUN = '1'; . (Join-Path $script:RepoRoot 'test/service/Start-McpServer.ps1') }
-        finally { $env:YURUNA_MCP_SERVER_NO_RUN = $priorNoRun }
+        finally { Restore-YurunaTestEnvironment -Saved $priorNoRun }
     }
     It 'globalization acceptance: no condition branches on rendered prose' {
         $records = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'globalization/manifests/operator-catalog-sources.json') -Raw | ConvertFrom-Json

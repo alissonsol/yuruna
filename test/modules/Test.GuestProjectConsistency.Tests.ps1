@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42bc0016-f193-426d-a72c-0c102ad1e5f2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,12 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.SnapshotManifest.psm1') -Force -DisableNameChecking
     $script:ProjectRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-project'
     $script:UpdateSource = Get-Content (Join-Path $script:RepoRoot 'guest/windows.11/windows.11.update.ps1') -Raw
+    # The extraction regions fetch through the script's own archive helper; lift it
+    # so a region runs its production control flow, with Invoke-WebRequest mocked.
+    $updateAst = [Management.Automation.Language.Parser]::ParseInput($script:UpdateSource, [ref]$null, [ref]$null)
+    $archiveHelper = $updateAst.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-GuestHostArchive' }, $true)
+    if (-not $archiveHelper) { throw 'windows.11.update.ps1 no longer defines Get-GuestHostArchive.' }
+    . ([scriptblock]::Create($archiveHelper.Extent.Text))
     $script:DevSource = Join-Path $script:ProjectRoot 'example/website/components/frontend/website/docker-run-dev.ps1'
     $nativeExitCode = Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
     $script:HadNativeExitCode = $null -ne $nativeExitCode
@@ -377,7 +383,7 @@ Describe 'Project sequence readiness and entrypoint consistency' -Skip:(-not $sc
         @{ Cloud = 'localhost'; Replicas = 1; ServiceType = 'ClusterIP' }
     ) {
         $config = ConvertFrom-File (Join-Path $script:ProjectRoot "example/website/config/$Cloud/workloads.yml")
-        $ingress = @($config.workloads[0].deployments | Where-Object { $_.helm -like '*install nginx-ingress ingress-nginx/ingress-nginx*' })
+        $ingress = @($config.workloads[0].deployments | Where-Object { $_.helm -like 'install nginx-ingress *' })
         $ingress.Count | Should -Be 1
         $ingress[0].helm | Should -Match '--set controller[.]nodeSelector[.]"kubernetes\\[.]io/os"=linux'
         $ingress[0].helm | Should -Not -Match 'nodeSelector[.]"beta\\[.]kubernetes'
@@ -406,6 +412,9 @@ Describe 'Project sequence readiness and entrypoint consistency' -Skip:(-not $sc
                 "host/$platform/modules/Get-UbuntuServerImage.ps1"
                 "host/$platform/modules/New-UbuntuServerVM.ps1"
                 "host/$platform/modules/Yuruna.Host.psm1"
+                # The driver's part files run as part of the same module.
+                Get-ChildItem -Path (Join-Path $script:RepoRoot "host/$platform/modules/Yuruna.Host.*.ps1") -File |
+                    ForEach-Object { "host/$platform/modules/$($_.Name)" }
             }
             'host/modules/Yuruna.UbuntuImage.psm1'
             'host/modules/Yuruna.Image.psm1'
@@ -483,10 +492,12 @@ exit "$YURUNA_HTTP_EXIT"
     }
 
     It '<Sequence> verifies a shell before typing without overriding host input pacing' -ForEach @(
-        @{ Sequence = 'ch01.website.example.yml' }, @{ Sequence = 'ch01.website.example.no-break.yml' },
-        @{ Sequence = 'ch02.website.k8s.dotnet.yml' }, @{ Sequence = 'ch02.website.k8s.dotnet.no-break.yml' }
+        @{ Sequence = 'book/test/ch01.website.example.yml' }, @{ Sequence = 'book/test/ch01.website.example.no-break.yml' },
+        @{ Sequence = 'book/test/ch02.website.k8s.dotnet.yml' }, @{ Sequence = 'book/test/ch02.website.k8s.dotnet.no-break.yml' },
+        @{ Sequence = 'example/text-to-sql/test/workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline.yml' },
+        @{ Sequence = 'example/text-to-sql/test/workload.guest.ubuntu.server.24.k8s.text-to-sql.test.yml' }
     ) {
-        $sequence = ConvertFrom-File (Join-Path $script:ProjectRoot "book/test/$Sequence")
+        $sequence = ConvertFrom-File (Join-Path $script:ProjectRoot $Sequence)
         $wait = @($sequence.component | Where-Object { $_.action -eq 'waitForText' })[0]
         $pattern = $wait.pattern.Replace('${username}', $sequence.variables.username).Replace('${hostname}', $sequence.variables.hostname)
         $login = "$($sequence.variables.hostname) login: $($sequence.variables.username)`nPassword:"

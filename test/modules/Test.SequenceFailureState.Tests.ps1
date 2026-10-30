@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,10 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
         if ($Name -eq 'waitForText') {
             return [pscustomobject]@{ FailureClass = 'ocr_timeout'; Severity = 'hard'; SuggestedRecoveries = @('reconnect') }
         }
+        # An input verb: a failed send is the retryable host_io_blocked.
+        if ($Name -eq 'inputText') {
+            return [pscustomobject]@{ FailureClass = 'host_io_blocked'; Severity = 'soft'; SuggestedRecoveries = @('retry_immediately') }
+        }
         return $null
     }
 }
@@ -83,6 +87,7 @@ function Reset-FailState {
     # Same reasoning: a staged-input verdict left set would reclassify every
     # later failure in this file as input_lost.
     $f.StepInputLost = $null
+    $f.StepHostInputFault = $null
     $f.StepLauncherRejection = $null
     $f.StepAptIndexMismatch = $null
     # A proof left set would let every later record claim its step did nothing.
@@ -103,7 +108,14 @@ function Reset-FailState {
     $f.WaitForTextGuestLivelock = $null
     $f.WaitForTextConsoleSecondOpinion = $null
     $f.WaitForTextGuestLivelocked = $false
+    $f.WaitForTextKernelStallEnd = $null
     $f.WaitForTextBlankScreenSeconds = 0
+    # A kernel reading left set would be claimed by every later record whose
+    # step it names.
+    $f.StepGuestKernelFault = $null
+    # A step start left set would open a host-address window for every later
+    # record in this file.
+    $f.LastFailedStepStartedUtc = $null
     return $f
 }
 
@@ -154,6 +166,147 @@ Describe 'progress observations remain advisory' {
         (Get-GuestProgressAdvisory -ClockWarningCodes @()).Verdict | Should -Be unavailable
         (Get-GuestProgressAdvisory -ClockWarningCodes @('clock-evidence-incomplete')).Verdict | Should -Be unavailable
         @((Get-GuestProgressAdvisory -ClockWarningCodes @('clock-evidence-incomplete')).ClockWarnings).Count | Should -Be 0
+    }
+    It 'lists a guest kernel fault as a signal without scoring it as a stall' {
+        $r = Get-GuestProgressAdvisory -HeartbeatAgeSeconds 10 -SshResponsiveness responsive -KernelFaultKinds @('soft-lockup', 'rcu-stall', 'soft-lockup')
+        $r.Verdict | Should -Be 'insufficient-evidence'
+        $r.Signals | Should -Contain 'guest-kernel-fault'
+        @($r.KernelFaults) | Should -Be @('soft-lockup', 'rcu-stall')
+        $r.AutomaticRecoveryAllowed | Should -BeFalse
+        $suspect = Get-GuestProgressAdvisory -OutputStaticSeconds 1604 -HeartbeatAgeSeconds 1648 -SshResponsiveness unresponsive -KernelFaultKinds @('soft-lockup')
+        $suspect.Verdict | Should -Be 'progress-suspect'
+        @((Get-GuestProgressAdvisory -HeartbeatAgeSeconds 10 -SshResponsiveness responsive).KernelFaults).Count | Should -Be 0
+    }
+}
+
+Describe 'the guest kernel''s own reports in the failure record' {
+    BeforeAll {
+        function New-KernelReading {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: builds an in-memory fixture; changes no state.')]
+            param([string]$StepInvocationId)
+            [ordered]@{
+                stepInvocationId = $StepInvocationId
+                serial = [ordered]@{ source = 'serial'; boots = 1; records = 120; kernelRecords = 9; faultRecords = 3
+                    kinds = [string[]]@('rcu-stall', 'soft-lockup'); largestStallJiffies = 263625318; bytesRead = 4000; truncated = $false }
+                recorder = $null
+            }
+        }
+    }
+    It 'carries the failing step''s reading into the record and onto the event' {
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'leaf'
+        $f.StepGuestKernelFault = New-KernelReading -StepInvocationId 'leaf'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $reading = $r.File.context.causeDetail.guestKernelFault
+        $reading.serial.faultRecords | Should -Be 3
+        $reading.serial.largestStallJiffies | Should -Be 263625318
+        $reading.Contains('stepInvocationId') | Should -BeFalse -Because 'the record names its step once, at its top level'
+        $r.Event.causeGuestKernelFault | Should -Be 'rcu-stall,soft-lockup'
+        $r.Event.guestKernelFault.serial.bytesRead | Should -Be 4000
+        $r.File.failureClass | Should -Be 'ocr_timeout' -Because 'the reading is evidence for the reader, not a reclassification'
+        $violations = Test-CycleEventSchema -Record $r.Event
+        @($violations).Count | Should -Be 0 -Because "the event still validates; got: $($violations -join '; ')"
+    }
+    It 'keeps a retried attempt''s reading for the record its wrapper writes' {
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'wrapper'
+        $f.OriginatingStepInvocationId = 'leaf'
+        $f.OriginatingSequenceInvocationId = 'nested'
+        $f.StepGuestKernelFault = New-KernelReading -StepInvocationId 'leaf'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $r.File.context.causeDetail.guestKernelFault.serial.faultRecords | Should -Be 3
+        $r.Event.causeGuestKernelFault | Should -Be 'rcu-stall,soft-lockup'
+    }
+    It 'keeps a recorder stall that may predate the step in the reading but out of what the step showed' {
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'leaf'
+        $reading = New-KernelReading -StepInvocationId 'leaf'
+        $reading.serial.kinds = [string[]]@()
+        $reading.recorder = [ordered]@{ source = 'recorder'; faultRecords = 2; kinds = [string[]]@('hung-task', 'rcu-stall'); firstStallSampleIndex = 0; mayPredateStep = $true }
+        $f.StepGuestKernelFault = $reading
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $r.File.context.causeDetail.guestKernelFault.recorder.mayPredateStep | Should -BeTrue
+        $r.Event.causeGuestKernelFault | Should -Be '' -Because 'a report from before the step is not this step''s'
+        @(Get-GuestKernelFaultKind -Reading $reading).Count | Should -Be 0
+        $reading.recorder.mayPredateStep = $false
+        @(Get-GuestKernelFaultKind -Reading $reading) | Should -Be @('hung-task', 'rcu-stall')
+    }
+    It 'drops a reading another step left behind' {
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'leaf'
+        $f.StepGuestKernelFault = New-KernelReading -StepInvocationId 'earlier'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $r.File.context.causeDetail.guestKernelFault | Should -BeNullOrEmpty
+        $r.Event.causeGuestKernelFault | Should -Be ''
+    }
+    It 'keeps the field present and null when no source was read' {
+        [void](Reset-FailState)
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $r.File.context.causeDetail.Contains('guestKernelFault') | Should -BeTrue
+        $r.File.context.causeDetail.guestKernelFault | Should -BeNullOrEmpty
+        $r.Event.causeGuestKernelFault | Should -Be ''
+    }
+}
+
+Describe 'the host''s own address moves in the failure record' {
+    BeforeAll {
+        Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.HostAddressBeacon.psm1') -Force -DisableNameChecking
+        $script:savedMoveEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $script:moveRuntimeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-fail-move-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:moveRuntimeDir -Force | Out-Null
+        $env:YURUNA_RUNTIME_DIR = $script:moveRuntimeDir
+        function Add-MoveRow {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: appends a beacon row to a throwaway runtime dir.')]
+            param([datetime]$AtUtc, [string]$From, [string]$To)
+            Write-HostAddressChangeRecord -RuntimeDir $script:moveRuntimeDir -Previous $From -Current $To `
+                -ChangedAtUtc $AtUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+        }
+    }
+    AfterAll {
+        Restore-YurunaTestEnvironment -Saved $script:savedMoveEnvironment
+        Remove-Item -Recurse -Force $script:moveRuntimeDir -ErrorAction SilentlyContinue
+    }
+    It 'reports no reading when the beacon left no record' {
+        $f = Reset-FailState
+        $f.LastFailedStepStartedUtc = [datetime]::UtcNow.AddMinutes(-5)
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $r.File.context.causeDetail.Contains('hostAddressChanges') | Should -BeTrue
+        $null -eq $r.File.context.causeDetail.hostAddressChanges | Should -BeTrue -Because 'unmeasured is not a host that held its address'
+        $r.Event.causeHostAddressChange | Should -Be ''
+    }
+    It 'carries the move that fell inside the step, and only that one, into the record and onto the event' {
+        # The shape of a host whose DHCP lease expired mid-step: the guest fetched
+        # from the address the host had when the step started and failed with a
+        # plain script error. The record names the move beside the symptom.
+        $now = [datetime]::UtcNow
+        Add-MoveRow -AtUtc $now.AddMinutes(-30) -From '192.168.7.89' -To '192.168.7.136'
+        Add-MoveRow -AtUtc $now.AddMinutes(-2) -From '192.168.7.136' -To '192.168.7.108'
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'leaf'
+        $f.LastFailedStepStartedUtc = $now.AddMinutes(-5)
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $moves = @($r.File.context.causeDetail.hostAddressChanges)
+        $moves.Count | Should -Be 1 -Because 'the move 30 minutes ago predates the step'
+        $moves[0].previous | Should -Be '192.168.7.136'
+        $moves[0].current | Should -Be '192.168.7.108'
+        $r.Event.causeHostAddressChange | Should -Match '^192\.168\.7\.136 -> 192\.168\.7\.108 at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
+        $r.File.failureClass | Should -Be 'ocr_timeout' -Because 'the move is evidence for the reader, not a reclassification'
+        $violations = Test-CycleEventSchema -Record $r.Event
+        @($violations).Count | Should -Be 0 -Because "the event still validates; got: $($violations -join '; ')"
+    }
+    It 'opens the window at the cycle start when no step start was recorded, and an empty list is a host that held its address' {
+        Add-MoveRow -AtUtc ([datetime]::UtcNow.AddMinutes(-30)) -From '192.168.7.89' -To '192.168.7.136'
+        [void](Reset-FailState)
+        $savedGlobal = Save-YurunaTestGlobal -Name '__YurunaCycleStartUtc'
+        Set-YurunaTestGlobal -Value @{ __YurunaCycleStartUtc = [datetime]::UtcNow.AddMinutes(-1).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture) }
+        try {
+            $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+            $null -eq $r.File.context.causeDetail.hostAddressChanges | Should -BeFalse -Because 'the beacon record was read over the cycle window'
+            @($r.File.context.causeDetail.hostAddressChanges).Count | Should -Be 0
+            $r.Event.causeHostAddressChange | Should -Be ''
+        } finally { Restore-YurunaTestGlobal -Saved $savedGlobal }
     }
 }
 
@@ -217,6 +370,22 @@ Describe 'New-SequenceFailureRecord actionability enrichment (step)' {
         $r.File.context.causeDetail.guestLivelock.processorWindow.SampleCount | Should -Be 21
         $r.Event.guestProcessorWindow.Processors[0].Processor | Should -Be '1'
         $r.Event.causeGuestLivelocked | Should -BeFalse
+    }
+    It 'says why a wait on a wedged guest kernel ended before its deadline, and nothing for any other wait' {
+        $f = Reset-FailState
+        $f.WaitForTextKernelStallEnd = [ordered]@{ processors = [string[]]@('0'); noInterruptsServicedSeconds = 1305
+            noInterruptsServicedSinceUtc = '2026-10-29T08:56:28.0000000Z'; kinds = [string[]]@('rcu-stall'); waitedSeconds = 1290 }
+        $r = New-SequenceFailureRecord -Reason step -VMName v -GuestKey g -HostType h -SequencePath $script:seqPath -LogDir d
+        $roundTrip = $r.File | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable
+        $end = $roundTrip.context.causeDetail.guestKernelStallEnd
+        @($end.processors) | Should -Be @('0')
+        $end.noInterruptsServicedSeconds | Should -Be 1305
+        @($end.kinds) | Should -Be @('rcu-stall')
+        $end.waitedSeconds | Should -Be 1290
+        [void](Reset-FailState)
+        $r = New-SequenceFailureRecord -Reason step -VMName v -GuestKey g -HostType h -SequencePath $script:seqPath -LogDir d
+        $r.File.context.causeDetail.Contains('guestKernelStallEnd') | Should -BeTrue -Because 'the field is always present, so absence never reads as a missing producer'
+        $r.File.context.causeDetail.guestKernelStallEnd | Should -BeNullOrEmpty
     }
     It 'carries sequenceName, reason, classificationSource and a repro block' {
         [void](Reset-FailState)
@@ -696,7 +865,7 @@ Describe 'Orchestration preserves child dependency failures' {
         @{ Case = 'stale'; AgeSeconds = 30; ExpectedClass = 'unknown'; ExpectedMessage = 'Host action exited 1'; ExpectedCopies = 0 }
     ) {
         param($Case, $AgeSeconds, $ExpectedClass, $ExpectedMessage, $ExpectedCopies)
-        $savedLogDir = $env:YURUNA_LOG_DIR
+        $savedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         try {
             $env:YURUNA_LOG_DIR = Join-Path $TestDrive $Case
             New-Item -ItemType Directory -Path $env:YURUNA_LOG_DIR -Force | Out-Null
@@ -717,7 +886,7 @@ Describe 'Orchestration preserves child dependency failures' {
             $reason | Should -Be $ExpectedMessage
             $script:MirroredFailures | Should -Be $ExpectedCopies
             $inheritedDependencies.Count | Should -Be $ExpectedCopies
-        } finally { $env:YURUNA_LOG_DIR = $savedLogDir }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedLogDir }
     }
 }
 
@@ -748,15 +917,15 @@ Describe 'Orchestration dependency record integration' {
     }
     AfterAll { Remove-Module Test.RunnerInnerLoop -Force -ErrorAction SilentlyContinue }
     It 'preserves the child record, its cycle mirror, and the parent event evidence' {
-        $savedLog = $env:YURUNA_LOG_DIR
-        $savedRuntime = $env:YURUNA_RUNTIME_DIR
-        $savedFolder = Get-Variable -Name __YurunaCycleFolder -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+        $savedLog = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
+        $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $savedGlobals = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
         try {
             $env:YURUNA_LOG_DIR = Join-Path $TestDrive 'dependency-integration'
             $env:YURUNA_RUNTIME_DIR = $env:YURUNA_LOG_DIR
             $folder = Join-Path $env:YURUNA_LOG_DIR 'cycle'
             New-Item -ItemType Directory -Path $folder -Force | Out-Null
-            Set-Variable -Name __YurunaCycleFolder -Scope Global -Value $folder
+            Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $folder }
             $dependency = @{ area = 'stash-service'; endpoint = 'http://pool/extension-hosts?area=stash-service'
                 outcome = 'no-host'; detail = '404 -- no live host'; attempt = 4 }
             $child = New-InfraFailureRecord -Stage 'Resolve-StashService' -FailureClass 'lab_dependency_down' `
@@ -778,9 +947,9 @@ Describe 'Orchestration dependency record integration' {
             $parentEvent.failureClass | Should -Be 'lab_dependency_down'
             $parentEvent.dependencyFailures[0].detail | Should -Be '404 -- no live host'
         } finally {
-            $env:YURUNA_LOG_DIR = $savedLog
-            $env:YURUNA_RUNTIME_DIR = $savedRuntime
-            Set-Variable -Name __YurunaCycleFolder -Scope Global -Value $savedFolder
+            Restore-YurunaTestEnvironment -Saved $savedLog
+            Restore-YurunaTestEnvironment -Saved $savedRuntime
+            Restore-YurunaTestGlobal -Saved $savedGlobals
         }
     }
 }
@@ -927,6 +1096,67 @@ Describe 'A step whose handler proved it did nothing' {
     }
 }
 
+Describe 'A send the host can never make' {
+    BeforeAll {
+        function Set-InputFaultState {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: seeds the in-memory failure-state slots; no external state.')]
+            param([string]$Kind, [string]$FaultStep = 'step-a')
+            $f = Reset-FailState
+            $f.LastFailedAction = 'inputText'
+            $f.LastFailedStepInvocationId = 'step-a'
+            $f.StepHostInputFault = [ordered]@{ action = 'Send-Text'; stepInvocationId = $FaultStep; kind = $Kind
+                reason = $(if ($Kind -eq 'deterministic') { 'unmappable-character' } else { 'write-failed' })
+                transport = 'VNC'; detail = 'U+00E9 at 4'; delivered = 0; total = 9 }
+            return $f
+        }
+    }
+    It 'files text the input path has no key for as plan_invalid, with the fault in the record' {
+        $f = Set-InputFaultState -Kind deterministic
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'plan_invalid' -Actual $r.File.failureClass -Because 'every retry would fail the same way'
+        Assert-Equal -Expected 'pause_and_inspect' -Actual @($r.File.suggestedRecoveries)[0]
+        $fault = $r.File.context.causeDetail.hostInputFault
+        Assert-Equal -Expected 'unmappable-character' -Actual $fault.reason
+        Assert-Equal -Expected 'U+00E9 at 4' -Actual $fault.detail
+        Assert-Equal -Expected 9 -Actual $fault.total
+        Assert-Equal -Expected 'unmappable-character' -Actual $r.Event.causeHostInputFault -Because 'the event mirrors the record'
+        Assert-True (Test-StepHostInputFaultDeterministic) 'the retry verb reads the same verdict'
+        $f.StepHostInputFault = $null
+    }
+    It 'keeps the retryable class for a transient fault, and still records it' {
+        $f = Set-InputFaultState -Kind transient
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'host_io_blocked' -Actual $r.File.failureClass
+        Assert-Equal -Expected 'write-failed' -Actual $r.File.context.causeDetail.hostInputFault.reason
+        Assert-False (Test-StepHostInputFaultDeterministic) 'a closed connection may clear on the next attempt'
+        $f.StepHostInputFault = $null
+    }
+    It 'ignores a fault another step recorded' {
+        $f = Set-InputFaultState -Kind deterministic -FaultStep 'inner'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'host_io_blocked' -Actual $r.File.failureClass
+        Assert-True ($null -eq $r.File.context.causeDetail.hostInputFault) 'only the failing step''s own send counts'
+        Assert-Equal -Expected '' -Actual $r.Event.causeHostInputFault
+        Assert-False (Test-StepHostInputFaultDeterministic) 'nor for the retry verb'
+        $f.StepHostInputFault = $null
+    }
+    It 'gives way to a matched failure pattern' {
+        $f = Set-InputFaultState -Kind deterministic
+        $f.WaitForTextMatchedFailurePattern = 'FAILED'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass
+        $f.StepHostInputFault = $null; $f.WaitForTextMatchedFailurePattern = $null
+    }
+    It 'emits an event that passes the cycle event schema validator' {
+        $f = Set-InputFaultState -Kind deterministic
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        $violations = Test-CycleEventSchema -Record $r.Event
+        Assert-Equal -Expected 0 -Actual (@($violations).Count) -Because "event must validate; got: $($violations -join '; ')"
+        $f.StepHostInputFault = $null
+    }
+}
+
 Describe 'A deploy that reported its own failure class' {
     It 'is filed under that class, from the deploy result' {
         $f = Reset-FailState
@@ -971,5 +1201,145 @@ Describe 'Every failure record links its class''s documentation' {
         $infra = New-InfraFailureRecord -Stage 'GetImage' -FailureClass 'source_integrity' -Severity 'hard' -GuestKey 'g' -VMName 'vm1' -ErrorMessage 'checksum' -HostType 'h'
         $infra.File.docUrl | Should -BeExactly 'https://yuruna.link/42820e91#failure-class-source_integrity'
         $infra.Event.docUrl | Should -BeExactly $infra.File.docUrl
+    }
+}
+
+Describe 'The failure-state slots are declared once, with a lifetime' {
+    It 'declares every slot once, each with a known lifetime' {
+        $slots = @(Get-SequenceFailureSlot)
+        Assert-True ($slots.Count -gt 40) "only $($slots.Count) slots declared"
+        $duplicates = @($slots | Group-Object Name | Where-Object Count -gt 1 | ForEach-Object Name)
+        Assert-Equal -Expected 0 -Actual $duplicates.Count -Because "declared twice: $($duplicates -join ', ')"
+        foreach ($slot in $slots) { Assert-True ($slot.Lifetime -in 'sequence', 'step', 'wait', 'gate', 'process') "$($slot.Name): $($slot.Lifetime)" }
+        $store = Get-SequenceFailureState
+        foreach ($slot in $slots) { Assert-True ($store.Contains($slot.Name)) "the live store lacks $($slot.Name)" }
+    }
+
+    It 'nests the resets: a sequence clears step and wait slots, a step clears wait slots, a wait only its own' {
+        $byLifetime = @{}
+        foreach ($slot in Get-SequenceFailureSlot) { $byLifetime[$slot.Lifetime] = $slot.Name }
+        foreach ($case in @(
+                @{ Reset = 'wait';     Cleared = @('wait');                     Kept = @('step', 'sequence', 'gate', 'process') }
+                @{ Reset = 'step';     Cleared = @('wait', 'step');             Kept = @('sequence', 'gate', 'process') }
+                @{ Reset = 'sequence'; Cleared = @('wait', 'step', 'sequence'); Kept = @('gate', 'process') })) {
+            $state = [ordered]@{}
+            foreach ($lifetime in $byLifetime.Keys) { $state[$byLifetime[$lifetime]] = 'stale' }
+            Reset-SequenceFailureSlot -Lifetime $case.Reset -State $state
+            foreach ($lifetime in $case.Cleared) {
+                Assert-True ($state[$byLifetime[$lifetime]] -ne 'stale') "a $($case.Reset) reset must clear the $lifetime slot $($byLifetime[$lifetime])"
+            }
+            foreach ($lifetime in $case.Kept) {
+                Assert-Equal -Expected 'stale' -Actual $state[$byLifetime[$lifetime]] -Because "a $($case.Reset) reset leaves the $lifetime slot to its owner"
+            }
+        }
+    }
+
+    It 'puts every slot back to the value a fresh store holds, with a new array each time' {
+        $fresh = [ordered]@{}
+        Reset-SequenceFailureSlot -Lifetime sequence -State $fresh
+        $first = $fresh.WaitForTextPatternsSought
+        Assert-True ($first -is [string[]]) 'the array slots stay [string[]], so the record renders a JSON array'
+        $first += 'sought'
+        $again = [ordered]@{}
+        Reset-SequenceFailureSlot -Lifetime sequence -State $again
+        Assert-Equal -Expected 0 -Actual $again.WaitForTextPatternsSought.Count -Because 'no two resets share an array'
+        Assert-Equal -Expected 0 -Actual $again.LastFailedStepNumber
+        Assert-Equal -Expected $true -Actual $again.WaitForTextConsoleSignalsMeasured
+        Assert-Equal -Expected '' -Actual $again.LastFailedStepInvocationId
+    }
+
+    It 'keeps live failure state across a re-import and seeds a slot the store lacks' {
+        $store = Get-SequenceFailureState
+        $savedLabel = $store.LastFailureLabel
+        $savedSlot = $store.StepInputLost
+        try {
+            $store.LastFailureLabel = 'live label'
+            $store.Remove('StepInputLost')
+            Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.SequenceFailureState.psm1') -Force -DisableNameChecking
+            $after = Get-SequenceFailureState
+            Assert-True ([object]::ReferenceEquals($store, $after)) 'callers cache the store by reference'
+            Assert-Equal -Expected 'live label' -Actual $after.LastFailureLabel
+            Assert-True ($after.Contains('StepInputLost')) 'a declared slot the store lacked is seeded'
+        } finally {
+            $store.LastFailureLabel = $savedLabel
+            $store.StepInputLost = $savedSlot
+        }
+    }
+
+    It 'names only declared slots in the modules that read and write the store' {
+        # The store is a dictionary: a misspelled slot is silently a new one,
+        # written by one module and never read by the record.
+        $declared = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-SequenceFailureSlot | ForEach-Object Name), [StringComparer]::Ordinal)
+        $here = Split-Path -Parent $PSCommandPath
+        $unknown = foreach ($file in 'Test.SequenceEngine.psm1', 'Test.SequenceHandler.psm1', 'Test.SequenceFailureState.psm1') {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $here $file), [ref]$null, [ref]$null)
+            $uses = $ast.FindAll({ param($n)
+                ($n -is [System.Management.Automation.Language.MemberExpressionAst] -and
+                    $n -isnot [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
+                    $n.Expression -is [System.Management.Automation.Language.VariableExpressionAst] -and
+                    $n.Member -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+                    ($n.Expression.VariablePath.UserPath -ceq 'script:Fail' -or
+                        ($file -eq 'Test.SequenceFailureState.psm1' -and $n.Expression.VariablePath.UserPath -cin @('fail', 'State')))) -or
+                ($n -is [System.Management.Automation.Language.IndexExpressionAst] -and
+                    $n.Target -is [System.Management.Automation.Language.VariableExpressionAst] -and
+                    $n.Target.VariablePath.UserPath -in @('script:Fail', 'Store') -and
+                    $n.Index -is [System.Management.Automation.Language.StringConstantExpressionAst])
+            }, $true)
+            foreach ($use in $uses) {
+                $name = if ($use -is [System.Management.Automation.Language.IndexExpressionAst]) { $use.Index.Value } else { $use.Member.Value }
+                if (-not $declared.Contains($name)) { "${file}:$($use.Extent.StartLineNumber) $name" }
+            }
+        }
+        Assert-Equal -Expected 0 -Actual @($unknown).Count -Because "undeclared slots: $(@($unknown) -join '; ')"
+    }
+}
+
+Describe 'A failed wait leaves its evidence through one writer' {
+    BeforeEach {
+        # Wildcard characters in the folder and the VM name: a copy by -Path
+        # reads them as a pattern and copies nothing.
+        $script:EvidenceRoot = Join-Path $TestDrive 'screens[1]'
+        $script:EvidenceLog = Join-Path $TestDrive 'log'
+        $null = New-Item -ItemType Directory -Path $script:EvidenceRoot, $script:EvidenceLog -Force
+        $script:EvidenceFrame = Join-Path $script:EvidenceRoot 'raw_1.png'
+        [IO.File]::WriteAllBytes($script:EvidenceFrame, [byte[]](1, 2, 3))
+        $script:EvidenceState = [ordered]@{}
+        Reset-SequenceFailureSlot -Lifetime sequence -State $script:EvidenceState
+    }
+
+    It 'copies the frame and the text beside the record, even under wildcard characters, and keeps the last 1200 characters' {
+        $text = ('x' * 1300) + 'tail'
+        Save-WaitFailureEvidence -State $script:EvidenceState -LogDir $script:EvidenceLog -VMName 'vm[1]' -CapturePath $script:EvidenceFrame `
+            -OcrText $text -Pattern 'login:' -LivelockVerdict ([pscustomobject]@{ Verdict = 'livelocked' }) 6>$null
+        Assert-True (Test-Path -LiteralPath (Join-Path $script:EvidenceLog 'failure_screenshot_vm[1].png')) 'the frame is copied'
+        Assert-Equal -Expected $text -Actual (Get-Content -LiteralPath (Join-Path $script:EvidenceLog 'failure_ocr_vm[1].txt') -Raw).TrimEnd()
+        Assert-Equal -Expected 1200 -Actual $script:EvidenceState.WaitForTextOcrTail.Length
+        Assert-True ($script:EvidenceState.WaitForTextOcrTail.EndsWith('tail')) 'the record keeps the end of the text'
+        Assert-Equal -Expected 'login:' -Actual (@($script:EvidenceState.WaitForTextPatternsSought) -join ',')
+        Assert-True $script:EvidenceState.WaitForTextGuestLivelocked 'the verdict is recorded'
+    }
+
+    It 'records what was sought on a console that read blank, and writes no text file' {
+        Save-WaitFailureEvidence -State $script:EvidenceState -LogDir $script:EvidenceLog -VMName 'vm1' -CapturePath $script:EvidenceFrame -OcrText '' -Pattern 'login:' 6>$null
+        Assert-Equal -Expected 'login:' -Actual (@($script:EvidenceState.WaitForTextPatternsSought) -join ',')
+        Assert-False (Test-Path -LiteralPath (Join-Path $script:EvidenceLog 'failure_ocr_vm1.txt')) 'no text, no text file'
+        Assert-True ($null -eq $script:EvidenceState.WaitForTextOcrTail) 'no text, no tail'
+    }
+
+    It 'leaves the sought patterns alone for a wait that sought no text' {
+        $script:EvidenceState.WaitForTextPatternsSought = [string[]]@('earlier')
+        Save-WaitFailureEvidence -State $script:EvidenceState -LogDir $script:EvidenceLog -VMName 'vm1' -CapturePath $script:EvidenceFrame -OcrText 'stopping' 6>$null
+        Assert-Equal -Expected 'earlier' -Actual (@($script:EvidenceState.WaitForTextPatternsSought) -join ',')
+        Assert-Equal -Expected 'stopping' -Actual $script:EvidenceState.WaitForTextOcrTail
+    }
+
+    It 'is the only writer of the failure frame and text in the sequence modules' {
+        $here = Split-Path -Parent $PSCommandPath
+        foreach ($file in 'Test.SequenceEngine.psm1', 'Test.SequenceHandler.psm1') {
+            $text = Get-Content -Raw -LiteralPath (Join-Path $here $file)
+            Assert-False ($text -match 'failure_ocr_') "$file writes failure_ocr_ itself"
+            Assert-False ($text -match 'Copy-Item[^\r\n]*failure_screenshot_|failure_screenshot_[^\r\n]*\r?\n\s*Copy-Item') "$file copies a failure frame itself"
+            Assert-True ($text -match 'Save-WaitFailureEvidence -State \$script:Fail') "$file must use the shared writer"
+        }
     }
 }

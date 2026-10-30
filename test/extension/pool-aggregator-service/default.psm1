@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42cccee0-5874-465b-83ed-85e8f9c9e9d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,8 +60,8 @@ function Get-PoolAggregatorServiceManifest {
             'pool-aggregator-service.service'
         )
         ListenPort  = 9400
-        # The daemon registers these same five paths as named constants
-        # (main.go routeHealth..routeLabToken). The two sides are wired
+        # The daemon registers these same six paths as named constants
+        # (main.go routeHealth..routeFrameworkRing). The two sides are wired
         # independently, so a rename on one alone answers 404 to a host asking
         # the right question; route_names_test.go and
         # Test.ExtensionArea.Tests.ps1 fail the pair apart.
@@ -71,6 +71,7 @@ function Get-PoolAggregatorServiceManifest {
             Status = '/api/v1/pool-status'
             ExtensionHosts = '/api/v1/extension-hosts'
             LabToken = '/api/v1/lab-token'
+            FrameworkRing = '/api/v1/framework-ring'
         }
         InstallPath = '/usr/local/bin/pool-aggregator-service'
         ServicePath = '/etc/systemd/system/pool-aggregator-service.service'

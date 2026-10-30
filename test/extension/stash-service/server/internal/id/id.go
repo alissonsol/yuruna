@@ -2,8 +2,8 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 // GUID: 42204ae7-4aec-4b0f-9592-77b1f6418419
 
-// Package id implements the 4-character unique-ID allocator defined in
-// section 7 of the stash service spec.
+// Package id implements the 4-character unique-ID allocator described in
+// https://yuruna.link/429e934f-0009.
 //
 // Uniqueness scope: an ID must be free in BOTH namespaces it lands in --
 // the day folder that stores the artifact, and the metadata index, whose
@@ -42,7 +42,7 @@ import (
 // caller with no index -- a standalone tool, a test -- can pass nil.
 type ExistsFunc func(id string) (bool, error)
 
-// Allocator is the section 5.6 mutex-protected ID generator. Safe for use
+// Allocator is the mutex-protected ID generator (https://yuruna.link/429e934f-0009). Safe for use
 // from multiple goroutines.
 type Allocator struct {
 	mu         sync.Mutex
@@ -56,7 +56,7 @@ type Allocator struct {
 // given files roots and, when exists is non-nil, rejects any candidate it
 // reports as claimed. Pass the share's <StashFolder>/files/ AND the
 // VM-local buffer's files/ so a daemon restart mid-outage cannot reissue
-// an ID a not-yet-flushed buffered artifact already claims (section 7, section 8.4).
+// an ID a not-yet-flushed buffered artifact already claims (https://yuruna.link/429e934f-0009, https://yuruna.link/429e934f-000e).
 // A nil exists narrows the scope back to the day folders, which is enough
 // for a caller with no index behind it.
 func New(exists ExistsFunc, filesRoots ...string) *Allocator {

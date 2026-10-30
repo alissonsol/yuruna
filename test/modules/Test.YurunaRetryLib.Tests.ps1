@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -514,5 +514,35 @@ echo "$r"
         }
         $out = Invoke-RetryLibDriver -Driver $driver
         Assert-StringEqual -Actual $out -Expected '1 1 1 1 0 0 0 2 1 2 1 2 untouched 2 untouched' -Because "cert-failure re-anchor result was: '$out'"
+    }
+}
+
+# --- REGION: Pinned-digest verification
+Describe 'yuruna_verify_sha256' {
+    It 'accepts only a file whose SHA-256 equals a well-formed pin, in <Shell> Bash' -TestCases @(
+        @{ Shell = 'parent' }, @{ Shell = 'child' }
+    ) {
+        param($Shell)
+        if (-not $script:bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $driver = @'
+f="$(mktemp)"; printf 'artifact\n' > "$f"
+good="$(sha256sum "$f")"; good="${good%% *}"
+r=""
+yuruna_verify_sha256 "$f" "$good" artifact >/dev/null 2>&1; r="$r$? "
+yuruna_verify_sha256 "$f" "${good^^}" artifact >/dev/null 2>&1; r="$r$? "
+yuruna_verify_sha256 "$f" 0000000000000000000000000000000000000000000000000000000000000000 artifact >/dev/null 2>&1; r="$r$? "
+yuruna_verify_sha256 "$f" "" artifact >/dev/null 2>&1; r="$r$? "
+yuruna_verify_sha256 "$f" "${good:0:63}" artifact >/dev/null 2>&1; r="$r$? "
+yuruna_verify_sha256 "$f.missing" "$good" artifact >/dev/null 2>&1; r="$r$? "
+msg="$(yuruna_verify_sha256 "$f" "" artifact 2>&1)"
+case "$msg" in *"no valid pinned digest for artifact"*) r="${r}named" ;; *) r="${r}unnamed" ;; esac
+rm -f "$f"
+echo "$r"
+'@
+        if ($Shell -eq 'child') {
+            $driver = "bash <<'YURUNA_CHILD_BASH'`n" + $driver + "`nYURUNA_CHILD_BASH`n"
+        }
+        $out = Invoke-RetryLibDriver -Driver $driver
+        Assert-StringEqual -Actual $out -Expected '0 0 1 1 1 1 named' -Because "verification results were: '$out'"
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ebb62d-e1a8-4c57-811c-f982498db617
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,22 +36,12 @@ Import-Module powershell-yaml -ErrorAction Stop
 $script:RepoRoot    = Get-YurunaTestRepoRoot -SuiteDirectory $here
 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $script:ServicePath = Join-Path $script:RepoRoot 'test/service/Start-StatusService.ps1'
+$script:RuntimePath = Join-Path $script:RepoRoot 'test/service/Invoke-StatusServiceRuntime.ps1'
 $script:DiagnosticsGoPath = Join-Path $script:RepoRoot `
     'test/extension/pool-control-service/server/internal/httpsrv/diagnostics.go'
 
-# The generated server, produced the way the launcher produces it. The template
-# writes every runtime variable with a leading backtick so it survives
-# generation; reading the template would leave those backticks in place and
-# assert against text the host never runs. ExpandString performs exactly the
-# interpolation the here-string performs.
-function Get-GeneratedServerText {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    return Get-YurunaTestGeneratedServerText -Path $script:ServicePath -Expand { param($Raw) $ExecutionContext.InvokeCommand.ExpandString($Raw) }
-}
-
-$script:ServerText = Get-GeneratedServerText
+# The status service runtime the launcher runs.
+$script:ServerText = [IO.File]::ReadAllText($script:RuntimePath)
 $script:ServerAst = [Management.Automation.Language.Parser]::ParseInput($script:ServerText, [ref]$null, [ref]$null)
 
 function Get-FunctionFromServer {
@@ -156,15 +146,8 @@ function New-ArchiveFixtureRepo {
     [OutputType([hashtable])]
     param([string]$OriginUrl)
 
-    $dir = New-YurunaTestTempDir -Prefix 'archive-provenance'
-    $git = { param([string[]]$Arg) & git -C $dir @Arg 2>&1 | Out-Null }
-    & $git @('init', '--quiet')
-    & $git @('config', 'user.name', 'suite')
-    & $git @('config', 'user.email', 'suite@example.invalid')
-    [IO.File]::WriteAllText((Join-Path $dir 'VERSION'), "0.0.0`n")
-    & $git @('add', 'VERSION')
-    & $git @('commit', '--quiet', '-m', 'seed')
-    if ($OriginUrl) { & $git @('remote', 'add', 'origin', $OriginUrl) }
+    $dir = New-YurunaTestGitRepository -Prefix 'archive-provenance' -File @{ VERSION = "0.0.0`n" } -CommitMessage 'seed'
+    if ($OriginUrl) { & git -C $dir remote add origin $OriginUrl 2>&1 | Out-Null }
     $head = (& git -C $dir rev-parse HEAD 2>$null | Select-Object -First 1)
     return @{ Path = $dir; Head = ([string]$head).Trim() }
 }
@@ -227,7 +210,7 @@ Describe 'the committed-content tarball names the commit it was cut from' {
         $repo = New-ArchiveFixtureRepo
         try {
             [IO.File]::WriteAllText((Join-Path $repo.Path 'VERSION'), "0.0.1`n")
-            & git -C $repo.Path -c user.name=suite -c user.email=suite@example.invalid commit --quiet -am next 2>&1 | Out-Null
+            & git -C $repo.Path commit --quiet -am next 2>&1 | Out-Null
             $result = & $script:InvokeArchive $repo.Path 'GET' $repo.Head
             Assert-NoFinding @($result.ServerErr) 'the streamer reported an error'
             Assert-Equal -Expected 200 -Actual $result.StatusCode 'the named commit was not served'

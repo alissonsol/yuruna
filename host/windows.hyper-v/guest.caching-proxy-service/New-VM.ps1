@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4242f187-1ce6-46a5-a5a4-7c2435ed1ac1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,9 @@
 
 .PARAMETER AllowPseudoLocale
     Enable developer pseudo locales for this VM. Disabled by default.
+.PARAMETER PlanOnly
+    Resolve and check every input the build needs, report seed values that
+    would be baked empty, and exit 0 without changing anything.
 
 .EXAMPLE
     .\Get-Image.ps1
@@ -66,7 +69,8 @@ param(
     [int]$MemoryMb = 12288,
     [Parameter()]
     [string]$SquidCacheMem = '7 GB',
-    [switch]$AllowPseudoLocale
+    [switch]$AllowPseudoLocale,
+    [switch]$PlanOnly
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -115,10 +119,83 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# Assert-HyperVEnabled (Yuruna.Host.psm1) calls dism.exe directly instead
-# of Get-WindowsOptionalFeature -- avoids the "Class not registered" COM
-# failure that breaks first post-install runs on fresh Windows 11.
+# Assert-HyperVEnabled calls dism.exe directly instead of
+# Get-WindowsOptionalFeature -- avoids the "Class not registered" COM
+# failure on first post-install runs on fresh Windows 11.
 if (-not (Assert-HyperVEnabled)) { exit 1 }
+
+# --- REGION: Resolve the build plan
+# Every input that can refuse the build is read before anything is torn down,
+# so a missing key, password, template or network leaves the working VM
+# untouched. -PlanOnly stops after this region, having changed nothing.
+# --- REGION: Yuruna harness SSH key
+# See https://yuruna.link/42e220c4-0004
+# Seed the shared harness key so guest provisioning and failure diagnostics agree.
+$TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
+Import-Module $TestSshModule -Force
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+$SshAuthorizedKey = Get-YurunaSshPublicKey
+if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
+
+# --- REGION: Vault admin password
+# See https://yuruna.link/42f6b05f-0041
+# The runtime state file <track>/yuruna-caching-proxy-service.yml is the source of
+# truth; Set-Password rehydrates the vault from it before Get-Password.
+$_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
+$_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
+$persisted = (Read-CachingProxyServiceState).password
+if ($persisted) { Set-Password -Username 'caching-proxy-service-admin' -NewPassword $persisted }
+$AdminPassword = Get-Password -Username 'caching-proxy-service-admin'
+if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_47959938846e1bd4'); exit 1 }
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
+[void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false)
+$PasswordFile = Get-CachingProxyServiceStatePath
+
+# Check the shared seed templates before the guest network is resolved.
+foreach ($f in @((Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.base.user-data'),
+        (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.hyperv.overlay.yml'),
+        (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.meta-data'))) {
+    if (-not (Test-Path -LiteralPath $f)) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9a1ef2a7551102d0' -Arguments @{ f = "$f" })
+        exit 1
+    }
+}
+
+# --- REGION: Select the guest network
+# See https://yuruna.link/42e220c4-0004
+# Select the switch before resolving the host address reachable through it.
+$switchName = Resolve-HyperVGuestSwitch
+
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
+# Bake the status-service address reachable through the selected guest network.
+$YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Config.psm1') -Global -Force
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Locale.psm1') -Global -Force
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRootForExt
+$YurunaHostPort = $_statusSeed.Port
+$tc = $_statusSeed.Config
+$serviceLanguage = Resolve-SeedLanguageTag -Config $tc
+# A zot release this host's test.config.yml names in place of the seed's pin,
+# for when the pinned release cannot sync the lab's images.
+try { $zotOverride = Resolve-CachingProxyZotOverride -Config $tc }
+catch { Write-Error $_.Exception.Message; exit 1 }
+$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
+
+# --- REGION: Report seed values baked empty
+# The build goes on without them, because the guest can still serve, but it
+# reports each one so the Start says the bring-up is degraded instead of clean.
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
+if (-not $YurunaHostIp) { Write-SeedDegradation -VMName $VMName -Name 'hostAddress' }
+
+if ($PlanOnly) {
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.service_build_plan_accepted' -Arguments @{ vMName = "$VMName" })
+    exit 0
+}
 
 # --- REGION: Seek the base image
 # One VHDX backs every extension service on this host; this VM grows its own
@@ -134,10 +211,148 @@ if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSS
 Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# --- REGION: Remove existing VM
+# --- REGION: Pool storage replication
+# See https://yuruna.link/42f6b05f-0042
+# Bake the networkUser credential name, share path, and host id, resolved
+# here on the host (networkStorage pool config + vault).
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.PoolStorage.psm1') -Force
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.YurunaDir.psm1')   -Force
+$ypoolNasCfg = $null
+if ($tc) { try { $ypoolNasCfg = Get-YurunaPoolStorageConfig -Config $tc } catch { Write-Verbose "ypool-nas config: $_" } }
+$ypoolNasHostId = ''
+try { $ypoolNasHostId = [string](Get-YurunaHostId) } catch { $ypoolNasHostId = '' }
+if (-not $ypoolNasHostId) { $ypoolNasHostId = 'unknown-host' }
+$ypoolNasUser    = if ($ypoolNasCfg) { [string]$ypoolNasCfg.NetworkUser } else { '' }
+$ypoolNasNetPath = if ($ypoolNasCfg) { Get-PoolStorageUncPath -Path $ypoolNasCfg.NetworkPath -Style unix } else { '' }
+# Refuse to bake a value containing a single quote: it would unbalance the guest's
+# single-quoted, sourced /etc/yuruna/ypool-nas.env and could strand the guest's runcmd.
+if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4f836dfb9d84f4e5')
+    $ypoolNasUser = ''; $ypoolNasNetPath = ''
+}
+# REPLICATE turns on only when pool storage is configured; the NAS password
+# is NOT baked -- the config service serves it at runtime (/v1/nas/pool).
+$ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
+
+# --- REGION: Internal authentication key
+# See https://yuruna.link/42f6b05f-0042
+# Empty vaultKey means the token is unset: do NOT call Get-Password then (it
+# would auto-generate a junk per-host key). 'internal-auth-key' first, then the
+# legacy 'lab-auth-token' and 'pool-auth-token' names, so a host enrolled under
+# an older logical user rebuilds its proxy with the key the pool already shares.
+$internalAuthKey = ''
+# A read that THREW is not the same as a vault with no entry: the vault lock
+# can time out, and a mint on that path would replace a token the rest of the
+# lab still shares. Track the difference so only a completed read that found
+# nothing reaches the mint below.
+$keyReadFailed = $false
+try {
+    foreach ($keyLogical in @('internal-auth-key', 'lab-auth-token', 'pool-auth-token')) {
+        $paEff = Get-EffectiveUser -LogicalUser $keyLogical
+        if ($paEff.vaultKey -and (Test-VaultEntry -VaultKey $paEff.vaultKey)) {
+            $internalAuthKey = [string](Get-Password -Username $keyLogical)
+            break
+        }
+    }
+} catch {
+    $keyReadFailed = $true
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_7691e5e3206997ff' -Arguments @{ message = "$($_.Exception.Message)" }))
+}
+# Trim first, then refuse whatever survives. Every reader of the baked file strips
+# surrounding whitespace, so a stored value that merely picked up a trailing newline
+# is healed here rather than costing the proxy its key. Interior whitespace or a
+# quote has no safe reading: it would corrupt the baked key file or the runner's
+# bearer header.
+$internalAuthKey = $internalAuthKey.Trim()
+if ($internalAuthKey -match '[\s''"]') {
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_714943b9011e0bbd'))
+    $internalAuthKey = ''
+    $keyReadFailed = $true
+}
+# See https://yuruna.link/429f3d06-005f
+if ([string]::IsNullOrEmpty($internalAuthKey) -and -not $keyReadFailed) {
+    $internalAuthKey = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLowerInvariant()
+    Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking
+    $keyProvision = Set-InternalAuthKey -Token $internalAuthKey
+    if ($keyProvision.ok) {
+        # A warning, not a status line: this mint sets the key for the WHOLE lab, and
+        # it is silent from every other host's point of view. A pool that was already
+        # enrolled against an earlier proxy keeps the old key and reads as
+        # "onsite (token mismatch)" on the dashboard from the moment this proxy comes
+        # up, with no clue pointing back here.
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_2098089a9d722ad9' -Arguments @{ vaultKey = "$($keyProvision.vaultKey)" }))
+    } else {
+        Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_641824f231dc3781' -Arguments @{ keyChanged = "$($keyProvision.keyChanged)"; verified = "$($keyProvision.verified)" }))
+        $internalAuthKey = ''
+    }
+}
+
+# --- REGION: Docker Hub pull-through credential
 # See https://yuruna.link/42e220c4-0004
-# Runs AFTER the base image is confirmed so a failed image fetch never
-# destroys a working VM.
+# Only use stored Docker Hub credentials; a generated password cannot authenticate.
+$dockerHubUsername = ''
+$dockerHubToken    = ''
+$dockerHubWarned   = $false
+try {
+    $dhEff = Get-EffectiveUser -LogicalUser 'dockerhub-token'
+    if ($dhEff.vaultKey -and (Test-VaultEntry -VaultKey $dhEff.vaultKey)) {
+        $dockerHubToken = [string](Get-Password -Username 'dockerhub-token')
+        # loginUser falls back to the logical user's own name when the mapping
+        # names no account, so that value means "no username configured" rather
+        # than a Docker Hub identity.
+        if ($dhEff.loginUser -and ($dhEff.loginUser -ne 'dockerhub-token')) {
+            $dockerHubUsername = [string]$dhEff.loginUser
+        }
+    }
+} catch {
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_c8f003fc6b37a1de' -Arguments @{ message = "$($_.Exception.Message)" }))
+    $dockerHubWarned = $true
+}
+# Refuse a value carrying a control character, quote, or backslash: the guest
+# stores this pair as JSON. A control character or a bare quote leaves that file
+# unparseable, and a backslash is the JSON escape introducer, so a stored
+# backslash-n reads back as a newline -- a DIFFERENT secret, presented to Hub on
+# every sync in place of the anonymous path that would have been served.
+if (($dockerHubUsername -match '[\x00-\x1f\x7f''"\\]') -or ($dockerHubToken -match '[\x00-\x1f\x7f''"\\]')) {
+    Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_62a464c885f1b62c'))
+    $dockerHubUsername = ''
+    $dockerHubToken    = ''
+    $dockerHubWarned   = $true
+}
+# The pair travels together or not at all: an account name with no secret (or a
+# secret with no account name) authenticates as nobody, which is worse than the
+# anonymous path it replaces.
+if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
+    $dockerHubUsername = ''
+    $dockerHubToken    = ''
+    if (-not $dockerHubWarned) {
+        Write-Verbose ("Docker Hub: no complete credential (account name + secret) for logical user 'dockerhub-token' in this host's vault; the cache syncs " +
+            "anonymously against a pull budget shared by every guest behind this egress IP. Store the Hub account name as that user's localOsUser and its " +
+            "access token in the vault to move the cache onto the account's own budget.")
+    }
+}
+
+# --- REGION: Config service mTLS materials
+# See https://yuruna.link/42f6b05f-0042
+# Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
+# base64 so they survive the cloud-init write_files block scalar.
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.ConfigServiceCA.psm1') -Force
+$configPort = '8443'
+if ($tc -and $tc.configService -and $tc.configService.port) { $configPort = "$($tc.configService.port)" }
+$configClientCertB64 = ''
+$configClientKeyB64  = ''
+$configCaCertB64     = ''
+try {
+    $clientPem  = New-YurunaConfigClientCertificate -SubjectName $VMName -HostId $ypoolNasHostId
+    $utf8NoBom  = [System.Text.UTF8Encoding]::new($false)
+    $configClientCertB64 = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.CertificatePem))
+    $configClientKeyB64  = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.PrivateKeyPem))
+    $configCaCertB64     = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.CaCertificatePem))
+} catch {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d4180c81874e5196' -Arguments @{ message = "$($_.Exception.Message)" })
+}
+
+Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
 # Preserve a deployed root before replacing the only disk that holds its key.
 Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking
 $bumpCa = Get-YurunaBumpCa -Create -ReadExistingCa {
@@ -148,6 +363,78 @@ $bumpCa = Get-YurunaBumpCa -Create -ReadExistingCa {
     }
 } -Confirm:$false
 if (-not $bumpCa) { throw 'bump-ca-unavailable: existing proxy preserved' }
+
+# --- REGION: ssl-bump CA
+# The proxy bumps HTTPS with a CA this host keeps across rebuilds, so the
+# fingerprint every guest and host pins stays the same; see Get-YurunaBumpCa.
+Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Global -Force
+if (-not $bumpCa) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.bump_ca_unavailable'); exit 1 }
+$bumpCaCertB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($bumpCa.CertPem))
+$bumpCaKeyB64  = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($bumpCa.KeyPem))
+
+# --- REGION: Dashboard brand identity
+# The Grafana dashboards this VM serves name the enlistment that built it --
+# the same pair the host's status pages carry in their header. Resolved here
+# because the guest is handed built artifacts and never the framework
+# repository, so it has no way to answer this for itself.
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.FrameworkSource.psm1') -Force
+$brand = Get-YurunaBrandIdentity -RepoRoot $_repoRootForExt -Config $tc
+$gitMirrorSeed = Get-CachingProxyGitMirrorSeedSetting -RepoRoot $_repoRootForExt -Config $tc
+# A host that did not build this proxy trusts its CA through this statement,
+# signed with the key lab hosts enroll to verify mirror receipts; see
+# Resolve-YurunaPinnedProxyCa. No signing key means no statement.
+$proxyCaStatement = ConvertTo-YurunaProxyCaStatement -SigningKeyBase64 ([string]$gitMirrorSeed.SigningKeyBase64) -CaPem $bumpCa.CertPem
+$proxyCaStatementB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($proxyCaStatement))
+
+# --- REGION: Render user-data / meta-data
+# Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
+# caching-proxy-service.*). New-CloudInitUserData resolves placeholders with literal
+# .Replace(), so values carrying regex-special chars are safe.
+Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+$UserData = New-CloudInitUserData `
+    -BasePath    (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.base.user-data') `
+    -OverlayPath (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.hyperv.overlay.yml') `
+    -RepoRoot    $_repoRootForExt `
+    -Replacement @{
+        YURUNA_LANGUAGE_PLACEHOLDER = $serviceLanguage
+        YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
+        SQUID_CACHE_MEM_PLACEHOLDER    = $SquidCacheMem
+        SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
+        PASSWORD_PLACEHOLDER           = $AdminPassword
+        YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
+        YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
+        YPOOL_NAS_REPLICATE_PLACEHOLDER     = $ypoolNasReplicate
+        YPOOL_NAS_NETWORK_PATH_PLACEHOLDER  = $ypoolNasNetPath
+        YPOOL_NAS_NETWORK_USER_PLACEHOLDER  = $ypoolNasUser
+        YPOOL_NAS_HOST_ID_PLACEHOLDER       = $ypoolNasHostId
+        INTERNAL_AUTH_KEY_PLACEHOLDER  = $internalAuthKey
+        YURUNA_DOCKERHUB_USERNAME_PLACEHOLDER = $dockerHubUsername
+        YURUNA_DOCKERHUB_TOKEN_PLACEHOLDER    = $dockerHubToken
+        YURUNA_CONFIG_SERVICE_PORT_PLACEHOLDER               = $configPort
+        YURUNA_CONFIG_SERVICE_CLIENT_CERT_BASE64_PLACEHOLDER = $configClientCertB64
+        YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER  = $configClientKeyB64
+        YURUNA_BUMP_CA_CERT_BASE64_PLACEHOLDER               = $bumpCaCertB64
+        YURUNA_BUMP_CA_KEY_BASE64_PLACEHOLDER                = $bumpCaKeyB64
+        YURUNA_PROXY_CA_STATEMENT_BASE64_PLACEHOLDER = $proxyCaStatementB64
+        YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configCaCertB64
+        YURUNA_BRAND_NAME_PLACEHOLDER    = $brand.Name
+        YURUNA_BRAND_VERSION_PLACEHOLDER = $brand.Version
+        YURUNA_GIT_MIRROR_SIGNING_KEY_BASE64_PLACEHOLDER = $gitMirrorSeed.SigningKeyBase64
+        YURUNA_GIT_MIRROR_TOKEN_BASE64_PLACEHOLDER = $gitMirrorSeed.TokenBase64
+        YURUNA_GIT_MIRROR_REPOSITORIES_BASE64_PLACEHOLDER = $gitMirrorSeed.RepositoriesBase64
+        YURUNA_GIT_MIRROR_REFRESH_SECONDS_PLACEHOLDER = $gitMirrorSeed.RefreshSeconds
+        YURUNA_GIT_MIRROR_BUILD_REPOSITORY_PLACEHOLDER = $gitMirrorSeed.BuildRepository
+        YURUNA_GIT_MIRROR_BUILD_COMMIT_PLACEHOLDER = $gitMirrorSeed.BuildCommit
+        YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER = $zotOverride.Version
+        YURUNA_ZOT_OVERRIDE_SHA256_PLACEHOLDER  = $zotOverride.Sha256
+    } `
+    -AllowedUnresolved 'AGGREGATOR_BASE_PLACEHOLDER' `
+    -Confirm:$false
+
+# --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
+# Runs after the plan, the base image and the rendered seed are confirmed,
+# so a refused input or a failed fetch never destroys a working VM.
 
 Remove-HyperVGuestDefinition -VMName $VMName -Confirm:$false
 
@@ -174,7 +461,6 @@ if (-not (Expand-ExtensionVmDisk -Path $vhdxFile -SizeBytes 512GB -Format 'vhdx'
 # The seed carries the admin password. It is staged in a private workspace
 # beside the disk (owner, SYSTEM and Administrators only), published as an
 # image only the new VM may read, and removed on every exit by the finally below.
-# meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
 Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
 $seedWorkspace = $null
@@ -182,264 +468,9 @@ try {
     $seedWorkspace = New-SeedMediaWorkspace -ParentPath $vmDir
     $SeedDir = $seedWorkspace.Source
 
+    # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
     Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy-service.meta-data') -Destination "$SeedDir/meta-data"
 
-    # --- REGION: Yuruna harness SSH key
-    # See https://yuruna.link/42e220c4-0004
-    # Seed the shared harness key so guest provisioning and failure diagnostics agree.
-    $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
-    Import-Module $TestSshModule -Force
-    Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-    $SshAuthorizedKey = Get-YurunaSshPublicKey
-    if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
-
-    # --- REGION: Vault admin password
-    # See https://yuruna.link/42f6b05f-0041
-    # The runtime state file <track>/yuruna-caching-proxy-service.yml is the source of
-    # truth; Set-Password rehydrates the vault from it before Get-Password.
-    $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
-    Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
-    Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
-    $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-    $persisted = (Read-CachingProxyServiceState).password
-    if ($persisted) { Set-Password -Username 'caching-proxy-service-admin' -NewPassword $persisted }
-    $AdminPassword = Get-Password -Username 'caching-proxy-service-admin'
-    if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_47959938846e1bd4'); exit 1 }
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
-    [void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false)
-    # Resolve the file path once for the Write-Output lines below.
-    $PasswordFile = Get-CachingProxyServiceStatePath
-
-    # --- REGION: Select the guest network
-    # See https://yuruna.link/42e220c4-0004
-    # Select the switch before resolving the host address reachable through it.
-    $switchName = Resolve-HyperVGuestSwitch
-
-    # --- REGION: Yuruna host coordinates
-    # See https://yuruna.link/4220a755-001b
-    # Bake the status-service address reachable through the selected guest network.
-    $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
-    if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-    Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Config.psm1') -Global -Force
-    Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Locale.psm1') -Global -Force
-    $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRootForExt
-    $YurunaHostPort = $_statusSeed.Port
-    $tc = $_statusSeed.Config
-    $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
-    # A zot release this host's test.config.yml names in place of the seed's pin,
-    # for when the pinned release cannot sync the lab's images.
-    try { $zotOverride = Resolve-CachingProxyZotOverride -Config $tc }
-    catch { Write-Error $_.Exception.Message; exit 1 }
-    $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
-
-    # --- REGION: Pool storage replication
-    # See https://yuruna.link/42f6b05f-0042
-    # Bake the networkUser credential name, share path, and host id, resolved
-    # here on the host (networkStorage pool config + vault).
-    Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.PoolStorage.psm1') -Force
-    Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.YurunaDir.psm1')   -Force
-    $ypoolNasCfg = $null
-    if ($tc) { try { $ypoolNasCfg = Get-YurunaPoolStorageConfig -Config $tc } catch { Write-Verbose "ypool-nas config: $_" } }
-    $ypoolNasHostId = ''
-    try { $ypoolNasHostId = [string](Get-YurunaHostId) } catch { $ypoolNasHostId = '' }
-    if (-not $ypoolNasHostId) { $ypoolNasHostId = 'unknown-host' }
-    $ypoolNasUser    = if ($ypoolNasCfg) { [string]$ypoolNasCfg.NetworkUser } else { '' }
-    $ypoolNasNetPath = if ($ypoolNasCfg) { Get-PoolStorageUncPath -Path $ypoolNasCfg.NetworkPath -Style unix } else { '' }
-    # Refuse to bake a value containing a single quote: it would unbalance the guest's
-    # single-quoted, sourced /etc/yuruna/ypool-nas.env and could strand the guest's runcmd.
-    if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_4f836dfb9d84f4e5')
-        $ypoolNasUser = ''; $ypoolNasNetPath = ''
-    }
-    # REPLICATE turns on only when pool storage is configured; the NAS password
-    # is NOT baked -- the config service serves it at runtime (/v1/nas/pool).
-    $ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
-
-    # --- REGION: Internal authentication key
-    # See https://yuruna.link/42f6b05f-0042
-    # Empty vaultKey means the token is unset: do NOT call Get-Password then (it
-    # would auto-generate a junk per-host key). 'internal-auth-key' first, then the
-    # legacy 'lab-auth-token' and 'pool-auth-token' names, so a host enrolled under
-    # an older logical user rebuilds its proxy with the key the pool already shares.
-    $internalAuthKey = ''
-    # A read that THREW is not the same as a vault with no entry: the vault lock
-    # can time out, and a mint on that path would replace a token the rest of the
-    # lab still shares. Track the difference so only a completed read that found
-    # nothing reaches the mint below.
-    $keyReadFailed = $false
-    try {
-        foreach ($keyLogical in @('internal-auth-key', 'lab-auth-token', 'pool-auth-token')) {
-            $paEff = Get-EffectiveUser -LogicalUser $keyLogical
-            if ($paEff.vaultKey -and (Test-VaultEntry -VaultKey $paEff.vaultKey)) {
-                $internalAuthKey = [string](Get-Password -Username $keyLogical)
-                break
-            }
-        }
-    } catch {
-        $keyReadFailed = $true
-        Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_7691e5e3206997ff' -Arguments @{ message = "$($_.Exception.Message)" }))
-    }
-    # Trim first, then refuse whatever survives. Every reader of the baked file strips
-    # surrounding whitespace, so a stored value that merely picked up a trailing newline
-    # is healed here rather than costing the proxy its key. Interior whitespace or a
-    # quote has no safe reading: it would corrupt the baked key file or the runner's
-    # bearer header.
-    $internalAuthKey = $internalAuthKey.Trim()
-    if ($internalAuthKey -match '[\s''"]') {
-        Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_714943b9011e0bbd'))
-        $internalAuthKey = ''
-        $keyReadFailed = $true
-    }
-    # See https://yuruna.link/429f3d06-005f
-    if ([string]::IsNullOrEmpty($internalAuthKey) -and -not $keyReadFailed) {
-        $internalAuthKey = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLowerInvariant()
-        Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking
-        $keyProvision = Set-InternalAuthKey -Token $internalAuthKey
-        if ($keyProvision.ok) {
-            # A warning, not a status line: this mint sets the key for the WHOLE lab, and
-            # it is silent from every other host's point of view. A pool that was already
-            # enrolled against an earlier proxy keeps the old key and reads as
-            # "onsite (token mismatch)" on the dashboard from the moment this proxy comes
-            # up, with no clue pointing back here.
-            Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_2098089a9d722ad9' -Arguments @{ vaultKey = "$($keyProvision.vaultKey)" }))
-        } else {
-            Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_641824f231dc3781' -Arguments @{ keyChanged = "$($keyProvision.keyChanged)"; verified = "$($keyProvision.verified)" }))
-            $internalAuthKey = ''
-        }
-    }
-
-    # --- REGION: Docker Hub pull-through credential
-    # See https://yuruna.link/42e220c4-0004
-    # Only use stored Docker Hub credentials; a generated password cannot authenticate.
-    $dockerHubUsername = ''
-    $dockerHubToken    = ''
-    $dockerHubWarned   = $false
-    try {
-        $dhEff = Get-EffectiveUser -LogicalUser 'dockerhub-token'
-        if ($dhEff.vaultKey -and (Test-VaultEntry -VaultKey $dhEff.vaultKey)) {
-            $dockerHubToken = [string](Get-Password -Username 'dockerhub-token')
-            # loginUser falls back to the logical user's own name when the mapping
-            # names no account, so that value means "no username configured" rather
-            # than a Docker Hub identity.
-            if ($dhEff.loginUser -and ($dhEff.loginUser -ne 'dockerhub-token')) {
-                $dockerHubUsername = [string]$dhEff.loginUser
-            }
-        }
-    } catch {
-        Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_c8f003fc6b37a1de' -Arguments @{ message = "$($_.Exception.Message)" }))
-        $dockerHubWarned = $true
-    }
-    # Refuse a value carrying a control character, quote, or backslash: the guest
-    # stores this pair as JSON. A control character or a bare quote leaves that file
-    # unparseable, and a backslash is the JSON escape introducer, so a stored
-    # backslash-n reads back as a newline -- a DIFFERENT secret, presented to Hub on
-    # every sync in place of the anonymous path that would have been served.
-    if (($dockerHubUsername -match '[\x00-\x1f\x7f''"\\]') -or ($dockerHubToken -match '[\x00-\x1f\x7f''"\\]')) {
-        Write-Warning ((Format-YurunaOperatorMessage -Key 'host.operator_62a464c885f1b62c'))
-        $dockerHubUsername = ''
-        $dockerHubToken    = ''
-        $dockerHubWarned   = $true
-    }
-    # The pair travels together or not at all: an account name with no secret (or a
-    # secret with no account name) authenticates as nobody, which is worse than the
-    # anonymous path it replaces.
-    if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
-        $dockerHubUsername = ''
-        $dockerHubToken    = ''
-        if (-not $dockerHubWarned) {
-            Write-Verbose ("Docker Hub: no complete credential (account name + secret) for logical user 'dockerhub-token' in this host's vault; the cache syncs " +
-                "anonymously against a pull budget shared by every guest behind this egress IP. Store the Hub account name as that user's localOsUser and its " +
-                "access token in the vault to move the cache onto the account's own budget.")
-        }
-    }
-
-    # --- REGION: Config service mTLS materials
-    # See https://yuruna.link/42f6b05f-0042
-    # Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
-    # base64 so they survive the cloud-init write_files block scalar.
-    Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.ConfigServiceCA.psm1') -Force
-    $configPort = '8443'
-    if ($tc -and $tc.configService -and $tc.configService.port) { $configPort = "$($tc.configService.port)" }
-    $configClientCertB64 = ''
-    $configClientKeyB64  = ''
-    $configCaCertB64     = ''
-    try {
-        $clientPem  = New-YurunaConfigClientCertificate -SubjectName $VMName -HostId $ypoolNasHostId
-        $utf8NoBom  = [System.Text.UTF8Encoding]::new($false)
-        $configClientCertB64 = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.CertificatePem))
-        $configClientKeyB64  = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.PrivateKeyPem))
-        $configCaCertB64     = [Convert]::ToBase64String($utf8NoBom.GetBytes($clientPem.CaCertificatePem))
-    } catch {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d4180c81874e5196' -Arguments @{ message = "$($_.Exception.Message)" })
-    }
-
-    # --- REGION: ssl-bump CA
-    # The proxy bumps HTTPS with a CA this host keeps across rebuilds, so the
-    # fingerprint every guest and host pins stays the same; see Get-YurunaBumpCa.
-    Import-Module (Join-Path $PSScriptRoot '../../../test/modules/Test.CachingProxyService.psm1') -Global -Force
-    if (-not $bumpCa) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.bump_ca_unavailable'); exit 1 }
-    $bumpCaCertB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($bumpCa.CertPem))
-    $bumpCaKeyB64  = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($bumpCa.KeyPem))
-
-    # --- REGION: Dashboard brand identity
-    # The Grafana dashboards this VM serves name the enlistment that built it --
-    # the same pair the host's status pages carry in their header. Resolved here
-    # because the guest is handed built artifacts and never the framework
-    # repository, so it has no way to answer this for itself.
-    Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.FrameworkSource.psm1') -Force
-    $brand = Get-YurunaBrandIdentity -RepoRoot $_repoRootForExt -Config $tc
-    $gitMirrorSeed = Get-CachingProxyGitMirrorSeedSetting -RepoRoot $_repoRootForExt -Config $tc
-    # A host that did not build this proxy trusts its CA through this statement,
-    # signed with the key lab hosts enroll to verify mirror receipts; see
-    # Resolve-YurunaPinnedProxyCa. No signing key means no statement.
-    $proxyCaStatement = ConvertTo-YurunaProxyCaStatement -SigningKeyBase64 ([string]$gitMirrorSeed.SigningKeyBase64) -CaPem $bumpCa.CertPem
-    $proxyCaStatementB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($proxyCaStatement))
-
-    # --- REGION: Render user-data / meta-data
-    # Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
-    # caching-proxy-service.*). New-CloudInitUserData resolves placeholders with literal
-    # .Replace(), so values carrying regex-special chars are safe.
-    Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-    $UserData = New-CloudInitUserData `
-        -BasePath    (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.base.user-data') `
-        -OverlayPath (Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.hyperv.overlay.yml') `
-        -RepoRoot    $_repoRootForExt `
-        -Replacement @{
-            YURUNA_LANGUAGE_PLACEHOLDER = $serviceLanguage
-            YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
-            SQUID_CACHE_MEM_PLACEHOLDER    = $SquidCacheMem
-            SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
-            PASSWORD_PLACEHOLDER           = $AdminPassword
-            YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
-            YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
-            YPOOL_NAS_REPLICATE_PLACEHOLDER     = $ypoolNasReplicate
-            YPOOL_NAS_NETWORK_PATH_PLACEHOLDER  = $ypoolNasNetPath
-            YPOOL_NAS_NETWORK_USER_PLACEHOLDER  = $ypoolNasUser
-            YPOOL_NAS_HOST_ID_PLACEHOLDER       = $ypoolNasHostId
-            INTERNAL_AUTH_KEY_PLACEHOLDER  = $internalAuthKey
-            YURUNA_DOCKERHUB_USERNAME_PLACEHOLDER = $dockerHubUsername
-            YURUNA_DOCKERHUB_TOKEN_PLACEHOLDER    = $dockerHubToken
-            YURUNA_CONFIG_SERVICE_PORT_PLACEHOLDER               = $configPort
-            YURUNA_CONFIG_SERVICE_CLIENT_CERT_BASE64_PLACEHOLDER = $configClientCertB64
-            YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER  = $configClientKeyB64
-            YURUNA_BUMP_CA_CERT_BASE64_PLACEHOLDER               = $bumpCaCertB64
-            YURUNA_BUMP_CA_KEY_BASE64_PLACEHOLDER                = $bumpCaKeyB64
-            YURUNA_PROXY_CA_STATEMENT_BASE64_PLACEHOLDER = $proxyCaStatementB64
-            YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configCaCertB64
-            YURUNA_BRAND_NAME_PLACEHOLDER    = $brand.Name
-            YURUNA_BRAND_VERSION_PLACEHOLDER = $brand.Version
-            YURUNA_GIT_MIRROR_SIGNING_KEY_BASE64_PLACEHOLDER = $gitMirrorSeed.SigningKeyBase64
-            YURUNA_GIT_MIRROR_TOKEN_BASE64_PLACEHOLDER = $gitMirrorSeed.TokenBase64
-            YURUNA_GIT_MIRROR_REPOSITORIES_BASE64_PLACEHOLDER = $gitMirrorSeed.RepositoriesBase64
-            YURUNA_GIT_MIRROR_REFRESH_SECONDS_PLACEHOLDER = $gitMirrorSeed.RefreshSeconds
-            YURUNA_GIT_MIRROR_BUILD_REPOSITORY_PLACEHOLDER = $gitMirrorSeed.BuildRepository
-            YURUNA_GIT_MIRROR_BUILD_COMMIT_PLACEHOLDER = $gitMirrorSeed.BuildCommit
-            YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER = $zotOverride.Version
-            YURUNA_ZOT_OVERRIDE_SHA256_PLACEHOLDER  = $zotOverride.Sha256
-        } `
-        -AllowedUnresolved 'AGGREGATOR_BASE_PLACEHOLDER' `
-        -Confirm:$false
     Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
     # --- REGION: https://yuruna.link/4220a755-000b

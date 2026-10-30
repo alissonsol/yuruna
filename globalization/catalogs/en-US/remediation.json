@@ -106,6 +106,43 @@
       "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
       "lifecycle": "active"
     },
+    "remediation.kernel_stall_rationale": {
+      "message": "wait_timeout on {vmName}: the guest kernel stopped making progress (kernel reports: {kinds}; virtual processors that serviced no interrupt: {processors}), so the script could not finish. This is not a slow package mirror, and re-running the step on the same guest cannot help.",
+      "description": "Rationale of the wait_timeout recovery handler in test/modules/Test.Remediation.psm1 when the record shows a wedged guest kernel. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.vmName)"
+        },
+        "kinds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.guestKernelFaultKinds -join ', ')"
+        },
+        "processors": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($c.Context.silentProcessors -join ', ')"
+        }
+      }
+    },
+    "remediation.kernel_stall_action_evidence": {
+      "message": "Read causeDetail.guestKernelFault and causeDetail.guestLivelock.processorWindow in last_failure.json, and the kernel's reports in the guest folder's serial-console.log",
+      "description": "Action of the wait_timeout recovery handler in test/modules/Test.Remediation.psm1 when the record shows a wedged guest kernel.",
+      "lifecycle": "active"
+    },
+    "remediation.kernel_stall_action_rerun": {
+      "message": "Run the sequence on a new VM; a guest whose kernel wedged does not recover",
+      "description": "Action of the wait_timeout recovery handler in test/modules/Test.Remediation.psm1 when the record shows a wedged guest kernel.",
+      "lifecycle": "active"
+    },
+    "remediation.kernel_stall_action_family": {
+      "message": "On the ARM64 Hyper-V host, read the guest kernel wedges section of docs/host-hyperv.md (https://yuruna.link/42dc5bb9-0014) to date the wedge and tell its shape",
+      "description": "Action of the wait_timeout recovery handler in test/modules/Test.Remediation.psm1 when the record shows a wedged guest kernel.",
+      "lifecycle": "active"
+    },
     "remediation.operator_14bd8c7afa68b453": {
       "message": "Re-run the sequence from the failing step",
       "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",

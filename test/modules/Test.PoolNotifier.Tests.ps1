@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4295c2e6-31ed-4bb7-902e-162727b73349
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -320,7 +320,7 @@ Describe 'Invoke-PoolNotifierCycle keeps draining on an unreadable transport but
         if ($script:pnMountShim)   { Remove-Item Function:\Test-YurunaPoolStorageMounted -Force -ErrorAction SilentlyContinue }
     }
     It 'warns + drains already-queued messages when readiness is unreadable' {
-        $saved = $env:YURUNA_RUNTIME_DIR
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = 'pn-rt'
             Mock -ModuleName Test.PoolNotifier Get-YurunaPoolStorageConfig { @{ LocalPath = 'x' } }
@@ -335,14 +335,14 @@ Describe 'Invoke-PoolNotifierCycle keeps draining on an unreadable transport but
             Assert-Equal -Expected 'transports.yml unreadable this cycle' -Actual $s.reason -Because 'distinct reason'
             Assert-Equal -Expected 2 -Actual $s.delivered -Because 'already-queued messages drained'
             Should -Invoke -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 1 -Exactly -Scope It
-        } finally { $env:YURUNA_RUNTIME_DIR = $saved }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
     It 'drains queued messages when a ready transport has no readable aggregator gauge' -ForEach @(
         @{ Address = ''; GaugeAvailable = $false }
         @{ Address = '192.0.2.9'; GaugeAvailable = $false }
     ) {
-        $savedRuntime = $env:YURUNA_RUNTIME_DIR
-        $savedIp = $env:YURUNA_CACHING_PROXY_SERVICE_IP
+        $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $savedIp = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
         try {
             $env:YURUNA_RUNTIME_DIR = $TestDrive
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = $Address
@@ -358,13 +358,13 @@ Describe 'Invoke-PoolNotifierCycle keeps draining on an unreadable transport but
             $summary.delivered | Should -Be 2
             Should -Invoke -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 1 -Exactly
         } finally {
-            $env:YURUNA_RUNTIME_DIR = $savedRuntime
-            $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedIp
+            Restore-YurunaTestEnvironment -Saved $savedRuntime
+            Restore-YurunaTestEnvironment -Saved $savedIp
         }
     }
 
     It 'does NOT drain when readiness is unconfigured (clean no-op)' {
-        $saved = $env:YURUNA_RUNTIME_DIR
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = 'pn-rt'
             Mock -ModuleName Test.PoolNotifier Get-YurunaPoolStorageConfig { @{ LocalPath = 'x' } }
@@ -377,7 +377,7 @@ Describe 'Invoke-PoolNotifierCycle keeps draining on an unreadable transport but
             Assert-False $s.ran 'unconfigured -> clean no-op, did not run'
             Assert-Equal -Expected 'pool.alert transport not configured on this host' -Actual $s.reason -Because 'unconfigured reason'
             Should -Invoke -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 0 -Exactly -Scope It
-        } finally { $env:YURUNA_RUNTIME_DIR = $saved }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 }
 
@@ -407,7 +407,7 @@ Describe 'Invoke-PoolNotifierCycle runs once at a time on a host' {
         Mock -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery { @{ delivered = 1; failed = 0; retried = 0 } }
     }
     It 'stays out while another live run holds the lock, and releases its own' {
-        $saved = $env:YURUNA_RUNTIME_DIR
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = $TestDrive
             $lock = Join-Path $TestDrive 'pool.notifier.lock'
@@ -420,6 +420,87 @@ Describe 'Invoke-PoolNotifierCycle runs once at a time on a host' {
             $free = Invoke-PoolNotifierCycle
             $free.ran | Should -BeTrue
             Test-Path -LiteralPath $lock | Should -BeFalse -Because 'the run releases the lock it took'
-        } finally { $env:YURUNA_RUNTIME_DIR = $saved }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+    }
+}
+
+Describe 'Disabled automatic recovery reaches the pool spool' {
+    BeforeAll {
+        if (-not (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue)) {
+            function global:Get-YurunaPoolStorageConfig { param($Config) $null = $Config }
+            $script:pnRecoveryStorageShim = $true
+        }
+        if (-not (Get-Command Test-YurunaPoolStorageMounted -ErrorAction SilentlyContinue)) {
+            function global:Test-YurunaPoolStorageMounted { param($Config) $null = $Config; $true }
+            $script:pnRecoveryMountShim = $true
+        }
+        function Set-RecoveryHealthMarker {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes the marker into the case''s scratch runtime directory.')]
+            param([string]$RuntimeDir, [string]$State, [string]$SinceUtc)
+            $doc = [ordered]@{ schemaVersion = 1; state = $State; ledgerPath = (Join-Path $RuntimeDir 'recovery.ledger.jsonl'); sinceUtc = $SinceUtc }
+            [IO.File]::WriteAllText((Join-Path $RuntimeDir 'recovery.health.json'), ($doc | ConvertTo-Json -Compress))
+        }
+    }
+    AfterAll {
+        if ($script:pnRecoveryStorageShim) { Remove-Item Function:\Get-YurunaPoolStorageConfig -Force -ErrorAction SilentlyContinue }
+        if ($script:pnRecoveryMountShim) { Remove-Item Function:\Test-YurunaPoolStorageMounted -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'queues one notice per episode, forgets it when the marker goes, and queues the next one' {
+        $runtime = Join-Path $TestDrive 'rt-episode'
+        $spool = Join-Path $TestDrive 'spool-episode'
+        $null = New-Item -ItemType Directory -Force -Path $runtime
+        [IO.File]::WriteAllText((Join-Path $runtime 'host.uuid'), "42abc`n")
+        Assert-Equal 0 (Add-RecoveryDisabledSpoolEntry -RuntimeDir $runtime -SpoolRoot $spool) 'no marker, nothing queued'
+        Set-RecoveryHealthMarker -RuntimeDir $runtime -State 'ledger-unwritable' -SinceUtc '2026-10-26T01:00:00.0000000Z'
+        Assert-Equal 1 (Add-RecoveryDisabledSpoolEntry -RuntimeDir $runtime -SpoolRoot $spool)
+        Assert-Equal 0 (Add-RecoveryDisabledSpoolEntry -RuntimeDir $runtime -SpoolRoot $spool) 'the same episode is queued once'
+        $queued = @(Get-ChildItem -LiteralPath (Join-Path $spool 'outgoing') -Filter '*.json')
+        Assert-Equal 1 $queued.Count
+        $message = Get-Content -Raw -LiteralPath $queued[0].FullName | ConvertFrom-Json -AsHashtable
+        Assert-Equal 'pool.alert' $message['eventCode']
+        Assert-Equal 'recovery_disabled' $message['event']
+        Assert-Equal 'ledger-unwritable' $message['state']
+        Assert-Equal '42abc' $message['hostId']
+        Assert-True ([string]$message['id']).StartsWith('recovery-42abc-') 'the id names the host'
+        Assert-True ([string]$message['subject']).Contains('ledger-unwritable') 'the subject names the state'
+        Remove-Item -LiteralPath (Join-Path $runtime 'recovery.health.json')
+        Assert-Equal 0 (Add-RecoveryDisabledSpoolEntry -RuntimeDir $runtime -SpoolRoot $spool)
+        $state = Get-Content -Raw -LiteralPath (Join-Path $runtime 'pool.notifier.state.json') | ConvertFrom-Json -AsHashtable
+        Assert-False ($state.ContainsKey('recovery')) 'a cleared marker forgets the episode'
+        Set-RecoveryHealthMarker -RuntimeDir $runtime -State 'ledger-unwritable' -SinceUtc '2026-10-26T03:00:00.0000000Z'
+        Start-Sleep -Milliseconds 1100
+        Assert-Equal 1 (Add-RecoveryDisabledSpoolEntry -RuntimeDir $runtime -SpoolRoot $spool) 'a later episode is queued again'
+        Assert-Equal 2 @(Get-ChildItem -LiteralPath (Join-Path $spool 'outgoing') -Filter '*.json').Count
+    }
+
+    It 'leaves the episode pending when the spool cannot be written' {
+        $runtime = Join-Path $TestDrive 'rt-pending'
+        $null = New-Item -ItemType Directory -Force -Path $runtime
+        Set-RecoveryHealthMarker -RuntimeDir $runtime -State 'ledger-unreadable' -SinceUtc '2026-10-26T02:00:00.0000000Z'
+        Mock -ModuleName Test.PoolNotifier Write-PoolSpoolMessage { $false }
+        Assert-Equal 0 (Add-RecoveryDisabledSpoolEntry -RuntimeDir $runtime -SpoolRoot (Join-Path $TestDrive 'spool-pending'))
+        Assert-False (Test-Path -LiteralPath (Join-Path $runtime 'pool.notifier.state.json')) 'nothing records an episode that was not queued'
+    }
+
+    It 'queues the notice from a host that is not elected to deliver, without draining' {
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        try {
+            $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'rt-unelected'
+            $spool = Join-Path $TestDrive 'spool-unelected'
+            $null = New-Item -ItemType Directory -Force -Path $env:YURUNA_RUNTIME_DIR
+            Set-RecoveryHealthMarker -RuntimeDir $env:YURUNA_RUNTIME_DIR -State 'ledger-unreadable' -SinceUtc '2026-10-26T04:00:00.0000000Z'
+            Mock -ModuleName Test.PoolNotifier Get-YurunaPoolStorageConfig { @{ LocalPath = 'x' } }
+            Mock -ModuleName Test.PoolNotifier Test-YurunaPoolStorageMounted { $true }
+            Mock -ModuleName Test.PoolNotifier Get-PoolNotifierSpoolRoot { $spool }
+            Mock -ModuleName Test.PoolNotifier Get-PoolNotifierReadiness { @{ Ready = $false; State = 'unconfigured'; Reason = 'pool.alert transport not configured on this host' } }
+            Mock -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery { @{ delivered = 9; failed = 0; retried = 0 } }
+            $summary = Invoke-PoolNotifierCycle
+            Assert-False $summary.ran 'an unelected host still delivers nothing'
+            Assert-Equal 1 $summary.enqueued
+            Assert-Equal 1 @(Get-ChildItem -LiteralPath (Join-Path $spool 'outgoing') -Filter '*.json').Count
+            Should -Invoke -ModuleName Test.PoolNotifier Invoke-PoolNotifierDelivery -Times 0 -Exactly -Scope It
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 }

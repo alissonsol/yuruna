@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42539169-cf17-4eb5-b0d6-c972156d3841
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -363,13 +363,160 @@ Describe 'Get-YurunaSshHostKeyOption' {
         }
     }
 
-    It 'reads nothing from the host, so the sequence cannot differ between platforms' {
-        $definition = (Get-Command Get-YurunaSshHostKeyOption).ScriptBlock.Ast
-        $lookups = @($definition.FindAll({
-                    param($node)
-                    $node -is [System.Management.Automation.Language.VariableExpressionAst] -or
-                    $node -is [System.Management.Automation.Language.CommandAst]
-                }, $true))
-        $lookups.Count | Should -Be 0 -Because 'a platform, environment or path lookup would let the options vary by host'
+    It 'keeps the same fixed sequence for an address target or no target on every platform' {
+        $fixed = @('-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'GlobalKnownHostsFile=/dev/null')
+        foreach ($target in @('', '192.168.1.40', 'fe80::1')) {
+            @(Get-YurunaSshHostKeyOption -VMName $target) | Should -BeExactly $fixed -Because "'$target' carries no guest identity to pin"
+        }
+    }
+}
+
+Describe 'Per-guest SSH host key pins' {
+    # A named guest's host key is recorded at first contact and required after
+    # it, so a different machine answering at the guest's address is refused
+    # instead of receiving the command.
+    BeforeAll {
+        $script:PinDir = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-pin-' + [guid]::NewGuid().ToString('N'))
+        & (Get-Module Test.Ssh) { $script:SavedPinDir = $script:HostKeyPinDir; $script:HostKeyPinDir = $args[0] } $script:PinDir
+    }
+    AfterAll {
+        & (Get-Module Test.Ssh) { $script:HostKeyPinDir = $script:SavedPinDir }
+        Remove-Item -LiteralPath $script:PinDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'pins a named guest in its own file under an alias of the name' {
+        $options = @(Get-YurunaSshHostKeyOption -VMName 'yuruna-guest-01')
+        $pin = Join-Path $script:PinDir 'yuruna-guest-01'
+        $options | Should -BeExactly @('-o', 'StrictHostKeyChecking=accept-new', '-o', "UserKnownHostsFile=`"$pin`"",
+            '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'HostKeyAlias=yuruna-guest-yuruna-guest-01', '-o', 'CheckHostIP=no')
+        Test-Path -LiteralPath $script:PinDir -PathType Container | Should -BeTrue
+    }
+
+    It 'names the pin file after the guest, hashing a name that is not a plain file name' {
+        Get-GuestHostKeyPinPath -VMName 'yuruna-guest-01' | Should -BeExactly (Join-Path $script:PinDir 'yuruna-guest-01')
+        Get-GuestHostKeyPinPath -VMName '../escape me' | Should -Match ([regex]::Escape($script:PinDir) + '[\\/]sha256-[0-9a-f]{32}$')
+        Get-GuestHostKeyPinPath -VMName '10.0.0.5' | Should -BeExactly ''
+    }
+
+    It 'forgets a pin on reset and tolerates a guest with none' {
+        $pin = Get-GuestHostKeyPinPath -VMName 'yuruna-guest-02'
+        [void][IO.Directory]::CreateDirectory($script:PinDir)
+        Set-Content -LiteralPath $pin -Value 'yuruna-guest-yuruna-guest-02 ssh-ed25519 AAAA'
+        Reset-GuestHostKeyPin -VMName 'yuruna-guest-02' -Confirm:$false
+        Test-Path -LiteralPath $pin | Should -BeFalse
+        { Reset-GuestHostKeyPin -VMName 'yuruna-guest-02' -Confirm:$false } | Should -Not -Throw
+    }
+
+    It 'makes ssh record the key at first contact and refuse a different one (local sshd)' {
+        $ssh = Get-Command ssh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        $keygen = Get-Command ssh-keygen -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        $listening = $false
+        if ($ssh -and $keygen) {
+            $client = [Net.Sockets.TcpClient]::new()
+            try { $listening = $client.ConnectAsync('127.0.0.1', 22).Wait(1000) -and $client.Connected } catch { $listening = $false } finally { $client.Dispose() }
+        }
+        if (-not $listening) { Set-ItResult -Skipped -Because 'no ssh client or no sshd on 127.0.0.1:22'; return }
+        $options = @(Get-YurunaSshHostKeyOption -VMName 'yuruna-pin-live')
+        $first = (& $ssh.Source -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR @options 127.0.0.1 true 2>&1) -join "`n"
+        $first | Should -Not -Match 'Host key verification failed'
+        $pin = Get-GuestHostKeyPinPath -VMName 'yuruna-pin-live'
+        (Get-Content -LiteralPath $pin -Raw) | Should -Match 'ssh-|ecdsa-'
+        $other = Join-Path $script:PinDir 'other'
+        & $keygen.Source -q -t ed25519 -N '' -f $other | Out-Null
+        Set-Content -LiteralPath $pin -Value ('yuruna-guest-yuruna-pin-live ' + (((Get-Content -LiteralPath "$other.pub") -split ' ')[0..1] -join ' '))
+        $second = (& $ssh.Source -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR @options 127.0.0.1 true 2>&1) -join "`n"
+        $LASTEXITCODE | Should -Be 255
+        $second | Should -Match 'Host key verification failed'
+    }
+
+    It 'moves a pin to the name a guest was renamed to, under that name''s alias' {
+        [void][IO.Directory]::CreateDirectory($script:PinDir)
+        Set-Content -LiteralPath (Get-GuestHostKeyPinPath -VMName 'yuruna-build-01') -Value 'yuruna-guest-yuruna-build-01 ssh-ed25519 AAAAbuilt'
+        Move-GuestHostKeyPin -VMName 'yuruna-build-01' -NewVMName 'yuruna-snap-01' -Confirm:$false
+        Get-Content -LiteralPath (Get-GuestHostKeyPinPath -VMName 'yuruna-snap-01') | Should -BeExactly 'yuruna-guest-yuruna-snap-01 ssh-ed25519 AAAAbuilt'
+        Test-Path -LiteralPath (Get-GuestHostKeyPinPath -VMName 'yuruna-build-01') | Should -BeFalse -Because 'no guest answers to the old name after the rename'
+    }
+
+    It 'replaces the pin a guest of the new name left behind, from a hashed entry' {
+        [void][IO.Directory]::CreateDirectory($script:PinDir)
+        Set-Content -LiteralPath (Get-GuestHostKeyPinPath -VMName 'yuruna-build-02') -Value '|1|c2FsdA==|aGFzaA== ssh-ed25519 AAAAbuilt'
+        Set-Content -LiteralPath (Get-GuestHostKeyPinPath -VMName 'yuruna-snap-02') -Value 'yuruna-guest-yuruna-snap-02 ssh-ed25519 AAAAearlier'
+        Move-GuestHostKeyPin -VMName 'yuruna-build-02' -NewVMName 'yuruna-snap-02' -Confirm:$false
+        Get-Content -LiteralPath (Get-GuestHostKeyPinPath -VMName 'yuruna-snap-02') | Should -BeExactly 'yuruna-guest-yuruna-snap-02 ssh-ed25519 AAAAbuilt'
+    }
+
+    It 'forgets the new name''s pin when the renamed guest has none' {
+        [void][IO.Directory]::CreateDirectory($script:PinDir)
+        Set-Content -LiteralPath (Get-GuestHostKeyPinPath -VMName 'yuruna-snap-03') -Value 'yuruna-guest-yuruna-snap-03 ssh-ed25519 AAAAearlier'
+        Move-GuestHostKeyPin -VMName 'yuruna-build-03' -NewVMName 'yuruna-snap-03' -Confirm:$false
+        Test-Path -LiteralPath (Get-GuestHostKeyPinPath -VMName 'yuruna-snap-03') | Should -BeFalse
+    }
+
+    It 'lets ssh reach a renamed guest that an earlier guest of the name had pinned (local sshd)' {
+        $ssh = Get-Command ssh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        $keygen = Get-Command ssh-keygen -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        $listening = $false
+        if ($ssh -and $keygen) {
+            $client = [Net.Sockets.TcpClient]::new()
+            try { $listening = $client.ConnectAsync('127.0.0.1', 22).Wait(1000) -and $client.Connected } catch { $listening = $false } finally { $client.Dispose() }
+        }
+        if (-not $listening) { Set-ItResult -Skipped -Because 'no ssh client or no sshd on 127.0.0.1:22'; return }
+        $built = @(Get-YurunaSshHostKeyOption -VMName 'yuruna-pin-build')
+        $null = & $ssh.Source -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR @built 127.0.0.1 true 2>&1
+        $earlier = Join-Path $script:PinDir 'earlier'
+        & $keygen.Source -q -t ed25519 -N '' -f $earlier | Out-Null
+        Set-Content -LiteralPath (Get-GuestHostKeyPinPath -VMName 'yuruna-pin-snap') -Value ('yuruna-guest-yuruna-pin-snap ' + (((Get-Content -LiteralPath "$earlier.pub") -split ' ')[0..1] -join ' '))
+        $renamed = @(Get-YurunaSshHostKeyOption -VMName 'yuruna-pin-snap')
+        $refused = (& $ssh.Source -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR @renamed 127.0.0.1 true 2>&1) -join "`n"
+        $refused | Should -Match 'Host key verification failed' -Because 'the pin under the new name holds the earlier guest''s key'
+        Move-GuestHostKeyPin -VMName 'yuruna-pin-build' -NewVMName 'yuruna-pin-snap' -Confirm:$false
+        $reached = (& $ssh.Source -o BatchMode=yes -o ConnectTimeout=5 -o LogLevel=ERROR @renamed 127.0.0.1 true 2>&1) -join "`n"
+        $reached | Should -Not -Match 'Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED'
+    }
+
+    It 'reports a refused pinned guest as a host key mismatch, naming the pin' {
+        InModuleScope Test.Ssh {
+            Mock Get-GuestAddress { '192.168.1.40' }
+            Mock Get-YurunaSshPrivateKeyPath { '/fixture/key' }
+            Mock Invoke-BoundedNativeCommand {
+                @{ Started = $true; TimedOut = $false; DrainTimedOut = $false; OutputTruncated = $false; KillFailed = $false
+                    DeadlineExhausted = $false; ExitCode = 255; StdOut = ''; StdErr = 'Host key verification failed.'; StartError = '' }
+            }
+            Mock Test-BoundedNativeResultComplete { $true }
+            $r = Invoke-GuestSsh -VMName 'yuruna-guest-03' -GuestKey 'guest.ubuntu.server.26' -User 'yuruna' -Command 'true' -TimeoutSeconds 30
+            $r.success | Should -BeFalse
+            $r.exitCode | Should -Be 255
+            $r.hostKeyMismatch | Should -BeTrue
+            $r.output | Should -Match 'Reset-GuestHostKeyPin -VMName yuruna-guest-03'
+            $r.output | Should -Match ([regex]::Escape((Get-GuestHostKeyPinPath -VMName 'yuruna-guest-03')))
+            Should -Invoke Invoke-BoundedNativeCommand -Times 1 -Exactly -ParameterFilter { ($ArgumentList -join ' ') -match 'StrictHostKeyChecking=accept-new' }
+        }
+    }
+
+    It 'forgets the pin wherever a guest is built' {
+        $root = Split-Path -Parent (Split-Path -Parent $here)
+        foreach ($file in @('test/modules/Test.RunnerInnerLoop.psm1', 'test/modules/Test.Orchestrator.psm1', 'test/Debug-TestSequence.ps1')) {
+            $text = Get-Content -LiteralPath (Join-Path $root $file) -Raw
+            $text | Should -Match ('Reset-GuestHostKeyPin -VMName \$newVmArgs\.VMName -Confirm:\$false \}\r?\n\s*\$r = New-VM @newVmArgs') -Because "$file builds a guest"
+        }
+        $builderFn = Get-YurunaTestFunctionAst -Path (Join-Path $root 'test/modules/Test.ServiceVm.psm1') -Name 'Invoke-YurunaServiceVmBuild'
+        $builder = $builderFn.Extent.Text
+        $builder.IndexOf('{ Reset-GuestHostKeyPin -VMName $VMName -Confirm:$false }') | Should -BeGreaterThan 0 -Because 'a rebuilt service guest has new host keys'
+        $builder.IndexOf('{ Reset-GuestHostKeyPin -VMName $VMName -Confirm:$false }') | Should -BeLessThan $builder.IndexOf('Invoke-YurunaServiceVmBuilderRun')
+        # Adoption keeps the running VM, and with it the pin: the reset lives only
+        # on the rebuild path, never in the adoption decision.
+        $adoptFn = Get-YurunaTestFunctionAst -Path (Join-Path $root 'test/modules/Test.ServiceVm.psm1') -Name 'Resolve-YurunaServiceVmAdoption'
+        $adoptFn.Extent.Text | Should -Not -Match 'Reset-GuestHostKeyPin'
+        foreach ($start in @('Start-StashServiceVM.ps1', 'Start-PoolControlServiceVM.ps1', 'Start-DownloadAgentServiceVM.ps1')) {
+            $startText = Get-Content -LiteralPath (Join-Path $root "test/service/$start") -Raw
+            $startText | Should -Match 'Invoke-YurunaServiceVmBuild -BuilderPath' -Because "$start rebuilds only through the shared builder"
+            $startText.IndexOf("'Test.Ssh.psm1'") | Should -BeLessThan $startText.IndexOf('Invoke-YurunaServiceVmBuild -BuilderPath') -Because "the builder's pin reset needs Test.Ssh loaded in $start"
+            $startText.IndexOf("'Test.Ssh.psm1'") | Should -BeGreaterThan 0
+            $startText | Should -Not -Match 'Reset-GuestHostKeyPin' -Because "$start adopts without forgetting the pin"
+        }
+        $proxy = Get-Content -LiteralPath (Join-Path $root 'test/service/Start-CachingProxyServiceVM.ps1') -Raw
+        $proxy.IndexOf('Reset-GuestHostKeyPin -VMName $VMName -Confirm:$false') | Should -BeLessThan $proxy.IndexOf('Invoke-YurunaServiceVmBuilderRun -BuilderPath $NewVMScript') -Because 'the cache forgets the pin right before its builder runs'
+        $proxy.IndexOf('Reset-GuestHostKeyPin -VMName $VMName -Confirm:$false') | Should -BeGreaterThan $proxy.IndexOf('# --- REGION: Create the VM')
+        $proxy.IndexOf('Reset-GuestHostKeyPin') | Should -BeGreaterThan $proxy.IndexOf('# --- REGION: Adopt a healthy VM') -Because 'the cache adopts first and forgets the pin only when it rebuilds'
     }
 }

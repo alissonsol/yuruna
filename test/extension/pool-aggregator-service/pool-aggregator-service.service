@@ -29,7 +29,8 @@ RestartSec=5
 # on the one port when the leaf is present) including the authenticated POST
 # /ingest push surface. Disk reads are the squid log, the TLS leaf, the auth token,
 # and -- read-only, for the /archive/ route -- the pool share under /mnt/ypool-nas.
-# The host handover ledger is the only durable write and lives in StateDirectory.
+# The host handover ledger and the Loki outbox are the durable writes, both in
+# StateDirectory.
 ReadOnlyPaths=/var/log/squid
 NoNewPrivileges=true
 ProtectSystem=strict

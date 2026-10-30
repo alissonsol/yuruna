@@ -3,6 +3,33 @@
   "domain": "runner",
   "locale": "en-US",
   "messages": {
+    "runner.gallery_package_digest_mismatch": {
+      "message": "Refusing to install {name} {version}: the downloaded package's SHA-512 ({actual}) does not match the pinned digest ({expected}).",
+      "description": "Host dependency bootstrap: a PowerShell Gallery package failed its pinned SHA-512 check, so nothing was installed. Preserve the module name, version and the base64 digests.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "powershell-yaml"
+        },
+        "version": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "0.4.12"
+        },
+        "expected": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Vc5DLyw7hLsC...Ug=="
+        },
+        "actual": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "5/tXMmLmBLqy...Yw=="
+        }
+      }
+    },
     "runner.git_mirror_token_prepare": {
       "message": "Ask for an optional GitHub token and store an explicitly supplied value",
       "description": "Confirmation action before optional interactive GitHub token input. The token itself is never included.",
@@ -277,6 +304,18 @@
           "type": "token",
           "trust": "internal",
           "example": "@{u}"
+        }
+      }
+    },
+    "runner.guest_channel_key_unreadable": {
+      "message": "The guest-channel key at {path} is not 64 lowercase hex characters, so guests cannot verify this host. Restore the file, or remove it and rebuild the guests to create a new key.",
+      "description": "Host guest-channel key: the private-state key file exists but does not hold a valid key. Preserve the path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/yuruna/.yuruna/host-refresh/guest-channel/guest-channel.key"
         }
       }
     },
@@ -1281,6 +1320,45 @@
           "type": "identifier",
           "trust": "internal",
           "example": "4242aaaa-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "runner.host_refresh_oneshot_active": {
+      "message": "Invoke-HostRefresh: a one-shot run (PID {pid}, lease {leasePath}) is using this runtime; no repair step runs while it holds the lease.",
+      "description": "Warning from Test-HostRefreshOneShotActive in test/modules/Test.HostRefresh.psm1 when Invoke-TestProject or Debug-TestSequence holds oneshot.pid after the refresh gate closed; the ladder stops; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pid": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "48213"
+        },
+        "leasePath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/ops/git/yuruna/test/status/runtime/oneshot.pid"
+        }
+      }
+    },
+    "runner.host_refresh_oneshot_unconfirmed": {
+      "message": "Invoke-HostRefresh: the one-shot lease {leasePath} names PID {pid}, whose identity cannot be confirmed ({reason}); repairing anyway.",
+      "description": "Warning from Test-HostRefreshOneShotActive in test/modules/Test.HostRefresh.psm1, once per attempt, when oneshot.pid exists but its holder cannot be proven alive or gone; the refresh does not wait on a file only an operator could remove; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pid": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "48213"
+        },
+        "leasePath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/ops/git/yuruna/test/status/runtime/oneshot.pid"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "no-exact-identity"
         }
       }
     },
@@ -9174,16 +9252,8 @@
       }
     },
     "runner.operator_400de73dc7d7af50": {
-      "message": "No VNC keysym for character '{ch}'. Skipping.",
       "description": "Whole Write-Warning message in test/modules/Test.Transport.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "ch": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$ch"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_40166e264a276e0a": {
       "message": "Extended pmset guards verified after applying.",
@@ -11637,6 +11707,43 @@
         }
       }
     },
+    "runner.wait_ended_on_kernel_stall": {
+      "message": "Text '{patternLabel}' wait ended after ~{waited}s of {timeoutSeconds}s: the guest kernel serviced no interrupt on virtual processor(s) {processors} for {silentSeconds}s and its serial console reported {kinds}",
+      "description": "Whole Write-Warning message in test/modules/Test.SequenceEngine.psm1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "patternLabel": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$patternLabel"
+        },
+        "waited": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($kernelStallEnd.waitedSeconds)"
+        },
+        "timeoutSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${TimeoutSeconds}"
+        },
+        "processors": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($kernelStallEnd.processors -join ', ')"
+        },
+        "silentSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($kernelStallEnd.noInterruptsServicedSeconds)"
+        },
+        "kinds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($kernelStallEnd.kinds -join ', ')"
+        }
+      }
+    },
     "runner.operator_557ad99d1ffd4409": {
       "message": "Create Accessibility key",
       "description": "Whole ShouldProcess-prompt message in test/modules/Test.HostCondition.Windows.psm1; preserve command names, paths, codes, and argument boundaries.",
@@ -12900,26 +13007,8 @@
       "lifecycle": "active"
     },
     "runner.operator_5eb94d6047f29167": {
-      "message": "Initialize-YurunaEntryPointModuleSet: {modName} not found at {modPath} (kind={for}); skipping.",
       "description": "Whole Write-Warning message in test/modules/Test.Prelude.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "modName": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$modName"
-        },
-        "modPath": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$modPath"
-        },
-        "for": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$For"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_5ec100a74f28c9e9": {
       "message": "Hot corners: no dangerous bindings (screen-saver / sleep / lock) detected.",
@@ -13017,21 +13106,8 @@
       }
     },
     "runner.operator_5f9af4fdfbb52214": {
-      "message": "No scan code for character '{ch}' (0x{x2}). Skipping.",
       "description": "Whole Write-Warning message in test/modules/Test.Transport.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "ch": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$ch"
-        },
-        "x2": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$([byte][char]$ch | ForEach-Object { $_.ToString('X2') })"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_5fa4b4be805499ca": {
       "message": "The OCR wait loop reads the guest framebuffer through WMI and is unaffected. Scaling reaches OCR through the vmconnect window, which tapOn always captures and which the frame path falls back to when the WMI read fails.",
@@ -18199,6 +18275,45 @@
           "type": "detail",
           "trust": "external",
           "example": "stop amisad-build: timeout"
+        }
+      }
+    },
+    "runner.pool_storage_sudo_rule_stale": {
+      "message": " (sudo refused the mount, so the NAS was never contacted: the installed /etc/sudoers.d drop-in does not name this mount's exact command, because the storage share or mount point changed after it was written, or it is the broad grant of an older release -- run test/Test-Config.ps1 or Sync-HostConfiguration from an interactive session to install the current rule)",
+      "description": "Pool storage mount failure hint appended to the mount error when sudo refused the exact mount command and the drop-in marker for the current configuration is absent. Preserve paths and script names.",
+      "lifecycle": "active"
+    },
+    "runner.pool_storage_sudoers_word_unsupported": {
+      "message": "The storage path '{word}' cannot be written into the sudoers rule exactly (it contains whitespace, a quote or a wildcard character); choose a share and mount point without them.",
+      "description": "Pool storage sudoers rule refusal: a configured share, mount point or credentials path cannot be expressed as one exact sudoers command word. Preserve the path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "word": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/mnt/my pool"
+        }
+      }
+    },
+    "runner.ssh_host_key_pin_mismatch": {
+      "message": "The SSH host key at {address} is not the key '{vmName}' presented at first contact, so the command was not run: something else may answer at that address. If '{vmName}' was rebuilt outside the runner, run Reset-GuestHostKeyPin -VMName {vmName} (pinned key: {pin}).",
+      "description": "SSH guest driver: a pinned guest name was answered by a different host key and ssh refused the connection. Preserve the VM name, address, command name and path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "yuruna-guest-01"
+        },
+        "address": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "192.168.1.40"
+        },
+        "pin": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/yuruna/yuruna/test/status/ssh/known_hosts.d/yuruna-guest-01"
         }
       }
     },
@@ -27316,21 +27431,8 @@
       "lifecycle": "active"
     },
     "runner.operator_dfe205f918802162": {
-      "message": "Send-TextKvm: no keycode for character '{ch}' (0x{x2}). Skipping.",
       "description": "Whole Write-Warning message in test/modules/Test.Transport.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "ch": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$ch"
-        },
-        "x2": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$([byte][char]$ch | ForEach-Object { $_.ToString('X2') })"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "runner.operator_e00026446a75f063": {
       "message": "Lost the pidfile race against a concurrent Start-TestRunner. Inspect {runnerPidFile} and retry.",
@@ -31941,6 +32043,147 @@
         }
       }
     },
+    "runner.service_build_plan_refused": {
+      "message": "The build plan for '{vmName}' was refused ({detail}); the working VM and its advertisement were left untouched. The builder output above names the missing input.",
+      "description": "Write-Error text from Test-YurunaServiceVmBuildPlan (test/modules/Test.ServiceVm.psm1) when a service VM builder's -PlanOnly pass fails, times out or cannot start; detail is exit N, a timeout or a start error; preserve the VM name and detail.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "yuruna-stash-service"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "exit 1"
+        }
+      }
+    },
+    "runner.service_build_timeout": {
+      "message": "The build of '{vmName}' did not finish within {seconds} s and was stopped (kill failed: {killFailed}). Raise YURUNA_SERVICE_VM_BUILD_TIMEOUT_SECONDS for a slow link, or inspect the builder output above.",
+      "description": "Write-Error text from Invoke-YurunaServiceVmBuild (test/modules/Test.ServiceVm.psm1) when a service VM builder outlives its wall-clock bound and its process tree is killed; preserve the VM name, the seconds, the True/False token and the variable name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "yuruna-stash-service"
+        },
+        "seconds": {
+          "type": "token",
+          "trust": "internal",
+          "example": "5400"
+        },
+        "killFailed": {
+          "type": "token",
+          "trust": "internal",
+          "example": "False"
+        }
+      }
+    },
+    "runner.service_adopted": {
+      "message": "Keeping the running '{vmName}' at {address} ({reason}); pass -ForceRebuild to rebuild it.",
+      "description": "Start-*ServiceVM.ps1 line when the adopt phase keeps a running service VM that serves the current build (serving) or is still building it (building); preserve the VM name, address, reason token and switch name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "yuruna-stash-service"
+        },
+        "address": {
+          "type": "detail",
+          "trust": "external",
+          "example": "192.168.7.61"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "serving"
+        }
+      }
+    },
+    "runner.service_advertisement_withdrawn": {
+      "message": "Withdrew the {area} advertisement before the rebuild; this host drops from Extension hosts until the new VM serves.",
+      "description": "Remove-YurunaServiceVmAdvertisement (test/modules/Test.ServiceVm.psm1) line after a service marker is removed ahead of a rebuild; preserve the area name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "area": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "stash-service"
+        }
+      }
+    },
+    "runner.service_start_stop_requested": {
+      "message": "A stop of '{vmName}' was requested while this start ran, so the service is not advertised. Run {stopScript} again to remove the VM.",
+      "description": "Write-Warning in Start-*ServiceVM.ps1 when a newer stop intent was recorded during the start (Test-YurunaServiceOperationCurrent false); preserve the VM name and script name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "yuruna-stash-service"
+        },
+        "stopScript": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Stop-StashServiceVM.ps1"
+        }
+      }
+    },
+    "runner.service_start_degraded": {
+      "message": "'{vmName}' was built with degraded seed values: {names}. The service runs, but the guest lacks them until it is rebuilt with them resolved.",
+      "description": "Write-Warning in Start-*ServiceVM.ps1 when the builder reported seed values baked empty (Write-SeedDegradation); names is a comma-separated list of hostAddress/aggregatorUrl; preserve the VM name and names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "yuruna-stash-service"
+        },
+        "names": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "aggregatorUrl"
+        }
+      }
+    },
+    "runner.service_hostproof_previous_running": {
+      "message": "The previous host-side pool-control daemon (pid {pid}) could not be stopped ({reason}); refusing to launch a second one. Stop it, then re-run.",
+      "description": "Write-Error in Start-PoolControlServiceVM.ps1 -HostSideProof when the daemon the marker names is alive but could not be verified or stopped; preserve the pid and reason.",
+      "lifecycle": "active",
+      "placeholders": {
+        "pid": {
+          "type": "token",
+          "trust": "internal",
+          "example": "4242"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "start-time-mismatch"
+        }
+      }
+    },
+    "runner.service_hostproof_exited": {
+      "message": "The host-side pool-control daemon exited at once (exit {code}); port {port} may be held by another process. Nothing was advertised.",
+      "description": "Write-Error in Start-PoolControlServiceVM.ps1 -HostSideProof when the launched daemon has already exited one second after launch; preserve the exit code and port.",
+      "lifecycle": "active",
+      "placeholders": {
+        "code": {
+          "type": "token",
+          "trust": "internal",
+          "example": "1"
+        },
+        "port": {
+          "type": "token",
+          "trust": "internal",
+          "example": "8090"
+        }
+      }
+    },
     "runner.service_operation_complete_should_process": {
       "message": "Record the result of the {operation} of service '{key}'",
       "description": "ShouldProcess action text in test/modules/Test.ServiceCensus.psm1 (Exit-YurunaServiceOperation); operation is the token stop or start and key a service key, both kept verbatim.",
@@ -32483,6 +32726,119 @@
           "type": "identifier",
           "trust": "internal",
           "example": "192.168.7.57"
+        }
+      }
+    },
+    "runner.status_listener_busy": {
+      "message": "Status service (PID {processId}) on port {port} did not answer within 3 s, but its liveness lease shows it serving {route} for {seconds} s; leaving it running.",
+      "description": "Write-Output in test/service/Start-StatusService.ps1 when the boundary probe of an existing listener times out and Get-StatusServiceLeaseVerdict reads alive or busy; the start exits 0 and any restart waits for the next start; preserve command names, paths, codes and placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "48213"
+        },
+        "port": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "8080"
+        },
+        "route": {
+          "type": "detail",
+          "trust": "external",
+          "example": "archive/000724.2026-08-05.01-47-56.42e5e36df63d4edf8b664e6cf6fce463.zip"
+        },
+        "seconds": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "42"
+        }
+      }
+    },
+    "runner.status_listener_lease_verdict": {
+      "message": "Status service (PID {processId}): liveness lease {verdict} ({reason}, {seconds} s).",
+      "description": "Write-Output in test/service/Start-StatusService.ps1 beside the replacement notice when an existing listener does not answer and its lease does not show it serving; verdict and reason are Get-StatusServiceLeaseVerdict tokens; preserve command names, paths, codes and placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "48213"
+        },
+        "verdict": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "wedged"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "idle-renewal-lapsed"
+        },
+        "seconds": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "120"
+        }
+      }
+    },
+    "runner.status_listener_replaced": {
+      "message": "Start-StatusService: stopping the wedged status service (PID {processId}, {state} for {seconds} s on '{route}') and starting a new one.",
+      "description": "Write-Output in test/service/Start-StatusService.ps1 -RefreshSafe -ReplaceWedged when an owned listener does not answer and its lease reads wedged; preserve command names, paths, codes and placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "48213"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "busy"
+        },
+        "route": {
+          "type": "detail",
+          "trust": "external",
+          "example": "control/perf-aggregates"
+        },
+        "seconds": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "640"
+        }
+      }
+    },
+    "runner.status_listener_replace_in_cycle": {
+      "message": "Host address beacon: the status service (PID {processId}) does not answer and its lease has read wedged ({state} for {seconds} s on '{route}'); the replacement start exited {exitCode}.",
+      "description": "Write-Information from Invoke-StatusListenerWatch in test/modules/Test.StatusControlRoute.psm1, run by the host-address beacon, after it ran Start-StatusService.ps1 -RefreshSafe -ReplaceWedged; exit 0 means a listener is running again; preserve command names, paths, codes and placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "processId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "48213"
+        },
+        "state": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "idle"
+        },
+        "route": {
+          "type": "detail",
+          "trust": "external",
+          "example": ""
+        },
+        "seconds": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "135"
+        },
+        "exitCode": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "0"
         }
       }
     },
@@ -33437,6 +33793,23 @@
         }
       }
     },
+    "runner.host_input_unmappable": {
+      "message": "The {transport} input path has no key for these characters of the text: {characters}. Nothing was typed; the step cannot run on this host as written.",
+      "description": "Write-Warning in test/modules/Test.Transport.psm1 (Test-TextKeyMapCoverage) when a text send is refused before anything is typed because characters have no key in that transport's map. Characters are named by code point and position, never by value, because the text may be a credential.",
+      "lifecycle": "active",
+      "placeholders": {
+        "transport": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "VNC"
+        },
+        "characters": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "U+00E9 at 4, U+20AC at 9"
+        }
+      }
+    },
     "runner.pool_notifier_busy": {
       "message": "Another pool notifier run holds its lock on this host; this one delivered nothing.",
       "description": "Invoke-PoolNotifierCycle summary reason in test/modules/Test.PoolNotifier.psm1 when the resident's run and a cycle's run overlap; the next run delivers what is queued.",
@@ -33501,6 +33874,113 @@
           "type": "detail",
           "trust": "external",
           "example": "guest.ubuntu.desktop"
+        }
+      }
+    },
+    "runner.pool_framework_ring_canary_not_member": {
+      "message": "  pools.yml: pool {poolId} names {hostId} in frameworkRing.canaryMembers, but that host is not one of its members, so its passes never count.",
+      "description": "Write-Warning from test/pool/Test-PoolConfiguration.ps1 for each frameworkRing canary that is missing from the same pool's members list.",
+      "lifecycle": "active",
+      "placeholders": {
+        "poolId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "lab"
+        },
+        "hostId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "42abcdef0123456789abcdef01234567"
+        }
+      }
+    },
+    "runner.framework_ring_follow": {
+      "message": "This host follows its pool's canary ring: installing framework revision {revision}, which has {passes} valid canary passes (installed: {current}).",
+      "description": "Write-Information from Invoke-OuterGitPull in test/modules/Test.RunnerOuterLoop.psm1 when a ring follower moves to the revision the pool aggregator qualified.",
+      "lifecycle": "active",
+      "placeholders": {
+        "revision": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "3f9c2a1e5b7d40c8a6e1f2b3c4d5e6f708192a3b"
+        },
+        "passes": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3"
+        },
+        "current": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "9a8b7c6d5e4f30211203f4e5d6c7b8a9f0e1d2c3"
+        }
+      }
+    },
+    "runner.framework_ring_hold_unreachable": {
+      "message": "This host follows its pool's canary ring, but the pool aggregator did not answer ({detail}); the framework stays at {current}.",
+      "description": "Write-Warning from Invoke-OuterGitPull in test/modules/Test.RunnerOuterLoop.psm1 when a ring follower cannot learn the qualifying revision; it never falls back to the tip.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "no caching-proxy-service address known"
+        },
+        "current": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "9a8b7c6d5e4f30211203f4e5d6c7b8a9f0e1d2c3"
+        }
+      }
+    },
+    "runner.framework_ring_hold_unqualified": {
+      "message": "No framework revision has {passes} valid canary passes yet; the framework stays at {current}.",
+      "description": "Write-Information from Invoke-OuterGitPull in test/modules/Test.RunnerOuterLoop.psm1 when the pool aggregator knows no revision with enough canary passes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "passes": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "current": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "9a8b7c6d5e4f30211203f4e5d6c7b8a9f0e1d2c3"
+        }
+      }
+    },
+    "runner.framework_ring_hold_newer": {
+      "message": "The ring's qualifying revision {revision} is not newer than the installed {current}; the framework stays at {current}.",
+      "description": "Write-Information from Invoke-OuterGitPull in test/modules/Test.RunnerOuterLoop.psm1 when the qualifying revision is an ancestor of the installed one; a follower never moves back.",
+      "lifecycle": "active",
+      "placeholders": {
+        "revision": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "3f9c2a1e5b7d40c8a6e1f2b3c4d5e6f708192a3b"
+        },
+        "current": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "9a8b7c6d5e4f30211203f4e5d6c7b8a9f0e1d2c3"
+        }
+      }
+    },
+    "runner.framework_ring_hold_not_in_history": {
+      "message": "The ring's qualifying revision {revision} is not in the history of the framework upstream this host tracks; the framework stays at {current}.",
+      "description": "Write-Warning from Invoke-OuterGitPull in test/modules/Test.RunnerOuterLoop.psm1 when the qualifying revision is not an ancestor of the fetched upstream tip, so it cannot be installed from this host's source.",
+      "lifecycle": "active",
+      "placeholders": {
+        "revision": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "3f9c2a1e5b7d40c8a6e1f2b3c4d5e6f708192a3b"
+        },
+        "current": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "9a8b7c6d5e4f30211203f4e5d6c7b8a9f0e1d2c3"
         }
       }
     },
@@ -33712,6 +34192,72 @@
           "type": "detail",
           "trust": "internal",
           "example": "889a86e24112235a1380e584435e45e46a15bed5"
+        }
+      }
+    },
+    "runner.cycle_over_budget": {
+      "message": "Cycle {cycle} passed in {minutes} min, over its learned budget of {budgetMinutes} min (1.5 times the 90th percentile of the last {samples} passing cycles). The cycle still counts as a pass; the phase rows under test/status/perf/phases show which part grew.",
+      "description": "Write-Warning and outer.log line from Write-OuterCyclePhase in test/modules/Test.RunnerOuterLoop.psm1 when a passing cycle took longer than the budget Get-PerfCycleBudget learned from earlier passing cycles; report only.",
+      "lifecycle": "active",
+      "placeholders": {
+        "cycle": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "42"
+        },
+        "minutes": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "61.5"
+        },
+        "budgetMinutes": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "45.2"
+        },
+        "samples": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "20"
+        }
+      }
+    },
+    "runner.entry_point_module_missing": {
+      "message": "Initialize-YurunaEntryPointModuleSet: {modName} not found at {modPath} (kind={for}); the entry point does not start without its module set. Restore the file in this checkout and start again.",
+      "description": "Terminating error from Initialize-YurunaEntryPointModuleSet in test/modules/Test.Prelude.psm1 when a module of an entry point's canonical set is missing; nothing of the set was imported. Preserve command names, paths and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "modName": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "Test.Status.psm1"
+        },
+        "modPath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/ops/git/yuruna/test/modules/Test.Status.psm1"
+        },
+        "for": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "Inner"
+        }
+      }
+    },
+    "runner.host_condition_probe_unanswered": {
+      "message": "The {probe} could not be read: {tool} did not answer, so the setting is undetermined, not known to be safe.",
+      "description": "Issue line from Get-MacScreenLockIssue in test/modules/Test.HostCondition.Mac.psm1 when a bounded read of a screen-lock or power setting timed out or could not be started; the host-condition gate refuses the cycle on it rather than treating the setting as safe.",
+      "lifecycle": "active",
+      "placeholders": {
+        "probe": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "power settings (pmset -g custom)"
+        },
+        "tool": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "pmset"
         }
       }
     }

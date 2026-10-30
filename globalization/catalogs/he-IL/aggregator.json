@@ -552,6 +552,71 @@
       "sourceHash": "c385422dd8a1236efb8930bbd4491f6f42e35ee443c60d843acbba17908fbaee",
       "origin": "machine",
       "message": "היקף בקרה לא חוקי"
+    },
+    "aggregator.help_loki_outbox_dir": {
+      "sourceHash": "a2562c2b091e6d72fc712853ba36018f425f1e6d774ce0e2b358d0385f88b668",
+      "origin": "machine",
+      "message": "תיקייה ששומרת שורות Loki עד ש-Loki מקבל אותן (ריק שומר אותן בזיכרון, והן אובדות באתחול)"
+    },
+    "aggregator.log_loki_not_ready": {
+      "sourceHash": "926f883a8bcea884879ca48a04be9878b66d573d2507152edb1d95a213242aa3",
+      "origin": "machine",
+      "message": "Loki לא היה מוכן אחרי {duration}; קוראים ממנו בכל זאת"
+    },
+    "aggregator.log_loki_outbox_memory_only": {
+      "sourceHash": "ddf169b855ac37beb582fbc80d04257cbbc86b480ee710b8dfbb69edcd79c224",
+      "origin": "machine",
+      "message": "תור היציאה של Loki: לא ניתן להשתמש ב-{dir} ({reason}); השורות ממתינות בזיכרון ואתחול מאבד אותן"
+    },
+    "aggregator.log_loki_outbox_full": {
+      "sourceHash": "8c419b06ce70d8c72d5e1aa8b42c0344070e9644c9029786fdbd19f536dbaab1",
+      "origin": "machine",
+      "message": "תור היציאה של Loki מלא ({lines} שורות); שורות חדשות נדחות עד ש-Loki יקבל חלק מהן"
+    },
+    "aggregator.log_loki_outbox_refused": {
+      "sourceHash": "0a9cd0f056eec38b0345831317609314feeb36a9647974a92e795fc9050809c1",
+      "origin": "machine",
+      "message": "Loki דחה שורה מהתור ({reason}); היא מושלכת"
+    },
+    "aggregator.log_loki_outbox_unreadable": {
+      "sourceHash": "175731bdc9b8cf03ce46f4474d29cc9b0dbd8145ad1ed2100c8ba2609f7d5c1c",
+      "origin": "machine",
+      "message": "תור היציאה של Loki: לא ניתן לקרוא את {name} ({reason}); הוא מושלך"
+    },
+    "aggregator.log_loki_outbox_enqueue_failed": {
+      "sourceHash": "f879e1259d30165000ec926f19d458a03b68ba862212dfcdc843a2dcc5a2cde8",
+      "origin": "machine",
+      "message": "{what}: לא ניתן היה להכניס את השורה לתור של Loki: {reason}"
+    },
+    "aggregator.ingest_queue_full": {
+      "sourceHash": "ceee81dd0dac9bf32240f3bb61ae2d79c4b3e0ffc5672597032615e3d302244b",
+      "origin": "machine",
+      "message": "האוסף אינו יכול לשמור את השורות האלה כעת; נסו שוב מאוחר יותר"
+    },
+    "aggregator.framework_ring_canary_invalid": {
+      "sourceHash": "e1085e120dc9c47a5be99ecbd9f734e29450769a88b25c76ba67af5d1f5cc9d9",
+      "origin": "machine",
+      "message": "canary חייב לפרט מזהי מארח שמתחילים ב-42 (עד 64), מופרדים בפסיקים"
+    },
+    "aggregator.framework_ring_passes_invalid": {
+      "sourceHash": "91bf5f9f797a13fdce890ef34e560bdcd51faf4a84a252a92ae01294bd886154",
+      "origin": "machine",
+      "message": "passes חייב להיות מספר שלם בין 1 ל-1000"
+    },
+    "aggregator.help_framework_ring_state_file": {
+      "sourceHash": "19db2d34b5b028847bb7a756a307c3920cbfb40b38914d02b7a15079e34eba43",
+      "origin": "machine",
+      "message": "קובץ ששומר את גרסת ה-framework שכל מחזור שהושלם בכל מארח הריץ, כדי שטבעת הקנרית תשרוד הפעלה מחדש (ריק שומר אותה בזיכרון)"
+    },
+    "aggregator.log_framework_ring_state_unreadable": {
+      "sourceHash": "3c5cc59a8755739e9ea4005150abb49da6bcff5691fce633c10166a551b14501",
+      "origin": "machine",
+      "message": "טבעת ה-framework: לא ניתן לקרוא את {path} ({reason}); מתחילים ממה שהמארחים ידווחו בהמשך"
+    },
+    "aggregator.log_framework_ring_state_unwritten": {
+      "sourceHash": "41063595a20922a8731b9cc7e85eddc935ca0b80fa0844b5cc2005e40c5d8768",
+      "origin": "machine",
+      "message": "טבעת ה-framework: לא ניתן לכתוב את {path} ({reason}); הגרסאות נשארות בזיכרון עד שכתיבה תצליח"
     }
   }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,7 +103,7 @@ $NotificationCfgPath  = Join-Path $ExtensionStateRoot "notification/transports.y
 $NotificationTmplPath = Join-Path $ExtensionRoot      "notification/transports.yml.template"
 
 # --- REGION: Helpers
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0064
 $script:ModulesDir = Join-Path $TestRoot "modules"
 Import-Module (Join-Path $script:ModulesDir 'Test.Output.psm1')          -Global -Force
 Import-Module (Join-Path $script:ModulesDir 'Test.ConfigValidator.psm1') -Global -Force
@@ -379,7 +379,7 @@ if (-not (Test-Path $configNamingMod)) {
 }
 
 # --- REGION: Section 3: Host requirements (quick)
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0063
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_0eaac625cae7caa8')
 
 $ModulesDir  = Join-Path $TestRoot "modules"
@@ -399,7 +399,7 @@ if (-not (Test-Path $hostModPath)) {
         # access. No-op on other hosts / fresh shells.
         Invoke-LibvirtGroupReExecIfNeeded -HostType $HostType -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
         Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_7ad9a8cd1a9709db' -Arguments @{ hostType = "$HostType" })
-        # See https://yuruna.link/42010605-0002
+        # See https://yuruna.link/42010605-0062
         $reqWarns = $null
         $reqOk = Test-HostRequirement -HostType $HostType -InformationAction SilentlyContinue -WarningAction SilentlyContinue -WarningVariable reqWarns
         foreach ($w in $reqWarns) { Write-Warn "$w" }
@@ -412,10 +412,10 @@ if (-not (Test-Path $hostModPath)) {
 }
 
 # --- REGION: Section 3b: Host clock
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0061
 
 # --- REGION: Invoke-HostClockSyncOffer
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0060
 function Invoke-HostClockSyncOffer {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$HostType)
@@ -475,7 +475,7 @@ if (-not $HostType) {
 }
 
 # --- REGION: Section 3c: Host setup freshness
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-005f
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6b34b3231afbc220')
 
 $hostStateMod = Join-Path $script:ModulesDir 'Test.HostAutomationState.psm1'
@@ -622,7 +622,7 @@ switch ($HostType) {
         if (Get-Command utmctl -ErrorAction SilentlyContinue) {
             Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_592b951962ee6c49')
         } else {
-            # See https://yuruna.link/42010605-0002
+            # See https://yuruna.link/42010605-005e
             $utmctlFix = if (Get-Command Get-MacUtmctlRemediation -ErrorAction SilentlyContinue) {
                 Get-MacUtmctlRemediation
             } else {
@@ -634,7 +634,7 @@ switch ($HostType) {
 }
 
 # --- REGION: Section 5a: macOS permissions only a person can give
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-005d
 if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacOperatorGrantState -ErrorAction SilentlyContinue)) {
     Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6bcdcf9aad9c55be')
 
@@ -676,7 +676,7 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacOperatorGrantState -
 }
 
 # --- REGION: Section 5a2: macOS screen lock / display sleep
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-005c
 if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacScreenLockIssue -ErrorAction SilentlyContinue)) {
     Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_ff747670f88f9812')
 
@@ -694,7 +694,7 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacScreenLockIssue -Err
 }
 
 # --- REGION: Section 5a3: UTM app lifetime
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-005b
 if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacUtmLifetimeIssue -ErrorAction SilentlyContinue)) {
     Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_9849668785458289')
 
@@ -715,7 +715,7 @@ if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacUtmLifetimeIssue -Er
 }
 
 # --- REGION: Section 5b: Host address stability
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-005a
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_31308c32d6152537')
 
 $beaconMod = Join-Path $script:ModulesDir 'Test.HostAddressBeacon.psm1'
@@ -732,7 +732,7 @@ if (-not (Test-Path -LiteralPath $beaconMod)) {
             'advisory' { Write-Info $stability.message }
             default    { Write-Pass $stability.message }
         }
-        # See https://yuruna.link/42010605-0002
+        # See https://yuruna.link/42010605-0059
         if ($stability.identity.backend -eq 'networkmanager' -and $stability.identity.pinned -eq $false) {
             $pin = Set-HostBridgeDhcpIdentity -Confirm:$false
             if ($pin.verified) {
@@ -751,7 +751,7 @@ if (-not (Test-Path -LiteralPath $beaconMod)) {
 }
 
 # --- REGION: Section 5c: Display scaling (OCR)
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0058
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_c4c48bd5e5d1638b')
 
 $scaleReport = $null
@@ -788,7 +788,7 @@ if (-not $HostType) {
 }
 
 # --- REGION: Section 5d: Storage filter stack (guest throughput)
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0057
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_e2f867223580bc4d')
 
 if (-not $HostType) {
@@ -865,7 +865,7 @@ $projectClone = Join-Path $RepoRoot 'project'
 if (Test-Path (Join-Path $projectClone '.git')) {
     if (-not $projectUrlConfigured -or -not (Get-GitMirrorRepository -Url $projectUrlConfigured)) { Test-RepoFreshness -Label "project ($projectClone)" -Path $projectClone }
 } elseif (Test-Path $projectClone) {
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0056
     $entries = (Get-ChildItem -LiteralPath $projectClone -Force -ErrorAction SilentlyContinue | Measure-Object).Count
     if ($entries -eq 0) {
         $hint = if (Test-IsSet $projectUrlConfigured) {
@@ -921,7 +921,7 @@ if (Test-IsSet $projectUrlConfigured) {
             if ($ls.ExitCode -eq 0) {
                 Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_c382467dc6401b1e' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured" })
             } elseif (Test-GitRemoteAuthFailure -Output $ls.Output) {
-                # See https://yuruna.link/42010605-0002
+                # See https://yuruna.link/42010605-0055
                 $remedy = (@(Get-GitAuthRefreshRemedy) -join '; ')
                 Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_53eb2318a1df9482' -Arguments @{ projectUrlConfigured = "$projectUrlConfigured"; exitCode = "$($ls.ExitCode)"; remedy = "$remedy"; output = "$($ls.Output)" }) -FullPath $ConfigPath -Cause 'git-access-denied' -Class 'project_access_denied'
             } else {
@@ -1274,7 +1274,7 @@ if (Test-Path $UsersPath) {
             }
         }
 
-        # See https://yuruna.link/42010605-0002
+        # See https://yuruna.link/42010605-0054
         if ($strict) {
             $RepoRoot = Split-Path -Parent $TestRoot
             $sequencesDirs = New-Object System.Collections.Generic.List[string]
@@ -1324,7 +1324,7 @@ if (Test-Path $UsersPath) {
 }
 
 # --- REGION: Section 9b2: Sequence files (parse + snippet expansion)
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0053
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_6f57742886048a0c')
 
 $seqResolveMod = Join-Path $ModulesDir 'Test.SequenceResolve.psm1'
@@ -1391,7 +1391,7 @@ if (-not (Test-Path $seqResolveMod)) {
 }
 
 # --- REGION: Section 9b3: Stale SMB alias mappings (Windows)
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0052
 if ($IsWindows) {
     $smbMod = Join-Path $ModulesDir 'Test.PoolStorage.psm1'
     if (Test-Path $smbMod) {
@@ -1422,7 +1422,7 @@ if ($IsWindows) {
     }
 }
 
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0051
 $script:LinuxSudoHintShown = $false
 # --- REGION: Show-LinuxSudoHintOnce
 function Show-LinuxSudoHintOnce {
@@ -1433,7 +1433,20 @@ function Show-LinuxSudoHintOnce {
     # already installed and working reads as "the install silently failed", and
     # sends them to redo the one thing that is not broken. Probe first; when
     # passwordless sudo is already in effect, say so and name what is left.
-    if ((Get-Command Test-PoolStorageSudoReady -ErrorAction SilentlyContinue) -and (Test-PoolStorageSudoReady)) {
+    $acct = ''
+    try { $acct = [string](& id -un 2>$null | Select-Object -First 1) } catch { $null = $_ }
+    if ([string]::IsNullOrWhiteSpace($acct)) { $acct = [string]$env:USER }
+    $p = Get-PoolStorageSudoCommandPath
+    # The probes include the drop-in's marker, so a rule written for other mount
+    # points, or the broad grant older releases wrote, still shows the hint.
+    try {
+        $spec = Get-PoolStorageSudoSpec -User ($acct.Trim()) -MkdirPath $p.Mkdir -MountPath $p.Mount -UmountPath $p.Umount -TruePath $p.True
+    } catch {
+        $script:LinuxSudoHintShown = $true
+        Write-Info "$($_.Exception.Message)"
+        return
+    }
+    if ((Get-Command Test-PoolStorageSudoReady -ErrorAction SilentlyContinue) -and (Test-PoolStorageSudoReady -Probe $spec.Probe)) {
         $script:LinuxSudoHintShown = $true
         Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_fd00846b1ca24525')
         if ((Get-Command Test-PoolStorageCifsHelper -ErrorAction SilentlyContinue) -and -not (Test-PoolStorageCifsHelper)) {
@@ -1442,17 +1455,13 @@ function Show-LinuxSudoHintOnce {
         return
     }
     $script:LinuxSudoHintShown = $true
-    $acct = ''
-    try { $acct = [string](& id -un 2>$null | Select-Object -First 1) } catch { $null = $_ }
-    if ([string]::IsNullOrWhiteSpace($acct)) { $acct = [string]$env:USER }
-    $p = Get-PoolStorageSudoCommandPath
     $hint = Get-PoolStorageLinuxSudoHint -User ($acct.Trim()) `
-        -MkdirPath $p.Mkdir -MountPath $p.Mount -UmountPath $p.Umount
+        -MkdirPath $p.Mkdir -MountPath $p.Mount -UmountPath $p.Umount -TruePath $p.True
     foreach ($line in $hint) { Write-Info $line }
 }
 
 # --- REGION: Invoke-LinuxSudoInstallOffer
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0050
 function Invoke-LinuxSudoInstallOffer {
     if (-not $IsLinux) { return $false }
     if (-not (Get-Command Set-PoolStorageSudoers -ErrorAction SilentlyContinue)) { return $false }
@@ -1473,7 +1482,7 @@ function Invoke-LinuxSudoInstallOffer {
 }
 
 # --- REGION: Invoke-PoolStorageVaultCredentialOffer
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-004f
 function Invoke-PoolStorageVaultCredentialOffer {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '',
         Justification = 'The password is read as a SecureString; the brief plaintext only feeds the vault Set-Password, which stores plaintext by design.')]
@@ -1558,7 +1567,7 @@ function Invoke-PoolStorageVaultCredentialOffer {
 }
 
 # --- REGION: Show-NetworkStorageFieldSwapWarning
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-004e
 function Show-NetworkStorageFieldSwapWarning {
     param(
         [Parameter(Mandatory)]$Config,
@@ -1570,7 +1579,7 @@ function Show-NetworkStorageFieldSwapWarning {
 }
 
 # --- REGION: Section 9c: networkStorage pool (ypool-nas) archiving
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-004d
 Write-Section "networkStorage: pool (ypool-nas) archiving"
 
 $poolMod = Join-Path $ModulesDir 'Test.PoolStorage.psm1'
@@ -1578,7 +1587,7 @@ if (-not (Test-Path $poolMod)) {
     Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_c178ba624b770623' -Arguments @{ poolMod = "${poolMod}" })
 } else {
     Import-Module $poolMod -Global -Force
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-004c
     $storageGap = "Shared storage was configured in this run, but $ConfigPath records none of it"
     $psRaw = if ($Config.Contains('networkStorage')) { $Config['networkStorage'] } else { $null }
     if ($psRaw -isnot [System.Collections.IDictionary]) {
@@ -1671,7 +1680,7 @@ if (-not (Test-Path $poolMod)) {
                 }
             }
 
-            # See https://yuruna.link/42010605-0002
+            # See https://yuruna.link/42010605-004b
             $psCanMount = $true
             if ($IsLinux) {
                 Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_a8133f2805b1809a')
@@ -1683,7 +1692,7 @@ if (-not (Test-Path $poolMod)) {
                 }
             }
 
-            # See https://yuruna.link/42010605-0002
+            # See https://yuruna.link/42010605-004a
             if ($psVaultReady -and $psReachable -and $psCanMount -and (Get-Command Initialize-PoolStorageHostFolder -ErrorAction SilentlyContinue)) {
                 if (-not (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue)) {
                     $ydMod = Join-Path $ModulesDir 'Test.YurunaDir.psm1'
@@ -1706,7 +1715,7 @@ if (-not (Test-Path $poolMod)) {
                     }
                     if ($poolReady.ok) {
                         Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_c7ba05194a3bd438' -Arguments @{ folder = "$($poolReady.folder)" })
-                        # See https://yuruna.link/42010605-0002
+                        # See https://yuruna.link/42010605-0049
                         if ((Get-Command Get-PoolStorageFreeSpace -ErrorAction SilentlyContinue) -and
                             (Get-Command Test-PoolStorageSpaceSufficient -ErrorAction SilentlyContinue)) {
                             $psFree = Get-PoolStorageFreeSpace -Config $psCfg
@@ -1789,7 +1798,7 @@ if (-not (Test-Path $poolMod)) {
                 Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_5aeee726766bfcc2' -Arguments @{ stashSrv = "${stashSrv}" })
             }
         }
-        # See https://yuruna.link/42010605-0002
+        # See https://yuruna.link/42010605-0048
         if ($stashCredStored -and $stashReachable -and (Get-Command Initialize-PoolStorageTargetFolder -ErrorAction SilentlyContinue)) {
             $mk = Initialize-PoolStorageTargetFolder -Config $stashCfg -Confirm:$false
             if ($mk.ok) {
@@ -1815,7 +1824,7 @@ if (-not (Test-Path $poolMod)) {
 }
 
 # --- REGION: Section 9c2: Extension services registered with the pool
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0047
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_396ff2b33b372c04')
 
 $aggregatorMod = Join-Path $ExtensionRoot 'pool-aggregator-service/default.psm1'
@@ -1879,7 +1888,7 @@ if (-not (Test-Path $aggregatorMod)) {
                         Write-Info (Format-YurunaOperatorMessage -Key 'runner.operator_189c612ee620b50b' -Arguments @{ who = "$who" })
                         continue
                     }
-                    # See https://yuruna.link/42010605-0002
+                    # See https://yuruna.link/42010605-0046
                     $stashAddress = [string]$service.host
                     if ([string]::IsNullOrWhiteSpace($stashAddress)) {
                         $parsed = $null
@@ -1921,8 +1930,8 @@ if (-not (Test-Path $aggregatorMod)) {
     }
 }
 
-# --- REGION: Section 9d: Pool (intent sync)
-# See https://yuruna.link/42010605-0002
+# --- REGION: Section 9d: Pool (configuration sync)
+# See https://yuruna.link/42010605-0045
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_cd4a2a8be6258515')
 
 $poolSyncMod = Join-Path $ModulesDir 'Test.PoolSync.psm1'
@@ -2077,7 +2086,7 @@ Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss", [Globalizat
 }
 
 # --- REGION: Section 13: Bootstrap script encoding (ASCII, no BOM)
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0044
 Write-Section (Format-YurunaOperatorMessage -Key 'runner.operator_2d5e1292ca5d9fc6')
 
 $asciiGate = Join-Path $RepoRoot "tools/Test-AsciiNoBom.ps1"
@@ -2085,7 +2094,7 @@ if (-not (Test-Path -LiteralPath $asciiGate)) {
     Write-Info "Test-AsciiNoBom.ps1 not found at ${asciiGate}; encoding gate skipped."
 } else {
     $asciiPwsh = Get-PwshExePath
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0043
     $asciiOut  = & $asciiPwsh -NoProfile -ExecutionPolicy Bypass -File $asciiGate -Quiet -Bootstrap 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Pass (Format-YurunaOperatorMessage -Key 'runner.operator_0ee5a858a1d212de')
@@ -2096,5 +2105,5 @@ if (-not (Test-Path -LiteralPath $asciiGate)) {
 }
 
 # --- REGION: Summary
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0042
 Exit-WithSummary -Code ((Get-OutputState).FailCount -gt 0 ? 1 : 0)

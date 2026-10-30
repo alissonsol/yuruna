@@ -35,8 +35,8 @@ package_update: true
 packages:
   # cifs-utils: the bring-up script's pool-NAS SMB3 mount (that script installs golang-go + pwsh itself).
   - cifs-utils
-  # Network tools support console and SSH diagnostics.
   # --- REGION: https://yuruna.link/429f3d06-003a
+  # Network tools support console and SSH diagnostics.
   - net-tools
   - iputils-ping
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
@@ -109,7 +109,7 @@ write_files:
       YURUNA_ALLOW_PSEUDO_LOCALE=YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER
 
   # --- REGION: https://yuruna.link/429f3d06-0029
-  # Empty IP/PORT falls back to the public github mirror for the framework fetch.
+  # Empty IP/PORT falls back to the public GitHub mirror for the framework fetch.
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root
@@ -121,6 +121,14 @@ write_files:
       YURUNA_CA_SHA256=YURUNA_CA_SHA256_PLACEHOLDER
       YURUNA_GITHUB_REPO=YURUNA_GITHUB_REPO_PLACEHOLDER
       YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
+  # The host's guest-channel key: host-locate and fetch-and-execute accept a
+  # status service only when it proves this key. An empty file (a host with no
+  # key) leaves those probes unverified.
+  - path: /etc/yuruna/guest-channel.key
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER
   # Operator note; the env files above carry the live coordinates.
   - path: /etc/yuruna/README.pool-control-service
     permissions: '0644'
@@ -170,6 +178,38 @@ write_files:
       # --- REGION: [Install]
       [Install]
       WantedBy=timers.target
+  # A rotated NAS password reaches this guest through this refresh instead of
+  # a rebuild; the script remounts a mounted share in place and never mounts
+  # or unmounts one otherwise.
+  - path: /etc/systemd/system/yuruna-nas-credential-refresh.service
+    permissions: '0644'
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Re-fetch the NAS credential from the host config service
+
+      # --- REGION: [Service]
+      [Service]
+      Type=oneshot
+      TimeoutStartSec=300
+      Environment=YURUNA_NAS_CREDENTIAL_ATTEMPTS=2
+      ExecStart=/usr/local/bin/yuruna-nas-credential.sh pool /etc/yuruna/pool-nas.cifs.cred /mnt/yuruna-pool
+  - path: /etc/systemd/system/yuruna-nas-credential-refresh.timer
+    permissions: '0644'
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Periodic NAS credential refresh
+
+      # --- REGION: [Timer]
+      [Timer]
+      OnBootSec=15min
+      OnUnitActiveSec=30min
+      RandomizedDelaySec=2min
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=timers.target
 # --- REGION: runcmd
 runcmd:
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
@@ -209,6 +249,12 @@ runcmd:
     YR_ARCHIVE_SHA=$(sed -nE 's/^([0-9a-f]{64})$/\1/p' /etc/yuruna/framework-archive.sha256 2>/dev/null | head -n1)
     # --- REGION: https://yuruna.link/42e220c4-0006
     ATTEMPT=1
+    # Without the seeded digest and commit no host archive can be accepted, so
+    # waiting for one would only delay the verified paths below.
+    if [ -z "$YR_ARCHIVE_SHA" ] || [ -z "$YR_ARCHIVE_COMMIT" ]; then
+      echo "yuruna pool-control-service: the seed carries no framework archive digest; skipping the host archive for the verified paths." >&2
+      ATTEMPT=7
+    fi
     while [ "$ATTEMPT" -le 6 ]; do
       if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
         # Check the transfer separately; tar can succeed after wget fails.
@@ -257,7 +303,7 @@ runcmd:
       fi
     fi
     if [ "$OK" -eq 0 ]; then
-      echo "yuruna pool-control-service: host status service did not serve the framework after 6 attempts; cloning the public mirror instead -- this daemon will run PUBLISHED code, which is older than the host's enlistment." >&2
+      echo "yuruna pool-control-service: neither the host archive nor the LAN mirror provided the framework; cloning the public mirror instead -- this daemon will run PUBLISHED code, which is older than the host's enlistment." >&2
       if [ -n "$FETCH_DIR" ] &&
          git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 "$MIRROR_URL" "$FETCH_DIR/tree" && yuruna_accept_framework; then OK=1; fi
     fi
@@ -286,6 +332,8 @@ runcmd:
     if grep -q '^YURUNA_POOL_NETWORK_PATH=.' /etc/yuruna/pool.env 2>/dev/null; then
       /usr/local/bin/yuruna-nas-credential.sh pool /etc/yuruna/pool-nas.cifs.cred ||
         echo "yuruna pool-control-service: no NAS credential from the host config service; the pool-NAS mount will fail." >&2
+      systemctl enable --now yuruna-nas-credential-refresh.timer ||
+        echo "yuruna pool-control-service: the NAS credential refresh timer did not start; a rotated NAS password needs a rebuild." >&2
     fi
     SCRIPT=/home/pool-control-service-admin/yuruna/guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh
     if [ -f "$SCRIPT" ]; then

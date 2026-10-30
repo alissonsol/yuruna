@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e6d9c8-1705-43a2-89f3-6013cc25bb54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -10,6 +10,7 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Log.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.SequenceEngine.psm1') -Force -Global -DisableNameChecking
@@ -17,15 +18,15 @@ BeforeAll {
     # filter does not match, and this suite relies on the real command there.
     $script:RealActionHandler = & (Get-Module Test.SequenceEngine) { Get-Command Invoke-SequenceActionHandler }
     Import-Module (Join-Path $PSScriptRoot 'Test.PerfAggregate.psm1') -Force -Global -DisableNameChecking
-    $script:PriorRuntime = $env:YURUNA_RUNTIME_DIR
-    $script:PriorLog = $env:YURUNA_LOG_DIR
+    $script:PriorRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+    $script:PriorLog = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
     $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'runtime'
     $env:YURUNA_LOG_DIR = Join-Path $TestDrive 'log'
     $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR, $env:YURUNA_LOG_DIR -Force
 }
 AfterAll {
-    $env:YURUNA_RUNTIME_DIR = $script:PriorRuntime
-    $env:YURUNA_LOG_DIR = $script:PriorLog
+    Restore-YurunaTestEnvironment -Saved $script:PriorRuntime
+    Restore-YurunaTestEnvironment -Saved $script:PriorLog
 }
 
 Describe 'real sequence execution preserves source positions and current-step causes' {
@@ -36,10 +37,13 @@ Describe 'real sequence execution preserves source positions and current-step ca
         Mock Read-SequenceFile -ModuleName Test.SequenceEngine { $script:FixtureSequence }
         $script:FixtureRows = [Collections.Generic.List[object]]::new()
         $rows = $script:FixtureRows
+        # What a step writes to the guest's serial console while it runs.
+        $serialPath = Join-Path $TestDrive 'fixture-serial.log'
         Register-SequenceAction -Name safetyFixture -ReplaySafety observe -CapturesOwnFailureScreenshot $true -Handler {
             param($context)
             $state = Get-SequenceFailureState
             $rows.Add(@{ Number=$context.StepNum; StepCount=$context.StepCount; RunLost=$state.StepGuestRunLost; Tail=$state.WaitForTextOcrTail; StepInvocationId=$context.StepInvocationId; SequenceInvocationId=$context.SequenceInvocationId })
+            if ($context.Step.appendSerial) { [IO.File]::AppendAllText($serialPath, [string]$context.Step.appendSerial) }
             if ($context.Step.seedEvidence) {
                 $state.WaitForTextOutputStaticSeconds=200
                 $context.ExecutionProfile=@{ diagnosticOutcome='unavailable'; reasonCode='profile-ssh-timeout'; timedOut=$true; sshResponsive=$false; recorder=@{heartbeatAgeSeconds=180} }
@@ -173,6 +177,102 @@ Describe 'real sequence execution preserves source positions and current-step ca
         $failure.stepInvocationId | Should -Be $record.stepInvocationId
         $failure.originatingStepInvocationId | Should -Be $record.originatingStepInvocationId
         $failure.progressAdvisory.SshResponsiveness | Should -Be unresponsive
+    }
+    It 'reads the kernel''s console reports from the failing step''s own start into the record and its events' {
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
+        $script:FixtureEvents = [Collections.Generic.List[object]]::new()
+        Mock Send-CycleEventSafely -ModuleName Test.SequenceEngine { $script:FixtureEvents.Add($EventRecord) }
+        $serial = Join-Path $TestDrive 'fixture-serial.log'
+        Set-Content -LiteralPath $serial -Value '' -NoNewline
+        # The Hyper-V driver's accessor, over the file the fixture steps append to.
+        . (Get-Module Test.SequenceEngine) {
+            param($Path)
+            $script:FixtureSerialPath = $Path
+            function Read-VMSerialCapture {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the driver accessor so the caller binds.')]
+                param([string]$VMName, [long]$FromOffset = 0, [int]$MaxBytes = 4194304)
+                if (-not [IO.File]::Exists($script:FixtureSerialPath)) { return $null }
+                $bytes = [IO.File]::ReadAllBytes($script:FixtureSerialPath)
+                if ($MaxBytes -eq 0) { return [pscustomobject]@{ Length = [long]$bytes.Length; Offset = [long]$bytes.Length; Text = ''; Truncated = $false } }
+                $start = [int][math]::Min($FromOffset, $bytes.Length)
+                [pscustomobject]@{ Length = [long]$bytes.Length; Offset = [long]$start; Text = [Text.Encoding]::UTF8.GetString($bytes, $start, $bytes.Length - $start); Truncated = $false }
+            }
+        } $serial
+        try {
+            $earlier = "[  900.000000] watchdog: BUG: soft lockup - CPU#0 stuck for 22s! [earlier:1]`n"
+            $current = "[  990.000000] sudo[1]: pam_unix(sudo:session): session closed for user root`n" +
+                "[  993.037944] watchdog: BUG: soft lockup - CPU#1 stuck for 26s! [etcd:33180]`n"
+            $script:FixtureSequence = @{ steps=@(@{action='safetyFixture';appendSerial=$earlier}, @{action='safetyFixture';appendSerial=$current;fail=$true}) }
+            Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile | Should -BeFalse
+            $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+            $record.reason | Should -Be step -Because "the failure path must not crash: $($record.context.crash | ConvertTo-Json -Compress -Depth 4)"
+            $reading = $record.context.causeDetail.guestKernelFault.serial
+            $reading.faultRecords | Should -Be 1 -Because 'the report an earlier step left on the console is not this failure''s'
+            $reading.firstFault.text | Should -Match 'etcd:33180'
+            $reading.lastNormalRecordUptimeSeconds | Should -Be 990
+            $reading.bytesRead | Should -Be ([Text.Encoding]::UTF8.GetByteCount($current))
+            $record.context.causeDetail.progressAdvisory.Signals | Should -Contain 'guest-kernel-fault'
+            $failure = @($script:FixtureEvents | Where-Object event -EQ step_failure)[-1]
+            $failure.causeGuestKernelFault | Should -Be 'soft-lockup'
+            $stepEnd = @($script:FixtureEvents | Where-Object { $_.event -eq 'step_end' -and -not $_.ok })[-1]
+            $stepEnd.guestKernelFault.serial.faultRecords | Should -Be 1
+        } finally {
+            . (Get-Module Test.SequenceEngine) {
+                Remove-Item -LiteralPath function:\Read-VMSerialCapture -ErrorAction SilentlyContinue
+                Remove-Variable -Name FixtureSerialPath -Scope Script -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    It 'names a clock jump the console shows during the failing step, in the record and on its event' {
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
+        $script:FixtureEvents = [Collections.Generic.List[object]]::new()
+        Mock Send-CycleEventSafely -ModuleName Test.SequenceEngine { $script:FixtureEvents.Add($EventRecord) }
+        $serial = Join-Path $TestDrive 'fixture-serial.log'
+        Set-Content -LiteralPath $serial -Value '' -NoNewline
+        # The Hyper-V driver's accessors: the console the step appends to, and
+        # a VM created 45 minutes ago.
+        . (Get-Module Test.SequenceEngine) {
+            param($Path)
+            $script:FixtureSerialPath = $Path
+            function Read-VMSerialCapture {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the driver accessor so the caller binds.')]
+                param([string]$VMName, [long]$FromOffset = 0, [int]$MaxBytes = 4194304)
+                if (-not [IO.File]::Exists($script:FixtureSerialPath)) { return $null }
+                $bytes = [IO.File]::ReadAllBytes($script:FixtureSerialPath)
+                if ($MaxBytes -eq 0) { return [pscustomobject]@{ Length = [long]$bytes.Length; Offset = [long]$bytes.Length; Text = ''; Truncated = $false } }
+                $start = [int][math]::Min($FromOffset, $bytes.Length)
+                [pscustomobject]@{ Length = [long]$bytes.Length; Offset = [long]$start; Text = [Text.Encoding]::UTF8.GetString($bytes, $start, $bytes.Length - $start); Truncated = $false }
+            }
+            function Get-VMCreationTime {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the driver accessor so the caller binds.')]
+                param([string]$VMName)
+                return [DateTime]::UtcNow.AddMinutes(-45)
+            }
+        } $serial
+        try {
+            $current = "[  272.970974] systemd[1]: systemd-networkd.service: Watchdog timeout (limit 3min)!`n" +
+                "[303719.889270] systemd[1]: systemd-logind.service: Watchdog timeout (limit 3min)!`n"
+            $script:FixtureSequence = @{ steps=@(@{action='safetyFixture';appendSerial=$current;fail=$true}) }
+            Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile | Should -BeFalse
+            $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+            $record.reason | Should -Be step -Because "the failure path must not crash: $($record.context.crash | ConvertTo-Json -Compress -Depth 4)"
+            $reading = $record.context.causeDetail.guestKernelFault.serial
+            @($reading.kinds) | Should -Be @('clock-jump')
+            $reading.faultRecords | Should -Be 0 -Because 'the console carried no kernel report, only timestamps that leapt'
+            $reading.largestForwardLeap.seconds | Should -Be 303446.918
+            @($record.context.causeDetail.progressAdvisory.KernelFaults) | Should -Be @('clock-jump')
+            $record.context.causeDetail.progressAdvisory.Signals | Should -Contain 'guest-kernel-fault'
+            $failure = @($script:FixtureEvents | Where-Object event -EQ step_failure)[-1]
+            $failure.causeGuestKernelFault | Should -Be 'clock-jump'
+        } finally {
+            . (Get-Module Test.SequenceEngine) {
+                Remove-Item -LiteralPath function:\Read-VMSerialCapture, function:\Get-VMCreationTime -ErrorAction SilentlyContinue
+                Remove-Variable -Name FixtureSerialPath -Scope Script -ErrorAction SilentlyContinue
+            }
+        }
     }
     It 'clears a recovered retry leaf before a later failure and a new sequence' {
         Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }

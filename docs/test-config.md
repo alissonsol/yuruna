@@ -131,6 +131,43 @@ mapping (empty, comments only, a bare scalar or list) is refused as
 `config-corrupt` before anything is written, so neither the file nor its
 `.backup` changes: restore the file and run again.
 
+Both entry points compute the result with one function,
+`Get-TestConfigReconciliation`, so they write the same file from the same
+input: a deprecated top-level key (`hostSshServer`) is dropped without being
+parked, and a value the merge would change is reported as
+`path: previous -> current` before anything is written.
+
+<a id="42b11c32-0014"></a>
+
+### Writers, the lock and the journal
+
+The writers of `test.config.yml` -- the two reconcilers, the documented
+writer behind the pool-storage and lab helpers, the caching-proxy enrollment
+and the reference-host sync -- read and write it while holding
+`test.config.yml.lock` (`Use-TestConfigLock`), so a change another writer made
+in between is read rather than overwritten. A writer that finds the lock held
+by another process for 30 s refuses with `config-lock-busy` and writes nothing.
+The reference-host sync asks for confirmation before it writes, so it holds
+the lock only for the write and refuses with `config-changed` when the file
+changed since it was read.
+
+Each write first keeps the bytes it replaces in
+`test.config.yml.journal/<UTC time>-<writer>.backup` (owner-only, gitignored,
+never served; the newest 20 are kept), so no write overwrites another's copy
+the way the single `.backup` slot does. `Restore-TestConfigFromJournal` puts back the
+newest entry that parses -- the last known good -- or the entry named by
+`-EntryPath`; it journals the file it replaces first and reports each value it
+changes:
+
+```powershell
+Import-Module ./test/modules/Test.ConfigSync.psm1
+Get-TestConfigJournal -ConfigPath test/test.config.yml
+Restore-TestConfigFromJournal -ConfigPath test/test.config.yml
+```
+
+A restore is an operator action: a cycle that meets a file that does not parse
+refuses to run on it rather than rolling back on its own.
+
 <a id="42b11c32-0004"></a>
 
 ### The file keeps the template's comments
@@ -717,6 +754,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

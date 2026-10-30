@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,6 +106,11 @@ $script:DefaultScreenHistorySize = 20
 # See https://yuruna.link/428e4df6-001c
 $script:DisplayInactivePattern = 'Display output is not active'
 $script:DisplayInactiveLivelockSeconds = 300
+# A processor the guest kernel stopped servicing for this long, with the
+# kernel's own fault report on the serial console, ends a wait that ends on a
+# livelock. Healthy guests on the ARM64 lab host showed a silent run of one or
+# two sampler intervals at most.
+$script:KernelStallSilentSeconds = 180
 
 # Exponential-backoff helper for filesystem-state poll loops is
 # centralized in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
@@ -197,12 +202,36 @@ function Invoke-HostIODispatch {
     # signatures stay exactly as-is -- the Yuruna.Host / Invoke-Sequence
     # qualified-call discipline depends on them.
     param([string]$HostType, [string]$Action, [hashtable]$Arguments)
+    # The transports record how a failed send failed (Get-HostInputFault). The
+    # step keeps the last input call's outcome: a failure the handler went on to
+    # repair by a later successful send is not the step's cause.
+    $canReadFault = [bool](Get-Command Get-HostInputFault -ErrorAction SilentlyContinue)
+    if ($canReadFault) { Clear-HostInputFault }
+    $ok = $false
+    $fault = $null
     try {
-        return (Invoke-HostIOAction -HostType $HostType -Action $Action -Arguments $Arguments)
+        $ok = Invoke-HostIOAction -HostType $HostType -Action $Action -Arguments $Arguments
+        if (-not $ok -and $canReadFault) { $fault = Get-HostInputFault }
     } catch {
         Write-Warning "${Action}: $($_.Exception.Message)"
-        return $false
+        $ok = $false
+        # An action the host never registered fails the same way every time.
+        $unavailable = (Get-Command Test-HostIOActionAvailable -ErrorAction SilentlyContinue) -and
+            -not (Test-HostIOActionAvailable -HostType $HostType -Action $Action)
+        $fault = [ordered]@{ kind = ($unavailable ? 'deterministic' : 'transient'); reason = ($unavailable ? 'action-unavailable' : 'provider-error')
+            transport = $HostType; detail = [string]$_.Exception.Message; delivered = -1; total = -1 }
     }
+    if ($ok) {
+        $script:Fail.StepHostInputFault = $null
+        return $ok
+    }
+    if (-not $fault) {
+        $fault = [ordered]@{ kind = 'transient'; reason = 'unspecified'; transport = $HostType; detail = ''; delivered = -1; total = -1 }
+    }
+    $record = [ordered]@{ action = $Action; stepInvocationId = [string]$script:Fail.LastFailedStepInvocationId }
+    foreach ($key in $fault.Keys) { $record[$key] = $fault[$key] }
+    $script:Fail.StepHostInputFault = $record
+    return $ok
 }
 
 function Send-Key {
@@ -919,6 +948,18 @@ function Select-ConsoleTextSinceBaseline {
 }
 
 function Test-RecentOcrFramesMatch {
+    <#
+    .SYNOPSIS
+        Match a pattern split across the last few frames' text.
+    .DESCRIPTION
+        Every strategy but the segment match tests one line at a time, and a
+        line of the join is a line of one frame, which that frame's own poll
+        already tested. In Or mode each engine's own verdict on each frame
+        decided that poll, so only the segment match -- the pattern's words
+        spread over lines -- can find something new in the join, and with
+        -NoSegmentMatch nothing can. And mode combines engines whose matching
+        lines may come from different frames, so it keeps the full test.
+    #>
     [OutputType([bool])]
     param(
         [hashtable]$Frames, $EngineResults, [string[]]$EnabledEngines,
@@ -926,6 +967,8 @@ function Test-RecentOcrFramesMatch {
         [switch]$SinceBaseline, [string[]]$Baseline, [int]$TailLines = 0,
         [switch]$NoSegmentMatch
     )
+    if ($CombineMode -ne 'And' -and $NoSegmentMatch) { return $false }
+    $segmentOnly = $CombineMode -ne 'And'
     $engineMatches = @()
     foreach ($engine in $EnabledEngines) {
         if (-not $Frames.ContainsKey($engine)) { $Frames[$engine] = [Collections.Generic.List[string]]::new() }
@@ -936,7 +979,9 @@ function Test-RecentOcrFramesMatch {
         $joined = [string]::Join("`n", $Frames[$engine])
         $matched = $false
         foreach ($wanted in $Pattern) {
-            if (Test-OCRMatch -Text $joined -Pattern $wanted -NoSegmentMatch:$NoSegmentMatch) { $matched = $true; break }
+            $found = if ($segmentOnly) { Test-OCRSegmentMatch -Text $joined -Pattern $wanted }
+                else { Test-OCRMatch -Text $joined -Pattern $wanted -NoSegmentMatch:$NoSegmentMatch }
+            if ($found) { $matched = $true; break }
         }
         $engineMatches += $matched
     }
@@ -958,6 +1003,9 @@ function Save-EngineOcrSidecar {
         $engine = $EngineResults[$name]
         $text = [string]$engine.Text
         $status = if ($engine.Matched) { "MATCH '$($engine.MatchedPattern)'" } else { 'no match' }
+        # Not read from this frame: the first engine read it unchanged, so the
+        # previous frame's text stands in for it.
+        if ($engine.Reused) { $status += ', kept from the previous frame' }
         if ($VerboseSummary) {
             $snippet = if ($text.Length -le 120) { $text } else { '...' + $text.Substring($text.Length - 120) }
             Write-Verbose "      [$name] $status | $snippet"
@@ -1030,6 +1078,164 @@ function Get-GuestLivelockVerdict {
     } catch {
         Write-Verbose "      Host livelock verdict unavailable for '$VMName': $($_.Exception.Message)"
         return $null
+    }
+}
+
+function Get-StepSerialLogMark {
+    <#
+    .SYNOPSIS
+        Where the VM's live serial capture ends now, or $null when this host
+        keeps no capture.
+    .DESCRIPTION
+        Taken as a step starts, so the step's failure reads only what the
+        guest wrote to its console while that step ran. Only the Hyper-V
+        driver provides Read-VMSerialCapture.
+    #>
+    [CmdletBinding()]
+    [OutputType([long])]
+    param([AllowEmptyString()][string]$VMName)
+    if (-not $VMName -or -not (Get-Command Read-VMSerialCapture -ErrorAction SilentlyContinue)) { return $null }
+    try {
+        $capture = Read-VMSerialCapture -VMName $VMName -MaxBytes 0
+        if ($capture) { return [long]$capture.Length }
+    } catch {
+        Write-Verbose "      Serial capture mark unavailable for '$VMName': $($_.Exception.Message)"
+    }
+    return $null
+}
+
+function Get-StepGuestUptimeLimit {
+    <#
+    .SYNOPSIS
+        The longest any boot of the VM can have run, in real seconds, or $null
+        when this host cannot say.
+    .DESCRIPTION
+        Every boot of a VM follows its creation, so the time since then bounds
+        every timestamp an honest guest clock can print, across the resets a
+        step can include. The VM's uptime bounds only the current boot, because
+        Hyper-V restarts it at every reset, the guest's own reboots included.
+        A guest clock that jumped by its partition's counter offset reads about
+        the hypervisor's time, which restarts with the host, so the bound
+        names no jump on a VM created before the host last started. Only the
+        Hyper-V driver provides Get-VMCreationTime.
+    #>
+    [CmdletBinding()]
+    [OutputType([double])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not (Get-Command Get-VMCreationTime -ErrorAction SilentlyContinue)) { return $null }
+    try {
+        $created = Get-VMCreationTime -VMName $VMName
+        if ($created -is [datetime]) {
+            $seconds = ([DateTime]::UtcNow - $created.ToUniversalTime()).TotalSeconds
+            if ($seconds -gt 0) { return $seconds }
+        }
+    } catch {
+        Write-Verbose "      VM creation time unavailable for '$VMName': $($_.Exception.Message)"
+    }
+    return $null
+}
+
+function Get-StepGuestKernelFault {
+    <#
+    .SYNOPSIS
+        The guest kernel's own reports for a failed step: what its serial
+        console received after the step's mark, and the first stall the guest
+        recorder froze while the step ran.
+    .DESCRIPTION
+        Evidence gathering must never fail the step it describes, so a source
+        that cannot be read is $null -- not measured. A serial reading without
+        a fault is kept: it says the console was read and the kernel reported
+        nothing during the step. The console's timestamps are judged against
+        the VM's age, taken after the read so it bounds every record read.
+    .OUTPUTS
+        [ordered] stepInvocationId, serial and recorder; $null when neither
+        source was available.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [AllowEmptyString()][string]$VMName,
+        [Nullable[long]]$SerialMark,
+        $ExecutionProfile,
+        [AllowEmptyString()][string]$StepInvocationId
+    )
+    $serial = $null
+    $recorder = $null
+    try {
+        if ($ExecutionProfile -and $ExecutionProfile.recorder -and $ExecutionProfile.recorder.kernelStall) {
+            $recorder = $ExecutionProfile.recorder.kernelStall
+        }
+        if ($VMName -and $null -ne $SerialMark -and (Get-Command Read-VMSerialCapture -ErrorAction SilentlyContinue)) {
+            $capture = Read-VMSerialCapture -VMName $VMName -FromOffset $SerialMark
+            if ($capture) {
+                if (-not (Get-Command ConvertFrom-GuestKernelFaultText -ErrorAction SilentlyContinue)) {
+                    Import-Module (Join-Path $PSScriptRoot 'Test.Diagnostic.psm1') -Global -ErrorAction Stop -Verbose:$false
+                }
+                $serial = ConvertFrom-GuestKernelFaultText -Text ([string]$capture.Text) -Source serial `
+                    -UptimeLimitSeconds (Get-StepGuestUptimeLimit -VMName $VMName)
+                if (-not $serial) { $serial = [ordered]@{ source = 'serial'; records = 0; faultRecords = 0; kinds = [string[]]@() } }
+                $serial.bytesRead = [long]$capture.Length - [long]$capture.Offset
+                $serial.truncated = [bool]$capture.Truncated
+                # A capture replaced after the mark (a VM restart re-arms it)
+                # holds only what followed; without that, a reading with no
+                # fault would claim the whole step was clean.
+                $serial.replaced = [bool]$capture.Replaced
+            }
+        }
+    } catch {
+        Write-Verbose "      Guest kernel reading unavailable for '$VMName': $($_.Exception.Message)"
+    }
+    if (-not $serial -and -not $recorder) { return $null }
+    return [ordered]@{ stepInvocationId = $StepInvocationId; serial = $serial; recorder = $recorder }
+}
+
+function Get-GuestKernelStallEnd {
+    <#
+    .SYNOPSIS
+        The evidence that a wait is on a wedged guest kernel, or $null.
+    .DESCRIPTION
+        A guest kernel can stop servicing one processor while another keeps
+        running, often spinning on work the stuck one holds. The livelock
+        verdict waits for every processor to be pinned, which can take the
+        rest of a step's budget or never come. A processor that has serviced
+        no interrupt for KernelStallSilentSeconds, while the kernel's own
+        fault report reached the serial console after the mark, is a kernel
+        the payload cannot finish on. Neither reading is enough alone: an
+        RCU stall or hung task can pass, and the silent-processor reading is
+        the host's inference from counters. Only the Hyper-V driver keeps a
+        serial capture and the per-processor interrupt counters, so other
+        hosts never end a wait this way. Evidence gathering must never fail
+        the wait, so a source that cannot be read ends nothing.
+    .PARAMETER LivelockVerdict
+        Get-GuestLivelockVerdict's reading, whose ProcessorWindow holds each
+        processor's NoInterruptsServicedSeconds.
+    .PARAMETER SerialMark
+        Where the serial capture ended when the wait began.
+    .OUTPUTS
+        [ordered] processors, noInterruptsServicedSeconds,
+        noInterruptsServicedSinceUtc and kinds; $null when either reading is
+        missing.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [AllowEmptyString()][string]$VMName,
+        $LivelockVerdict,
+        [Nullable[long]]$SerialMark
+    )
+    if ($null -eq $SerialMark -or -not $LivelockVerdict -or -not $LivelockVerdict.ProcessorWindow) { return $null }
+    $silent = @(@($LivelockVerdict.ProcessorWindow.Processors) | Where-Object {
+        $_ -and $null -ne $_.NoInterruptsServicedSeconds -and [int]$_.NoInterruptsServicedSeconds -ge $script:KernelStallSilentSeconds })
+    if ($silent.Count -eq 0) { return $null }
+    $reading = Get-StepGuestKernelFault -VMName $VMName -SerialMark $SerialMark
+    $serial = if ($reading) { $reading.serial } else { $null }
+    if (-not $serial -or [int]$serial.faultRecords -lt 1) { return $null }
+    $longest = $silent | Sort-Object -Property { [int]$_.NoInterruptsServicedSeconds } -Descending | Select-Object -First 1
+    return [ordered]@{
+        processors                   = [string[]]@($silent | ForEach-Object { [string]$_.Processor })
+        noInterruptsServicedSeconds  = [int]$longest.NoInterruptsServicedSeconds
+        noInterruptsServicedSinceUtc = [string]$longest.NoInterruptsServicedSinceUtc
+        kinds                        = [string[]]@($serial.kinds)
     }
 }
 
@@ -1138,9 +1344,11 @@ function Wait-ForText {
         [string[]]$EarlyFailurePattern = @(),
         [int]$EarlyFailureSeconds = 0,
         # End the wait as soon as the host recording shows the guest livelocked
-        # (see Get-YurunaVmLivelockVerdict). Callers can then diagnose or cold
-        # restart at a safe boundary; a partially executed payload must not be
-        # replayed merely because its completion wait ended early.
+        # (see Get-YurunaVmLivelockVerdict), or its kernel wedged with one
+        # processor silent (see Get-GuestKernelStallEnd). Callers can then
+        # diagnose or cold restart at a safe boundary; a partially executed
+        # payload must not be replayed merely because its completion wait
+        # ended early.
         [switch]$EndOnGuestLivelock,
         # Where a wait that ends on a livelock starts judging the verdict, for the
         # early end and for the verdict it records on timeout alike: a cold restart
@@ -1154,26 +1362,13 @@ function Wait-ForText {
     # slots are populated ONLY at the failure return points below (not at entry),
     # so a SUCCESSFUL wait leaves them empty and cannot leak its sought-pattern
     # set into a later non-wait step's failure record.
-    $script:Fail.WaitForTextMatchedFailurePattern = $null
-    $script:Fail.WaitForTextOcrTail        = $null
-    $script:Fail.WaitForTextPatternsSought = [string[]]@()
-    $script:Fail.WaitForTextFreshWindowNearMiss = [string[]]@()
-    # $null, not an empty list: the closest-line scan runs on the timeout path
-    # only, so every other way out of this wait -- a match, a failure pattern --
-    # leaves no reading, and an empty list would report one.
-    $script:Fail.WaitForTextClosestOnScreen = $null
-    $script:Fail.WaitForTextConsoleFlood   = $null
-    $script:Fail.WaitForTextConsoleStaticSeconds = 0
-    $script:Fail.WaitForTextInstallerStage = ''
-    $script:Fail.WaitForTextInstallerStageSeconds = 0
-    $script:Fail.WaitForTextGuestBootStalled = $false
-    $script:Fail.WaitForTextConsoleSecondOpinion = $null
-    $script:Fail.WaitForTextGuestLivelocked = $false
-    $script:Fail.WaitForTextGuestLivelock = $null
-    $script:Fail.WaitForTextBlankScreenSeconds = 0
+    # The wait slots, to their declared defaults. ClosestOnScreen is $null, not
+    # an empty list: the closest-line scan runs on the timeout path only, so
+    # every other way out of this wait -- a match, a failure pattern -- leaves
+    # no reading, and an empty list would report one.
+    Reset-SequenceFailureSlot -Lifetime wait -State $script:Fail
     # See https://yuruna.link/4213a0b3-0126
     $script:Fail.WaitForTextConsoleSignalsMeasured = (-not $FreshMatch)
-    $script:Fail.WaitForTextOutputStaticSeconds = $null
     # Per-wait verdict, readable by a caller that has to decide what to do with a
     # wait that came back false. The bool return says only "not found"; it cannot
     # distinguish a guest still working from a guest parked on a prompt that has
@@ -1244,6 +1439,9 @@ function Wait-ForText {
     # a full-history rescan would cost over a 60-300 s loop.
     $recentFrameMax = 3
     $recentFrames   = @{}
+    # A fallback engine's no-match read stands in for the next two frames while
+    # the first engine reads them unchanged (Test-CombinedOcrMatch -FallbackReuse).
+    $fallbackReuse  = New-OcrFallbackReuseState
     # See https://yuruna.link/4213a0b3-012a
     $sinceBaseline  = $null
     # Prefer the console the previous wait matched on over this wait's own first
@@ -1320,6 +1518,10 @@ function Wait-ForText {
     $nextLivelockCheckUtc = $startUtc
     $livelockVerdict = $null
     $endedOnLivelock = $false
+    # A kernel fault counts toward an early end only when its report reached
+    # the console after this wait began.
+    $kernelStallMark = if ($EndOnGuestLivelock) { Get-StepSerialLogMark -VMName $VMName } else { $null }
+    $kernelStallEnd = $null
     # The current run of frames carrying the emulator's no-display message,
     # measured only for a caller that ends on a livelock. The second opinion
     # samples for seconds, so it is asked at most once a minute.
@@ -1341,6 +1543,8 @@ function Wait-ForText {
             # heartbeat moves: the watchdog's bound then measures a poll that
             # stuck, not a long wait the step's own timeout already bounds.
             Write-RunnerStepHeartbeat
+            # Times the previous pass for the step's perf row (Add-PerfWaitPoll).
+            if (Get-Command -Name Add-PerfWaitPoll -ErrorAction SilentlyContinue) { Add-PerfWaitPoll -WaitStartUtc $startUtc -PollSeconds $PollSeconds }
             $elapsed = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             # PROGRESS-INLINE-TICK: reference impl lives in "waitForSeconds"
             $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
@@ -1356,6 +1560,8 @@ function Wait-ForText {
                     $endedOnLivelock = $true
                     break
                 }
+                $kernelStallEnd = Get-GuestKernelStallEnd -VMName $VMName -LivelockVerdict $livelockVerdict -SerialMark $kernelStallMark
+                if ($kernelStallEnd) { break }
             }
 
             # Capture into the ring buffer with a millisecond-precise UTC name
@@ -1365,6 +1571,8 @@ function Wait-ForText {
             # poll iteration.
             $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')
             $rawScreenPath = Join-Path $screensDir "raw_${stamp}.png"
+            # Chaos tests only (Test.FaultInjection).
+            if ($env:YURUNA_FAULT_POINTS) { Import-Module (Join-Path $PSScriptRoot 'Test.FaultInjection.psm1') -DisableNameChecking; Invoke-YurunaFaultPoint -Name 'capture' }
             $captured = Get-VMScreenshot -VMName $VMName -OutFile $rawScreenPath
             if (-not $captured -or -not (Test-Path $rawScreenPath)) {
                 Write-Debug "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
@@ -1385,7 +1593,7 @@ function Wait-ForText {
                 if ($FreshMatch) {
                     # --- REGION: FreshMatch mode
                     # Only the last N lines can match.
-                    $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines -NoSegmentMatch:$NoSegmentMatch
+                    $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines -NoSegmentMatch:$NoSegmentMatch -FallbackReuse $fallbackReuse
 
                     Save-EngineOcrSidecar -ScreenshotPath $rawScreenPath -EngineResults $result.EngineResults -VerboseSummary
 
@@ -1417,7 +1625,7 @@ function Wait-ForText {
                 } else {
                     # --- REGION: Non-FreshMatch mode
                     # Accumulate text and check it for the pattern.
-                    $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -NoSegmentMatch:$NoSegmentMatch
+                    $result = Test-CombinedOcrMatch -ImagePath $rawScreenPath -Pattern $Pattern -NoSegmentMatch:$NoSegmentMatch -FallbackReuse $fallbackReuse
 
                     Save-EngineOcrSidecar -ScreenshotPath $rawScreenPath -EngineResults $result.EngineResults -VerboseSummary
 
@@ -1643,33 +1851,17 @@ function Wait-ForText {
                     if (Test-OCRMatch -Text $failureText -Pattern $fp -NoSegmentMatch:([bool]$strictFailurePattern[$fp])) {
                         $script:Fail.WaitForTextMatchedFailurePattern = $fp
                         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_62980faa8cb2736d' -Arguments @{ fp = "$fp"; elapsed = "${elapsed}"; timeoutSeconds = "${TimeoutSeconds}" })
-                        if ($lastCapturePath -and (Test-Path $lastCapturePath)) {
-                            $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
-                            Copy-Item -Path $lastCapturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
-                            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b24a2d8bfa724905' -Arguments @{ failScreenPath = "$failScreenPath"; screensDir = "$screensDir" })
-                        }
-                        if ($lastOcrText) {
-                            $failOcrPath = Join-Path $logDir "failure_ocr_${VMName}.txt"
-                            Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
-                            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ae9f061222f374f7' -Arguments @{ failOcrPath = "$failOcrPath" })
-                            # Bounded tail + the sought patterns into causeDetail (set
-                            # on failure only, so a successful wait can't leak them).
-                            $script:Fail.WaitForTextOcrTail = if ($lastOcrText.Length -le 1200) { $lastOcrText } else { $lastOcrText.Substring($lastOcrText.Length - 1200) }
-                            $script:Fail.WaitForTextPatternsSought = [string[]]@($Pattern)
-                        }
-                        $script:Fail.WaitForTextInstallerStage = $installerStage
-                        if ($installerStageSinceUtc) {
-                            $script:Fail.WaitForTextInstallerStageSeconds = [int]([DateTime]::UtcNow - $installerStageSinceUtc).TotalSeconds
-                        }
+                        # Set on failure only, so a successful wait can't leak them.
                         # The hypervisor's view belongs on a pattern match as much
                         # as on a timeout: a script that gave up because the guest
                         # lost its network reads the same on the console as one
                         # whose peer was down, and only the host recording shows
                         # which processor was trapping in place at that moment.
-                        $patternLivelock = Get-GuestLivelockVerdict -VMName $VMName -Since $livelockSinceUtc
-                        if ($patternLivelock) {
-                            $script:Fail.WaitForTextGuestLivelock = $patternLivelock
-                            $script:Fail.WaitForTextGuestLivelocked = ($patternLivelock.Verdict -eq 'livelocked')
+                        Save-WaitFailureEvidence -State $script:Fail -LogDir $logDir -VMName $VMName -CapturePath $lastCapturePath -OcrText $lastOcrText -Pattern $Pattern `
+                            -LivelockVerdict (Get-GuestLivelockVerdict -VMName $VMName -Since $livelockSinceUtc)
+                        $script:Fail.WaitForTextInstallerStage = $installerStage
+                        if ($installerStageSinceUtc) {
+                            $script:Fail.WaitForTextInstallerStageSeconds = [int]([DateTime]::UtcNow - $installerStageSinceUtc).TotalSeconds
                         }
                         return $false
                     }
@@ -1700,23 +1892,10 @@ function Wait-ForText {
             Start-Sleep -Seconds $PollSeconds
         }
 
-        # Timeout -- preserve last screenshot, full sequence, and OCR text
-        if ($lastCapturePath -and (Test-Path $lastCapturePath)) {
-            $failScreenPath = Join-Path $logDir "failure_screenshot_${VMName}.png"
-            Copy-Item -Path $lastCapturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b24a2d8bfa724905' -Arguments @{ failScreenPath = "$failScreenPath"; screensDir = "$screensDir" })
-        }
-        # The sought patterns go into causeDetail on every timeout, set on
-        # failure only so a successful wait can't leak them. Recording them
-        # only beside readable text made a blank console's record look like a
-        # wait that sought nothing.
-        $script:Fail.WaitForTextPatternsSought = [string[]]@($Pattern)
-        if ($lastOcrText) {
-            $failOcrPath = Join-Path $logDir "failure_ocr_${VMName}.txt"
-            Set-Content -Path $failOcrPath -Value $lastOcrText -Force -ErrorAction SilentlyContinue
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ae9f061222f374f7' -Arguments @{ failOcrPath = "$failOcrPath" })
-            $script:Fail.WaitForTextOcrTail = if ($lastOcrText.Length -le 1200) { $lastOcrText } else { $lastOcrText.Substring($lastOcrText.Length - 1200) }
-        }
+        # Timeout -- preserve the last screenshot and OCR text; the sought
+        # patterns go into causeDetail on every timeout, set on failure only so
+        # a successful wait can't leak them.
+        Save-WaitFailureEvidence -State $script:Fail -LogDir $logDir -VMName $VMName -CapturePath $lastCapturePath -OcrText $lastOcrText -Pattern $Pattern
         if ($blankSinceUtc) {
             $script:Fail.WaitForTextBlankScreenSeconds = [int]([DateTime]::UtcNow - $blankSinceUtc).TotalSeconds
         }
@@ -1727,8 +1906,12 @@ function Wait-ForText {
         # neither the console nor the capture path can tell those apart.
         # A wait that acts on the verdict records the one its early end judged;
         # any other wait records the whole recording window.
-        if (-not $endedOnLivelock) {
+        if (-not $endedOnLivelock -and -not $kernelStallEnd) {
             $livelockVerdict = if ($EndOnGuestLivelock) { Get-GuestLivelockVerdict -VMName $VMName -Since $livelockSinceUtc } else { Get-GuestLivelockVerdict -VMName $VMName }
+        }
+        if ($kernelStallEnd) {
+            $kernelStallEnd.waitedSeconds = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
+            $script:Fail.WaitForTextKernelStallEnd = $kernelStallEnd
         }
         if ($livelockVerdict) {
             $script:Fail.WaitForTextGuestLivelock = $livelockVerdict
@@ -1814,6 +1997,9 @@ function Wait-ForText {
         if ($endedOnLivelock) {
             $waited = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6d4042dbe6943c27' -Arguments @{ patternLabel = "$patternLabel"; waited = "${waited}"; timeoutSeconds = "${TimeoutSeconds}"; detail = "$($livelockVerdict.Detail)" })
+        } elseif ($kernelStallEnd) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.wait_ended_on_kernel_stall' -Arguments @{ patternLabel = "$patternLabel"; waited = "$($kernelStallEnd.waitedSeconds)"; timeoutSeconds = "${TimeoutSeconds}"
+                processors = "$($kernelStallEnd.processors -join ', ')"; silentSeconds = "$($kernelStallEnd.noInterruptsServicedSeconds)"; kinds = "$($kernelStallEnd.kinds -join ', ')" })
         } elseif ($deadlineGrantedSeconds -gt 0) {
             $waited = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5d951715d9614411' -Arguments @{ patternLabel = "$patternLabel"; timeoutSeconds = "${TimeoutSeconds}"; deadlineGrantedSeconds = "${deadlineGrantedSeconds}"; waited = "${waited}" })
@@ -2667,28 +2853,10 @@ function Invoke-Sequence {
         foreach ($step in $Steps) {
             $stepNum++
             $ctx = $null
-            $script:Fail.LastFailedStepInvocationId = ''
-            $script:Fail.LastFailedSequenceInvocationId = ''
-            $script:Fail.OriginatingStepInvocationId = ''
-            $script:Fail.OriginatingSequenceInvocationId = ''
-            # Cause signals belong to one attempted step, including nested retries.
-            foreach ($cause in @('WaitForTextMatchedFailurePattern', 'WaitForTextOcrTail',
-                'WaitForTextClosestOnScreen', 'WaitForTextConsoleFlood', 'StepGuestAddressUnresolved',
-                'StepGuestTransportLost', 'StepGuestRunLost', 'StepGuestPayloadUnavailable', 'StepInputLost',
-                'StepLauncherRejection', 'StepAptIndexMismatch', 'StepVmNotStopped', 'WaitForTextGuestLivelock', 'WaitForTextOutputStaticSeconds', 'StepProgressAdvisory',
-                'StepHandlerError', 'StepFailurePhase', 'StepEffect', 'StepDeployResult')) {
-                $script:Fail[$cause] = $null
-            }
-            $script:Fail.WaitForTextPatternsSought = [string[]]@()
-            $script:Fail.WaitForTextFreshWindowNearMiss = [string[]]@()
-            $script:Fail.WaitForTextConsoleStaticSeconds = 0
-            $script:Fail.WaitForTextInstallerStage = ''
-            $script:Fail.WaitForTextInstallerStageSeconds = 0
-            $script:Fail.WaitForTextGuestBootStalled = $false
-            $script:Fail.WaitForTextConsoleSecondOpinion = $null
-            $script:Fail.WaitForTextGuestLivelocked = $false
-            $script:Fail.WaitForTextBlankScreenSeconds = 0
-            $script:Fail.WaitForTextConsoleSignalsMeasured = $true
+            # Cause signals and the failed-step identity belong to one
+            # attempted step, including nested retries (the step and wait
+            # slots declared in Test.SequenceFailureState).
+            Reset-SequenceFailureSlot -Lifetime step -State $script:Fail
 
             # Gate #2: between-steps pause + cycle-restart check. Catches
             # a Pause or a "Save and start cycle" clicked while the previous
@@ -2723,6 +2891,10 @@ function Invoke-Sequence {
         # time -- the two clocks would diverge by the GC/IO time of the
         # write itself.
         $stepStartUtc = [DateTime]::UtcNow
+        # Where the guest's serial console ends as the step starts, so a
+        # failure reads the kernel's reports from here on, not an earlier
+        # step's.
+        $stepSerialMark = Get-StepSerialLogMark -VMName $VMName
         $stepInvocationId = [Guid]::NewGuid().ToString('N')
         $script:Fail.LastFailedStepInvocationId = $stepInvocationId
         $script:Fail.LastFailedSequenceInvocationId = $sequenceInvocationId
@@ -2885,9 +3057,12 @@ function Invoke-Sequence {
                     $script:Fail.StepProgressAdvisory = $null
                     $script:Fail.WaitForTextConsoleSecondOpinion = $null
                 } else {
+                    $script:Fail.StepGuestKernelFault = Get-StepGuestKernelFault -VMName $VMName -SerialMark $stepSerialMark `
+                        -ExecutionProfile $(if ($ctx) { $ctx.ExecutionProfile } else { $null }) -StepInvocationId $stepInvocationId
                     $script:Fail.StepProgressAdvisory = Get-GuestProgressAdvisory `
                         -OutputStaticSeconds $script:Fail.WaitForTextOutputStaticSeconds `
-                        -HeartbeatAgeSeconds $heartbeatAge -SshResponsiveness $sshResponsiveness -ClockWarningCodes $clockWarningCodes
+                        -HeartbeatAgeSeconds $heartbeatAge -SshResponsiveness $sshResponsiveness -ClockWarningCodes $clockWarningCodes `
+                        -KernelFaultKinds @(Get-GuestKernelFaultKind -Reading $script:Fail.StepGuestKernelFault)
                 }
                 $script:Fail.OriginatingStepInvocationId = $stepInvocationId
                 $script:Fail.OriginatingSequenceInvocationId = $sequenceInvocationId
@@ -2896,6 +3071,7 @@ function Invoke-Sequence {
             $stepEndRecord.originatingSequenceInvocationId = $script:Fail.OriginatingSequenceInvocationId
             $stepEndRecord.progressAdvisory = $script:Fail.StepProgressAdvisory
             $stepEndRecord.consoleSecondOpinion = $script:Fail.WaitForTextConsoleSecondOpinion
+            $stepEndRecord.guestKernelFault = $script:Fail.StepGuestKernelFault
         }
         # See https://yuruna.link/4213a0b3-0143
         if (-not $ok) {
@@ -2985,37 +3161,15 @@ function Invoke-Sequence {
         return $true
     }  # end $invokeStepBlock
 
-    $script:Fail.LastFailureLabel       = $null
-    $script:Fail.LastFailureDescription = $null
-    $script:Fail.LastFailedAction       = $null
-    $script:Fail.LastFailedStepNumber   = 0
-    $script:Fail.LastFailedStepStartedUtc = $null
-    $script:Fail.LastFailedStepInvocationId = ''
-    $script:Fail.LastFailedSequenceInvocationId = ''
-    $script:Fail.OriginatingStepInvocationId = ''
-    $script:Fail.OriginatingSequenceInvocationId = ''
-    $script:Fail.StepProgressAdvisory = $null
-    # See https://yuruna.link/4213a0b3-0148
-    $script:Fail.LastInnerFailedAction         = $null
-    $script:Fail.LastInnerFailureClass         = $null
-    $script:Fail.LastInnerSeverity             = $null
-    $script:Fail.LastInnerSuggestedRecoveries  = @()
-    # lastSucceededStepNumber: the step-N boundary a replay can safely
-    # resume past. Reset to 0 at sequence start so a fresh-cycle
-    # failure on step 1 surfaces as "no step succeeded" rather than
-    # carrying a leftover value from a prior sequence's run.
-    $script:Fail.LastSucceededStepNumber       = 0
-    # The first-silence marker spans the whole sequence: it is the earliest
-    # symptom, so a step must not clear it, and the next sequence starts clean.
-    $script:Fail.FirstGuestSilenceUtc          = $null
-    $script:Fail.FirstGuestSilenceSource       = $null
-    # Cause slots reset per sequence so a prior sequence's OCR tail / sought
-    # patterns can't leak into a non-wait step's failure record that fails before
-    # any wait runs (the wait functions also reset them at entry).
-    $script:Fail.WaitForTextOcrTail            = $null
-    $script:Fail.WaitForTextPatternsSought     = [string[]]@()
-    $script:Fail.WaitForTextInstallerStage = ''
-    $script:Fail.WaitForTextInstallerStageSeconds = 0
+    # The sequence slots, and with them the step and wait slots: the failed-step
+    # boundary and the inner-cause slots (See https://yuruna.link/4213a0b3-0148),
+    # lastSucceededStepNumber -- 0 means "no step succeeded", so a failure on
+    # step 1 never carries a prior sequence's resume boundary -- and the
+    # first-silence marker, which spans the whole sequence because it is the
+    # earliest symptom. A prior sequence's OCR tail or sought patterns can then
+    # not leak into a non-wait step's failure record that fails before any
+    # wait runs.
+    Reset-SequenceFailureSlot -Lifetime sequence -State $script:Fail
     $result = & $invokeStepBlock -Steps $steps -StepOffset ([Math]::Max(0, $StartStep - 1))
     if (-not $result) {
         # Keep the exact frame saved by the failed attempt; recapture only

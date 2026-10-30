@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b78fbd-8036-4aa8-93eb-161e72bdba4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,6 +122,13 @@ if (-not (Test-Path -LiteralPath $InnerScript)) {
 # modules are re-read from disk each cycle, so a fix lands without restarting
 # the runner.
 Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $ModulesDir
+# -logLevel, else test.config.yml's logLevel, for this process and the watchdog
+# job and workers it starts (published in YURUNA_LOG_LEVEL).
+$cycleConfig = Read-TestConfig -Path $ConfigPath
+$null = Resolve-LogLevel -CmdLineLevel $(if ($PSBoundParameters.ContainsKey('logLevel')) { $logLevel }) `
+    -ConfigLevel $(if ($cycleConfig -is [System.Collections.IDictionary]) { [string]$cycleConfig['logLevel'] })
+# Chaos tests only (Test.FaultInjection): a fault once the module set loaded.
+if ($env:YURUNA_FAULT_POINTS) { Import-Module (Join-Path $PSScriptRoot 'Test.FaultInjection.psm1') -DisableNameChecking; Invoke-YurunaFaultPoint -Name 'cycle-import' }
 
 # --- REGION: Bootstrap runtime + log dirs
 # The runtime/log dirs are already published by the caller; re-resolving is
@@ -179,7 +186,7 @@ $refreshBarrierRequestId = if ($env:YURUNA_REFRESH_BARRIER) { [string]$env:YURUN
 
 # --- REGION: Run one cycle
 # See https://yuruna.link/4213a0b3-0013
-Invoke-RunnerOuterCycle -Cycle $Cycle -State @{
+$cycleState = @{
     RepoRoot                  = $RepoRoot
     ConfigPath                = $ConfigPath
     InnerScript               = $InnerScript
@@ -188,13 +195,6 @@ Invoke-RunnerOuterCycle -Cycle $Cycle -State @{
     ForwardEnvSnapshot        = $forwardEnvSnapshot
     ShutdownState             = $shutdownState
     NoGitPull                 = [bool]$NoGitPull
-    FailurePauseMaxSeconds    = 60 * 60
-    FailureCommitPollSeconds  = 5 * 60
-    OuterPullErrorSleepSeconds    = 30
-    InnerSpawnErrorSleepSeconds   = 30
-    StepTimeoutSecondsDefault = 2700
-    PreambleTimeoutSecondsDefault = 600
-    WatchdogPollSeconds       = 30
     TestRoot                  = $TestRoot
     CycleGeneration           = if ($CycleGeneration) { $CycleGeneration } else { $null }
     RefreshPreflightRequested = [bool]$refreshPreflightRequested
@@ -203,6 +203,12 @@ Invoke-RunnerOuterCycle -Cycle $Cycle -State @{
     RefreshPreflightRequestId = if ($refreshPreflight) { [string]$refreshPreflight.RequestId } else { $null }
     RefreshBarrierRequestId   = $refreshBarrierRequestId
 }
+# The same timing defaults the resident runner uses, from the one table: this
+# process arms the step watchdog, so a copy of its own would be the one that
+# counts while the resident's banner showed another.
+$tunable = Get-RunnerTunableDefault
+foreach ($key in $tunable.Keys) { $cycleState[$key] = $tunable[$key] }
+Invoke-RunnerOuterCycle -Cycle $Cycle -State $cycleState
 $result = Get-LastOuterCycleResult
 
 # --- REGION: Write the cycle result

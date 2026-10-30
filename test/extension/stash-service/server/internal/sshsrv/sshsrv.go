@@ -3,7 +3,7 @@
 // GUID: 423587e3-964a-41af-8f89-12f589929924
 
 // Package sshsrv hosts the crypto/ssh server and the per-connection
-// SCP session dispatch loop. Authentication is the section 4.3 pass-through
+// SCP session dispatch loop. Authentication is the pass-through of https://yuruna.link/429e934f-0003
 // pattern, realized as the SSH "none" method: the daemon accepts the
 // connection with NO credentials so a standard scp/sftp client connects
 // with zero prompts. Public-key auth is intentionally NOT advertised --
@@ -39,7 +39,7 @@ import (
 	"stash-service/internal/store"
 )
 
-// IDSource hands out the section 7 upload ID. An interface rather than the
+// IDSource hands out the upload ID (https://yuruna.link/429e934f-0009). An interface rather than the
 // concrete allocator so a test can pin the exact IDs a session draws and
 // exercise the collision ladder without racing a random generator.
 type IDSource interface {
@@ -59,7 +59,7 @@ type Server struct {
 	listener net.Listener
 
 	// ShareOnline reports whether the share is a live, writable network
-	// mount (section 8.4). Injectable so tests can drive the buffer/flush paths
+	// mount (https://yuruna.link/429e934f-000e). Injectable so tests can drive the buffer/flush paths
 	// without a real cifs mount.
 	ShareOnline func() bool
 	// flushTrigger nudges the flush worker after a buffered upload; a
@@ -85,8 +85,8 @@ type Server struct {
 }
 
 // New wires everything up. The host key is loaded from
-// <StashFolder>/hostkey/ (durable, section 4.4); if the share is offline at startup
-// it falls back to a VM-local key so the daemon still comes up (section 8.4).
+// <StashFolder>/hostkey/ (durable); if the share is offline at startup it falls
+// back to a VM-local key so the daemon still comes up (https://yuruna.link/429e934f-0005).
 func New(s *store.Store, buffer *store.Store, m *meta.Store, ids IDSource) (*Server, error) {
 	localHostKey := filepath.Join(buffer.Folder, config.HostKeyDirName, config.HostKeyFileName)
 	hostKey, err := loadOrGenerateHostKey(s.HostKeyPath(), localHostKey)
@@ -94,7 +94,7 @@ func New(s *store.Store, buffer *store.Store, m *meta.Store, ids IDSource) (*Ser
 		return nil, fmt.Errorf("host key: %w", err)
 	}
 	cfg := &ssh.ServerConfig{
-		// section 4.3: accept with NO credentials (SSH "none") so scp/sftp connect
+		// Accept with NO credentials (https://yuruna.link/429e934f-0003) (SSH "none") so scp/sftp connect
 		// prompt-free; still capture the username as metadata.
 		NoClientAuth: true,
 		NoClientAuthCallback: func(conn ssh.ConnMetadata) (*ssh.Permissions, error) {
@@ -251,7 +251,7 @@ func (s *Server) handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, usernam
 			writeExit(ch, 1)
 			return
 		case "pty-req", "shell":
-			// section 4.2: no GUI / interactive shell. Reject cleanly so a stray
+			// No GUI / interactive shell (https://yuruna.link/429e934f-0003). Reject cleanly so a stray
 			// `ssh` (no scp) gets a useful error instead of hanging.
 			_ = req.Reply(false, nil)
 			fmt.Fprintln(ch.Stderr(), "stash-service: only scp / sftp are supported (interactive shell rejected).")
@@ -274,15 +274,15 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 	clientIP := hostOnly(remote)
 	pending, failedAt, err := s.beginPending(now,
 		func(drawn string) {
-			// section 7: the ID is allocated before file content streams;
-			// section 9: it goes to stderr at the start of the SCP exchange so
+			// The ID is allocated before file content streams, and
+			// goes to stderr (https://yuruna.link/429e934f-0009) at the start of the SCP exchange so
 			// the client's terminal shows it even on a failed transfer. An
 			// attempt that loses its ID to a collision announced that ID too --
 			// the LAST of these lines names the artifact that was stored.
 			fmt.Fprintf(ch.Stderr(), config.StderrIDFormat, drawn)
 		},
 		func(drawn string, buffered bool) *meta.Record {
-			// section 8.2 step 2: pending record up front. storedPath and
+			// Pending record up front (https://yuruna.link/429e934f-000d). storedPath and
 			// originalFilename are placeholder until FinalizeStaging produces
 			// the real values.
 			return pendingRecord(drawn, buffered, username, clientIP, parsed.DestPath, config.SourceSCP, now)
@@ -304,7 +304,7 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 		return
 	}
 	if len(res.FileNames) == 0 && res.FirstDirName == "" {
-		// section 5.5: empty filename only -- nothing stored, no record kept.
+		// Empty filename only -- nothing stored, no record kept (https://yuruna.link/429e934f-0008).
 		if delErr := s.Meta.Delete(allocated); delErr != nil {
 			log.Printf("delete empty-name pending row id=%s: %v", allocated, delErr)
 		}
@@ -340,7 +340,7 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 }
 
 // errBufferFull signals the VM-local buffer is at its ceiling while the
-// share is offline (section 8.4) -- the upload must be rejected.
+// share is offline (https://yuruna.link/429e934f-000e) -- the upload must be rejected.
 var errBufferFull = errors.New("local buffer full")
 
 // idCollisionAttempts bounds the redraw loop when the index refuses an ID it
@@ -425,7 +425,7 @@ func (s *Server) beginPending(now time.Time, onID func(id string), newRecord fun
 		if onID != nil {
 			onID(drawn)
 		}
-		// section 8.4: stage on the share when it is a live writable network mount;
+		// Stage on the share when it is a live writable network mount (https://yuruna.link/429e934f-000e);
 		// otherwise fall back to the VM-local buffer and flush later. The
 		// target store is fixed before any bytes stream so a single upload
 		// never straddles the two.
@@ -463,7 +463,7 @@ func (s *Server) beginPending(now time.Time, onID func(id string), newRecord fun
 // when it is a live writable network mount, else the VM-local buffer
 // (unless the buffer is at its ceiling, then errBufferFull). Shared by the
 // legacy SCP and SFTP ingest paths so the share/buffer policy stays in one
-// place (section 8.4).
+// place (https://yuruna.link/429e934f-000e).
 func (s *Server) chooseTarget(id string) (target *store.Store, buffered bool, err error) {
 	if s.ShareOnline() {
 		return s.Store, false, nil
@@ -478,9 +478,9 @@ func (s *Server) chooseTarget(id string) (target *store.Store, buffered bool, er
 }
 
 // commit writes the terminal metadata row and, for a share-side artifact,
-// the durable sidecar LAST (section 8.5); for a buffered artifact it nudges the
+// the durable sidecar LAST (https://yuruna.link/429e934f-000f); for a buffered artifact it nudges the
 // flush worker instead (the sidecar lands on the share at flush time,
-// section 8.4). Shared by the legacy SCP and SFTP ingest paths.
+// https://yuruna.link/429e934f-000e). Shared by the legacy SCP and SFTP ingest paths.
 func (s *Server) commit(id, status string, final *store.FinalizeResult, buffered bool, username string) error {
 	if err := s.Meta.UpdateOnComplete(id, final.StoredPath, final.OriginalFilename, final.IsArchive, status, final.SizeBytes, time.Now().UTC()); err != nil {
 		return err
@@ -499,7 +499,7 @@ func (s *Server) commit(id, status string, final *store.FinalizeResult, buffered
 			return fmt.Errorf("sidecar: load record id=%s: %w", id, gerr)
 		} else if serr := writeSidecarWithRetry(rec); serr != nil {
 			log.Printf("sidecar: write id=%s failed after retries: %v", id, serr)
-			// The sidecar IS the reimage-rebuild guarantee (section 8.5), so a failure
+			// The sidecar IS the reimage-rebuild guarantee (https://yuruna.link/429e934f-000f), so a failure
 			// surviving the retries is returned rather than logged-and-swallowed
 			// -- otherwise the client/operator see a clean success while the
 			// artifact is un-reconstructable. The artifact itself is already
@@ -519,7 +519,7 @@ const (
 
 // writeSidecarWithRetry writes the durable on-share sidecar with a short
 // bounded backoff so a transient share blip during the write does not silently
-// lose the reimage-rebuild record (section 8.5). Returns the last error if every
+// lose the reimage-rebuild record (https://yuruna.link/429e934f-000f). Returns the last error if every
 // attempt fails.
 func writeSidecarWithRetry(rec *meta.Record) error {
 	var err error
@@ -534,7 +534,7 @@ func writeSidecarWithRetry(rec *meta.Record) error {
 	return err
 }
 
-// detectAndStore classifies final's artifact and writes the section 10 type fields
+// detectAndStore classifies final's artifact and writes the type fields (https://yuruna.link/429e934f-0016)
 // onto the row. An archive (our own ZIP) is classed directly without running
 // the detector; everything else goes through the configured Detector. A
 // detection or DB error is logged, not fatal -- the upload still succeeds
@@ -615,7 +615,7 @@ func writeExit(ch ssh.Channel, code int) {
 	_, _ = ch.SendRequest("exit-status", false, payload)
 }
 
-// loadOrGenerateHostKey returns the persistent SSH signer (section 4.4).
+// loadOrGenerateHostKey returns the persistent SSH signer (https://yuruna.link/429e934f-0005).
 //
 //   - A present durable key must be a readable, valid regular file. An invalid
 //     key must never be replaced or hidden by a local fallback.

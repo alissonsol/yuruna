@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f6a7b8-9c0d-4e1f-af2a-3b4c5d6e7f8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
     Repair a wedged local hypervisor and leave the runner, its services and
     the listener running again -- or report exactly why it did not.
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-0070.
 .PARAMETER Tier
     restart (orders 0-4) or full (orders 0-6, local only).
 .PARAMETER MaxRung

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4244dbae-a452-49ac-b6cb-0ab2d797bde7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -241,5 +241,22 @@ Describe 'the service-VM launchers are quiet by default' {
             $outcome = [regex]::Matches($text, '(?m)^\s*Write-(Output|Information)[^\n]*(complete|READY|ADOPTED|is serving)')
             Assert-True ($outcome.Count -gt 0) "$($s.Name) reports no success outcome at the default level"
         }
+    }
+
+    It 'keeps the whole elevation refusal at the default level' {
+        # A refusal is a failure, so its explanation stays loud. A sweep that
+        # demotes only the bullet lines leaves "needs an elevated session to:"
+        # followed by nothing.
+        $here     = Split-Path -Parent $PSCommandPath
+        $repoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
+        $svcDir   = Join-Path $repoRoot 'test/service'
+        $quiet = [Collections.Generic.List[string]]::new()
+        foreach ($s in (Get-ChildItem -LiteralPath $svcDir -File -Filter 'Start-*ServiceVM.ps1')) {
+            $refusal = [regex]::Match((Get-Content -Raw -LiteralPath $s.FullName),
+                '(?ms)^[ \t]*# --- REGION: Elevation check\r?$.*?^[ \t]*exit\b')
+            Assert-True $refusal.Success "$($s.Name) has no elevation refusal ending in exit"
+            if ($refusal.Value -match '(?m)^\s*Write-Verbose\b') { $quiet.Add($s.Name) }
+        }
+        Assert-NoFinding -Finding $quiet -Because 'the elevation refusal explains itself without -Verbose'
     }
 }

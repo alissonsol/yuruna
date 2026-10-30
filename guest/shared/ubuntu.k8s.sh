@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42e147b6-3807-47cd-b9b8-01e8085703d7
@@ -8,7 +8,9 @@ set -euo pipefail
 # The temp files below are removed on their success paths; a set -e abort
 # between a mktemp and its rm skips that, and this guest is snapshotted
 # afterwards, so whatever is left in /tmp is baked into every restore.
-trap 'rm -f -- "${_dk:-}" "${_kk:-}" "${_wr_errlog:-}" "${_wr_body:-}" "${FLANNEL_MANIFEST:-}"' EXIT
+trap 'rm -f -- "${_dk:-}" "${_kk:-}" "${_wr_errlog:-}" "${_wr_body:-}" "${FLANNEL_MANIFEST:-}" /tmp/mkcert
+      [ -z "${HELM_WORK:-}" ] || rm -rf -- "$HELM_WORK"
+      [ -z "${TOFU_WORK:-}" ] || rm -rf -- "$TOFU_WORK"' EXIT
 
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
@@ -39,6 +41,7 @@ esac
 # --- REGION: Load retry helpers
 # See https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
+declare -F yuruna_verify_sha256 >/dev/null || { echo "ERROR: this guest's /usr/local/lib/yuruna/yuruna-retry.sh predates pinned-digest checks; rebuild the guest." >&2; exit 1; }
 # --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
@@ -750,18 +753,13 @@ export KUBECONFIG="${REAL_HOME}/.kube/config"
 
 FLANNEL_MANIFEST=/tmp/kube-flannel.yml
 # --- REGION: https://yuruna.link/42d69dfa-0043
-FLANNEL_TAG="$(curl_retry -fsSI "https://github.com/flannel-io/flannel/releases/latest${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" \
-    | tr -d '\r' | awk 'tolower($1)=="location:"{n=split($2,a,"/"); print a[n]}')"
-if [ -z "$FLANNEL_TAG" ]; then
-    echo "ERROR: Could not resolve the latest flannel release tag from github.com/flannel-io/flannel" >&2
-    exit 1
-fi
+FLANNEL_TAG="v${YURUNA_FLANNEL_VERSION}"
 if ! curl_retry -fsSL "https://raw.githubusercontent.com/flannel-io/flannel/${FLANNEL_TAG}/Documentation/kube-flannel.yml" -o "$FLANNEL_MANIFEST"; then
     echo "ERROR: Failed to download kube-flannel.yml for flannel ${FLANNEL_TAG} from raw.githubusercontent.com" >&2
     exit 1
 fi
-if [ ! -s "$FLANNEL_MANIFEST" ]; then
-    echo "ERROR: Downloaded kube-flannel.yml at $FLANNEL_MANIFEST is missing or empty" >&2
+if ! yuruna_verify_sha256 "$FLANNEL_MANIFEST" "${YURUNA_FLANNEL_MANIFEST_SHA256:-}" "kube-flannel.yml ${FLANNEL_TAG}"; then
+    echo "ERROR: kube-flannel.yml for flannel ${FLANNEL_TAG} does not match its pinned digest; refusing to apply it." >&2
     exit 1
 fi
 # --- REGION: https://yuruna.link/42f6b05f-0020
@@ -781,11 +779,21 @@ fi
 # See https://yuruna.link/4220a755-001f
 echo ""
 echo -e "\e[1;36m==== Helm ====\e[0m"
-# get-helm-4, never get-helm-3 (the v3 installer can only ever land a 3.x binary).
-curl_retry -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/get-helm-4.sh
-chmod +x /tmp/get-helm-4.sh
-DESIRED_VERSION="v${YURUNA_HELM_VERSION}" _yuruna_retry helm_install /tmp/get-helm-4.sh || true
-rm -f /tmp/get-helm-4.sh
+# The pinned release tarball, checked against its pinned digest, replaces
+# upstream's installer script, which is served from a moving branch.
+DEB_ARCH=$(dpkg --print-architecture)
+HELM_DIGEST_VAR="YURUNA_HELM_SHA256_${DEB_ARCH^^}"
+HELM_WORK="$(mktemp -d /tmp/yuruna-helm.XXXXXX)"
+if ! curl_retry -fsSL "https://get.helm.sh/helm-v${YURUNA_HELM_VERSION}-linux-${DEB_ARCH}.tar.gz" -o "$HELM_WORK/helm.tar.gz" \
+    || ! yuruna_verify_sha256 "$HELM_WORK/helm.tar.gz" "${!HELM_DIGEST_VAR:-}" "helm-v${YURUNA_HELM_VERSION}-linux-${DEB_ARCH}.tar.gz" \
+    || ! tar -xzf "$HELM_WORK/helm.tar.gz" -C "$HELM_WORK" "linux-${DEB_ARCH}/helm" \
+    || ! sudo install -m 0755 "$HELM_WORK/linux-${DEB_ARCH}/helm" /usr/local/bin/helm; then
+    rm -rf "$HELM_WORK"
+    echo "ERROR: Helm ${YURUNA_HELM_VERSION} could not be downloaded, verified or installed." >&2
+    exit 1
+fi
+rm -rf "$HELM_WORK"
+hash -r
 if ! assert_tool_runnable helm version --short; then
     echo "ERROR: Helm install failed; downstream chart-based workloads (helm repo add / upgrade) will fail at Set-Workload." >&2
     exit 1
@@ -795,8 +803,8 @@ fi
 # See https://yuruna.link/42d69dfa-0044
 echo ""
 echo -e "\e[1;36m==== OpenTofu ====\e[0m"
-# The signed standalone release avoids refreshing every apt repository twice.
-# Unlike the deb installer, this method honors the exact requested version.
+# The standalone release tarball avoids refreshing every apt repository twice
+# and is the exact requested version; its digest is pinned beside the version.
 opentofu_matches_version() {
     local path version
     path="$(command -v tofu 2>/dev/null || true)"
@@ -807,22 +815,22 @@ opentofu_matches_version() {
 if opentofu_matches_version; then
     echo "OpenTofu ${YURUNA_OPENTOFU_VERSION} is already installed and runnable."
 else
-    OPENTOFU_INSTALLER="$(mktemp /tmp/yuruna-opentofu.XXXXXX)"
-    if ! curl_retry --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o "$OPENTOFU_INSTALLER"; then
-        rm -f "$OPENTOFU_INSTALLER"
-        echo "ERROR: Could not download the OpenTofu installer." >&2
+    TOFU_ARCH=$(dpkg --print-architecture)
+    TOFU_DIGEST_VAR="YURUNA_OPENTOFU_SHA256_${TOFU_ARCH^^}"
+    TOFU_PACKAGE="tofu_${YURUNA_OPENTOFU_VERSION}_linux_${TOFU_ARCH}.tar.gz"
+    TOFU_WORK="$(mktemp -d /tmp/yuruna-opentofu.XXXXXX)"
+    # Both shells and new PowerShell processes resolve the installed binary
+    # through the /usr/local/bin link.
+    if ! curl_retry --proto '=https' --tlsv1.2 -fsSL "https://github.com/opentofu/opentofu/releases/download/v${YURUNA_OPENTOFU_VERSION}/${TOFU_PACKAGE}" -o "$TOFU_WORK/tofu.tar.gz" \
+        || ! yuruna_verify_sha256 "$TOFU_WORK/tofu.tar.gz" "${!TOFU_DIGEST_VAR:-}" "$TOFU_PACKAGE" \
+        || ! sudo mkdir -p /opt/opentofu \
+        || ! sudo tar -xzf "$TOFU_WORK/tofu.tar.gz" -C /opt/opentofu \
+        || ! sudo ln -sf /opt/opentofu/tofu /usr/local/bin/tofu; then
+        rm -rf "$TOFU_WORK"
+        echo "ERROR: OpenTofu ${YURUNA_OPENTOFU_VERSION} could not be downloaded, verified or installed." >&2
         exit 1
     fi
-    chmod +x "$OPENTOFU_INSTALLER"
-    # Keep checksum and GPG/cosign signature verification enabled. Both shells
-    # and new PowerShell processes resolve the installed binary through this link.
-    if ! _yuruna_retry opentofu_standalone "$OPENTOFU_INSTALLER" --install-method standalone \
-        --opentofu-version "$YURUNA_OPENTOFU_VERSION" --install-path /opt/opentofu --symlink-path /usr/local/bin; then
-        rm -f "$OPENTOFU_INSTALLER"
-        echo "ERROR: OpenTofu standalone installation or integrity verification failed." >&2
-        exit 1
-    fi
-    rm -f "$OPENTOFU_INSTALLER"
+    rm -rf "$TOFU_WORK"
     # A previous /usr/bin/tofu lookup must not hide the new /usr/local/bin link.
     hash -r
     if ! opentofu_matches_version; then
@@ -832,34 +840,35 @@ else
 fi
 
 # --- REGION: Install mkcert
-# Retry the upstream redirector, then fall back to Ubuntu's package.
+# The pinned release binary, checked against its pinned digest; Ubuntu's
+# package (verified by apt) is the fallback.
 echo ""
 echo -e "\e[1;36m==== mkcert ====\e[0m"
 ARCH=$(dpkg --print-architecture)
-if [ "$ARCH" = "amd64" ]; then
-    MKCERT_ARCH="linux/amd64"
-elif [ "$ARCH" = "arm64" ]; then
-    MKCERT_ARCH="linux/arm64"
+if [ "$ARCH" = "amd64" ] || [ "$ARCH" = "arm64" ]; then
+    MKCERT_ARCH="$ARCH"
 else
     MKCERT_ARCH=""
     echo "WARNING: Unsupported architecture '$ARCH' for mkcert"
 fi
 if [ -n "$MKCERT_ARCH" ]; then
-    MKCERT_URL="https://dl.filippo.io/mkcert/latest?for=${MKCERT_ARCH}${YurunaCacheContent:+&nocache=${YurunaCacheContent}}"
+    MKCERT_ASSET="mkcert-v${YURUNA_MKCERT_VERSION}-linux-${MKCERT_ARCH}"
+    MKCERT_DIGEST_VAR="YURUNA_MKCERT_SHA256_${MKCERT_ARCH^^}"
     MKCERT_INSTALLED=false
-    if curl_retry -fsSL "$MKCERT_URL" -o /tmp/mkcert && [ -s /tmp/mkcert ]; then
-        chmod +x /tmp/mkcert
-        sudo mv /tmp/mkcert /usr/local/bin/mkcert
+    if curl_retry -fsSL "https://github.com/FiloSottile/mkcert/releases/download/v${YURUNA_MKCERT_VERSION}/${MKCERT_ASSET}" -o /tmp/mkcert \
+        && yuruna_verify_sha256 /tmp/mkcert "${!MKCERT_DIGEST_VAR:-}" "$MKCERT_ASSET"; then
+        sudo install -m 0755 /tmp/mkcert /usr/local/bin/mkcert
+        rm -f /tmp/mkcert
         MKCERT_INSTALLED=true
     else
         rm -f /tmp/mkcert
-        echo "WARNING: dl.filippo.io fetch failed. Falling back to apt mkcert (Ubuntu universe)..."
+        echo "WARNING: the pinned mkcert release could not be fetched or verified. Falling back to apt mkcert (Ubuntu universe)..."
         if apt_retry sudo apt-get install -y mkcert; then
             MKCERT_INSTALLED=true
         fi
     fi
     if [ "$MKCERT_INSTALLED" = false ]; then
-        echo "ERROR: mkcert install failed via both dl.filippo.io fetch and apt fallback." >&2
+        echo "ERROR: mkcert install failed via both the pinned release and the apt fallback." >&2
         exit 1
     fi
     if ! assert_tool_runnable mkcert -version; then

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,8 @@ function Initialize-YurunaEntryPoint {
         always <TestRoot>/modules regardless of which subfolder the
         caller sits in.
     .PARAMETER ConfigPath
-        Optional override; when null, defaults to <TestRoot>/test.config.yml.
+        Optional override; when null, the path an entry point that started this
+        one published in YURUNA_CONFIG_PATH, else <TestRoot>/test.config.yml.
     .OUTPUTS
         [ordered]@{ TestRoot; RepoRoot; ModulesDir; SequencesDir; StatusDir; ConfigPath }
     #>
@@ -49,7 +50,10 @@ function Initialize-YurunaEntryPoint {
     $repoRoot     = Split-Path -Parent $testRoot
     $sequencesDir = Join-Path $testRoot 'sequences'
     $statusDir    = Join-Path $testRoot 'status'
-    if (-not $ConfigPath) { $ConfigPath = Join-Path $testRoot 'test.config.yml' }
+    # An entry point started by another inherits that one's -ConfigPath through
+    # YURUNA_CONFIG_PATH; resolving the in-tree default instead sent a child
+    # (the status service, a service VM start, the config gate) to another file.
+    if (-not $ConfigPath) { $ConfigPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } else { Join-Path $testRoot 'test.config.yml' } }
     return [ordered]@{
         TestRoot     = $testRoot
         RepoRoot     = $repoRoot
@@ -132,6 +136,10 @@ function Initialize-YurunaEntryPointModuleSet {
         Outer    = @(
             'Test.SingleInstance.psm1', 'Test.HostContract.psm1', 'Test.YurunaDir.psm1',
             'Test.Config.psm1', 'Test.InnerSpawn.psm1',
+            # Test.LogLevel: the outer processes apply -logLevel to themselves
+            # and publish it to the jobs and workers they start. Test.Perf: the
+            # resident times each cycle and failure pause (phase rows).
+            'Test.LogLevel.psm1', 'Test.Perf.psm1',
             'Test.ConfigPreflight.psm1', 'Test.Capability.psm1',
             # Test.RunnerElevation: the launch-time sudo contract the outer
             # asserts before its first spawn. Outer-only on purpose -- the
@@ -334,7 +342,7 @@ function Initialize-YurunaEntryPointModuleSet {
         )
         # The host-refresh entry point and its worker. Dependencies before
         # dependents. Test.RunnerOuterLoop is deliberately absent: it brings
-        # Stop-ProcessTree, the unpruned tree kill a refresh must never reach.
+        # the cycle kills, the unpruned tree kill a refresh must never reach.
         # So are Test.Log, Test.EventSchema and Test.SequenceFailureState -- the
         # worker writes no cycle events and no last_failure.json -- and
         # Test.ExtensionService, which Test.ServiceVm and Test.ServiceCensus
@@ -345,13 +353,18 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.Recovery.psm1', 'Test.ServiceCensus.psm1', 'Test.ServiceVm.psm1', 'Test.HostRefreshIntent.psm1', 'Test.HostRefresh.psm1'
         )
     }
+    # Every module is checked before any is imported. A missing one used to be
+    # skipped with a warning, and the entry point then ran until its first call
+    # into that module failed somewhere deep in a cycle; refusing here names
+    # the file and leaves nothing half-imported.
     foreach ($modName in $sets[$For]) {
         $modPath = Join-Path $ModulesDir $modName
         if (-not (Test-Path -LiteralPath $modPath)) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5eb94d6047f29167' -Arguments @{ modName = "$modName"; modPath = "$modPath"; for = "$For" })
-            continue
+            throw (Format-YurunaOperatorMessage -Key 'runner.entry_point_module_missing' -Arguments @{ modName = "$modName"; modPath = "$modPath"; for = "$For" })
         }
-        Import-Module -Name $modPath -Global -Force -DisableNameChecking -Verbose:$false
+    }
+    foreach ($modName in $sets[$For]) {
+        Import-Module -Name (Join-Path $ModulesDir $modName) -Global -Force -DisableNameChecking -Verbose:$false
     }
 }
 

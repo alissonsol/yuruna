@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e0baf3-f2f9-48ca-aa27-fcf4d1a9763e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,7 +140,7 @@ Describe 'Get-VMName host-driver coverage' {
         # suite happens to run on.
         foreach ($driver in @('macos.utm', 'windows.hyper-v', 'ubuntu.kvm')) {
             $path = Join-Path $script:SweepRepoRoot "host/$driver/modules/Yuruna.Host.psm1"
-            $text = Get-Content -Raw $path
+            $text = Get-YurunaTestSourceText -Path $path
             Assert-True ($text -match '(?m)^function Get-VMName\b') "$driver must define Get-VMName"
             Assert-True ($text -match "Get-VMState, Get-VMName,") "$driver must export Get-VMName"
             Assert-True ($text -match "'Get-VMState','Get-VMName'") "$driver must assert contract coverage for Get-VMName"
@@ -153,7 +153,7 @@ Describe 'Get-VMName host-driver coverage' {
         # delete files still claimed by a registered VM.
         foreach ($driver in @('macos.utm', 'windows.hyper-v', 'ubuntu.kvm')) {
             $path = Join-Path $script:SweepRepoRoot "host/$driver/modules/Yuruna.Host.psm1"
-            $text = Get-Content -Raw $path
+            $text = Get-YurunaTestSourceText -Path $path
             $body = [regex]::Match($text, '(?ms)^function Get-VMName\b.*?^\}').Value
             Assert-True ($body -match 'throw') "$driver Get-VMName must throw when enumeration fails"
         }

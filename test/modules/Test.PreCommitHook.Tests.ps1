@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42cf4f7f-3c33-488c-8cc6-1cb70b8f8836
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,9 +61,7 @@ function Write-FixtureFile {
 
 function Invoke-FixtureGit {
     param([Parameter(Mandatory)][string]$Repository, [Parameter(Mandatory)][string[]]$Argument)
-    $output = & git -C $Repository -c commit.gpgsign=false -c core.autocrlf=false @Argument 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "git $($Argument -join ' ') failed in ${Repository}: $output" }
-    return @($output | ForEach-Object { [string]$_ })
+    return @(Invoke-YurunaTestGit -Path $Repository -Argument $Argument)
 }
 
 # A stub records its name and arguments, then does what its behavior says. The
@@ -153,13 +151,10 @@ exit 0
     Write-FixtureFile -Path (Join-Path $root 'globalization/catalogs/en-US/demo.json') -Text "{ `"schema`": `"yuruna.catalog/v1`", `"domain`": `"demo`", `"locale`": `"en-US`", `"messages`": {} }`n"
     Write-FixtureFile -Path (Join-Path $root 'README.md') -Text "# Fixture`n"
     Write-FixtureFile -Path (Join-Path $project 'README.md') -Text "# Project fixture`n"
+    # The seed commits run with hooks pointed at the helper's empty directory;
+    # only then does the root get the commit hook under test.
     foreach ($repository in $root, $project) {
-        $null = Invoke-FixtureGit -Repository $repository -Argument @('init', '--initial-branch=main', '--quiet')
-        foreach ($setting in @(@('user.name', 'Synthetic test'), @('user.email', 'fixture@example.invalid'), @('commit.gpgsign', 'false'))) {
-            $null = Invoke-FixtureGit -Repository $repository -Argument (@('config') + $setting)
-        }
-        $null = Invoke-FixtureGit -Repository $repository -Argument @('add', '-A')
-        $null = Invoke-FixtureGit -Repository $repository -Argument @('-c', 'core.hooksPath=', 'commit', '-q', '-m', 'seed')
+        $null = New-YurunaTestGitRepository -Path $repository -AddExisting -CommitMessage 'seed'
     }
     $null = Invoke-FixtureGit -Repository $root -Argument @('config', 'core.hooksPath', 'tools/githooks')
     return @{ Base = $base; Root = $root; Project = $project; Log = (Join-Path $base 'tool-calls.jsonl') }
@@ -284,7 +279,7 @@ Describe 'the commit hook' {
             @{ Name = 'generator'; Path = 'tools/Invoke-CatalogEmbed.ps1' }
             @{ Name = 'compiled'; Path = 'globalization/generated/browser/en-US.demo.js' }
             @{ Name = 'runtime'; Path = 'test/status/pt-BR.status.js' }
-            @{ Name = 'go-runtime'; Path = 'test/extension/pool-control-service/server/internal/catalog/enUS_status.go' }
+            @{ Name = 'go-runtime'; Path = 'test/extension/pool-control-service/server/internal/catalog/registry.go' }
         )
         foreach ($case in $cases) {
             $fixture = New-HookRepository -Name "catalog-$($case.Name)"
@@ -298,6 +293,25 @@ Describe 'the commit hook' {
             $order = @($run.Tools | Where-Object { $_ -in 'Invoke-CatalogCompile', 'Invoke-CatalogEmbed' })
             $order | Should -Be @('Invoke-CatalogCompile', 'Invoke-CatalogEmbed')
         }
+    }
+
+    It 'stages a generated copy the embed removed as a deletion' {
+        $fixture = New-HookRepository -Name 'embed-removes'
+        $leftover = 'test/extension/pool-control-service/server/internal/catalog/ptBR_status.go'
+        Write-FixtureFile -Path (Join-Path $fixture.Root $leftover) -Text "// generated`n"
+        Write-FixtureFile -Path (Join-Path $fixture.Root 'tools/Invoke-CatalogEmbed.ps1') -Text (Get-StubText -Name 'Invoke-CatalogEmbed' -Behavior @"
+[IO.File]::Delete((Join-Path `$root '$leftover'))
+Write-Output '${leftover}: removed'
+exit 0
+"@)
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('add', '-A')
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('-c', 'core.hooksPath=', 'commit', '-q', '-m', 'seed a generated copy')
+        Set-EnglishCatalog -Fixture $fixture
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Be 0 -Because $run.Text
+        $run.Tools | Should -Contain 'Invoke-CatalogEmbed'
+        Get-HeadName -Fixture $fixture | Should -Not -Contain $leftover
+        Invoke-FixtureGit -Repository $fixture.Root -Argument @('status', '--porcelain', '--', $leftover) | Should -BeNullOrEmpty
     }
 
     It 'runs the drafter over the supported locales, copying the English where nothing drafted, before the catalog pass' {
@@ -551,6 +565,8 @@ exit 0
         $run = Invoke-HookCommit -Fixture $fixture
         $run.Code | Should -Be 0 -Because $run.Text
         @($run.Calls | Where-Object { $_.tool -eq 'Install-TestModule' -and $_.args -contains '-Check' }).Count | Should -Be 1
+        # The baseline gate judges the commit's index, not the working tree.
+        @($run.Calls | Where-Object { $_.tool -eq 'Test-SuiteBaseline' -and $_.args -contains '-Staged' }).Count | Should -Be 1
     }
 
     It 'asks for Pester 6.x only when a test file is staged' {
@@ -582,7 +598,7 @@ Describe 'encoding gate file discovery and bounded BOM reads' {
 function Get-EntryPointExitCode { param($Outcome) if ($Outcome -eq 'Ok') { 0 } else { 1 } }
 Export-ModuleMember -Function Get-EntryPointExitCode
 '@
-            $null = Invoke-FixtureGit -Repository $root -Argument @('init', '--quiet')
+            $null = New-YurunaTestGitRepository -Path $root
             return $root
         }
         function Invoke-EncodingFixture {

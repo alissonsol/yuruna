@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4205b74c-99c2-4813-9bcc-4e26d11c1f8b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,7 @@
 BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $repo    = Split-Path -Parent (Split-Path -Parent $here)
-$script:sssPath = Join-Path $repo 'test/service/Start-StatusService.ps1'
+$script:sssPath = Join-Path $repo 'test/service/Invoke-StatusServiceRuntime.ps1'
 $chkPath = Join-Path $repo 'automation/Check-DependencyVersion.ps1'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
@@ -55,11 +55,11 @@ $script:chkText = Get-Content -Raw -LiteralPath $chkPath
 
 Describe 'static-file responses honor HEAD (headers, no body)' {
     It 'guards every file-bytes body write behind a non-HEAD check' {
-        # Every `$res.OutputStream.Write(`$bytes ...) must run only when the method
+        # Every $res.OutputStream.Write($bytes ...) must run only when the method
         # is not HEAD -- guarded inline on the same line, or by an
-        # `if (`$req.HttpMethod -ne 'HEAD') {` on the immediately preceding line.
+        # `if ($req.HttpMethod -ne 'HEAD') {` on the immediately preceding line.
         $lines   = Get-Content -LiteralPath $script:sssPath
-        $writeRe = 'OutputStream\.Write\(' + [char]0x60 + '\$bytes'   # 0x60 = backtick
+        $writeRe = 'OutputStream\.Write\(\$bytes'
         $guardRe = "HttpMethod -ne 'HEAD'"
         $total = 0; $unguarded = @()
         for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -72,6 +72,23 @@ Describe 'static-file responses honor HEAD (headers, no body)' {
         }
         Assert-True ($total -ge 5) "expected several file-bytes body writes, found $total"
         Assert-Equal -Expected 0 -Actual $unguarded.Count -Because "unguarded HEAD body writes at line(s): $($unguarded -join ', ')"
+    }
+}
+
+Describe 'static-file responses keep an empty file a byte array' {
+    It 'never assigns response bytes from an if-expression, which turns an empty file into $null' {
+        # A branch's output is enumerated, so a zero-length byte array arrives as
+        # $null. The body write then throws on every platform and the handler
+        # aborts the response: on Windows the client sees a reset connection,
+        # and elsewhere an empty 200 with a handler error in the server log.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:sssPath, [ref]$null, [ref]$null)
+        $assignments = @($ast.FindAll({ param($node)
+                    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                    $node.Left.Extent.Text -match '^\$(bytes|assetBytes)$'
+                }, $true))
+        Assert-True ($assignments.Count -ge 5) "expected several response-byte assignments, found $($assignments.Count)"
+        $fromIf = @($assignments | Where-Object { $_.Right -is [System.Management.Automation.Language.IfStatementAst] } | ForEach-Object { $_.Extent.StartLineNumber })
+        Assert-Equal -Expected 0 -Actual $fromIf.Count -Because "response bytes assigned from an if-expression at line(s): $($fromIf -join ', ')"
     }
 }
 

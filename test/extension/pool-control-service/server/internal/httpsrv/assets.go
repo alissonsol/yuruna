@@ -141,11 +141,12 @@ func (s *assetStore) build() {
 	}
 
 	// Every selected catalog contains all domains used by these pages. Its
-	// content-addressed URL changes with the complete representation.
-	for locale, source := range catalog.BrowserCatalogs {
-		if locale == "en-US" {
-			continue
-		}
+	// content-addressed URL changes with the complete representation. The
+	// bytes are the embedded web/assets files read above, the one copy of
+	// them this binary carries; a delivered locale without one keeps no
+	// catalog URL, which the catalog completeness test refuses.
+	sources, _ := webui.AssetCatalogs(webFS, "web/assets", "pool", catalog.Catalogs)
+	for locale, source := range sources {
 		prepared := newAsset([]byte(source), webui.ContentType("catalog.js"))
 		prepared.immutable = true
 		name := locale + "." + strings.Trim(prepared.etag, `"`) + ".pool.js"

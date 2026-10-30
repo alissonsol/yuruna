@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 429cf70d-40bb-4de7-a305-1a10d263253b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,7 +63,8 @@ BeforeAll {
     $script:RepoRoot   = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
     $script:DriverPath = Join-Path $script:RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
     $script:RunnerPath = Join-Path $script:RepoRoot 'test/modules/Test.RunnerInnerLoop.psm1'
-    $script:DriverText = Get-Content -Raw -LiteralPath $script:DriverPath
+    Import-Module (Join-Path $PSScriptRoot 'Test.DriverSource.psm1') -DisableNameChecking
+    $script:DriverText = Get-YurunaSourceText -Path $script:DriverPath
     $script:RunnerText = Get-Content -Raw -LiteralPath $script:RunnerPath
 
     # Function bodies close at column 0 in this module, so the first column-0

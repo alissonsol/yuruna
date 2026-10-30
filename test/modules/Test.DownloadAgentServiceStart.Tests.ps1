@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 424573db-29bc-4e57-8b79-371b47df0dd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -198,7 +198,9 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
         $markerWrites = @(Get-CommandCall -Ast $ast -Name 'Write-DownloadAgentServiceMarker')
         Assert-True ($markerWrites.Count -ge 1) 'the marker is written through the module helper'
         $active = Get-NamedArgumentText -CommandAst $markerWrites[0] -ParameterName 'Active'
-        Assert-True ($active -eq '$daemonReady') "-Active must carry the readiness verdict variable, got '$active'"
+        Assert-True ($active -eq '$startOutcome.Advertise') "-Active must carry the start outcome, got '$active'"
+        $outcomes = @(Get-AssignmentTo -Ast $ast -VariableText '$startOutcome')
+        Assert-True ($outcomes.Count -eq 1 -and $outcomes[0].Right.Extent.Text -match 'Resolve-YurunaServiceStartOutcome -Verdict \$verdict\b') 'the outcome is derived from the readiness verdict'
         $verdictAssignments = @(Get-AssignmentTo -Ast $ast -VariableText '$daemonReady')
         Assert-True ($verdictAssignments.Count -ge 2) 'the verdict is initialized and then set by the probe'
         Assert-True ((@($verdictAssignments | ForEach-Object { $_.Right.Extent.Text })) -contains '$false') 'the verdict starts $false, so every path that never probed publishes inactive'

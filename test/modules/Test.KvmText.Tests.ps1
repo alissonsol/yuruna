@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42029610-1d57-467e-bf3b-f8b731e657c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,16 +128,25 @@ Describe 'KVM text request and fallback contracts' {
             $script:KvmTextRequest.charDelayMs | Should -Be ([int]::MaxValue)
         }
 
-        It 'skips unsupported Unicode with one warning and preserves mapped characters' -Skip:$IsWindows {
+        It 'refuses unsupported Unicode with one warning before any key is sent' -Skip:$IsWindows {
+            # Typing the mapped characters around it would deliver a different
+            # string than the step asked for and call it a success.
             # Send-TextKvm is not an advanced function, so -WarningVariable and
             # -WarningAction would bind nothing; redirection captures the stream.
+            Clear-HostInputFault
             $output = @(Send-TextKvm -VMName 'vm' -Text ('a' + [char]0x4F60 + 'B') 3>&1)
             $warnings = @($output | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
             $result = @($output | Where-Object { $_ -isnot [System.Management.Automation.WarningRecord] })
             $result.Count | Should -Be 1
-            $result[0] | Should -BeTrue
+            $result[0] | Should -BeFalse
             $warnings.Count | Should -Be 1
-            ($script:KvmTextRequest.chords | ConvertTo-Json -Compress) | Should -Be '[[30],[42,48]]'
+            "$($warnings[0])" | Should -Match 'U\+4F60 at 1'
+            Should -Invoke Invoke-BoundedNativeCommand -Times 0
+            Should -Invoke Send-TextKvmLegacy -Times 0
+            $fault = Get-HostInputFault
+            $fault.kind | Should -Be 'deterministic'
+            $fault.reason | Should -Be 'unmappable-character'
+            $fault.delivered | Should -Be 0
         }
 
         It 'falls back before launch when the system interpreter is absent' {

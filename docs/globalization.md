@@ -60,6 +60,15 @@ source is invalid or a runtime cannot be embedded, and the compiler exits `2`
 when it cannot run at all. A caller reads the outcome from the code, never from
 the text. Do not hand-edit generated files. Supported locale delivery is
 derived from the manifest for PowerShell, browser assets, and Go registries.
+
+Each consumer reads one copy of a table. PowerShell reads
+`globalization/generated/powershell`. A browser page gets the default locale
+inside the runtime it loads and every other locale as one served file. A Go
+service reads its module's `internal/catalog/registry.go`. The pool-control,
+stash and download-agent services serve their embedded `web/assets` catalog
+files, so their registries carry no second copy of those tables. No registry
+repeats the default locale's browser tables, because its kernel block already
+holds them.
 Plural rules and number separators are pinned in that same authority; host
 locale databases do not decide message variants.
 

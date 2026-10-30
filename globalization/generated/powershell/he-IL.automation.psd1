@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42322a4d-f414-3c38-3588-7ad936bc7aa9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,41 @@
 # locale: he-IL  domain: automation
 
 @{
+    'automation.deploy_phase_reused' = @(
+        'השלב '
+        @{
+            'arg' = 'phase'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' דולג: הוא עבר עם הקלטים האלה לפני שהשלב '
+        @{
+            'arg' = 'failedPhase'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נכשל, והפלטים שלו עדיין במקומם. מחקו את '
+        @{
+            'arg' = 'ledgerPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' כדי להריץ שוב את כל השלבים.'
+    )
+    'automation.deploy_tool_deadline' = @(
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' לא הסתיים בתוך '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות ונעצר. הדבר נחשב כחריגת זמן, ומה שביצע לפני שנעצר אינו ידוע.'
+    )
     'automation.diagnostic_checkout_unavailable' = '(לא רלוונטי: הראיות מתיקיית המאגר אינן זמינות; יש להעביר -CheckoutRoot כדי להשתמש בעותק קיים של Yuruna)'
     'automation.diagnostic_phase_log_limits' = 'סריקת יומני השלבים מוגבלת ל-100 קבצים, 12 רמות תיקייה ו-10 שניות; כל יומן מציג לכל היותר את 64 KiB האחרונים שלו.'
     'automation.host_setup_module_install_skipped' = @(
@@ -34,6 +69,27 @@
             'trust' = 'internal'
         }
         ' ⁦-Scope⁩ CurrentUser'
+    )
+    'automation.memory_commit_charge' = @(
+        'Commit : '
+        @{
+            'arg' = 'charged'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' מתוך '
+        @{
+            'arg' = 'limit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' מחויבים, '
+        @{
+            'arg' = 'uncharged'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' פנויים (הפעלת VM מחויבת כנגד מגבלה זו, לא כנגד הזיכרון הפיזי הפנוי)'
     )
     'automation.memory_plan' = @{
         'kind' = 'plural'
@@ -161,6 +217,15 @@
             )
         }
     }
+    'automation.network_dhcp_lease' = @(
+        'חכירת DHCP בהתקן של נתיב ברירת המחדל ('
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ')'
+    )
     'automation.operator_00010ebe540ede32' = 'מארח זה אינו מדווח על הזיכרון המותקן בו'
     'automation.operator_0006b705ae0abd93' = @(
         '!! '
@@ -5202,6 +5267,39 @@
         }
     )
     'automation.runtime_ipc_remove_action' = 'הסירו את רשומת זמן הריצה של .NET שנותרה מתהליך שכבר אינו קיים'
+    'automation.seed_value_unsafe' = @(
+        'לא ניתן למקם את ערך ה-seed עבור '
+        @{
+            'arg' = 'placeholder'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' בהקשר '
+        @{
+            'arg' = 'context'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' שלו (שורה '
+        @{
+            'arg' = 'line'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' בתבנית): הוא מכיל '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. שנה את הערך; בסך הכול נדחו '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' מופעים של placeholder.'
+    )
     'automation.setup_service_vm_reason_intended_stopped' = 'הוא נעצר במכוון; מתבצעת בנייה מחדש כי תוכנית ההתקנה התבקשה להפעיל אותו'
     'automation.setup_service_vm_reason_lock_unavailable' = 'לא ניתן להשיג את נעילת הפעולה שלו'
     'automation.setup_service_vm_reason_operation_busy' = 'פעולת הפעלה או עצירה אחרת של שירות זה עדיין מתבצעת'
@@ -5362,4 +5460,5 @@
         }
         ' שניות; ייתכן שהרשימה לעיל אינה מלאה (ייתכן שאין תגובה של UTM לאירועי Apple Events).'
     )
+    'automation.top_processes_private_bytes' = '10 המובילים לפי בתים פרטיים (חיוב commit)'
 }

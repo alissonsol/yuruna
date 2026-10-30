@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42fd53eb-d3ac-4b95-bf52-d0fb87211494
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,9 @@ Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScript
 try {
     $image = Get-UbuntuExtensionImageInfo -HostType 'ubuntu.kvm'
 } catch {
+    # The host cannot say where the image goes (its architecture or disk
+    # folder), so no retry of this stage can succeed.
+    Write-YurunaProvisionResult -Kind unsupported -Message $_.Exception.Message
     Write-Error $_.Exception.Message
     exit 1
 }

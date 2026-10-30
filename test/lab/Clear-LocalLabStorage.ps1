@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42630144-53bf-4e35-a4c0-971c1bcc65a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     command that reclaims it.
 
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-006b.
 .PARAMETER Root
     Storage root to report on. Omit it and the root is derived from the share
     table -- the directory each published share resolves to, whose parent is the
@@ -122,9 +122,9 @@ function Write-ClearStep {
 }
 
 # --- REGION: What this machine still serves
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-006a
 Write-ClearStep -Number 1 -Title 'What this machine publishes'
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-0069
 $served = [ordered]@{}
 $PreviousWhatIf = $WhatIfPreference
 try {
@@ -238,7 +238,7 @@ if ($KeepAccount) {
 }
 
 # --- REGION: Loopback exemption and aliases
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-0068
 Write-ClearStep -Number 5 -Title 'Loopback exemption and hosts aliases'
 $exemption = Remove-LocalLabStorageLoopbackException -Name @($PoolServer, $StashServer)
 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_763a5e41017336a8' -Arguments @{ exemption = "$exemption" }) -InformationAction Continue

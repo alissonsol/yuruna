@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e323d2-d7e2-475d-9165-2a5fd9fd9379
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,9 @@ $ErrorActionPreference = 'Stop'
 try {
     Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Prelude.psm1') -Global -Force
+    # The level the process that started this one resolved (YURUNA_LOG_LEVEL).
+    Import-Module (Join-Path $PSScriptRoot 'Test.LogLevel.psm1') -DisableNameChecking
+    Use-LogLevelFromEnv
     $paths = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder -ConfigPath $ConfigPath
     if ($FailureClass -eq 'pool_storage_full') {
         Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $paths.ModulesDir

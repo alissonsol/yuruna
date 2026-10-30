@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4235cf39-20c0-270a-724d-9125095a5d8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,26 @@
         ' No sentinel or origin record was written for it.'
     )
     'host.clock_service_description' = 'Windows Time service (W32Time)'
+    'host.download_incomplete' = @(
+        'The download of '
+        @{
+            'arg' = 'uri'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' did not complete ('
+        @{
+            'arg' = 'bytes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' bytes are staged for the next attempt): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'host.enable_automation_no_prompt_confirm_conflict' = 'Enable-TestAutomation: -NoOperatorPrompt cannot be combined with -Confirm, which asks before every change; nothing was captured or changed.'
     'host.enable_automation_no_prompt_mode' = 'Enable-TestAutomation: running with -NoOperatorPrompt -- no consent dialogs, no Dock or screen saver restart, no module installs, no sudo prompt and no networkStorage questionnaire. Settings that need an operator are reported as still unmet.'
     'host.enable_automation_no_prompt_unsupported' = 'Enable-TestAutomation: -NoOperatorPrompt needs Set-MacHostConditionSet -NoGuiDisruption, which this checkout does not provide; nothing was captured or changed. Run it without -NoOperatorPrompt from an attended session instead.'
@@ -62,6 +82,102 @@
         }
         ' could not be read within the time limit; the pidfile was kept and nothing was signaled.'
     )
+    'host.hyperv_bounded_call_no_answer' = @(
+        'The Hyper-V call ended without returning an answer (job state: '
+        @{
+            'arg' = 'state'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '; reason: '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'host.hyperv_checkpoint_listing_lagged' = @(
+        'Save-VMDiskSnapshot: Hyper-V holds checkpoint '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '/'
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''', but the Hyper-V module did not list it within '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds.'
+    )
+    'host.hyperv_checkpoint_listing_unanswered' = @(
+        'Save-VMDiskSnapshot: the Hyper-V module''s checkpoint listing for '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' failed or did not answer while the save waited '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds for checkpoint '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '''; Hyper-V''s own record holds ['
+        @{
+            'arg' = 'held'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '] (? when it could not be read).'
+    )
+    'host.hyperv_checkpoint_not_listed' = @(
+        'Save-VMDiskSnapshot: Checkpoint-VM reported success for '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '/'
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''', but the checkpoint is not listed afterwards. Checkpoint-VM returned ['
+        @{
+            'arg' = 'made'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ']; the Hyper-V module listed ['
+        @{
+            'arg' = 'listed'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ']; Hyper-V''s own record holds ['
+        @{
+            'arg' = 'held'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '] (? when it could not be read).'
+    )
     'host.hyperv_dism_timed_out' = @(
         'Assert-HyperVEnabled: dism.exe did not report the Hyper-V feature state within '
         @{
@@ -70,6 +186,27 @@
             'trust' = 'internal'
         }
         ' seconds; the feature state is unknown.'
+    )
+    'host.hyperv_lifecycle_unanswered' = @(
+        'Hyper-V did not answer '
+        @{
+            'arg' = 'verb'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' for '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' within '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds; the virtual machine management service may be hung.'
     )
     'host.hyperv_rename_destination_dir_occupied' = @(
         'Cannot rename to '''
@@ -84,7 +221,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' already holds files, and moving storage into it would fail after the rename and leave it half done.'
+        ' already holds virtual machine storage files, and moving storage into it would fail after the rename and leave it half done.'
     )
     'host.hyperv_rename_source_not_stopped' = @(
         'Rename-VM: '''
@@ -203,6 +340,32 @@
     'host.kvm_running_cache_unreachable' = 'The caching-proxy-service VM is running but its proxy is unreachable. Run test/service/Start-CachingProxyServiceVM.ps1 to restore it, or pass -CachingProxyServiceUrl "" to fetch directly.'
     'host.kvm_start_network_action' = 'Start the inactive libvirt network'
     'host.kvm_start_unit_action' = 'Start the stopped libvirt unit'
+    'host.media_digest_mismatch' = @(
+        @{
+            'arg' = 'file'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' from '
+        @{
+            'arg' = 'url'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' has SHA-256 '
+        @{
+            'arg' = 'actual'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ', not the '
+        @{
+            'arg' = 'expected'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' pinned for that release; the download was discarded and the media in place is unchanged.'
+    )
     'host.operator_005bab80fe0f8f32' = @(
         '  SSH:      ssh pool-control-service-admin@'
         @{
@@ -2295,33 +2458,6 @@
             'trust' = 'external'
         }
         '  (not on disk)'
-    )
-    'host.operator_3d4bd722f2cfda09' = @(
-        'Save-VMDiskSnapshot: snapshot '''
-        @{
-            'arg' = 'id'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' saved into '''
-        @{
-            'arg' = 'utmBundle'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' but rename '''
-        @{
-            'arg' = 'vMName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -> '''
-        @{
-            'arg' = 'id'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' failed; VM will be wiped on next cycle cleanup. The qcow2 snapshot is on disk and can be restored manually.'
     )
     'host.operator_3d53fa1f73f89fed' = @(
         'genisoimage failed (exit '
@@ -4840,7 +4976,6 @@
         }
     )
     'host.operator_87abce329e878b18' = 'Resume service VM after UTM relaunch'
-    'host.operator_87d1543cf3bfdad9' = 'Clear Yuruna port mapping'
     'host.operator_87e79790981d47af' = @(
         'Set host proxy to '
         @{
@@ -5548,21 +5683,6 @@
     )
     'host.operator_a0e97dcbb626019f' = 'Only the ufw status-port rule will be removed -- it is provably ours. Group membership, the $HOME ACL, libvirtd/virtlogd and the GNOME keys are left exactly as they are, and reported.'
     'host.operator_a127790ebde6e4ff' = 'cache VM on it), or define it by hand -- see'
-    'host.operator_a1763a8af3ef734a' = @(
-        'Save-VMDiskSnapshot: rename '''
-        @{
-            'arg' = 'vMName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -> '''
-        @{
-            'arg' = 'id'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' failed; no snapshot taken, domain will be wiped on next cycle cleanup.'
-    )
     'host.operator_a19074ac4867746e' = '  Console/SSH login:'
     'host.operator_a1a6059aaacffcb8' = @(
         '  '''
@@ -5918,14 +6038,6 @@
         ''' has no physical uplink (only tap ports attached). Self-healing...'
     )
     'host.operator_a9dbdd1577bb8c0e' = '    (also embedded in the seed.iso''s user-data -- chpasswd)'
-    'host.operator_a9dcf6d3662588bf' = @(
-        @{
-            'arg' = 'mB'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' MB'
-    )
     'host.operator_a9e197e13deba921' = @(
         '     (or save any Win11*.iso file to '
         @{
@@ -6830,26 +6942,6 @@
         }
         ''' did not fully power off (qcow2 still locked); aborting to avoid a clobbered revert.'
     )
-    'host.operator_c67e69b1dce2a237' = @(
-        @{
-            'arg' = 'mB'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' / '
-        @{
-            'arg' = 'mB2'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' MB ('
-        @{
-            'arg' = 'percent'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '%)'
-    )
     'host.operator_c689a85719965f3f' = @(
         'Resolving stable build from '
         @{
@@ -7611,27 +7703,6 @@
             'trust' = 'external'
         }
         ''''
-    )
-    'host.operator_dda22dc70c2dcb9f' = @(
-        'Save-VMDiskSnapshot: snapshot '''
-        @{
-            'arg' = 'id'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' saved but rename '''
-        @{
-            'arg' = 'vMName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -> '''
-        @{
-            'arg' = 'id'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' failed; VM will be wiped on next cycle cleanup.'
     )
     'host.operator_ddd6375b1613a19a' = @(
         'Apple published macOS '
@@ -8673,6 +8744,62 @@
         }
         ' seconds, so the UTM registrations are unknown; nothing was deleted. Run this again once UTM answers.'
     )
+    'host.portmap_ledger_busy' = @(
+        'The port-map record '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' stayed locked by another process; the forwards '
+        @{
+            'arg' = 'owner'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' holds are in place but not recorded.'
+    )
+    'host.portmap_ledger_unwritten' = @(
+        'The port-map record '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' could not be written for '
+        @{
+            'arg' = 'owner'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.portmap_port_held' = @(
+        'Port forwards for '
+        @{
+            'arg' = 'owner'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' were not changed: host port '
+        @{
+            'arg' = 'port'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' is held by '
+        @{
+            'arg' = 'holder'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
     'host.proxy_ca_refused_build' = @(
         'Did not build '''
         @{
@@ -8744,8 +8871,122 @@
         }
         ''' was not renamed and its bundle was not edited.'
     )
+    'host.service_build_plan_accepted' = @(
+        'Build plan for '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' accepted: every input the build needs is present, and nothing was changed.'
+    )
+    'host.service_seed_degraded' = @(
+        'The seed of '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' is degraded: '
+        @{
+            'arg' = 'name'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' is baked empty. The guest starts without it, and its Start reports the bring-up as degraded.'
+    )
     'host.signature_could_not_be_checked' = '  SHA256SUMS GPG SIGNATURE COULD NOT BE CHECKED'
     'host.signature_could_not_be_checked_detail' = '  gpg and the pinned Ubuntu signing keys are present, but the signature could not be fetched or verified; the checksum is refused as unauthenticated.'
+    'host.snapshot_leftover_unsettled' = @(
+        'Snapshot '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' was not saved: an interrupted earlier save left '''
+        @{
+            'arg' = 'previous'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''', and settling it stopped at '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'host.snapshot_previous_not_removed' = @(
+        'Snapshot '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' was saved, but the earlier persisted VM '''
+        @{
+            'arg' = 'previous'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' could not be removed; the next save of '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' removes it.'
+    )
+    'host.snapshot_save_rollback_incomplete' = @(
+        'Snapshot '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' was not saved from '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' ('
+        @{
+            'arg' = 'step'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' failed), and the VMs could not all be renamed back; the next save of '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' settles them.'
+    )
+    'host.snapshot_save_rolled_back' = @(
+        'Snapshot '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' was not saved from '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' ('
+        @{
+            'arg' = 'step'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' failed); both VMs keep the names they had before the attempt.'
+    )
     'host.snapshot_state_unknown' = @(
         'Could not tell whether snapshot '''
         @{

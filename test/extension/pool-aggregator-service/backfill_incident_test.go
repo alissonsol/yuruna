@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"testing"
 	"time"
+	"yuruna.com/test/extension/pool-aggregator-service/internal/incident"
 )
 
 // liveIncidents runs the collector's own rule over fails the way the poll loop
@@ -21,13 +22,13 @@ func liveIncidents(hostID string, fails []failRec, step time.Duration, until tim
 	s := newPoolState("lab", 8080)
 	var events []incidentEvent
 	next := 0
-	for now := fails[0].t; !now.After(until); now = now.Add(step) {
-		for next < len(fails) && !fails[next].t.After(now) {
+	for now := fails[0].At; !now.After(until); now = now.Add(step) {
+		for next < len(fails) && !fails[next].At.After(now) {
 			s.failWindow[hostID] = append(s.failWindow[hostID], fails[next])
 			next++
 		}
 		for _, ev := range s.evaluateIncidents(now) {
-			if !ev.pool {
+			if !ev.Pool {
 				events = append(events, ev)
 			}
 		}
@@ -46,10 +47,10 @@ func summarize(events []incidentEvent) []incidentSummary {
 	var out []incidentSummary
 	for _, ev := range events {
 		kind := "resolved"
-		if ev.open {
+		if ev.Open {
 			kind = "open"
 		}
-		out = append(out, incidentSummary{ID: ev.id, Kind: kind, Dominant: ev.dominantClass, StartedAt: ev.startedAt, At: ev.now, Count: ev.count, Peak: ev.peak, Hist: ev.classHist})
+		out = append(out, incidentSummary{ID: ev.ID, Kind: kind, Dominant: ev.DominantClass, StartedAt: ev.StartedAt, At: ev.Now, Count: ev.Count, Peak: ev.Peak, Hist: ev.ClassHist})
 	}
 	return out
 }
@@ -72,9 +73,9 @@ func TestReplayHostIncidentsMatchesTheLiveRule(t *testing.T) {
 				gap = time.Duration(rng.Intn(6)+1) * time.Hour
 			}
 			at = at.Add(gap)
-			fails = append(fails, failRec{t: at, class: classes[rng.Intn(len(classes))]})
+			fails = append(fails, failRec{At: at, Class: classes[rng.Intn(len(classes))]})
 		}
-		until := fails[len(fails)-1].t.Add(defaultIncidentWin + poll)
+		until := fails[len(fails)-1].At.Add(defaultIncidentWin + poll)
 		live := summarize(liveIncidents(bfHostA, append([]failRec(nil), fails...), poll, until))
 		replayed := summarize(replayHostIncidents(bfHostA, "lab", append([]failRec(nil), fails...), defaultIncidentN, defaultIncidentWin))
 		if !reflect.DeepEqual(live, replayed) {
@@ -86,22 +87,22 @@ func TestReplayHostIncidentsMatchesTheLiveRule(t *testing.T) {
 func TestReplayHostIncidentsEdgeCases(t *testing.T) {
 	base := bfAt("2026-09-01T00:00:00Z")
 	f := func(min int, class string) failRec {
-		return failRec{t: base.Add(time.Duration(min) * time.Minute), class: class}
+		return failRec{At: base.Add(time.Duration(min) * time.Minute), Class: class}
 	}
 	if got := replayHostIncidents(bfHostA, "lab", []failRec{f(0, "a"), f(10, "a")}, 3, 2*time.Hour); len(got) != 0 {
 		t.Errorf("two fails open nothing: %+v", got)
 	}
 	// A fail landing exactly as the window empties keeps the incident open.
 	got := replayHostIncidents(bfHostA, "lab", []failRec{f(0, "a"), f(10, "a"), f(20, "b"), f(140, "b")}, 3, 2*time.Hour)
-	if len(got) != 2 || !got[0].open || got[1].open || !got[1].now.Equal(base.Add(260*time.Minute)) {
+	if len(got) != 2 || !got[0].Open || got[1].Open || !got[1].Now.Equal(base.Add(260*time.Minute)) {
 		t.Fatalf("one incident resolving two hours after its last fail: %+v", summarize(got))
 	}
-	if got[0].id != incidentID(bfHostA, base) || got[1].peak != 3 || got[1].dominantClass != "a" {
+	if got[0].ID != incident.ID(bfHostA, base) || got[1].Peak != 3 || got[1].DominantClass != "a" {
 		t.Errorf("incident identity or peak wrong: %+v", summarize(got))
 	}
 	// Out-of-order input is sorted first.
 	shuffled := replayHostIncidents(bfHostA, "lab", []failRec{f(20, "b"), f(0, "a"), f(10, "a")}, 3, 2*time.Hour)
-	if len(shuffled) != 2 || shuffled[0].id != incidentID(bfHostA, base) {
+	if len(shuffled) != 2 || shuffled[0].ID != incident.ID(bfHostA, base) {
 		t.Errorf("unsorted fails mishandled: %+v", summarize(shuffled))
 	}
 }
@@ -116,7 +117,7 @@ func TestFailsFromTransitionsTakesOneFailPerCycle(t *testing.T) {
 		{At: at.Add(4 * time.Minute), Line: `not json`},
 	}
 	got := failsFromTransitions(entries)
-	want := map[string]failRec{"c1": {t: at, class: "guest_boot"}, "c3": {t: at.Add(3 * time.Minute), class: "unknown"}}
+	want := map[string]failRec{"c1": {At: at, Class: "guest_boot"}, "c3": {At: at.Add(3 * time.Minute), Class: "unknown"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v want %+v", got, want)
 	}
@@ -126,7 +127,7 @@ func TestFailsFromTransitionsTakesOneFailPerCycle(t *testing.T) {
 // a cycle Loki answers for counts once, at the time the collector counted it.
 func TestMergeFailsAddsWhatLokiCannotAnswerForYet(t *testing.T) {
 	at := bfAt("2026-09-01T00:00:00Z")
-	fromLoki := map[string]failRec{cycleKey("2026-09-01T00:00:00Z"): {t: at.Add(40 * time.Minute), class: "guest_boot"}}
+	fromLoki := map[string]failRec{cycleKey("2026-09-01T00:00:00Z"): {At: at.Add(40 * time.Minute), Class: "guest_boot"}}
 	outcomes := map[string]cycleOutcome{
 		"a": {CycleStartUtc: "2026-09-01T00:00:00Z", End: at.Add(39 * time.Minute), Status: "fail", FailureClass: "other"},
 		"b": {CycleStartUtc: "2026-09-01T01:00:00Z", End: at.Add(100 * time.Minute), Status: "fail"},
@@ -134,7 +135,7 @@ func TestMergeFailsAddsWhatLokiCannotAnswerForYet(t *testing.T) {
 		"d": {CycleStartUtc: "2026-09-01T03:00:00Z", End: at.Add(220 * time.Minute), Status: "fail", FailureClass: "late"},
 	}
 	got := mergeFails(fromLoki, outcomes, at.Add(200*time.Minute))
-	want := []failRec{{t: at.Add(40 * time.Minute), class: "guest_boot"}, {t: at.Add(100 * time.Minute), class: "unknown"}}
+	want := []failRec{{At: at.Add(40 * time.Minute), Class: "guest_boot"}, {At: at.Add(100 * time.Minute), Class: "unknown"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v want %+v", got, want)
 	}
@@ -142,21 +143,21 @@ func TestMergeFailsAddsWhatLokiCannotAnswerForYet(t *testing.T) {
 
 // A replayed incident line is the live line, in a stream of its own.
 func TestIncidentPayloadIsTheLiveLineInItsOwnStream(t *testing.T) {
-	ev := incidentEvent{open: true, hostId: bfHostA, id: "inc-42a1a1a1-1", count: 3, startedAt: bfAt("2026-09-01T00:00:00Z"), now: bfAt("2026-09-01T00:20:00Z"),
-		classHist: map[string]int{"guest_boot": 3}, dominantClass: "guest_boot", poolLabel: "red"}
-	liveStream, liveLine := incidentStreamLine("red", ev)
+	ev := incidentEvent{Open: true, HostID: bfHostA, ID: "inc-42a1a1a1-1", Count: 3, StartedAt: bfAt("2026-09-01T00:00:00Z"), Now: bfAt("2026-09-01T00:20:00Z"),
+		ClassHist: map[string]int{"guest_boot": 3}, DominantClass: "guest_boot", PoolLabel: "red"}
+	liveStream, liveLine := incident.StreamLine("red", ev)
 	p := incidentPayload(ev)
 	st := p["streams"].([]map[string]any)[0]
 	labels := st["stream"].(map[string]string)
 	v := st["values"].([][]string)[0]
-	if labels["incidentId"] != ev.id || labels["hostId"] != bfHostA || labels["src"] != "incident" || labels["pool"] != "red" || len(labels) != len(liveStream)+1 {
+	if labels["incidentId"] != ev.ID || labels["hostId"] != bfHostA || labels["src"] != "incident" || labels["pool"] != "red" || len(labels) != len(liveStream)+1 {
 		t.Errorf("labels: %v (live %v)", labels, liveStream)
 	}
-	if v[1] != string(liveLine) || v[0] != strconv.FormatInt(ev.now.UnixNano(), 10) {
+	if v[1] != string(liveLine) || v[0] != strconv.FormatInt(ev.Now.UnixNano(), 10) {
 		t.Errorf("line differs from the live one: %s vs %s", v[1], liveLine)
 	}
 	var body map[string]any
-	if err := json.Unmarshal(liveLine, &body); err != nil || body["event"] != "incident_open" || body["incidentId"] != ev.id {
+	if err := json.Unmarshal(liveLine, &body); err != nil || body["event"] != "incident_open" || body["incidentId"] != ev.ID {
 		t.Errorf("live line shape: %s", liveLine)
 	}
 }
@@ -177,7 +178,7 @@ func TestApplyIncidentLinesDecidesAcrossStreamsByTime(t *testing.T) {
 	}
 	for _, order := range [][][][2]string{{replayed, live}, {live, replayed}} {
 		s := newPoolState("lab", 8080)
-		if n := s.applyIncidentLines(order, now); n != 1 || s.incident[bfHostA] == nil || s.incident[bfHostA].id != "inc-live" {
+		if n := s.applyIncidentLines(order, now); n != 1 || s.incident[bfHostA] == nil || s.incident[bfHostA].ID != "inc-live" {
 			t.Fatalf("the open live incident must be restored whatever the stream order: n=%d %+v", n, s.incident[bfHostA])
 		}
 	}
@@ -193,7 +194,7 @@ func TestReplayDominantClassIsDeterministic(t *testing.T) {
 	base := bfAt("2026-09-01T00:00:00Z")
 	var fails []failRec
 	for i, c := range []string{"b", "a", "b", "a"} {
-		fails = append(fails, failRec{t: base.Add(time.Duration(i) * time.Minute), class: c})
+		fails = append(fails, failRec{At: base.Add(time.Duration(i) * time.Minute), Class: c})
 	}
 	first := replayHostIncidents(bfHostA, "lab", fails, 3, time.Hour)
 	for i := 0; i < 20; i++ {
@@ -203,11 +204,11 @@ func TestReplayDominantClassIsDeterministic(t *testing.T) {
 		}
 	}
 	keys := make([]string, 0)
-	for k := range first[1].classHist {
+	for k := range first[1].ClassHist {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if first[1].dominantClass != "a" || !reflect.DeepEqual(keys, []string{"a", "b"}) {
+	if first[1].DominantClass != "a" || !reflect.DeepEqual(keys, []string{"a", "b"}) {
 		t.Errorf("tie must break lexically: %+v", summarize(first))
 	}
 }

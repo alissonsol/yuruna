@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42bcda77-08ce-3c8e-a78b-3476cd1c4efc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -109,6 +109,7 @@
     'status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5' = '禁止访问：缺少X-Yuruna请求头（跨站请求防护）'
     'status.api_forbidden_not_served' = '禁止（不是提供的文件）'
     'status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac' = '禁止访问：探测目标必须是私有地址（loopback/RFC1918/link-local）或配置的缓存IP'
+    'status.api_guest_channel_key_absent' = '此主机尚无来宾通道密钥；密钥会在主机首次生成来宾种子时创建'
     'status.api_host_refresh_authorization_refused' = @(
         '刷新授权被拒绝（'
         @{
@@ -197,6 +198,20 @@
     'status.api_project_repo_not_present_on_host_885e6338' = '宿主机上不存在项目仓库'
     'status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b' = '验证证明不匹配（内部身份验证密钥错误或已过期）'
     'status.api_put_or_post_required_1f919659' = '必须使用PUT或POST'
+    'status.api_query_invalid' = @(
+        '无效的查询：'
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
     'status.api_request_body_invalid' = @(
         '请求正文无效：'
         @{
@@ -625,6 +640,7 @@
     'status.error_file_too_large' = '文件过大'
     'status.error_not_found' = '未找到'
     'status.every_guest_folder_under_this_host_is_already_in_the_list' = '此宿主机下的所有客户机文件夹均已在列表中'
+    'status.explain_details' = '详细信息'
     'status.external_detail' = @(
         '工具报告：'
         @{
@@ -1225,6 +1241,7 @@
     'status.perf_yuruna' = '性能——Yuruna'
     'status.performance' = '性能'
     'status.performance_fit' = '显示全部'
+    'status.performance_select_bar' = '选择一个时长或一个条形，即可在此处查看其详细信息。'
     'status.performance_zoom' = '时间缩放'
     'status.pill_new_vm_resource' = '新建虚拟机'
     'status.pill_start_guestos' = '启动操作系统'

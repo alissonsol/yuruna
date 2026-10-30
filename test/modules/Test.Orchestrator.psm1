@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -255,8 +255,16 @@ function Invoke-OrchestratorGuestRun {
         Invoke-TestSequenceChain. Returns @{ ok; vmName; guestKey; reason }.
     .DESCRIPTION
         Mirrors Debug-TestSequence.ps1's standalone per-guest prep for a single
-        full run (StartStep 1 .. end). The caching-proxy-service URL is resolved
-        once by the caller and forwarded so every inner run shares it.
+        full run (StartStep 1 .. end), or, with -ResumeFromSequence and
+        -ResumeFromStep, from that step of that chain sequence on (a warm
+        resume; see Invoke-OrchestratorWarmResume). The caching-proxy-service
+        URL is resolved once by the caller and forwarded so every inner run
+        shares it. The result also names the chain's sequences (sequences), the
+        list a warm resume matches a checkpoint against.
+    .PARAMETER ResumeFromSequence
+        The chain sequence the run starts in; with ResumeFromStep.
+    .PARAMETER ResumeFromStep
+        The step of ResumeFromSequence the run starts at (1-based).
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -269,9 +277,12 @@ function Invoke-OrchestratorGuestRun {
         [Parameter(Mandatory)][string]$HostType,
         [Parameter(Mandatory)]$Config,
         [string]$CachingProxyServiceUrl = '',
-        [switch]$ShowSensitive
+        [switch]$ShowSensitive,
+        [string]$ResumeFromSequence = '',
+        [ValidateRange(0, [int]::MaxValue)][int]$ResumeFromStep = 0
     )
-    $fail = { param($msg) return @{ ok = $false; vmName = $null; guestKey = $null; reason = $msg } }
+    $chainNames = @()
+    $fail = { param($msg) return @{ ok = $false; vmName = $null; guestKey = $null; reason = $msg; sequences = @($chainNames) } }
 
     # --- REGION: Derive GuestKey from the sequence's baseline map
     # First OS key, the same source of truth Debug-TestSequence reads.
@@ -305,6 +316,21 @@ function Invoke-OrchestratorGuestRun {
     $effectiveHost = $plan.effectiveHost
     $totalSteps    = $plan.chainTotalSteps
     if ($plan.warmPath -and $plan.requiredSnapshotId) { $vmName = $plan.requiredSnapshotId }
+    $chainNames = @($chainEntries | ForEach-Object { [string]$_.name })
+
+    # --- REGION: Resume point
+    # A sequence-local step becomes the chain step: the chain runs its
+    # prerequisites first, and -StartStep indexes the whole chain.
+    $startStep = 1
+    if ($ResumeFromSequence -and $ResumeFromStep -ge 1) {
+        $wantBase = (Split-Path -Leaf $ResumeFromSequence) -replace '\.ya?ml$', ''
+        $resumeEntry = @($chainEntries | Where-Object {
+            [string]$_.name -eq $ResumeFromSequence -or (((Split-Path -Leaf ([string]$_.name)) -replace '\.ya?ml$', '') -eq $wantBase) }) | Select-Object -First 1
+        if (-not $resumeEntry -or $ResumeFromStep -gt [int]$resumeEntry.stepCount) {
+            return & $fail "Inner '$Name' cannot resume at step $ResumeFromStep of '$ResumeFromSequence': no such step in its chain."
+        }
+        $startStep = [int]$resumeEntry.globalStart + $ResumeFromStep - 1
+    }
 
     # --- REGION: SSH-user override
     # Save-GuestDiagnostic + the SSH-mode host driver read it.
@@ -328,6 +354,8 @@ function Invoke-OrchestratorGuestRun {
         if ($plan.effectiveMemoryStartupBytes) { $newVmArgs.MemoryStartupBytes = $plan.effectiveMemoryStartupBytes }
         if ($plan.effectiveCores) { $newVmArgs.Cores = $plan.effectiveCores }
         if ($plan.effectiveExposeVirtualizationExtensions) { $newVmArgs.ExposeVirtualizationExtensions = $plan.effectiveExposeVirtualizationExtensions }
+        # A guest built under this name has new SSH host keys; forget the pinned one.
+        if (Get-Command Reset-GuestHostKeyPin -ErrorAction SilentlyContinue) { Reset-GuestHostKeyPin -VMName $newVmArgs.VMName -Confirm:$false }
         $r = New-VM @newVmArgs -Confirm:$false
         if (-not $r.success) { return & $fail "New-VM failed for inner '$Name': $($r.errorMessage)" }
         Write-OrchestratorLine "VM '$vmName' created."
@@ -338,7 +366,7 @@ function Invoke-OrchestratorGuestRun {
     # (its handler tolerates a stopped VM and starts it after the restore).
     # Read through a wrapper such as `retry` to the inner step that actually
     # runs first, so a nested restore is recognized as one.
-    $firstAction = [string](Get-FirstExecutedStepAction -ChainEntries $chainEntries -StartStep 1)
+    $firstAction = [string](Get-FirstExecutedStepAction -ChainEntries $chainEntries -StartStep $startStep)
     if ($firstAction -eq 'loadDiskSnapshot') {
         Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_21e1094877b5bc10' -Arguments @{ vmName = "$vmName" })
     } elseif ((Get-VMState -VMName $vmName) -eq 'running') {
@@ -355,19 +383,119 @@ function Invoke-OrchestratorGuestRun {
         Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_f466b580997a484d' -Arguments @{ vmName = "$vmName" })
     }
 
-    # --- REGION: Run each chain entry (StartStep 1 .. end)
+    # --- REGION: Run each chain entry (StartStep .. end)
     $result = Invoke-TestSequenceChain `
         -ChainEntries $chainEntries -ChainPlan $plan.chainPlan `
-        -StartStep 1 -EffectiveStop $totalSteps -StopStep 0 -ChainTotalSteps $totalSteps `
+        -StartStep $startStep -EffectiveStop $totalSteps -StopStep 0 -ChainTotalSteps $totalSteps `
         -HostType $HostType -GuestKey $guestKey -VMName $vmName `
         -SequenceName $Name -ShowSensitive:$ShowSensitive
     if (-not $result.ok) {
         # Evidence first: the guest is still up and holding the state that failed.
         $failedVm = if ($result.finishedVmName) { [string]$result.finishedVmName } else { $vmName }
         Save-ChainFailureArtifact -VMName $failedVm -GuestKey $guestKey -RepoRoot $RepoRoot
-        return @{ ok = $false; vmName = $result.finishedVmName; guestKey = $guestKey; reason = "chain '$Name' failed" }
+        return @{ ok = $false; vmName = $result.finishedVmName; guestKey = $guestKey; reason = "chain '$Name' failed"; sequences = @($chainNames) }
     }
-    return @{ ok = $true; vmName = $result.finishedVmName; guestKey = $guestKey; reason = '' }
+    return @{ ok = $true; vmName = $result.finishedVmName; guestKey = $guestKey; reason = ''; sequences = @($chainNames) }
+}
+
+function Invoke-OrchestratorWarmResume {
+    <#
+    .SYNOPSIS
+        Re-run a guest entry that failed transiently, in place from its last
+        good step, before the orchestration counts it as failed.
+    .DESCRIPTION
+        An orchestration walks its entries once, and an entry that failed on a
+        transient class (a lost keystroke, a timeout, a network blip) used to end
+        the chain: the next cycle redid every earlier entry from step 1. The
+        guest the entry ran is still up at this boundary, so the same in-place
+        resume the guest workload path takes applies here, with the same rules:
+        testCycle.warmResume (enabled, maxAttempts), Test.WarmResume's class
+        eligibility, the checkpoint the engine recorded during this entry
+        (last_failure.json no older than the attempt), and Resolve-CycleReplayStep,
+        which rewinds to the restore point before the checkpoint and declines
+        when a replay cannot be shown safe. The original failure stands whenever
+        it declines.
+    .PARAMETER FailedRun
+        The failed Invoke-OrchestratorGuestRun result (its sequences list is the
+        chain a checkpoint must belong to).
+    .PARAMETER AttemptStartUtc
+        When the failed attempt began; an older checkpoint is a previous one's.
+    .OUTPUTS
+        [hashtable] the last guest-run result after at least one resume, or $null
+        when no resume was attempted.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)]$Entry,
+        [Parameter(Mandatory)][hashtable]$FailedRun,
+        [Parameter(Mandatory)][DateTime]$AttemptStartUtc,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$SequencesDir,
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)]$Config,
+        [string]$CachingProxyServiceUrl = '',
+        [switch]$ShowSensitive
+    )
+    if (-not $env:YURUNA_LOG_DIR) { return $null }
+    foreach ($command in 'Read-WarmResumeCheckpoint', 'Get-WarmResumeDecision', 'Resolve-CycleReplayStep') {
+        if (-not (Get-Command -Name $command -ErrorAction SilentlyContinue)) { return $null }
+    }
+    $wr = if ($Config -is [System.Collections.IDictionary] -and $Config.testCycle -is [System.Collections.IDictionary]) { $Config.testCycle.warmResume } else { $null }
+    $enabled = if ($wr -is [System.Collections.IDictionary] -and $wr.Contains('enabled')) { [bool]$wr['enabled'] } else { $true }
+    $maxAttempts = if ($wr -is [System.Collections.IDictionary] -and $wr['maxAttempts']) { [int]$wr['maxAttempts'] } else { 2 }
+    if (-not $enabled -or $maxAttempts -lt 1) { return $null }
+
+    $last = $null
+    $run = $FailedRun
+    $since = $AttemptStartUtc
+    $attempt = 0
+    while ($attempt -lt $maxAttempts) {
+        $checkpoint = Read-WarmResumeCheckpoint -LogDir $env:YURUNA_LOG_DIR -NotBeforeUtc $since
+        $decision = Get-WarmResumeDecision -Enabled $true -FailureClass $checkpoint.FailureClass -SequenceName $checkpoint.SequenceName `
+            -ResumeFromStep ([int]$checkpoint.ResumeFromStep) -WorkloadSequences @($run.sequences)
+        if (-not $decision.ShouldResume) { break }
+        $vmName = if ($run.vmName) { [string]$run.vmName } else { '' }
+        $replay = Resolve-CycleReplayStep -Decision $decision -Checkpoint $checkpoint -SequencesDir $SequencesDir -HostType $HostType -RepoRoot $RepoRoot -VMName $vmName
+        if ($replay.DeclineReason) {
+            if ($replay.DeclineReason -eq 'no-restore-point') {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4fe10480f33d691d' -Arguments @{ resumeSequence = "$($decision.ResumeSequence)"; resumeFromStep = "$($checkpoint.ResumeFromStep)"; failureClass = "$($checkpoint.FailureClass)" })
+            } else {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.warm_resume_declined_unverified' -Arguments @{ resumeSequence = "$($decision.ResumeSequence)"; resumeFromStep = "$($checkpoint.ResumeFromStep)"; failureClass = "$($checkpoint.FailureClass)"; reason = "$($replay.DeclineReason)" })
+            }
+            if ((Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) -and (Get-Command New-WarmResumeDeclinedEvent -ErrorAction SilentlyContinue)) {
+                $declined = New-WarmResumeDeclinedEvent -GuestKey ([string]$run.guestKey) -VmName $vmName -SequenceName $decision.ResumeSequence `
+                    -ResumeFromStep ([int]$checkpoint.ResumeFromStep) -FailureClass $checkpoint.FailureClass -Reason ([string]$replay.DeclineReason) `
+                    -ReplayClass ([string]$replay.ReplayClass) -HostType $HostType
+                Send-CycleEventSafely -EventRecord ([hashtable]$declined)
+            }
+            break
+        }
+        $attempt++
+        $step = [int]$replay.ResumeFromStep
+        if ($replay.Rewound) {
+            Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_a244d3567d53d7d3' -Arguments @{ wrAttempt = "$attempt"; warmResumeMaxAttempts = "$maxAttempts"; resumeSequence = "$($decision.ResumeSequence)"; failureClass = "$($checkpoint.FailureClass)"; resumeFromStep = "$($checkpoint.ResumeFromStep)"; wrStep = "$step"; vMName = "$vmName"; wrStep2 = "$([int]$checkpoint.ResumeFromStep - $step)" })
+        } else {
+            Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_a3db0af449df40be' -Arguments @{ wrAttempt = "$attempt"; warmResumeMaxAttempts = "$maxAttempts"; resumeSequence = "$($decision.ResumeSequence)"; failureClass = "$($checkpoint.FailureClass)"; wrStep = "$step"; vMName = "$vmName" })
+        }
+        if ((Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) -and (Get-Command New-WarmResumeEvent -ErrorAction SilentlyContinue)) {
+            $resumeEvent = New-WarmResumeEvent -GuestKey ([string]$run.guestKey) -VmName $vmName -SequenceName $decision.ResumeSequence `
+                -ResumeFromStep $step -FailureClass $checkpoint.FailureClass -Attempt $attempt -HostType $HostType `
+                -CheckpointStep ([int]$checkpoint.ResumeFromStep) -StepEffectSource ([string]$replay.StepEffectSource)
+            Send-CycleEventSafely -EventRecord ([hashtable]$resumeEvent)
+        }
+        $since = [DateTime]::UtcNow
+        $run = Invoke-OrchestratorGuestRun -Sequence $Entry.sequence -SequencePath $Entry.path -Name $Entry.name `
+            -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Config $Config `
+            -CachingProxyServiceUrl $CachingProxyServiceUrl -ShowSensitive:$ShowSensitive `
+            -ResumeFromSequence $decision.ResumeSequence -ResumeFromStep $step
+        $last = $run
+        if ($run.ok) {
+            Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_f816107e3cf58f3b' -Arguments @{ resumeSequence = "$($decision.ResumeSequence)"; wrAttempt = "$attempt" })
+            break
+        }
+    }
+    return $last
 }
 
 function Invoke-OrchestrationSequence {
@@ -702,6 +830,14 @@ function Invoke-OrchestrationSequence {
                         $run = Invoke-OrchestratorGuestRun -Sequence $e.sequence -SequencePath $e.path -Name $e.name `
                             -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Config $Config `
                             -CachingProxyServiceUrl $cachingProxyUrl -ShowSensitive:$ShowSensitive
+                        if (-not $run.ok) {
+                            # The guest is still up: an eligible transient failure
+                            # resumes in place before the entry counts as failed.
+                            $resumed = Invoke-OrchestratorWarmResume -Entry $e -FailedRun $run -AttemptStartUtc $entryStartUtc `
+                                -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Config $Config `
+                                -CachingProxyServiceUrl $cachingProxyUrl -ShowSensitive:$ShowSensitive
+                            if ($resumed) { $run = $resumed }
+                        }
                         $ok = [bool]$run.ok
                         if ($run.vmName) { $entryVmName = [string]$run.vmName }
                         if ($run.vmName -and -not $orchNested) { Set-GuestVMName -GuestKey $e.name -VMName $run.vmName -Confirm:$false }

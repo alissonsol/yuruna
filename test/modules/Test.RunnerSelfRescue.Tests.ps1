@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b2fd46-f55d-409b-bf93-6b7dbb5f5595
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,7 @@
 param()
 
 BeforeAll {
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { throw 'powershell-yaml is required for these cases.' }
@@ -83,7 +84,7 @@ Describe 'Invoke-RunnerOuterSupervisor' {
     BeforeEach {
         $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('sup-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
-        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
         $script:Config = Join-Path $script:Dir 'test.config.yml'
         Set-Content -LiteralPath $script:Config -Value "notification:`n  failuresBeforeAlert: 9`n" -Encoding utf8
@@ -95,7 +96,7 @@ Describe 'Invoke-RunnerOuterSupervisor' {
         Mock -ModuleName Test.RunnerOuterLoop Wait-OuterInterruptible { $script:Holds.Add($Seconds); $false }
     }
     AfterEach {
-        if ($null -eq $script:SavedRuntime) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
@@ -128,12 +129,12 @@ Describe 'Invoke-RunnerOuterSupervisor' {
     It 'stops a cycle process the escaped loop left running before entering the loop again' {
         $state = Get-RescueState -ConfigPath $script:Config
         Mock -ModuleName Test.RunnerOuterLoop Read-YurunaRunnerCycleRecord { [pscustomobject]@{ State = 'AliveOwned'; Pid = 424242 } }
-        Mock -ModuleName Test.RunnerOuterLoop Stop-ProcessTree { }
+        Mock -ModuleName Test.RunnerOuterLoop Stop-YurunaProcessTree { }
         Mock -ModuleName Test.RunnerOuterLoop Clear-YurunaRunnerCycleRecord { $true }
         $script:Calls = 0
         $loop = { param($S) $script:Calls++; if ($script:Calls -eq 1) { throw 'boom' }; $S.ShutdownState['Requested'] = $true }
         Invoke-RunnerOuterSupervisor -State $state -Loop $loop
-        Should -Invoke -ModuleName Test.RunnerOuterLoop Stop-ProcessTree -Times 1 -Exactly -ParameterFilter { $ProcessId -eq 424242 }
+        Should -Invoke -ModuleName Test.RunnerOuterLoop Stop-YurunaProcessTree -Times 1 -Exactly -ParameterFilter { $ProcessId -eq 424242 }
     }
     It 'continues the cycle numbering after re-entering the real loop, so no generation repeats' {
         $state = Get-RescueState -ConfigPath $script:Config
@@ -203,8 +204,8 @@ Describe 'The resident pulls the framework when cycle processes keep dying befor
     BeforeEach {
         $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rsc-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
-        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
-        $script:SavedLog = $env:YURUNA_LOG_DIR
+        $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $script:SavedLog = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
         $env:YURUNA_LOG_DIR = $script:Dir
         $script:Config = Join-Path $script:Dir 'test.config.yml'
@@ -228,8 +229,8 @@ Describe 'The resident pulls the framework when cycle processes keep dying befor
         }
     }
     AfterEach {
-        if ($null -eq $script:SavedRuntime) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
-        if ($null -eq $script:SavedLog) { Remove-Item Env:\YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $script:SavedLog }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
+        Restore-YurunaTestEnvironment -Saved $script:SavedLog
         Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
@@ -305,7 +306,7 @@ Describe 'The resident stops a cycle process at testCycle.maxCycleSeconds' -Skip
     BeforeEach {
         $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('ceil-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
-        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
         $script:GrandchildFile = Join-Path $script:Dir 'grandchild.pid'
         $script:CycleScript = Join-Path $script:Dir 'cycle.ps1'
@@ -329,7 +330,7 @@ Start-Sleep -Seconds 300
             $grandchild = [int](Get-Content -Raw -LiteralPath $script:GrandchildFile)
             Stop-Process -Id $grandchild -Force -ErrorAction SilentlyContinue
         }
-        if ($null -eq $script:SavedRuntime) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
@@ -402,7 +403,7 @@ Describe 'The resident guards a cycle whose step watchdog stood down' -Skip:$IsW
     BeforeEach {
         $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('guard-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
-        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
         $script:GrandchildFile = Join-Path $script:Dir 'grandchild.pid'
         $script:CycleScript = Join-Path $script:Dir 'cycle.ps1'
@@ -431,7 +432,7 @@ Start-Sleep -Seconds 300
         if (Test-Path -LiteralPath $script:GrandchildFile) {
             Stop-Process -Id ([int](Get-Content -Raw -LiteralPath $script:GrandchildFile)) -Force -ErrorAction SilentlyContinue
         }
-        if ($null -eq $script:SavedRuntime) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
     }
 

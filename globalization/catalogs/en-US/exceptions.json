@@ -253,28 +253,6 @@
       "description": "Whole operator-visible Write-Error failure in host/ubuntu.kvm/Disable-TestAutomation.ps1; preserve command names, error identity, paths, and external details.",
       "lifecycle": "active"
     },
-    "exceptions.host_5e82d7a32d22a269": {
-      "message": "HTTP {status} {reasonPhrase} for {uri}",
-      "description": "Whole operator-visible throw failure in host/modules/Yuruna.DownloadAgent.psm1; preserve command names, error identity, paths, and external details.",
-      "lifecycle": "active",
-      "placeholders": {
-        "status": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$status"
-        },
-        "reasonPhrase": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$($response.ReasonPhrase)"
-        },
-        "uri": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$Uri"
-        }
-      }
-    },
     "exceptions.host_5fbd4e8bd8efc5cc": {
       "message": "Unsupported architecture for the extension-service base image: {osArch}. A Hyper-V host must be AMD64 or ARM64.",
       "description": "Whole operator-visible throw failure in host/modules/Yuruna.Image.psm1; preserve command names, error identity, paths, and external details.",

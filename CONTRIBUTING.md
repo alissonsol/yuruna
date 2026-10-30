@@ -399,7 +399,10 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   file's history joined through a rename, so a shared one merges two histories.
   PowerShell keeps all three in the `<#PSScriptInfo` block (`.LICENSEURI`,
   `.COPYRIGHT`, `.GUID`), and a sequence YAML is named by its top-level
-  `sequenceGuid` instead of a GUID line. JSON, Markdown, lock files, images and
+  `sequenceGuid` instead of a GUID line. A guest sequence (one with a top-level
+  `resource:` or `keystrokeMechanism:` key) must use `sequenceGuid`, which perf
+  rows join on; an orchestration or host-action sequence, whose schema has no
+  `sequenceGuid`, takes the GUID line. JSON, Markdown, lock files, images and
   `.template` skeletons (whose comments are copied into operator files) are not
   covered. Only three kinds of file are exempt, and only through an entry in
   [tools/source-metadata.exemptions.json](tools/source-metadata.exemptions.json),
@@ -410,8 +413,12 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   copies them or the check that holds them identical, and lists the
   repositories under `repos` when the copies live in more than one). Files that
   only stay aligned, such as the Ubuntu 24 and 26 variants of a script, keep
-  their own GUIDs, and the check that compares them leaves the identity lines
-  out. A new generated file therefore needs a reviewed entry before it passes.
+  their own GUIDs, and the check that compares them masks their identity
+  values. The gate and those checks read identities through one module,
+  [tools/Source.Identity.psm1](tools/Source.Identity.psm1) (`Get-SourceHeaderFact`,
+  `Hide-SourceIdentity`, `New-SourceGuid`), so a file cannot declare one
+  identity to the gate and another to a test. A new generated file therefore
+  needs a reviewed entry before it passes.
   The commit hook runs `tools/Test-SourceMetadata.ps1 -Staged`, which reads the
   index and blocks a gap the commit introduces; a gap that already exists in a
   file you only edit is reported and does not block, but a malformed GUID or one
@@ -424,9 +431,11 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   only warn when there is none.
 - **Accessibility** -- run `pwsh tools/Invoke-A11yCheck.ps1` when you touch a
   page, a stylesheet, or anything that generates HTML. It drives the installed
-  Chrome and measures what the browser paints -- contrast, reflow at 320 CSS px,
-  target size and the ARIA wiring -- and exits `2` when it cannot run at all,
-  which is not a pass. The static half of the same checks lives in
+  Chrome, and Firefox where it is installed, and measures what the browser
+  paints -- contrast, reflow, target size and the ARIA wiring -- at desktop
+  widths and as a phone with touch, with each page's menu and unlock prompt
+  open as well as closed, and exits `2` when it cannot run at all, which is not
+  a pass. The static half of the same checks lives in
   `test/modules/Test.ExtensionUiChrome.Tests.ps1` and runs everywhere without a
   browser. A new page belongs in the gate's roots; a new HTML *generator*
   belongs in `tools/Export-GeneratedPages.ps1`, or the gate will not see it. The
@@ -492,6 +501,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](README.md)

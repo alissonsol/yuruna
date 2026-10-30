@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42db1be5-194a-4332-86f2-4e34e105d100
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,7 @@ Describe 'Guest installer child shells propagate failure' -Skip:(-not (Get-Comma
         $body = $body.Replace('$HOME/.nvm', $nvmDir)
         $prefix = @'
 wget_try() { return 0; }
+yuruna_verify_sha256() { return 0; }
 npm() { echo UNEXPECTED_NPM; }
 openclaw() { echo UNEXPECTED_OPENCLAW; }
 YURUNA_NVM_VERSION=0.40.3
@@ -51,6 +52,7 @@ YURUNA_NODE_MAJOR=22
         $body = $body.Replace('$HOME/.nvm', $nvmDir)
         $prefix = @'
 wget_try() { return 0; }
+yuruna_verify_sha256() { return 0; }
 npm() { return 0; }
 openclaw() { if [[ "$1" == onboard ]]; then return 29; fi; echo UNEXPECTED_DOCTOR; }
 YURUNA_NVM_VERSION=0.40.3

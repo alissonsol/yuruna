@@ -165,7 +165,7 @@ Sources and aggregate membership:
 | Runner supervision | [Start-TestRunner](../../test/Start-TestRunner.ps1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Invoke-TestCycleRunner](../../test/modules/Invoke-TestCycleRunner.ps1), [Invoke-TestRunnerInnerLoop](../../test/modules/Invoke-TestRunnerInnerLoop.ps1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.ConfigPreflight](../../test/modules/Test.ConfigPreflight.psm1), [Test.RunnerAttemptHistory](../../test/modules/Test.RunnerAttemptHistory.psm1), [Test.SourceSelection](../../test/modules/Test.SourceSelection.psm1), [Test.HostGit](../../test/modules/Test.HostGit.psm1), [Test.PrivateStateRepair](../../test/modules/Test.PrivateStateRepair.psm1), the one-shot [Invoke-TestProject](../../test/Invoke-TestProject.ps1) and [Debug-TestSequence](../../test/Debug-TestSequence.ps1) entry points, and runner identity/recovery modules in [test/modules/](../../test/modules/). |
 | Sequence execution | [Test.SequenceRunner](../../test/modules/Test.SequenceRunner.psm1), [Test.SequenceEngine](../../test/modules/Test.SequenceEngine.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1), [Test.SequencePlanner](../../test/modules/Test.SequencePlanner.psm1), [Test.Orchestrator](../../test/modules/Test.Orchestrator.psm1), [Test.Start-GuestOS](../../test/modules/Test.Start-GuestOS.psm1), [Test.Start-GuestWorkload](../../test/modules/Test.Start-GuestWorkload.psm1), [sequences/](../../test/sequences/), and [schemas/](../../test/schemas/). |
 | OCR and diagnostics | [Test.OcrEngine](../../test/modules/Test.OcrEngine.psm1), [Test.OcrMatch](../../test/modules/Test.OcrMatch.psm1), [Test.Tesseract](../../test/modules/Test.Tesseract.psm1), [Test.Diagnostic](../../test/modules/Test.Diagnostic.psm1), [Test.DiagnosticPreservation](../../test/modules/Test.DiagnosticPreservation.psm1), the [guest](../../test/Invoke-GuestDiagnosticWorker.ps1) and [host](../../test/modules/Invoke-HostDiagnosticWorker.ps1) diagnostic workers, [Get-SystemDiagnostic](../../automation/Get-SystemDiagnostic.ps1), and the [guest stall sampler](../../automation/guest-performance-snapshot.sh). |
-| Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), [Repair-PrivateState.py](../../test/service/Repair-PrivateState.py), [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1), and [status/](../../test/status/). |
+| Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), [Repair-PrivateState.py](../../test/service/Repair-PrivateState.py), the [host address beacon](../../test/modules/Invoke-HostAddressBeacon.ps1) sidecar and [Test.HostAddressBeacon](../../test/modules/Test.HostAddressBeacon.psm1), [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1), and [status/](../../test/status/). |
 | Pool coordination | [Test.PoolWorker](../../test/modules/Test.PoolWorker.psm1), [Test.PoolSync](../../test/modules/Test.PoolSync.psm1), [Test.PoolPush](../../test/modules/Test.PoolPush.psm1), [Test.PoolStorage](../../test/modules/Test.PoolStorage.psm1), [Test.PoolPlanner](../../test/modules/Test.PoolPlanner.psm1), and [Test.PoolAdmin](../../test/modules/Test.PoolAdmin.psm1). |
 | Extension services | [extension/](../../test/extension/) holds authentication, digest, cache management/parser, download-agent, pool aggregator/control, stash, notification, and the shared SDK. The [caching-proxy extension](../../test/extension/caching-proxy-service/) also holds the Git mirror, and [Test.ServiceVm](../../test/modules/Test.ServiceVm.psm1) holds the start pipeline the service launchers share. |
 | Notifications | [Test.Notify](../../test/modules/Test.Notify.psm1), [Test.PoolNotifier](../../test/modules/Test.PoolNotifier.psm1), and configured providers in [notification/](../../test/extension/notification/). |
@@ -188,7 +188,10 @@ enrolled `repositories.mirror` key, and otherwise uses GitHub according to the
 configured mode. The runner and status service repair
 private startup state before they start. These are processes on the host, rather
 than additional network services. The watchdog follows the step heartbeat; OCR
-and guest diagnostics supply sequence evidence. Sequence execution also includes
+and guest diagnostics supply sequence evidence. Test.Diagnostic also reads the
+guest kernel's lockup, RCU stall, hung-task, oops, and panic reports from the
+Hyper-V serial console and the guest recorder, and the beacon's address records
+name the host's own moves during a failed step. Sequence execution also includes
 [Test.Transport](../../test/modules/Test.Transport.psm1) for console input and
 [Test.SequenceFailureState](../../test/modules/Test.SequenceFailureState.psm1)
 for shared failure evidence. `fetchAndExecute` records envelope transfer details;
@@ -265,16 +268,23 @@ Sources: [host contract](../../host/Yuruna.Host.Contract.psm1),
 [host/modules/](../../host/modules/), [host/vmconfig/](../../host/vmconfig/), and
 [guest/](../../guest/).
 Each driver imports the contract and asserts at load time that it exports every
-contract verb. It dispatches per-guest image and VM builders and implements
+contract verb; its `modules/` folder holds the helper scripts the module
+dot-sources, such as capture, lifecycle, screenshot, port-map, storage,
+virtualization-repair, and service-guest helpers. It dispatches per-guest image and VM builders and implements
 lifecycle, console input, screenshots, discovery, and networking. `Stop-VM` takes
 `-ShutdownTimeoutSeconds` and `-NoForce` on all three drivers, so a sequence can
 request a graceful shutdown and observe it through the host; Hyper-V also captures
-the COM1 serial console during a cycle. The KVM and Hyper-V drivers delete a VM
+the COM1 serial console during a cycle through a reader job named after its
+pipe, so the driver re-import between the runner's `Start-VM` and a sequence's
+own `startVm` finds the connected reader instead of arming a second one. The KVM and Hyper-V drivers delete a VM
 directory only when no registered VM uses a file in it, after first finishing a
 rename that stopped between the registration and the storage move; the KVM
 orphan sweep likewise skips referenced disks. The Hyper-V and UTM drivers also export
 `Get-VMConsoleSecondOpinion`, outside the contract, which reads the framebuffer
-independently of the screenshot path. Each provider folder also holds the
+independently of the screenshot path. The Hyper-V driver also exports
+`Read-VMSerialCapture` and `Get-VMCreationTime`, which give failure evidence
+the console text written since a step's mark and the age that bounds every
+timestamp an honest guest clock can print. Each provider folder also holds the
 Enable/Disable-TestAutomation, Sync-HostConfiguration, and
 Remove-OrphanedVMFiles scripts that the [test/lab/](../../test/lab/) dispatchers
 select through [Yuruna.HostRedirect](../../automation/Yuruna.HostRedirect.psm1).
@@ -300,7 +310,10 @@ host/modules box. The renderer also seeds integrity data: the stash,
 download-agent, and pool-control seeds carry the SHA-256 of the framework
 archive for the seeded commit, the caching-proxy seed carries a per-file SHA-256
 manifest of the sources it builds, and the Linux guest and service seeds name
-the proxy CA's fingerprint in `host.env`. The stash, download-agent, and
+the proxy CA's fingerprint in `host.env`. The Ubuntu base seed installs
+`yuruna-ssh-hostkeys.service`, a oneshot `ssh-keygen -A` ordered before
+`ssh.service`, so a guest whose cold restart emptied the host keys that
+cloud-init had just written still starts its SSH daemon. The stash, download-agent, and
 pool-control seeds carry configuration-service client certificates and
 [yuruna-nas-credential.sh](../../automation/yuruna-nas-credential.sh) instead of
 a NAS password.
@@ -489,6 +502,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 [Architecture](../architecture.md) | [Design overview](README.md)

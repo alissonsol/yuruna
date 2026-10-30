@@ -91,6 +91,7 @@ erDiagram
     resources-entry {
         string name
         string template
+        int commandTimeoutSeconds
         map variables
     }
     components-yml {
@@ -118,6 +119,7 @@ erDiagram
         string kubectl
         string helm
         string shell
+        int commandTimeoutSeconds
         map variables
     }
 ```
@@ -138,6 +140,7 @@ registry lookup described by `registryName` below.
 | `components[].buildPath` | Resolves under project `components/`; defaults to the expanded `project` value when omitted. The folder must contain `Dockerfile`, `dockerfile`, or `<project>-dockerfile`. |
 | Component commands | `buildCommand`, `tagCommand`, and `pushCommand` prefer entry values and fall back to document globals. `preProcessor` and `postProcessor` come from the merged variables. |
 | `components[].commandTimeoutSeconds` | Read from the entry, overriding `globalVariables.commandTimeoutSeconds`; the default is 600 seconds. The publisher requires integers from 1 through 3600. Each supervised command phase, including registry login, receives this bound. |
+| `resources[].commandTimeoutSeconds`, `deployments[].commandTimeoutSeconds` | Read from the entry, overriding the file's `globalVariables.commandTimeoutSeconds`; the publisher requires integers from 1 through 3600. The value bounds every tofu call for the resource, or every helm call of a chart and the command of a `kubectl`, `helm` or `shell` deployment, in place of each call's built-in bound ([deploy tool call bounds](../architecture.md#42e568c8-000f)). |
 | `components[].buildRetry` | Read from the entry, overriding `globalVariables.buildRetry`; the default is 1. The publisher requires integers from 1 through 10. It is the number of build attempts, and another attempt starts only when the failed one's output matches the shared transient-failure classifier, under the shared backoff ([retry policy](../architecture.md#42e568c8-000c)). |
 | `workloads[].context` | Selects an existing kubeconfig context; the operator's original context is restored afterward. Raw and expanded duplicate contexts are rejected. The publisher sets `contextName` and `workFolder` before expanding workload variables. |
 | `deployments[].chart` | Resolves under project `workloads/`. `variables.installName` is required and must be unique within the expanded context. |
@@ -179,6 +182,7 @@ and [workloads.yml](https://github.com/alissonsol/yuruna-project/blob/main/examp
 | `config/<config>/resources.output.yml` | Expanded `globalVariables` plus mappings keyed by resource name. Normal OpenTofu leaves retain `value`, `type`, and `sensitive`. |
 | `.yuruna/<config>/workloads/<context>/<installName>/values.yaml` | Merged deployment variables plus `contextName`, passed to Helm with the copied project chart. |
 | `.yuruna/<config>/` phase folders | Timestamped input backups (newest 20 per phase), tool logs, and exit-code sidecars read by diagnostics. |
+| `.yuruna/<config>/deploy-ledger.json` | Each phase's last outcome, input hash and output evidence, read by the next run of a phase to decide whether a retry may reuse its pass; deleted when the workloads phase passes ([deploy phase ledger](../architecture.md#42e568c8-0010)). |
 
 The resource writer preserves previous output mappings and records an empty
 resource mapping before apply. That mapping records ownership even when apply
@@ -205,8 +209,9 @@ the same deployment.
 
 Sources: [output serialization and planning](../../automation/Yuruna.Resource.psm1),
 [output flattening](../../automation/Yuruna.VariableExpansion.psm1),
-[component inputs](../../automation/Yuruna.Component.psm1), and
-[chart values](../../automation/Yuruna.Workload.psm1).
+[component inputs](../../automation/Yuruna.Component.psm1),
+[chart values](../../automation/Yuruna.Workload.psm1), and
+[the deploy phase ledger](../../automation/Yuruna.DeployLedger.psm1).
 
 ## Test identities and vault
 
@@ -363,6 +368,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 [Architecture](../architecture.md) | [Design overview](README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 426a341c-7627-4ced-878b-96844d5d7165
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,9 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Global -Force
 # by the Export-ModuleMember -Function * below and replace the importer's own.
 # --- REGION: https://yuruna.link/4220a755-0003
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Global -Force
+# The deploy phase ledger: a retry after a later phase failed reuses this
+# phase's pass when its inputs and outputs are unchanged.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.DeployLedger.psm1') -Global -Force
 
 $globalVariables = [ordered]@{}
 
@@ -151,6 +154,13 @@ function Publish-ResourceListHelper {
                     Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_d227328570c74937' -Arguments @{ resourceTemplate = "$resourceTemplate"; resourcesFile = "$resourcesFile" });
                     return (New-YurunaResultManifest -Success $false -ErrorMessage "Resources template not found: $resourceTemplate (used in $resourcesFile)" -FailureClass 'config_error');
                 }
+            }
+            # Every tofu call for the resource is bounded; commandTimeoutSeconds
+            # on the resource, or in globalVariables, replaces the built-in
+            # bound of each call, as it does for a component.
+            $timeoutBound = Get-YurunaCommandTimeout -Call 'tofu init' -Entry $resource -GlobalVariables $yaml.globalVariables
+            if (-not $timeoutBound.Valid) {
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "commandTimeoutSeconds must be an integer between 1 and 3600 (resource '$resourceName' in $resourcesFile)." -FailureClass 'config_error')
             }
             if ($isInitialization) {
                 Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_8e17815082cb03cd' -Arguments @{ resourceName = "$resourceName"; templateFolder = "$templateFolder" })
@@ -271,7 +281,12 @@ function Publish-ResourceListHelper {
                 # exports ARM_SUBSCRIPTION_ID beforehand takes precedence.
                 if (($resourceTemplate -like 'azure/*') -and [string]::IsNullOrEmpty($env:ARM_SUBSCRIPTION_ID)) {
                     $azSubscriptionId = ''
-                    try { $azSubscriptionId = [string](& az account show --query id --output tsv 2>$null | Select-Object -First 1) } catch { $azSubscriptionId = '' }
+                    $azOutcome = @{}
+                    $azSeconds = (Get-YurunaCommandTimeout -Call 'az account' -Entry $resource -GlobalVariables $yaml.globalVariables).Seconds
+                    try {
+                        $azLines = @(Invoke-YurunaToolWithDeadline -Label 'az account show' -TimeoutSeconds $azSeconds -Outcome $azOutcome -ScriptBlock { & az account show --query id --output tsv 2>$null } 3>$null)
+                        if (-not $azOutcome['TimedOut']) { $azSubscriptionId = [string]($azLines | Select-Object -First 1) }
+                    } catch { $azSubscriptionId = '' }
                     if ([string]::IsNullOrWhiteSpace($azSubscriptionId)) {
                         Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_227db199c3c8f906')
                     }
@@ -287,9 +302,13 @@ function Publish-ResourceListHelper {
                 # later attempt off the network.
                 # docs/architecture.md#shared-transient-failure-retry-policy
                 # --- REGION: https://yuruna.link/4220a755-0003
-                $retryResult = Invoke-TofuInitWithRetry -ResourceName $resourceName -LogPath $tofuLogFile -RcFile $tofuRcFile
+                $retryResult = Invoke-TofuInitWithRetry -ResourceName $resourceName -LogPath $tofuLogFile -RcFile $tofuRcFile -TimeoutSeconds $timeoutBound.Seconds
                 if (-not $retryResult.Success) {
-                    throw ((Format-YurunaOperatorMessage -Key 'automation.operator_fa548dc8b72a02c6' -Arguments @{ resourceName = "$resourceName"; attempts = "$($retryResult.Attempts)"; lastExit = "$($retryResult.LastExit)"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
+                    $failure = (Format-YurunaOperatorMessage -Key 'automation.operator_fa548dc8b72a02c6' -Arguments @{ resourceName = "$resourceName"; attempts = "$($retryResult.Attempts)"; lastExit = "$($retryResult.LastExit)"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile)
+                    # A call stopped at its deadline throws TimeoutException,
+                    # which the phase reports as tool_timeout.
+                    if ($retryResult.TimedOut) { throw [System.TimeoutException]::new($failure) }
+                    throw $failure
                 }
 
                 Write-Debug "Executing tofu command from $workFolder"
@@ -301,8 +320,10 @@ function Publish-ResourceListHelper {
                 # it recomputes the plan, so a retry after a partial apply is not
                 # safely idempotent and must fail loudly.
                 $retryableTofu = $true
+                $applyCall = 'tofu apply'
                 if ($isInitialization) {
                     $resolvedCommand = "tofu plan -input=false -compact-warnings -out=`"$planFile`""
+                    $applyCall = 'tofu plan'
                 }
                 else {
                     if (Test-Path -LiteralPath $planFile) {
@@ -329,12 +350,15 @@ function Publish-ResourceListHelper {
                     $yamlExpanded[$resourceName] = @{}
                     Save-ResourceOutput -Path $resourcesOutputFile -Resources $yamlExpanded
                 }
-                $applyRetry = Invoke-WithYurunaRetry -Label $resolvedCommand -ScriptBlock $applyBlock -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $applyShouldRetry
+                $applySeconds = (Get-YurunaCommandTimeout -Call $applyCall -Entry $resource -GlobalVariables $yaml.globalVariables).Seconds
+                $applyRetry = Invoke-WithYurunaRetry -Label $resolvedCommand -ScriptBlock $applyBlock -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $applyShouldRetry -TimeoutSeconds $applySeconds
                 $applyLog  = $applyRetry.LastOutput
                 $applyExit = $applyRetry.LastExit
                 $applyLog | ForEach-Object { Write-Verbose ([string]$_) }
                 if ($applyExit -ne 0) {
-                    throw ((Format-YurunaOperatorMessage -Key 'automation.operator_fcd2c71f3eb5ddd2' -Arguments @{ resolvedCommand = "$resolvedCommand"; resourceName = "$resourceName"; applyExit = "$applyExit"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
+                    $failure = (Format-YurunaOperatorMessage -Key 'automation.operator_fcd2c71f3eb5ddd2' -Arguments @{ resolvedCommand = "$resolvedCommand"; resourceName = "$resourceName"; applyExit = "$applyExit"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile)
+                    if ($applyRetry.TimedOut) { throw [System.TimeoutException]::new($failure) }
+                    throw $failure
                 }
 
                 if (-Not $isInitialization) {
@@ -347,11 +371,14 @@ function Publish-ResourceListHelper {
                         param($info)
                         return [bool](& $transientTest -Output $info.Output)
                     }.GetNewClosure()
-                    $outputRetry = Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'automation.operator_e08ec6745a750a1d' -Arguments @{ resourceName = "$resourceName" }) -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $outputShouldRetry -ScriptBlock { & tofu output -json }
+                    $outputSeconds = (Get-YurunaCommandTimeout -Call 'tofu output' -Entry $resource -GlobalVariables $yaml.globalVariables).Seconds
+                    $outputRetry = Invoke-WithYurunaRetry -Label (Format-YurunaOperatorMessage -Key 'automation.operator_e08ec6745a750a1d' -Arguments @{ resourceName = "$resourceName" }) -LogPath $tofuLogFile -RcFile $tofuRcFile -ShouldRetry $outputShouldRetry -ScriptBlock { & tofu output -json } -TimeoutSeconds $outputSeconds
                     $outputExit = $outputRetry.LastExit
                     $jsonOutput = (@($outputRetry.LastOutput) | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ }) -join "`n"
                     if ($outputExit -ne 0) {
-                        throw ((Format-YurunaOperatorMessage -Key 'automation.operator_f6bd22fdf471e472' -Arguments @{ resourceName = "$resourceName"; outputExit = "$outputExit"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile))
+                        $failure = (Format-YurunaOperatorMessage -Key 'automation.operator_f6bd22fdf471e472' -Arguments @{ resourceName = "$resourceName"; outputExit = "$outputExit"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile)
+                        if ($outputRetry.TimedOut) { throw [System.TimeoutException]::new($failure) }
+                        throw $failure
                     }
                     if ([string]::IsNullOrWhiteSpace($jsonOutput)) {
                         throw (Format-YurunaOperatorMessage -Key 'automation.operator_2c034a64269ac7d5' -Arguments @{ resourceName = "$resourceName"; templateFolder = "$templateFolder" })
@@ -379,7 +406,79 @@ function Publish-ResourceListHelper {
     return (New-YurunaResultManifest -Success $true);
 }
 
+<#
+.SYNOPSIS
+    What a resources pass leaves behind for the deploy ledger: the hash of
+    resources.output.yml and the work folders of the resources it holds
+    outputs for.
+#>
+function Get-ResourceOutputEvidence {
+    [OutputType([hashtable])]
+    param([string]$ProjectRoot, [string]$ConfigSubfolder)
+    $outputFile = Join-Path -Path $ProjectRoot -ChildPath "config/$ConfigSubfolder/resources.output.yml"
+    if (-not (Test-Path -LiteralPath $outputFile -PathType Leaf)) { return $null }
+    $outputs = ConvertFrom-File $outputFile
+    $names = @()
+    if ($outputs -is [System.Collections.IDictionary]) {
+        # An empty mapping is the ownership placeholder of an apply that did
+        # not finish; only resources with outputs have a state worth checking.
+        $names = @($outputs.Keys | Where-Object { $_ -ne 'globalVariables' -and $outputs[$_] -is [System.Collections.IDictionary] -and $outputs[$_].Count -gt 0 } | ForEach-Object { [string]$_ })
+    }
+    return @{ outputSha256 = (Get-FileHash -LiteralPath $outputFile -Algorithm SHA256).Hash.ToLowerInvariant(); workFolders = $names }
+}
+
+<#
+.SYNOPSIS
+    $true while what a resources pass recorded is still in place: the same
+    resources.output.yml, and each resource's completed work folder with its
+    state (a local *.tfstate, or the backend record of a remote one).
+#>
+function Test-ResourceOutputPresent {
+    [OutputType([bool])]
+    param([string]$ProjectRoot, [string]$ConfigSubfolder, $Evidence)
+    if ($Evidence -isnot [System.Collections.IDictionary] -or [string]::IsNullOrEmpty([string]$Evidence['outputSha256'])) { return $false }
+    $outputFile = Join-Path -Path $ProjectRoot -ChildPath "config/$ConfigSubfolder/resources.output.yml"
+    if (-not (Test-Path -LiteralPath $outputFile -PathType Leaf)) { return $false }
+    if ((Get-FileHash -LiteralPath $outputFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$Evidence['outputSha256']) { return $false }
+    foreach ($name in @($Evidence['workFolders'])) {
+        if ([string]::IsNullOrEmpty([string]$name)) { continue }
+        $folder = Join-Path -Path $ProjectRoot -ChildPath ".yuruna/$ConfigSubfolder/resources/$name"
+        if (-not (Test-Path -LiteralPath (Join-Path $folder '.workfolder.complete') -PathType Leaf)) { return $false }
+        $localState = @(Get-ChildItem -LiteralPath $folder -Filter '*.tfstate' -File -Force -ErrorAction SilentlyContinue)
+        if ($localState.Count -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $folder '.terraform/terraform.tfstate') -PathType Leaf)) { return $false }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Publish the resources of a configuration through the deploy phase ledger.
+.DESCRIPTION
+    The inputs are resources.yml and the project and framework template
+    folders; a retry after a later phase failed reuses an earlier pass while
+    they and its outputs are unchanged (Yuruna.DeployLedger). A tofu call
+    stopped at its deadline ends the phase as tool_timeout.
+#>
 function Publish-ResourceList {
+    [OutputType([hashtable])]
+    param (
+        $project_root,
+        $config_subfolder
+    )
+    $projectRoot = [string]$project_root
+    $configSubfolder = [string]$config_subfolder
+    $inputPath = [ordered]@{
+        'config/resources.yml' = Join-Path -Path $projectRoot -ChildPath "config/$configSubfolder/resources.yml"
+        'project/resources'    = Join-Path -Path $projectRoot -ChildPath 'resources'
+        'framework/resources'  = Join-Path -Path "$yuruna_root" -ChildPath 'global/resources'
+    }
+    return (Invoke-YurunaDeployPhase -ProjectRoot $projectRoot -ConfigSubfolder $configSubfolder -Phase 'resources' -InputPath $inputPath `
+        -Operation { Invoke-ResourceListPublish $project_root $config_subfolder } `
+        -Evidence { Get-ResourceOutputEvidence -ProjectRoot $projectRoot -ConfigSubfolder $configSubfolder } `
+        -OutputTest { param($Evidence) Test-ResourceOutputPresent -ProjectRoot $projectRoot -ConfigSubfolder $configSubfolder -Evidence $Evidence })
+}
+
+function Invoke-ResourceListPublish {
     [OutputType([hashtable])]
     param (
         $project_root,

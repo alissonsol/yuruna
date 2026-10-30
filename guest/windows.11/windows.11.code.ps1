@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c2bf4c-4df0-494d-8571-5945ed9ab682
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,11 +30,14 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Write-Output "|  Right-click PowerShell and select 'Run as Administrator' |"
     Write-Output "========"
     Write-Output ""
-    exit 1
+    # throw, not exit: under the documented `irm ... | iex` one-liner an exit
+    # closes the operator's console before the reason above can be read, while
+    # a throw still ends -File and -Command runs with a non-zero exit code.
+    throw 'This script requires elevation (Run as Administrator).'
 }
 
-# See https://yuruna.link/42e220c4-0005
 # --- REGION: Invoke-GuestWingetInstall
+# See https://yuruna.link/42e220c4-0005
 function Invoke-GuestWingetInstall {
     <#
     .SYNOPSIS
@@ -110,9 +113,17 @@ try {
         if (-not (Test-Path -LiteralPath $dotnetScript -PathType Leaf)) { throw "Expected a .NET installer file at $dotnetScript." }
         Remove-Item -LiteralPath $dotnetScript -Force -ErrorAction Stop
     }
-    Invoke-WebRequest -UseBasicParsing -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $dotnetScript -ErrorAction Stop
-    if (-not (Test-Path -LiteralPath $dotnetScript -PathType Leaf) -or (Get-Item -LiteralPath $dotnetScript -ErrorAction Stop).Length -eq 0) {
-        throw 'The .NET download did not produce a nonempty installer file.'
+    # The installer comes from a pinned dotnet/install-scripts commit (the one
+    # YURUNA_DOTNET_INSTALL_COMMIT names in automation/yuruna-versions.sh) and
+    # runs only after it matches the SHA-256 computed from it at that commit;
+    # dot.net serves a moving copy.
+    $dotnetInstallCommit = '4a37a9f9d1a061fc389d6515100336db4e51710e'
+    $dotnetInstallSha256 = '3bb07bc8025211836c1e4f9d3f6a044e55b1fb6eec518a6c78851d04e210442b'
+    Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/dotnet/install-scripts/$dotnetInstallCommit/src/dotnet-install.ps1" -OutFile $dotnetScript -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $dotnetScript -PathType Leaf)) { throw 'The .NET download did not produce an installer file.' }
+    $dotnetInstallActual = (Get-FileHash -Algorithm SHA256 -LiteralPath $dotnetScript -ErrorAction Stop).Hash.ToLowerInvariant()
+    if ($dotnetInstallActual -ne $dotnetInstallSha256) {
+        throw "dotnet-install.ps1 has SHA-256 $dotnetInstallActual; the pin is $dotnetInstallSha256. Refusing to run it."
     }
     $global:LASTEXITCODE = 0
     & $dotnetScript -Channel LTS -InstallDir $dotnetDir -ErrorAction Stop
@@ -125,11 +136,21 @@ try {
     if (Test-Path -LiteralPath $dotnetScript -PathType Leaf) { Remove-Item -LiteralPath $dotnetScript -Force -ErrorAction SilentlyContinue }
 }
 # Register machine-wide PATH and DOTNET_ROOT after the SDK installation succeeds.
-[Environment]::SetEnvironmentVariable('DOTNET_ROOT', $dotnetDir, 'Machine')
-$machPath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-if ($machPath -notlike "*$dotnetDir*") {
-    [Environment]::SetEnvironmentVariable('Path', ($machPath.TrimEnd(';') + ';' + $dotnetDir), 'Machine')
+# PATH is read unexpanded and written back as REG_EXPAND_SZ: the Environment
+# API would expand %VAR% entries with this process's values and store the
+# result as REG_SZ, freezing them and leaving any this process lacks literal.
+$envKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Control\Session Manager\Environment', $true)
+try {
+    $machPath = [string]$envKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    if ($machPath -notlike "*$dotnetDir*") {
+        $envKey.SetValue('Path', ($machPath.TrimEnd(';') + ';' + $dotnetDir), [Microsoft.Win32.RegistryValueKind]::ExpandString)
+    }
+} finally {
+    $envKey.Close()
 }
+# Set last: the Environment API announces the change to running processes,
+# which then pick up the PATH written above as well.
+[Environment]::SetEnvironmentVariable('DOTNET_ROOT', $dotnetDir, 'Machine')
 Write-Output "<<< .NET SDK installation complete."
 
 # --- REGION: Install Git

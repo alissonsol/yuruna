@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42363f75-1d59-4ac0-a62f-c6d723656b28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,11 +31,14 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Write-Output "|  Right-click PowerShell and select 'Run as Administrator' |"
     Write-Output "========"
     Write-Output ""
-    exit 1
+    # throw, not exit: under the documented `irm ... | iex` one-liner an exit
+    # closes the operator's console before the reason above can be read, while
+    # a throw still ends -File and -Command runs with a non-zero exit code.
+    throw 'This script requires elevation (Run as Administrator).'
 }
 
-# See https://yuruna.link/42e220c4-0005
 # --- REGION: Invoke-GuestWingetInstall
+# See https://yuruna.link/42e220c4-0005
 function Invoke-GuestWingetInstall {
     <#
     .SYNOPSIS
@@ -69,10 +72,23 @@ Write-Output "== Installing Kubernetes requirements for Windows 11 =="
 Write-Output ""
 Write-Output ">>> Installing Basic Tools (Git, OpenSSH)..."
 Invoke-GuestWingetInstall -PackageId 'Git.Git'
-Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue
-Start-Service sshd -ErrorAction SilentlyContinue
-Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
-Write-Output "<<< Basic Tools installation complete."
+# The OpenSSH server is a convenience no later step needs, so a guest that
+# cannot install it (no capability source: offline, WSUS-managed) goes on, but
+# says so instead of reporting a completed install.
+$sshdProblem = $null
+try {
+    Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction Stop | Out-Null
+    Set-Service -Name sshd -StartupType Automatic -ErrorAction Stop
+    Start-Service sshd -ErrorAction Stop
+} catch {
+    $sshdProblem = $_.Exception.Message
+}
+if ($sshdProblem) {
+    Write-Warning "The OpenSSH server is not available on this guest: $sshdProblem"
+    Write-Output "<<< Basic Tools installation complete, without the OpenSSH server."
+} else {
+    Write-Output "<<< Basic Tools installation complete."
+}
 
 # --- REGION: Ensure PowerShell is installed
 Write-Output ""
@@ -85,7 +101,7 @@ if (-not $pwshPath) {
     Write-Output "|  Run windows.11.update.ps1 first to install it.           |"
     Write-Output "========"
     Write-Output ""
-    exit 1
+    throw 'PowerShell 7 is required; run windows.11.update.ps1 first.'
 }
 Write-Output "PowerShell 7 found at $($pwshPath.Source)"
 
@@ -105,8 +121,7 @@ for ($attempt = 1; $attempt -le 3 -and -not $yamlOk; $attempt++) {
     else { Write-Output "powershell-yaml install/import attempt $attempt/3 failed; retrying..."; Start-Sleep -Seconds ($attempt * 5) }
 }
 if (-not $yamlOk) {
-    Write-Error "powershell-yaml failed to install/import after 3 attempts; it is required by the in-guest sequence planner and Get-SystemDiagnostic.ps1."
-    exit 1
+    throw "powershell-yaml failed to install/import after 3 attempts; it is required by the in-guest sequence planner and Get-SystemDiagnostic.ps1."
 }
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
@@ -254,7 +269,10 @@ Write-Output ">>> Installing mkcert root CA into trusted store..."
 $caRoot = & mkcert -CAROOT 2>$null
 $rootCert = Join-Path $caRoot "rootCA.pem"
 if (Test-Path $rootCert) {
-    Import-Certificate -FilePath $rootCert -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction SilentlyContinue | Out-Null
+    # The HTTPS workloads need this root trusted; a failed import stops here,
+    # where the cause is visible, rather than as a TLS error in a later step.
+    $imported = @(Import-Certificate -FilePath $rootCert -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction Stop)
+    if ($imported.Count -lt 1) { throw "The mkcert root CA at '$rootCert' was not imported into LocalMachine\Root." }
     Write-Output "mkcert root CA installed silently into LocalMachine\Root store."
 } else {
     Write-Output "Note: mkcert root CA not found at '$rootCert'. Run 'mkcert -install' manually if needed."

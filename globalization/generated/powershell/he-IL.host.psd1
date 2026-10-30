@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4241a322-99ef-c7cf-96e0-a7d07ed683f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,26 @@
         ' לא נכתבו עבורה זקיף או רשומת מקור.'
     )
     'host.clock_service_description' = 'שירות הזמן של Windows (W32Time)'
+    'host.download_incomplete' = @(
+        'ההורדה של '
+        @{
+            'arg' = 'uri'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' לא הושלמה ('
+        @{
+            'arg' = 'bytes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' בתים שמורים לניסיון הבא): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'host.enable_automation_no_prompt_confirm_conflict' = '⁦Enable-TestAutomation⁩: לא ניתן לשלב את ⁦-NoOperatorPrompt⁩ עם ⁦-Confirm⁩, שמבקש אישור לפני כל שינוי; דבר לא תועד או שונה.'
     'host.enable_automation_no_prompt_mode' = '⁦Enable-TestAutomation⁩: פועל עם ⁦-NoOperatorPrompt⁩ -- ללא תיבות דו-שיח להסכמה, ללא הפעלה מחדש של Dock או שומר המסך, ללא התקנת מודולים, ללא בקשת sudo וללא שאלון networkStorage. הגדרות הדורשות התערבות מפעיל מדווחות ככאלה שטרם מולאו.'
     'host.enable_automation_no_prompt_unsupported' = '⁦Enable-TestAutomation⁩: האפשרות ⁦-NoOperatorPrompt⁩ דורשת ⁦Set-MacHostConditionSet⁩ ⁦-NoGuiDisruption⁩, שאינו זמין בעותק קוד זה; דבר לא תועד או שונה. הריצו ללא ⁦-NoOperatorPrompt⁩ בהפעלה בנוכחות מפעיל.'
@@ -62,6 +82,102 @@
         }
         ' בזמן שהוקצב; קובץ מזהה התהליך נשמר ולא נשלח שום אות.'
     )
+    'host.hyperv_bounded_call_no_answer' = @(
+        'הקריאה ל-⁦Hyper-V⁩ הסתיימה בלי להחזיר תשובה (מצב המשימה: ⁦'
+        @{
+            'arg' = 'state'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '⁩; סיבה: ⁦'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '⁩).'
+    )
+    'host.hyperv_checkpoint_listing_lagged' = @(
+        '⁦Save-VMDiskSnapshot⁩: ⁦Hyper-V⁩ מחזיק את נקודת הביקורת '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '/'
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''', אך מודול ⁦Hyper-V⁩ לא הציג אותה ברשימה בתוך '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות.'
+    )
+    'host.hyperv_checkpoint_listing_unanswered' = @(
+        '⁦Save-VMDiskSnapshot⁩: רשימת נקודות הביקורת של מודול ⁦Hyper-V⁩ עבור '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' נכשלה או לא ענתה בזמן שהשמירה המתינה '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות לנקודת הביקורת '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '''; הרישום של ⁦Hyper-V⁩ עצמו מכיל ⁦['
+        @{
+            'arg' = 'held'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ']⁩ (? כאשר לא ניתן היה לקרוא אותו).'
+    )
+    'host.hyperv_checkpoint_not_listed' = @(
+        '⁦Save-VMDiskSnapshot⁩: הפקודה ⁦Checkpoint-VM⁩ דיווחה על הצלחה עבור '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '/'
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''', אך נקודת הביקורת אינה מופיעה ברשימה לאחר מכן. ⁦Checkpoint-VM⁩ החזירה ⁦['
+        @{
+            'arg' = 'made'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ']⁩; מודול ⁦Hyper-V⁩ הציג ⁦['
+        @{
+            'arg' = 'listed'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ']⁩; הרישום של ⁦Hyper-V⁩ עצמו מכיל ⁦['
+        @{
+            'arg' = 'held'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ']⁩ (? כאשר לא ניתן היה לקרוא אותו).'
+    )
     'host.hyperv_dism_timed_out' = @(
         '⁦Assert-HyperVEnabled⁩: הפקודה ⁦dism.exe⁩ לא דיווחה על מצב התכונה Hyper-V בתוך '
         @{
@@ -70,6 +186,27 @@
             'trust' = 'internal'
         }
         ' שניות; מצב התכונה אינו ידוע.'
+    )
+    'host.hyperv_lifecycle_unanswered' = @(
+        'Hyper-V לא ענה ל-'
+        @{
+            'arg' = 'verb'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' עבור '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' בתוך '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות; ייתכן ששירות ניהול המכונות הווירטואליות תקוע.'
     )
     'host.hyperv_rename_destination_dir_occupied' = @(
         'לא ניתן לשנות את השם ל-''⁦'
@@ -84,7 +221,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '⁩ כבר מכילה קבצים, והעברת האחסון אליה תיכשל לאחר שינוי השם ותשאיר אותו חלקי.'
+        '⁩ כבר מכילה קבצי אחסון של מכונה וירטואלית, והעברת האחסון אליה תיכשל לאחר שינוי השם ותשאיר אותו חלקי.'
     )
     'host.hyperv_rename_source_not_stopped' = @(
         '⁦Rename-VM⁩: המכונה '''
@@ -203,6 +340,33 @@
     'host.kvm_running_cache_unreachable' = 'המכונה הווירטואלית caching-proxy-service פועלת, אך שרת ה-proxy שלה אינו נגיש. הפעילו test/service/Start-CachingProxyServiceVM.ps1 כדי לשחזר אותו, או העבירו -CachingProxyServiceUrl "" כדי להוריד ישירות.'
     'host.kvm_start_network_action' = 'הפעילו את רשת libvirt שאינה פעילה'
     'host.kvm_start_unit_action' = 'הפעילו את יחידת libvirt שנעצרה'
+    'host.media_digest_mismatch' = @(
+        'ל-'
+        @{
+            'arg' = 'file'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' מ-'
+        @{
+            'arg' = 'url'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' יש SHA-256 '
+        @{
+            'arg' = 'actual'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ', ולא '
+        @{
+            'arg' = 'expected'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' המוצמד לגרסה זו; ההורדה נמחקה והמדיה הקיימת לא שונתה.'
+    )
     'host.operator_005bab80fe0f8f32' = @(
         '  SSH:      ssh pool-control-service-admin@'
         @{
@@ -2296,33 +2460,6 @@
             'trust' = 'external'
         }
         '  (לא נמצא בדיסק)'
-    )
-    'host.operator_3d4bd722f2cfda09' = @(
-        '⁦Save-VMDiskSnapshot⁩: תמונת המצב '''
-        @{
-            'arg' = 'id'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' נשמרה בתוך '''
-        @{
-            'arg' = 'utmBundle'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' אך שינוי השם '''
-        @{
-            'arg' = 'vMName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -> '''
-        @{
-            'arg' = 'id'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' נכשל; המכונה הווירטואלית תימחק בניקוי המחזור הבא. תמונת המצב של qcow2 נמצאת בדיסק וניתן לשחזר אותה ידנית.'
     )
     'host.operator_3d53fa1f73f89fed' = @(
         'genisoimage נכשל (קוד יציאה '
@@ -4843,7 +4980,6 @@
         ' נכשלה'
     )
     'host.operator_87abce329e878b18' = 'חדשו את פעולת המכונה הווירטואלית של השירות לאחר הפעלה מחדש של UTM'
-    'host.operator_87d1543cf3bfdad9' = 'נקו את מיפוי היציאות של Yuruna'
     'host.operator_87e79790981d47af' = @(
         'הגדירו את שרת המתווך של המארח לכתובת '
         @{
@@ -5551,21 +5687,6 @@
     )
     'host.operator_a0e97dcbb626019f' = 'רק כלל status-port של ufw יוסר -- ניתן להוכיח שהוא שלנו. החברות בקבוצות, רשימת בקרת הגישה של $HOME, ‏libvirtd⁦/virtlogd⁩ והמפתחות של GNOME יישארו בדיוק כפי שהם, וידווחו.'
     'host.operator_a127790ebde6e4ff' = 'מכונה וירטואלית של מטמון עליו), או הגדירו אותו ידנית -- ראו'
-    'host.operator_a1763a8af3ef734a' = @(
-        '⁦Save-VMDiskSnapshot⁩: שינוי השם '''
-        @{
-            'arg' = 'vMName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -> '''
-        @{
-            'arg' = 'id'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' נכשל; לא נוצרה תמונת מצב, התחום יימחק בניקוי המחזור הבא.'
-    )
     'host.operator_a19074ac4867746e' = '  כניסה דרך המסוף⁦/SSH⁩:'
     'host.operator_a1a6059aaacffcb8' = @(
         '  '''
@@ -5921,15 +6042,6 @@
         ''' אין קישור פיזי לרשת (מחוברות רק יציאות tap). מתבצע תיקון אוטומטי...'
     )
     'host.operator_a9dbdd1577bb8c0e' = '    (מוטמע גם ב-user-data של ⁦seed.iso⁩ -- chpasswd)'
-    'host.operator_a9dcf6d3662588bf' = @(
-        'היקף: '
-        @{
-            'arg' = 'mB'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' MB'
-    )
     'host.operator_a9e197e13deba921' = @(
         '     (או שמרו קובץ כלשהו בתבנית Win11*.iso במיקום '
         @{
@@ -6834,27 +6946,6 @@
         }
         ''' לא כבתה לחלוטין (qcow2 עדיין נעול); התהליך נעצר כדי למנוע שחזור פגום.'
     )
-    'host.operator_c67e69b1dce2a237' = @(
-        'היקף: '
-        @{
-            'arg' = 'mB'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' / '
-        @{
-            'arg' = 'mB2'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' MB ('
-        @{
-            'arg' = 'percent'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '%)'
-    )
     'host.operator_c689a85719965f3f' = @(
         'איתור גרסה יציבה מתוך '
         @{
@@ -7616,27 +7707,6 @@
             'trust' = 'external'
         }
         ''''
-    )
-    'host.operator_dda22dc70c2dcb9f' = @(
-        '⁦Save-VMDiskSnapshot⁩: תמונת המצב '''
-        @{
-            'arg' = 'id'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' נשמרה אך שינוי השם '''
-        @{
-            'arg' = 'vMName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' -> '''
-        @{
-            'arg' = 'id'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' נכשל; המכונה הווירטואלית תימחק בניקוי המחזור הבא.'
     )
     'host.operator_ddd6375b1613a19a' = @(
         'Apple פרסמה את macOS '
@@ -8679,6 +8749,62 @@
         }
         ' שניות, ולכן הרישומים של UTM אינם ידועים; דבר לא נמחק. הריצו שוב לאחר קבלת מענה מאת UTM.'
     )
+    'host.portmap_ledger_busy' = @(
+        'רשומת מיפוי הפורטים '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' נשארה נעולה על ידי תהליך אחר; ההעברות של '
+        @{
+            'arg' = 'owner'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' פעילות אך לא נרשמו.'
+    )
+    'host.portmap_ledger_unwritten' = @(
+        'לא ניתן היה לכתוב את רשומת מיפוי הפורטים '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' עבור '
+        @{
+            'arg' = 'owner'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.portmap_port_held' = @(
+        'העברות הפורטים של '
+        @{
+            'arg' = 'owner'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' לא שונו: פורט המארח '
+        @{
+            'arg' = 'port'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' מוחזק על ידי '
+        @{
+            'arg' = 'holder'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
     'host.proxy_ca_refused_build' = @(
         '''⁦'
         @{
@@ -8750,8 +8876,122 @@
         }
         ''' לא שונה והחבילה שלה לא נערכה.'
     )
+    'host.service_build_plan_accepted' = @(
+        'תוכנית הבנייה של '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' התקבלה: כל הקלטים שהבנייה צריכה קיימים, ושום דבר לא שונה.'
+    )
+    'host.service_seed_degraded' = @(
+        'ה-seed של '''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' פגום: '
+        @{
+            'arg' = 'name'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' נאפה ריק. האורח מתחיל בלעדיו, וה-Start שלו מדווח שההפעלה פגומה.'
+    )
     'host.signature_could_not_be_checked' = '  לא ניתן היה לבדוק את חתימת GPG של SHA256SUMS'
     'host.signature_could_not_be_checked_detail' = '  ⁦gpg⁩ ומפתחות החתימה המוצמדים של Ubuntu קיימים, אבל לא ניתן היה להוריד או לאמת את החתימה; סכום הביקורת נדחה כלא מאומת.'
+    'host.snapshot_leftover_unsettled' = @(
+        'תמונת המצב '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' לא נשמרה: שמירה קודמת שנקטעה השאירה את '''
+        @{
+            'arg' = 'previous'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''', והסדרתה נעצרה ב-'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'host.snapshot_previous_not_removed' = @(
+        'תמונת המצב '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' נשמרה, אך לא ניתן היה להסיר את המכונה הווירטואלית השמורה הקודמת '''
+        @{
+            'arg' = 'previous'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '''; השמירה הבאה של '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' תסיר אותה.'
+    )
+    'host.snapshot_save_rollback_incomplete' = @(
+        'תמונת המצב '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' לא נשמרה מ-'''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' ('
+        @{
+            'arg' = 'step'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נכשל), ולא ניתן היה להחזיר את כל המכונות הווירטואליות לשמותיהן; השמירה הבאה של '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' תסדיר אותן.'
+    )
+    'host.snapshot_save_rolled_back' = @(
+        'תמונת המצב '''
+        @{
+            'arg' = 'id'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' לא נשמרה מ-'''
+        @{
+            'arg' = 'vMName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' ('
+        @{
+            'arg' = 'step'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נכשל); שתי המכונות הווירטואליות שומרות על השמות שהיו להן לפני הניסיון.'
+    )
     'host.snapshot_state_unknown' = @(
         'לא ניתן לדעת אם תמונת המצב '''
         @{

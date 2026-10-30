@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42ef384e-ac45-406f-811f-b88d5290b043
@@ -111,7 +111,6 @@ yuruna_service_packages golang-go git cifs-utils wget curl ca-certificates libca
 go version
 
 # --- REGION: Locate the daemon source
-# Avoid find|head: under pipefail the expected producer SIGPIPE aborts lookup.
 locate_repo_dir() {
   yuruna_service_find_repo test/extension/download-agent-service/server
 }
@@ -133,6 +132,8 @@ trap 'rm -rf -- "$BUILD"' EXIT
 yuruna_service_build "$BUILD" 'download-agent-service' "$VERSION_STR"
 
 # --- REGION: Install the binary
+echo ""
+echo -e "\e[1;36m==== /usr/local/bin/download-agent-service ====\e[0m"
 yuruna_service_install "$BUILD/server/download-agent-service" /usr/local/bin/download-agent-service
 
 # --- REGION: Storage directories
@@ -215,7 +216,7 @@ echo -e "\e[1;36m==== /etc/systemd/system/download-agent-service.service ====\e[
 sudo tee /etc/systemd/system/download-agent-service.service >/dev/null <<EOF
 # --- REGION: [Unit]
 [Unit]
-Description=Yuruna Download-agent service
+Description=Yuruna download-agent service
 Documentation=https://yuruna.link/4268e4cb
 # See https://yuruna.link/42e220c4-000f
 # Order after the NAS mount without requiring it; offline service startup is supported.
@@ -238,6 +239,8 @@ WantedBy=multi-user.target
 EOF
 
 # --- REGION: Start the service and wait for readiness
+echo ""
+echo -e "\e[1;36m==== download-agent-service.service start and enable ====\e[0m"
 sudo systemctl daemon-reload
 sudo systemctl enable --now download-agent-service.service
 

@@ -56,6 +56,25 @@ APT_PROXY_BLOCK_PLACEHOLDER
       TCPKeepAlive yes
       EOF
       chmod 0644 /target/etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
+    # --- REGION: https://yuruna.link/429f3d06-009d
+    - |
+      cat > /target/etc/systemd/system/yuruna-ssh-hostkeys.service << 'EOF'
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Recreate missing or empty SSH host keys
+      ConditionPathIsReadWrite=/etc/ssh
+      Before=ssh.service
+
+      # --- REGION: [Service]
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/ssh-keygen -A
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=ssh.service
+      EOF
+      curtin in-target --target=/target -- systemctl enable yuruna-ssh-hostkeys.service || true
     # --- REGION: Persistent diagnostic journal
     - |
       mkdir -p /target/etc/systemd/journald.conf.d /target/var/log/journal
@@ -155,12 +174,9 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # --- REGION: Reinforce DHCP client identity
     # See https://yuruna.link/4220a755-000b
     # Idempotent: a re-run finds each key already present and leaves the file alone.
-    # critical: the kernel expires a DHCP address by its own clock, not by the
-    # lease, so a clock jump can delete it while networkd still holds a valid
-    # lease and asks for nothing. Kept for the lease's full term, the address
-    # is only the lease's to drop; renewal and the release on shutdown are
-    # networkd's and unchanged. The second pass anchors on the identity line
-    # the first pass guarantees, so it lands in the same entry at its indentation.
+    # critical keeps the address for the lease's full term against a guest clock
+    # jump. The second pass anchors on the identity line the first pass
+    # guarantees, so it lands in the same entry at its indentation.
     - |
       for f in /target/etc/netplan/*.yaml; do
         [ -f "$f" ] || continue
@@ -230,6 +246,11 @@ APT_PROXY_BLOCK_PLACEHOLDER
       YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER
       YURUNA_CA_SHA256=YURUNA_CA_SHA256_PLACEHOLDER
       EOF
+    # The host's guest-channel key: host-locate and fetch-and-execute accept a
+    # status service only when it proves this key; empty leaves them unverified.
+    - |
+      printf '%s\n' 'YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER' > /target/etc/yuruna/guest-channel.key
+      chmod 0644 /target/etc/yuruna/guest-channel.key
     - |
       grep -q yuruna-host /target/etc/hosts || \
         echo "YURUNA_STATUS_SERVICE_IP_PLACEHOLDER yuruna-host" >> /target/etc/hosts
@@ -333,6 +354,35 @@ APT_PROXY_BLOCK_PLACEHOLDER
       esac
       EOF
       chmod 0755 /target/usr/local/lib/yuruna/git-askpass.sh
+    # The URL-scoped helper is git's own way to keep a credential to one host:
+    # git consults it for https://github.com remotes only. The askpass shim above
+    # stays for a git that reaches the prompt anyway.
+    - |
+      cat > /target/usr/local/lib/yuruna/git-credential-github << 'EOF'
+      #!/bin/sh
+      # git credential helper. /etc/gitconfig registers it for https://github.com
+      # alone, so git never asks it about another host, and it still checks the
+      # protocol and host git hands it. It answers "get" and ignores store and erase.
+      [ "${1:-}" = get ] || exit 0
+      protocol=""
+      host=""
+      while IFS= read -r line; do
+          [ -n "$line" ] || break
+          case "$line" in
+              protocol=*) protocol="${line#protocol=}" ;;
+              host=*) host="${line#host=}" ;;
+          esac
+      done
+      [ "$protocol" = https ] && [ "$host" = github.com ] || exit 0
+      token="${GH_TOKEN:-}"
+      if [ -z "$token" ] && [ -r "$HOME/.config/yuruna/github-token" ]; then
+          token="$(cat "$HOME/.config/yuruna/github-token")"
+      fi
+      [ -n "$token" ] || exit 0
+      printf 'username=x-access-token\npassword=%s\n' "$token"
+      EOF
+      chmod 0755 /target/usr/local/lib/yuruna/git-credential-github
+      printf '[credential "https://github.com"]\n    helper = /usr/local/lib/yuruna/git-credential-github\n' >> /target/etc/gitconfig
     # --- REGION: https://yuruna.link/4220a755-004f
     - |
       cat > /target/etc/profile.d/yuruna-git-noprompt.sh << 'EOF'

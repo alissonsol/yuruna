@@ -160,6 +160,7 @@
 		<false/>
 	</dict>
 	<!-- REGION: Network -->
+	<!-- See https://yuruna.link/42e220c4-000b -->
 	<key>Network</key>
 	<array>
 		<dict>

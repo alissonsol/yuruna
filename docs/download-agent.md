@@ -122,8 +122,8 @@ Everything lives under the pool share:
       .staging/                            agent-private, swept on every scan
       manual/<arch>.<variant>/             drop a hand-downloaded artifact here
   download-agent-service/
-    audit.jsonl                            one line per unlock and mutation
-    status.json                            last snapshot
+    audit.<agent>.jsonl                    one line per unlock and mutation
+    status.<agent>.json                    last snapshot
 ```
 
 - `<hostType>` is `windows.hyper-v`, `ubuntu.kvm`, or `macos.utm`.
@@ -146,7 +146,10 @@ generations, a refresh writes into `.staging/`, verifies, renames into place,
 writes the sidecar, and only then replaces the tiny pointer file. A reader
 already streaming keeps its handle on the old generation. Content addressing
 also gives free dedup: a re-download whose hash matches an existing generation
-just re-stamps freshness and rewrites the pointer.
+just re-stamps freshness and rewrites the pointer. A file already under that
+name with a different byte count is not the generation its name claims (a copy
+cut short), so the verified bytes replace it; a reader already streaming it keeps
+its handle.
 
 **Retention** is the pointer's generation plus one previous, per identity. The
 `manual/` folders are outside it: they hold nothing the agent put there, and a
@@ -156,15 +159,19 @@ file waiting in one is adopted rather than swept.
 agent, so the agents keep a lease at `images/.agent-lease.json`,
 renewed every scan and considered expired after three scan intervals. An agent
 that finds a live lease held by someone else enters **read-only mode**: it still
-serves committed generations and answers metadata, but defers downloads to the
-holder and reports `leaseHolder` in its status. Correctness never depends on the
+serves committed generations and answers metadata, but defers downloads,
+deletes and prunes to the holder (`503` with reason `lease-read-only`) and
+reports `leaseHolder` in its status. Correctness never depends on the
 lease -- generation-addressed storage makes concurrent writers safe on its own;
 the lease only makes duplicate work rare.
 
-**Operational state** -- `audit.jsonl` (one line per unlock and pool
-mutation) and `status.json` (last action, counters, health, heartbeat) --
-survives a service restart because both live on the pool share rather than
-inside the disposable VM. When no state directory is configured the store is
+**Operational state** -- `audit.<agent>.jsonl` (one line per unlock and pool
+mutation) and `status.<agent>.json` (last action, counters, health, heartbeat)
+-- survives a service restart because both live on the pool share rather than
+inside the disposable VM. `<agent>` is the agent's `--host-id`, or its VM's host
+name when none is set: every agent of a pool writes files of its own, because
+over CIFS an append is not atomic across clients, and two agents appending to one
+log could interleave or overwrite each other's lines. When no state directory is configured the store is
 an inert no-op, so unit tests and a pool-less bring-up run without a NAS. A
 write failure there is recorded in the status's health field and never blocks
 the mutation itself: losing the audit trail is strictly better than refusing
@@ -298,15 +305,21 @@ fills in from the pool config; otherwise it names its own mount point.
 
 What happens next needs no button. Within one scan the agent notices the file,
 waits until it has stopped growing (a copy in progress must not be published as
-a whole ISO), hashes it, moves it in under the usual generation name, writes the
-sidecar and flips the pointer. From that moment it is an ordinary pool entry:
+a whole ISO), checks that the image is whole, hashes it, moves it in under the
+usual generation name, writes the sidecar and flips the pointer. A copy that
+paused for longer than the wait is caught by the image itself: the file must
+reach the size its ISO 9660 volume descriptor declares, and its UDF volume must
+end with its closing anchor descriptor, which a copy that set the full length
+before writing the bytes has not reached. Until then the row shows why the drop
+was not adopted, and the file stays in the folder for the copy to finish. From that moment it is an ordinary pool entry:
 served to every host over the LAN, counted in the totals, deletable and
 prunable. Its `checksumVerdict` is `none` and its `sourceUrl` is the page it came
 from -- the agent proves nothing about bytes it did not download, and says so.
 
-Only best-effort families adopt this way. A family with a working resolver would
-have its hand-placed copy replaced by the next scan, silently, so the drop is
-refused rather than quietly undone.
+Only a family with a hand-download path adopts this way, which today is
+Windows 11. Every other family has a resolver of its own -- virtio-win too,
+best effort though it is -- and would have its hand-placed copy replaced by the
+next resolve, silently, so the drop is refused rather than quietly undone.
 
 **The gain, when it works, is real but uneven.** On Hyper-V and UTM it saves a
 repeated multi-gigabyte pull. On **KVM it is a new capability**: that script has
@@ -408,7 +421,7 @@ the order does not shuffle under the cursor while the page polls.
 
 All three are per-row and gated (an unlocked session or a bearer). Each appends
 `{atUtc, action, hostType, imageKey, arch, variant, outcome}` to
-`<pool root>/download-agent-service/audit.jsonl` and is also available as an API
+`<pool root>/download-agent-service/audit.<agent>.jsonl` and is also available as an API
 route for automation. Unlock attempts land in the same file as `unlock` lines
 (outcome `ok`, `refused`, `throttled`, or `unavailable`, with the caller's
 address), so the trail shows who opened the board as well as what they changed.
@@ -416,7 +429,7 @@ address), so the trail shows who opened the board as well as what they changed.
 | Action | What it does | Reach for it when |
 |---|---|---|
 | **Force refresh** | Re-verifies against the origin **now**. Downloads only if something changed -- an unchanged origin just re-stamps freshness in seconds. On an `absent` row it triggers the first download. | A point release just shipped and you do not want to wait for the scan window; or you want to populate an entry the seed pass does not cover (a daily variant, an arch nothing reported). This is the cheap, safe, everyday button. |
-| **Delete** | Cancels any in-flight download for the key, clears its staging, removes the pointer **first**, then every generation and sidecar. The row shows `deleting` until complete. | You suspect the stored bytes are wrong, or you need the space back now. The next host request or seed pass re-downloads from the origin -- so this is also the **"force a genuinely new download"** path, stronger than Force refresh, which will not re-fetch bytes the origin calls unchanged. Hosts' local copies are untouched, and an unchanged origin yields the same SHA-256, so their fingerprints match again after the re-download with nothing re-transferred. |
+| **Delete** | Cancels any in-flight download for the key, clears its staging, removes the pointer **first**, then every generation and sidecar. The row shows `deleting` until complete, and meanwhile an `ensure`, a Force refresh or the scan starts nothing for the row (`ensure` answers `503` with reason `deleting`, so hosts take their own path). | You suspect the stored bytes are wrong, or you need the space back now. The next host request or seed pass re-downloads from the origin -- so this is also the **"force a genuinely new download"** path, stronger than Force refresh, which will not re-fetch bytes the origin calls unchanged. Hosts' local copies are untouched, and an unchanged origin yields the same SHA-256, so their fingerprints match again after the re-download with nothing re-transferred. |
 | **Prune previous** | Deletes only the previous generation. The current one stays servable throughout. | The share is filling up and you have accepted the current generation. Retention drops to one for that row until the next refresh creates a new previous. |
 
 `POST /api/v1/refresh` re-verifies the whole pool in one call. That one is
@@ -654,6 +667,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

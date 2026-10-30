@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f92ea6-5c9c-4bf9-bc5d-26645804dc86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
     Provision the secrets remote host refresh needs: the signing authority and
     operator credential for pool-control, and one verifier key per host.
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-007c.
 .PARAMETER NewAuthority
     Create the signing authority and operator credential.
 .PARAMETER Rotate

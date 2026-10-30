@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42845e56-1775-4a56-8dcc-254ef57bcd50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,19 +27,19 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $here = Split-Path -Parent $PSCommandPath
 
 # --- REGION: https://yuruna.link/42d38664-000a
 # The runtime dir is named from $PID and held in an UNQUALIFIED file-scope
 # variable. Both are load-bearing -- see the doc before changing either.
 $CaTestRuntime = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-configca-$PID"
-$script:PreviousRuntimeDir = [Environment]::GetEnvironmentVariable('YURUNA_RUNTIME_DIR', 'Process')
+$script:PreviousRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
 $env:YURUNA_RUNTIME_DIR = $CaTestRuntime
 Remove-Item -LiteralPath $CaTestRuntime -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $CaTestRuntime | Out-Null
 Import-Module (Join-Path $here 'Test.ConfigServiceCA.psm1') -Force -DisableNameChecking
 
-Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 
@@ -52,7 +52,7 @@ Describe 'Test.ConfigServiceCA' {
     # the file's own variables; the name check keeps this off a real runtime dir.
     AfterAll {
         $dir = $env:YURUNA_RUNTIME_DIR
-        [Environment]::SetEnvironmentVariable('YURUNA_RUNTIME_DIR', $script:PreviousRuntimeDir, 'Process')
+        Restore-YurunaTestEnvironment -Saved $script:PreviousRuntimeDir
         if ($dir -and (Split-Path -Leaf $dir) -like 'yrn-configca-*') {
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -116,6 +116,28 @@ Describe 'Test.ConfigServiceCA' {
         $b64 = (($client.CertificatePem -split "`n") | Where-Object { $_ -and ($_ -notmatch 'CERTIFICATE') }) -join ''
         $clientCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($b64))
         Assert-True (Test-YurunaConfigClientCertificate -Certificate $clientCert -CaCertificate $caPublic) 'a client leaf signed by this CA must validate'
+    }
+
+    It 'creates the CA and server PFX owner-only from the start, with no chmod and no temporary file left' -Skip:$IsWindows {
+        # A no-op chmod stands in for a host where the after-the-fact chmod is
+        # missing or fails: the key must still never be readable by others.
+        Mock chmod { } -ModuleName Test.ConfigServiceCA
+        # Fresh files: an overwrite keeps the mode an earlier case left behind.
+        foreach ($name in @('ca.pfx', 'server.pfx')) { Remove-Item -LiteralPath (Join-Path (Get-YurunaConfigCaDir) $name) -Force -ErrorAction SilentlyContinue }
+        $ca = Initialize-YurunaConfigCA -Force -Confirm:$false
+        $srv = New-YurunaConfigServerCertificate -Force -Confirm:$false
+        try {
+            $dir = Get-YurunaConfigCaDir
+            foreach ($name in @('ca.pfx', 'server.pfx')) {
+                $mode = [int][System.IO.File]::GetUnixFileMode((Join-Path $dir $name))
+                ($mode -band 0x3F) | Should -Be 0 -Because "$name must carry no group or other permission bits"
+            }
+            @(Get-ChildItem -LiteralPath $dir -Force -Filter '*.tmp') | Should -HaveCount 0
+            $ca.HasPrivateKey | Should -BeTrue
+            $srv.HasPrivateKey | Should -BeTrue
+        } finally {
+            $ca.Dispose(); $srv.Dispose()
+        }
     }
 
     It 'rejects a foreign (self-signed) certificate' {

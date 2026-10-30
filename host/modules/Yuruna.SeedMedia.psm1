@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c186c8-2569-4926-a391-ec512ef52ef8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -7,6 +7,8 @@
 .PROJECTURI https://yuruna.com
 #>
 #requires -version 7
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 function Get-SeedMediaAcl {
     [CmdletBinding()]
@@ -122,4 +124,31 @@ function Remove-SeedMediaWorkspace {
     }
 }
 
-Export-ModuleMember -Function New-SeedMediaWorkspace, Publish-SeedMediaImage, Grant-SeedMediaVmRead, Remove-SeedMediaWorkspace
+function Write-SeedDegradation {
+    <#
+    .SYNOPSIS
+        Report one seed value a builder bakes empty: a warning for the operator
+        and a YURUNA_SEED_DEGRADED=<name> line on the builder's output.
+    .DESCRIPTION
+        Some values are baked empty instead of refusing the build, because the
+        guest still serves without them. A build that then reported plain
+        success would hide a guest that never reaches the host's status
+        service or never joins the pool dashboard, so each one is reported.
+        The line is a protocol token for Invoke-YurunaServiceVmBuild, which
+        collects the names into the Start's outcome; it is not prose.
+    .PARAMETER Name
+        hostAddress: no host address the guest can reach was resolved.
+        aggregatorUrl: a caching proxy is configured, and its aggregator URL
+        did not resolve before the seed was rendered.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][ValidateSet('hostAddress', 'aggregatorUrl')][string]$Name
+    )
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.service_seed_degraded' -Arguments @{ vMName = $VMName; name = $Name })
+    Write-Output "YURUNA_SEED_DEGRADED=$Name"
+}
+
+Export-ModuleMember -Function New-SeedMediaWorkspace, Publish-SeedMediaImage, Grant-SeedMediaVmRead, Remove-SeedMediaWorkspace, Write-SeedDegradation

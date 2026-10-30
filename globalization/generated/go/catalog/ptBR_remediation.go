@@ -29,6 +29,30 @@ const DataptBRremediation = `{
       "trust": "external"
     }
   ],
+  "remediation.kernel_stall_action_evidence": "Leia causeDetail.guestKernelFault e causeDetail.guestLivelock.processorWindow em last_failure.json, e os relatos do kernel em serial-console.log na pasta do convidado",
+  "remediation.kernel_stall_action_family": "No host ARM64 Hyper-V, leia a seção sobre travamentos do kernel do convidado em docs/host-hyperv.md (https://yuruna.link/42dc5bb9-0014) para datar o travamento e identificar o seu formato",
+  "remediation.kernel_stall_action_rerun": "Execute a sequência em uma nova VM; um convidado cujo kernel travou não se recupera",
+  "remediation.kernel_stall_rationale": [
+    "wait_timeout no ",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": o kernel do convidado parou de progredir (relatos do kernel: ",
+    {
+      "arg": "kinds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "; processadores virtuais que não atenderam nenhuma interrupção: ",
+    {
+      "arg": "processors",
+      "type": "detail",
+      "trust": "external"
+    },
+    "), então o script não pôde terminar. Não é um espelho de pacote lento, e executar a etapa de novo no mesmo convidado não ajuda."
+  ],
   "remediation.operator_00fd2209b1a993b2": "inspecionar manualmente last_failure.json",
   "remediation.operator_01b3c9512f168859": [
     "console_flooded no ",

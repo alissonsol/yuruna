@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42770e9b-1161-4f72-bdeb-a3f05fc207ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,7 @@ function New-YurunaResultManifest {
         [Parameter()][bool]$Success = $true,
         [Parameter()][bool]$Skipped = $false,
         [Parameter()][string]$ErrorMessage = '',
-        [Parameter()][ValidateSet('ok','config_error','cluster_unreachable','chart_invalid','tool_failed','unknown')]
+        [Parameter()][ValidateSet('ok','config_error','cluster_unreachable','chart_invalid','tool_failed','tool_timeout','unknown')]
         [string]$FailureClass = 'ok',
         [Parameter()][int]$ExitCode = 0,
         [Parameter()][long]$DurationMs = 0,
@@ -62,8 +62,8 @@ function ConvertTo-CanonicalFailureClass {
     .DESCRIPTION
         The automation result manifest emits a small deploy-side vocabulary
         (ok, config_error, cluster_unreachable, chart_invalid, tool_failed,
-        unknown). The remediation dispatcher routes on a larger canonical
-        taxonomy whose values name recovery-shaped categories. Without a
+        tool_timeout, unknown). The remediation dispatcher routes on a larger
+        canonical taxonomy whose values name recovery-shaped categories. Without a
         translation a deploy-phase failure carries a class the dispatcher has no
         handler for, so it either drops to the generic 'unknown' fallback or, if
         forwarded to the schema validator, reads as an out-of-enum value.
@@ -78,6 +78,8 @@ function ConvertTo-CanonicalFailureClass {
           chart_invalid       -> plan_invalid          (helm lint rejected the chart; a config error)
           cluster_unreachable -> network_timeout       (target cluster not reachable; often transient)
           tool_failed         -> provisioning_failure  (a deploy tool -- helm/docker/tofu -- exited non-zero)
+          tool_timeout        -> wait_timeout          (a deploy tool stopped at its deadline; the class a
+                                                        watchdog-killed hang has, whose repair is the retry)
           unknown             -> unknown               (catch-all preserved)
           ok                  -> ok                    (not a failure; passed through so a caller can gate on it)
 
@@ -105,6 +107,7 @@ function ConvertTo-CanonicalFailureClass {
     $map['cluster_unreachable'] = 'network_timeout'
     $map['chart_invalid']       = 'plan_invalid'
     $map['tool_failed']         = 'provisioning_failure'
+    $map['tool_timeout']        = 'wait_timeout'
     $map['unknown']             = 'unknown'
     if ($null -ne $FailureClass -and $map.ContainsKey($FailureClass)) {
         return $map[$FailureClass]

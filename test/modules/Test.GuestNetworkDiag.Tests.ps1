@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4204dc0d-3f1d-4015-b639-9480d7186c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -515,7 +515,7 @@ Describe 'guest-source-resolution: a guest with no address does not blame the ho
     # nor GitHub, so that banner would lead the artifact with a theory that is
     # provably wrong.
     It 'prints GUEST HAS NO IPv4 instead of HOST UNREACHABLE, and still resolves to github' {
-        # resolve_fetch_source sources /etc/yuruna/host.env when present, which
+        # resolve_fetch_source reads /etc/yuruna/host.env when present, which
         # would supply its own values. A machine that has one is a guest, not a
         # test host.
         if (Test-Path -LiteralPath '/etc/yuruna/host.env') { Set-ItResult -Skipped -Because 'this host is guest-shaped (/etc/yuruna/host.env present)'; return }
@@ -528,7 +528,7 @@ YURUNA_STATUS_SERVICE_PORT=8080
 resolve_fetch_source 2>&1
 echo "SOURCE=$FETCH_SOURCE"
 '@
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'fae_has_ipv4', 'resolve_fetch_source') -Driver $driver
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'fae_has_ipv4', 'yuruna_read_env_file', 'fae_host_answers', 'resolve_fetch_source') -Driver $driver
         if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         Assert-True ($out -notmatch 'command not found') 'the shell fixture must load every production dependency'
         Assert-True ($out -match 'GUEST HAS NO IPv4') "the guest-side cause must lead; output was:`n$out"
@@ -547,7 +547,7 @@ YURUNA_STATUS_SERVICE_PORT=8080
 resolve_fetch_source 2>&1
 echo "SOURCE=$FETCH_SOURCE"
 '@
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'fae_has_ipv4', 'resolve_fetch_source') -Driver $driver
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'fae_has_ipv4', 'yuruna_read_env_file', 'fae_host_answers', 'resolve_fetch_source') -Driver $driver
         if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         Assert-True ($out -notmatch 'command not found') 'the shell fixture must load every production dependency'
         Assert-True ($out -match 'HOST UNREACHABLE') "an addressed guest that cannot reach the host still gets the host-side banner; output was:`n$out"
@@ -752,7 +752,7 @@ YURUNA_STATUS_SERVICE_PORT=8080
 resolve_fetch_source >/dev/null 2>&1
 echo "ATTEMPTS=$attempts NAPS=$naps SOURCE=$FETCH_SOURCE"
 '@
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'fae_has_ipv4', 'resolve_fetch_source') -Driver $driver
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'fae_has_ipv4', 'yuruna_read_env_file', 'fae_host_answers', 'resolve_fetch_source') -Driver $driver
         if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         $m = [regex]::Match($out, 'ATTEMPTS=(\d+) NAPS=(\d+) SOURCE=(\w*)')
         Assert-True $m.Success "the driver must report its tallies; output was:`n$out"

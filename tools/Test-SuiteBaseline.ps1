@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f0b9d3-7c48-4a21-b5e6-08c9d13f7a25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,13 @@
 .PARAMETER BaselinePath
     The baseline record to check. Default: test/modules/suite-baseline.json.
     For mutation tests, which point the gate at a deliberately edited copy.
+.PARAMETER Staged
+    Judge what a commit records: the suites and the baseline as they stand in
+    the git index (GIT_INDEX_FILE when set), not in the working tree, so a
+    suite or a baseline edit that is not staged neither fails nor passes the
+    commit. The staged suite paths are laid out as empty files in a scratch
+    folder and listed by the runner's own discovery. The pre-commit hook uses
+    this. Cannot be combined with -BaselinePath.
 .PARAMETER Quiet
     Print only the summary line. Findings still print.
 .EXAMPLE
@@ -68,6 +75,7 @@
 param(
     [string]$Root,
     [string]$BaselinePath,
+    [switch]$Staged,
     [switch]$Quiet
 )
 
@@ -81,12 +89,38 @@ $ExitOk        = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure   = Get-EntryPointExitCode -Outcome Failure
 $ExitCannotRun = Get-EntryPointExitCode -Outcome CannotRun
 
-if (-not $BaselinePath) { $BaselinePath = Join-Path $Root 'test/modules/suite-baseline.json' }
 $Runner = Join-Path $ToolRoot 'Invoke-TestSuite.ps1'
+$discoveryRoot = $Root
+$stagedRoot = $null
+if ($Staged) {
+    if ($BaselinePath) {
+        Write-Error -ErrorAction Continue -Message 'Cannot evaluate the suite baseline: -Staged reads the staged baseline and takes no -BaselinePath.'
+        exit $ExitCannotRun
+    }
+    # The index, laid out where the runner's discovery can walk it: an empty
+    # file at each staged suite path. The staged baseline is read in memory.
+    $stagedRoot = Join-Path ([IO.Path]::GetTempPath()) ('yrn-staged-baseline-' + [Guid]::NewGuid().ToString('N').Substring(0, 12))
+    $null = New-Item -ItemType Directory -Path $stagedRoot
+    $indexed = @(& git -C $Root ls-files --cached -z -- test/modules host/modules 2>$null)
+    $listed = $LASTEXITCODE -eq 0
+    $stagedBaseline = (& git -C $Root show ':test/modules/suite-baseline.json' 2>$null) -join "`n"
+    if (-not $listed -or $LASTEXITCODE -ne 0) {
+        Remove-Item -LiteralPath $stagedRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Error -ErrorAction Continue -Message 'Cannot evaluate the suite baseline: the git index or its staged baseline could not be read.'
+        exit $ExitCannotRun
+    }
+    foreach ($relative in @(($indexed -join '') -split "`0" | Where-Object { $_ -match '\.Tests\.ps1$' })) {
+        $placeholder = Join-Path $stagedRoot $relative
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $placeholder)
+        [IO.File]::WriteAllText($placeholder, '')
+    }
+    $discoveryRoot = $stagedRoot
+}
+if (-not $BaselinePath) { $BaselinePath = Join-Path $Root 'test/modules/suite-baseline.json' }
 
-foreach ($required in @(
-        @{ Path = $Runner;       What = 'the suite runner' }
-        @{ Path = $BaselinePath; What = 'the tracked suite baseline' })) {
+$requiredFiles = @(@{ Path = $Runner; What = 'the suite runner' })
+if (-not $Staged) { $requiredFiles += @{ Path = $BaselinePath; What = 'the tracked suite baseline' } }
+foreach ($required in $requiredFiles) {
     if (-not (Test-Path -LiteralPath $required.Path -PathType Leaf)) {
         Write-Error -ErrorAction Continue `
             -Message ("Cannot evaluate the suite baseline: {0} is missing at {1}" -f $required.What, $required.Path)
@@ -99,7 +133,15 @@ foreach ($required in @(
 # from inside another gate would turn one full run into several.
 $pwshPath = (Get-Process -Id $PID).Path
 if (-not $pwshPath) { $pwshPath = 'pwsh' }
-$discovered = @(& $pwshPath -NoProfile -File $Runner -Root $Root -ListOnly 2>&1)
+# A scratch folder is no work tree; GIT_DIR naming nothing keeps git from
+# finding an enclosing repository, so discovery walks the folder itself.
+$savedGitDir = $env:GIT_DIR
+if ($stagedRoot) { $env:GIT_DIR = Join-Path $stagedRoot '.no-git' }
+try { $discovered = @(& $pwshPath -NoProfile -File $Runner -Root $discoveryRoot -ListOnly 2>&1) }
+finally {
+    $env:GIT_DIR = $savedGitDir
+    if ($stagedRoot) { Remove-Item -LiteralPath $stagedRoot -Recurse -Force -ErrorAction SilentlyContinue }
+}
 if ($LASTEXITCODE -ne 0) {
     Write-Error -ErrorAction Continue `
         -Message ("Cannot evaluate the suite baseline: discovery failed:`n{0}" -f ($discovered -join "`n"))
@@ -112,7 +154,7 @@ if ($discovered.Count -eq 0) {
 }
 
 $baseline = $null
-try { $baseline = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($BaselinePath)) }
+try { $baseline = ConvertFrom-Json -InputObject $(if ($Staged) { $stagedBaseline } else { [IO.File]::ReadAllText($BaselinePath) }) }
 catch {
     Write-Error -ErrorAction Continue `
         -Message ("Cannot evaluate the suite baseline: the record does not parse: {0}" -f $_.Exception.Message)

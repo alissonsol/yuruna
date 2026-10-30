@@ -531,8 +531,10 @@ On an eligible transient workload failure the runner re-runs the failed
 sequence from its last-good step on the SAME live VM, instead of tearing
 the guest down and redoing the whole (~40-minute) install from step 0.
 `Test.WarmResume.psm1` is only the pure decision core, the checkpoint
-reader, and the `warm_resume` event builder; the retry loop lives in
-the runner (`Test.RunnerInnerLoop`) and the re-invocation in the engine
+reader, and the `warm_resume` event builder; the retry loops live in
+the runner (`Test.RunnerInnerLoop`, for a guest's workload sequences) and
+the orchestrator (`Test.Orchestrator`, for a failed guest entry of an
+orchestration chain), and the re-invocation in the engine
 (`Invoke-Sequence`'s `-StartStep`, `Invoke-GuestSequenceList`'s
 `-ResumeFromSequence` / `-ResumeFromStep`).
 
@@ -542,13 +544,17 @@ loop's gated auto-remediation uses. A hard, deterministic failure would
 redo the install and fail again: nothing to gain, a cycle of wall-clock
 to lose.
 
-Second, resume runs only in the runner path, where each workload
-sequence runs as a single file (`Invoke-SequenceByName`). That makes
-`last_failure.json`'s file-local `repro.resumeFromStep` map directly onto
-`Invoke-Sequence`'s file-local `-StartStep`. `Debug-TestSequence`'s chain
-runner concatenates baselines, which would make the same mapping
-chain-global rather than file-local; the runner does not concatenate, so
-the mapping is exact. See [failure-schema.md](failure-schema.md).
+Second, the checkpoint is file-local: `last_failure.json`'s
+`repro.resumeFromStep` is the failed step's number in its own sequence file
+(the engine numbers steps from a window's offset), and `sequenceName` is that
+file's stem. In the runner's workload path each sequence runs as a single
+file (`Invoke-SequenceByName`), so the step maps directly onto
+`Invoke-Sequence`'s `-StartStep`. An orchestration's guest entry runs a chain
+(prerequisites first, `Invoke-TestSequenceChain`), whose `-StartStep` is
+chain-global, so `Invoke-OrchestratorGuestRun` maps the file step onto the
+chain through that sequence's `globalStart`
+(`Invoke-OrchestratorWarmResume` retries the entry in place before the
+orchestration scores it). See [failure-schema.md](failure-schema.md).
 
 The mechanism is safe-on-failure regardless: a resume that targets the
 wrong VM or step fails and falls through to the ordinary teardown plus
@@ -1274,8 +1280,9 @@ download. A swallowed first-attempt exit then cascades into
 block, and a helm chart rendering an `InvalidImageName` pod -- the
 failure surfaces ~30 minutes downstream from the cause.
 
-The shared Yuruna.Retry policy (five attempts, 10 s initial delay,
-jittered exponential backoff) covers a few minutes of upstream wobble.
+The shared Yuruna.Retry backoff (10 s initial delay, jittered
+exponential), with six attempts for init rather than the shared five,
+covers about seven minutes of upstream wobble.
 Longer outages still surface, framed as "tofu init failed ... after N
 attempts" with the stderr tail attached, so the operator immediately
 sees whether it's a 5xx, a checksum mismatch, or something else. The
@@ -1528,9 +1535,9 @@ Every key is always present so callers can branch on values without
 | Key            | Type            | Meaning                                                                   |
 |----------------|-----------------|---------------------------------------------------------------------------|
 | `success`      | `[bool]`        | `$true` iff the operation completed without error.                        |
-| `skipped`      | `[bool]`        | `$true` iff the operation was a soft no-op (precondition not met).        |
+| `skipped`      | `[bool]`        | `$true` iff the operation was a soft no-op (precondition not met, or the [deploy phase ledger](architecture.md#42e568c8-0010) reused an earlier pass). |
 | `errorMessage` | `[string]`      | Short human reason on failure, `''` on success.                           |
-| `failureClass` | `[string]`      | One of `ok`, `config_error`, `cluster_unreachable`, `chart_invalid`, `tool_failed`, `unknown`. |
+| `failureClass` | `[string]`      | One of `ok`, `config_error`, `cluster_unreachable`, `chart_invalid`, `tool_failed`, `tool_timeout`, `unknown`. |
 | `exitCode`     | `[int]`         | External-tool exit code (kubectl/helm/tofu/docker/etc) or `0` on no-tool failure. |
 | `durationMs`   | `[long]`        | Wall-clock duration of the operation.                                     |
 | `artifacts`    | `[hashtable[]]` | Zero or more artifact descriptors (`path`, `kind`, `sizeBytes`) for things written to disk. |
@@ -1700,23 +1707,24 @@ Source:
 
 <a id="42d69dfa-0043"></a>
 
-### Why the k8s guest fetches the Flannel manifest from the in-tree path at the latest-release tag?
+### Why the k8s guest fetches the Flannel manifest from the in-tree path at the pinned tag?
 
-The install tracks the newest Flannel release but fetches the in-tree
-`Documentation/kube-flannel.yml` at that tag instead of
-`releases/latest/download/kube-flannel.yml`.
+The install applies the Flannel release that `YURUNA_FLANNEL_VERSION` pins and
+fetches the in-tree `Documentation/kube-flannel.yml` at that tag instead of a
+`kube-flannel.yml` release asset, then checks it against
+`YURUNA_FLANNEL_MANIFEST_SHA256` before `kubectl apply`.
 
-That download URL relies on the maintainers attaching a
-`kube-flannel.yml` *release asset*, and a release can ship without one
-(v0.28.6 did) -- `releases/latest` then 302s to an assetless tag and the
-download 404s, aborting the whole install under `set -euo pipefail`.
-`Documentation/kube-flannel.yml` is generated from the repo tree, so it
-is present at every tag and is byte-for-byte equivalent to the release
-asset.
+A release asset depends on the maintainers attaching one, and a release can
+ship without it (v0.28.6 did), so the download 404s and aborts the whole
+install under `set -euo pipefail`. `Documentation/kube-flannel.yml` is present
+at every tag. It is not byte-identical to the release asset, so the digest pin
+names the in-tree file.
 
-The tag is resolved from the `releases/latest` web redirect, **not** the
-`api.github.com` "latest" endpoint, which 403s once many guests share
-one NAT egress IP (the same constraint as the OpenTofu install below).
+The pin replaces resolving the newest release at install time: a manifest that
+changes between two builds of the same commit changes the CNI images too, and
+the caching proxy warms exactly the images of the pinned manifest. Upstream
+publishes no checksum for the in-tree file, so the digest is computed from it
+at the tag when the pin is bumped.
 
 Source:
 [`guest/ubuntu.server.24/ubuntu.server.24.k8s.sh`](../guest/ubuntu.server.24/ubuntu.server.24.k8s.sh)
@@ -1726,29 +1734,29 @@ Source:
 
 <a id="42d69dfa-0044"></a>
 
-### Why the k8s guest wraps the OpenTofu install in a retry with a pinned version?
+### Why the k8s guest installs the OpenTofu release tarball at a pinned version and digest?
 
-OpenTofu is installed via the deb method (primary) with a standalone
-fallback, then verified. The deb method fetches the signing key from
-`get.opentofu.org` and the standalone method the binary release; both
-can blip, and the third-party `install-opentofu.sh` runs those inner
-fetches with no retry, so a single transient blip is otherwise fatal
-even on a healthy host. Each invocation is wrapped in `_yuruna_retry`
-for the same backoff every other fetch in the script gets.
+OpenTofu is installed from the release tarball
+`tofu_<version>_linux_<arch>.tar.gz` on GitHub releases, fetched with
+`curl_retry` (the backoff every other fetch in the script gets), checked
+against `YURUNA_OPENTOFU_SHA256_<ARCH>` and unpacked into `/opt/opentofu` with
+a `/usr/local/bin/tofu` link. The digests come from the release's
+`tofu_<version>_SHA256SUMS`, whose GPG signature verifies against OpenTofu's
+signing key. The third-party `install-opentofu.sh` is not used: it is fetched
+from a moving URL and would run unverified, and it ran its inner fetches with
+no retry.
 
-Both paths pass `--opentofu-version "$YURUNA_OPENTOFU_VERSION"` so
-neither asks the GitHub releases API for "latest" -- an unauthenticated
-`api.github.com` call that 403s on rate limits once many guests share
-one NAT egress IP, which would leave the standalone fallback as fragile
-as the deb path it backs up.
+Naming the exact version keeps the guest off the GitHub releases API's
+"latest" lookup -- an unauthenticated `api.github.com` call that 403s on rate
+limits once many guests share one NAT egress IP. A guest that already has the
+pinned version runnable skips the download.
 
-The post-install `command -v tofu` guard aborts when both fail, because
-every downstream `Set-Resource` step needs `tofu`; a missing binary
-otherwise surfaces far away as an HTTP 503 at the ingress.
+The post-install version check aborts the script when the pinned version is
+not runnable, because every downstream `Set-Resource` step needs `tofu`; a
+missing binary otherwise surfaces far away as an HTTP 503 at the ingress.
 
 Source:
-[`guest/ubuntu.server.24/ubuntu.server.24.k8s.sh`](../guest/ubuntu.server.24/ubuntu.server.24.k8s.sh)
-(and its `ubuntu.server.26` sibling).
+[`guest/shared/ubuntu.k8s.sh`](../guest/shared/ubuntu.k8s.sh).
 
 ---
 
@@ -1756,6 +1764,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

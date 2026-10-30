@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4265798a-3d2b-45d8-a5ad-6776ff4a2ad9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,14 +31,12 @@
     never throws.
 #>
 
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-    Justification = 'The logging module reads the open cycle folder from a global handle that Start-LogFile sets; the fixtures set and clear that same handle.')]
-param()
 
 BeforeAll {
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Log.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path $here 'Test.EventSchema.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.HostSampling.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.SequenceFailureState.psm1') -Force -DisableNameChecking
@@ -58,17 +56,17 @@ Describe 'Cycle event delivery ledger' {
     BeforeEach {
         $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('evdel-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
-        $script:SavedFolder = $global:__YurunaCycleFolder
-        $script:SavedLogDir = $env:YURUNA_LOG_DIR
-        $global:__YurunaCycleFolder = $script:Dir
+        $script:SavedGlobals = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
+        $script:SavedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
+        Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $script:Dir }
         Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue
         Mock -ModuleName Test.Log Write-Warning { }
         Reset-DeliveryLedger
         $script:Event = @{ timestamp = '2026-10-01T00:00:00Z'; event = 'step_end'; ok = $true }
     }
     AfterEach {
-        $global:__YurunaCycleFolder = $script:SavedFolder
-        if ($null -ne $script:SavedLogDir) { $env:YURUNA_LOG_DIR = $script:SavedLogDir }
+        Restore-YurunaTestGlobal -Saved $script:SavedGlobals
+        Restore-YurunaTestEnvironment -Saved $script:SavedLogDir
         Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
@@ -112,7 +110,7 @@ Describe 'Cycle event delivery ledger' {
     }
 
     It 'counts an event emitted with no cycle open as dropped, without a warning or a file' {
-        $global:__YurunaCycleFolder = $null
+        Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $null }
         { Send-CycleEventSafely -EventRecord $script:Event } | Should -Not -Throw
         $d = Get-CycleEventDelivery
         $d.dropped | Should -Be 1

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4207281c-d594-4c5f-b5f3-215bb075539f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@
 param()
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.HostGit.psm1') -Force -DisableNameChecking
@@ -49,10 +50,7 @@ function New-GitRemoteFixture {
     param([string]$Root)
     $remote = Join-Path $Root 'remote'
     New-Item -ItemType Directory -Path $remote -Force | Out-Null
-    & git -C $remote init --quiet 2>&1 | Out-Null
-    Set-Content -LiteralPath (Join-Path $remote 'tracked.txt') -Value 'from the remote' -Encoding utf8
-    & git -C $remote add tracked.txt 2>&1 | Out-Null
-    & git -C $remote -c user.name=fixture -c user.email=fixture@example.invalid commit --quiet -m 'fixture' 2>&1 | Out-Null
+    $null = New-YurunaTestGitRepository -Path $remote -File @{ 'tracked.txt' = "from the remote`n" } -CommitMessage 'fixture'
     return $remote
 }
 
@@ -88,7 +86,7 @@ Describe 'Update-ProjectClone swaps in a proven-complete clone' {
         $selection.success | Should -BeTrue -Because $selection.detail
         Set-Content -LiteralPath (Join-Path $script:Remote 'later.txt') -Value 'next generation'
         & git -C $script:Remote add . 2>&1 | Out-Null
-        & git -C $script:Remote -c user.name=fixture -c user.email=fixture@example.invalid commit --quiet -m 'later' 2>&1 | Out-Null
+        & git -C $script:Remote commit --quiet -m 'later' 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
         $result = Update-ProjectClone -RepoRoot $repo -ProjectUrl $url -SourceContext $context -SourceSelection $selection -Confirm:$false 6>$null
         $result.success | Should -BeTrue -Because $result.errorMessage
@@ -144,7 +142,7 @@ Describe 'Update-ProjectClone swaps in a proven-complete clone' {
         & git -C $script:Remote rm --quiet -rf . 2>&1 | Out-Null
         Set-Content -LiteralPath (Join-Path $script:Remote 'replacement.txt') -Value 'replacement project'
         & git -C $script:Remote add . 2>&1 | Out-Null
-        & git -C $script:Remote -c user.name=fixture -c user.email=fixture@example.invalid commit --quiet -m 'replacement' 2>&1 | Out-Null
+        & git -C $script:Remote commit --quiet -m 'replacement' 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
         & git -C $script:Remote branch -M $branch 2>&1 | Out-Null
         $result = Update-ProjectClone -RepoRoot $repo -ProjectUrl $url -Confirm:$false 6>$null
@@ -162,7 +160,7 @@ Describe 'Update-ProjectClone swaps in a proven-complete clone' {
         & git -C $script:Remote rm --quiet tracked.txt 2>&1 | Out-Null
         Set-Content -LiteralPath (Join-Path $script:Remote 'new-source.txt') -Value 'current source'
         & git -C $script:Remote add . 2>&1 | Out-Null
-        & git -C $script:Remote -c user.name=fixture -c user.email=fixture@example.invalid commit --quiet -m 'advance' 2>&1 | Out-Null
+        & git -C $script:Remote commit --quiet -m 'advance' 2>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
         $result = Update-ProjectClone -RepoRoot $repo -ProjectUrl $script:Remote -Confirm:$false 6>$null
         $result.success | Should -BeTrue -Because $result.errorMessage

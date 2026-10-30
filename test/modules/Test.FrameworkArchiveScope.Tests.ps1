@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 428d0026-4579-4914-a98d-4a8df192c465
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,23 +42,15 @@ BeforeAll {
 
     $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
     $script:ProjectRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-project'
-    $script:ServicePath = Join-Path $script:RepoRoot 'test/service/Start-StatusService.ps1'
+    $script:RuntimePath = Join-Path $script:RepoRoot 'test/service/Invoke-StatusServiceRuntime.ps1'
 
     function Confirm-SiblingCheckout {
         param([Parameter(Mandatory)][string]$Path)
         $Path | Should -Exist -Because "the $(Split-Path -Leaf $Path) checkout has to sit beside the framework checkout; clone it there and run this suite again"
     }
 
-    # The template writes every runtime variable with a leading backtick so it
-    # survives generation; ExpandString performs exactly the interpolation the
-    # here-string performs, matching what a host actually runs.
-    function Get-GeneratedServerText {
-        [CmdletBinding()]
-        [OutputType([string])]
-        param()
-        return Get-YurunaTestGeneratedServerText -Path $script:ServicePath -Expand { param($Raw) $ExecutionContext.InvokeCommand.ExpandString($Raw) }
-    }
-    $script:ServerText = Get-GeneratedServerText
+    # The status service runtime the launcher runs.
+    $script:ServerText = [IO.File]::ReadAllText($script:RuntimePath)
     $script:ServerAst = [Management.Automation.Language.Parser]::ParseInput($script:ServerText, [ref]$null, [ref]$null)
 
     function Get-FunctionFromServer {
@@ -142,19 +134,9 @@ Send-GitArchive -Response `$response -Request `$request -Context `$context ``
         [CmdletBinding()]
         [OutputType([string])]
         param()
-        $dir = New-YurunaTestTempDir -Prefix 'archive-scope'
-        $git = { param([string[]]$Arg) & git -C $dir @Arg 2>&1 | Out-Null }
-        & $git @('init', '--quiet')
-        & $git @('config', 'user.name', 'suite')
-        & $git @('config', 'user.email', 'suite@example.invalid')
-        foreach ($rel in 'dev-only/a.txt', 'docs/b.md', 'automation/c.ps1', 'guest/d.sh') {
-            $full = Join-Path $dir $rel
-            New-Item -ItemType Directory -Path (Split-Path -Parent $full) -Force | Out-Null
-            [IO.File]::WriteAllText($full, "$rel`n")
-        }
-        & $git @('add', '-A')
-        & $git @('commit', '--quiet', '-m', 'seed')
-        return $dir
+        $files = [ordered]@{}
+        foreach ($rel in 'dev-only/a.txt', 'docs/b.md', 'automation/c.ps1', 'guest/d.sh') { $files[$rel] = "$rel`n" }
+        return New-YurunaTestGitRepository -Prefix 'archive-scope' -File $files -CommitMessage 'seed'
     }
 
     # Matches the drift check's own pattern. An external URL that happens to

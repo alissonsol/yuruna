@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d7a1c5-8e60-4b3f-9a52-6cb0f4e21d78
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,21 +111,32 @@ $Targets = @(
 # The pseudo locales travel with the real one on purpose: the reference slice
 # has to be answerable in expanded and mirrored pseudo, and a locale that is
 # not in the binary cannot be requested from it.
+#
+# Each module gets one generated registry.go and nothing else: its server-side
+# tables always, and only the browser data that module serves from it.
+#   Browser  the non-default locales' browser tables. A service whose pages ship
+#            the same tables as embedded web/assets files (the DomainsOnly
+#            browser targets above) reads them from there, so carrying them here
+#            too would put every table in its binary twice. The default locale
+#            is never here: BrowserKernel already holds its tables.
+#   Kernel   the runtime block a self-contained page inlines.
 $localeManifest = ConvertFrom-Json -InputObject (Get-EmbedInputText -Path $ManifestPath)
 $deliveredLocales = @($localeManifest.locales.PSObject.Properties | Where-Object { $_.Value.status -in @('supported', 'pseudo') } | ForEach-Object Name)
 $GoTargets = @(
-    @{ Module = 'test/extension/extension-sdk'; Package = 'internal/catalog'; Domains = @('auth'); Locales = $deliveredLocales }
+    @{ Module = 'test/extension/extension-sdk'; Package = 'internal/catalog'; Domains = @('auth'); Locales = $deliveredLocales; Browser = $false; Kernel = $false }
     @{
         Module   = 'test/extension/pool-control-service/server'
         Package  = 'internal/catalog'
         Domains  = @('status', 'pool')
         Locales  = $deliveredLocales
+        Browser  = $false
+        Kernel   = $false
     }
-    @{ Module = 'test/extension/stash-service/server'; Package = 'internal/catalog'; Domains = @('status', 'stash'); Locales = $deliveredLocales }
-    @{ Module = 'test/extension/download-agent-service/server'; Package = 'internal/catalog'; Domains = @('status', 'download'); Locales = $deliveredLocales }
-    @{ Module = 'test/extension/caching-proxy-service'; Package = 'internal/catalog'; Domains = @('status', 'cache'); Locales = $deliveredLocales }
-    @{ Module = 'test/extension/caching-proxy-parser-service'; Package = 'internal/catalog'; Domains = @('status', 'parser'); Locales = $deliveredLocales }
-    @{ Module = 'test/extension/pool-aggregator-service'; Package = 'internal/catalog'; Domains = @('status', 'aggregator'); Locales = $deliveredLocales }
+    @{ Module = 'test/extension/stash-service/server'; Package = 'internal/catalog'; Domains = @('status', 'stash'); Locales = $deliveredLocales; Browser = $false; Kernel = $true }
+    @{ Module = 'test/extension/download-agent-service/server'; Package = 'internal/catalog'; Domains = @('status', 'download'); Locales = $deliveredLocales; Browser = $false; Kernel = $true }
+    @{ Module = 'test/extension/caching-proxy-service'; Package = 'internal/catalog'; Domains = @('status', 'cache'); Locales = $deliveredLocales; Browser = $true; Kernel = $true }
+    @{ Module = 'test/extension/caching-proxy-parser-service'; Package = 'internal/catalog'; Domains = @('status', 'parser'); Locales = $deliveredLocales; Browser = $true; Kernel = $true }
+    @{ Module = 'test/extension/pool-aggregator-service'; Package = 'internal/catalog'; Domains = @('status', 'aggregator'); Locales = $deliveredLocales; Browser = $true; Kernel = $true }
 )
 
 # Non-default browser catalogs are separate parser-discovered assets. Keep the
@@ -457,27 +468,6 @@ function Get-GoLocaleData {
     return ($sb.ToString() -replace "`r`n", "`n")
 }
 
-function Get-GoCatalogFile {
-    <#
-    .SYNOPSIS
-        One compiled catalog, re-homed into a service's own package.
-    .DESCRIPTION
-        The bytes are the compiler's; only the package clause changes, because
-        the file has to compile inside the module that carries it. Taking the
-        compiler's own output rather than re-encoding here is what makes "the
-        service renders what the catalog says" a comparison instead of a claim.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param([Parameter(Mandatory)][string]$SourcePath, [Parameter(Mandatory)][string]$PackageName)
-
-    $text = (Get-EmbedInputText -Path $SourcePath) -replace "`r`n", "`n"
-    if ($text -notmatch '(?m)^package\s+\w+$') {
-        throw "No package clause in $SourcePath; the compiler output is not what this expects."
-    }
-    return ($text -replace '(?m)^package\s+\w+$', "package $PackageName")
-}
-
 function Get-GoCatalogRegistry {
     <#
     .SYNOPSIS
@@ -508,19 +498,24 @@ function Get-GoCatalogRegistry {
         $lines.Add("`t},")
     }
     $lines.Add('}')
-    $lines.Add('')
-    $lines.Add('var BrowserCatalogs = map[string]string{')
-    $quotedLocales = @($Target.Locales | ForEach-Object { ConvertTo-GoQuoted $_ })
-    $padding = ($quotedLocales | Measure-Object -Property Length -Maximum).Maximum
-    foreach ($locale in $Target.Locales | Sort-Object) {
-        $browser = @($Target.Domains | Sort-Object | ForEach-Object {
-            (Get-EmbedInputText -Path (Join-Path $GeneratedBrowser "$locale.$_.js")).TrimEnd()
-        }) -join "`n"
-        $lines.Add("`t" + ((ConvertTo-GoQuoted $locale) + ':').PadRight($padding + 1) + ' ' + (ConvertTo-GoQuoted $browser) + ',')
+    if ($Target.Browser) {
+        $browserLocales = @($Target.Locales | Where-Object { $_ -cne [string]$localeManifest.default } | Sort-Object)
+        $lines.Add('')
+        $lines.Add('var BrowserCatalogs = map[string]string{')
+        $quotedLocales = @($browserLocales | ForEach-Object { ConvertTo-GoQuoted $_ })
+        $padding = ($quotedLocales | Measure-Object -Property Length -Maximum).Maximum
+        foreach ($locale in $browserLocales) {
+            $browser = @($Target.Domains | Sort-Object | ForEach-Object {
+                (Get-EmbedInputText -Path (Join-Path $GeneratedBrowser "$locale.$_.js")).TrimEnd()
+            }) -join "`n"
+            $lines.Add("`t" + ((ConvertTo-GoQuoted $locale) + ':').PadRight($padding + 1) + ' ' + (ConvertTo-GoQuoted $browser) + ',')
+        }
+        $lines.Add('}')
     }
-    $lines.Add('}')
-    $lines.Add('')
-    $lines.Add('const BrowserKernel = ' + (ConvertTo-GoQuoted (Get-EmbeddedBlock -Domains $Target.Domains)))
+    if ($Target.Kernel) {
+        $lines.Add('')
+        $lines.Add('const BrowserKernel = ' + (ConvertTo-GoQuoted (Get-EmbeddedBlock -Domains $Target.Domains)))
+    }
     return ($lines -join "`n") + "`n"
 }
 
@@ -686,25 +681,56 @@ const requestAdapterScript = ``$quoted``
     if ($result) { $changed += $result }
 }
 
+function Remove-RetiredGeneratedFile {
+    <#
+    .SYNOPSIS
+        Remove a file an earlier embed generated and this one no longer does,
+        or report it under -Check.
+    .OUTPUTS
+        The relative path when it was (or would be) removed.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Relative)
+
+    if ($Check) {
+        $script:drift += "${Relative}: no longer generated; the module reads its registry.go"
+        return $Relative
+    }
+    if ($PSCmdlet.ShouldProcess($Relative, 'remove a catalog copy the embed no longer generates')) {
+        Remove-Item -LiteralPath (Join-Path $RepoRoot $Relative) -Force
+        if (-not $Quiet) { Write-Information "${Relative}: removed" -InformationAction Continue }
+    }
+    return $Relative
+}
+
 foreach ($goTarget in $GoTargets) {
     $moduleDir = Join-Path $RepoRoot $goTarget.Module
     if (-not (Test-Path -LiteralPath (Join-Path $moduleDir 'go.mod') -PathType Leaf)) {
         $findings += "$($goTarget.Module): no go.mod, so this is not a module the catalog can be copied into"
         continue
     }
-    $packageName = Split-Path -Leaf $goTarget.Package
     $missingArtifact = $false
     foreach ($locale in ($goTarget.Locales | Sort-Object)) {
         foreach ($domain in ($goTarget.Domains | Sort-Object)) {
             $stem = ($locale -replace '[^A-Za-z0-9]', '') + "_$domain"
-            $source = Join-Path $RepoRoot "globalization/generated/go/catalog/$stem.go"
-            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot "globalization/generated/go/catalog/$stem.go") -PathType Leaf)) {
                 $missingArtifact = $true
                 $findings += "$($goTarget.Module): no compiled Go artifact for '$locale.$domain'. Run tools/Invoke-CatalogCompile.ps1 first."
-                continue
             }
-            $relative = (Join-Path $goTarget.Module (Join-Path $goTarget.Package "$stem.go")) -replace '\\', '/'
-            $result = Set-GeneratedFile -Relative $relative -Text (Get-GoCatalogFile -SourcePath $source -PackageName $packageName)
+        }
+    }
+    # The registry inlines every compiled payload, so a per-locale copy beside it
+    # was a second copy of the same bytes that nothing read: a guest stages the
+    # registry alone. A copy an earlier embed left there is removed.
+    $packageDir = Join-Path $moduleDir $goTarget.Package
+    if (Test-Path -LiteralPath $packageDir -PathType Container) {
+        foreach ($retired in Get-ChildItem -LiteralPath $packageDir -File -Filter '*.go' |
+                Where-Object { $_.Name -cmatch '^[A-Za-z0-9]+_[a-z]+\.go$' -and $_.Name -notlike '*_test.go' } | Sort-Object Name) {
+            $text = [IO.File]::ReadAllText($retired.FullName)
+            if (-not $text.StartsWith('// Generated by tools/Invoke-CatalogCompile.ps1', [StringComparison]::Ordinal)) { continue }
+            $relative = ($goTarget.Module + '/' + $goTarget.Package + '/' + $retired.Name) -replace '\\', '/'
+            $result = Remove-RetiredGeneratedFile -Relative $relative
             if ($result) { $changed += $result }
         }
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42cf1e3a-80ad-4ced-a52c-2fdc80833d43
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,11 +93,11 @@ Describe 'Get-OutputState returns a copy-safe WarningsBySection' {
 Describe 'Preflight sidecar diagnostic evidence' {
     BeforeEach {
         Reset-OutputState -Confirm:$false
-        $script:savedSidecarPath = $env:YURUNA_FAILURE_SIDECAR
+        $script:savedSidecarPath = Save-YurunaTestEnvironment -Name 'YURUNA_FAILURE_SIDECAR'
         $env:YURUNA_FAILURE_SIDECAR = Join-Path $TestDrive 'preflight.json'
     }
     AfterEach {
-        $env:YURUNA_FAILURE_SIDECAR = $script:savedSidecarPath
+        Restore-YurunaTestEnvironment -Saved $script:savedSidecarPath
         Reset-OutputState -Confirm:$false
     }
 

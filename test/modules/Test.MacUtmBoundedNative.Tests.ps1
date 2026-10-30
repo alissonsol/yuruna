@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42baeedc-3176-482c-b82b-04bd087fb651
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,7 @@ BeforeAll {
     Import-Module $script:DriverPath -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
     Import-Module (Join-Path $PSScriptRoot 'Test.MacUtmFakeHost.psm1') -Force -Global -DisableNameChecking
     $script:Driver = Get-MacUtmFakeDriver
-    $script:DriverAst = [Management.Automation.Language.Parser]::ParseFile($script:DriverPath, [ref]$null, [ref]$null)
+    $script:DriverAst = Get-YurunaTestFileAst -Path $script:DriverPath
     $script:MacConditionAst = [Management.Automation.Language.Parser]::ParseFile($script:MacConditionPath, [ref]$null, [ref]$null)
     $script:CanShim = -not $IsWindows
     if ($script:CanShim) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,7 +183,7 @@ function Invoke-NewVmFailureIteration {
     param([bool]$StopOnFailure)
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-gpi-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-    $oldLogDir = $env:YURUNA_LOG_DIR; $env:YURUNA_LOG_DIR = $tmp
+    $oldLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'; $env:YURUNA_LOG_DIR = $tmp
     $global:__gpiRm = 0
     $global:__gpiIter = @{ OverallPassed = $true; FailedGuest = $null; FailedStep = $null; FailureMessage = $null; Control = 'proceed' }
     $global:__gpiStop = $StopOnFailure
@@ -246,7 +246,7 @@ function Invoke-NewVmFailureIteration {
     } finally {
         Remove-Item function:New-VM, function:global:Remove-GuestVMQuietly, function:global:Get-CycleGuestDataFolder, function:global:Set-GuestVMName, function:global:Set-GuestStatus, function:global:Set-StepStatus, function:global:Get-GuestProvenance -ErrorAction SilentlyContinue
         Remove-Variable __gpiRm, __gpiIter, __gpiStop -Scope Global -ErrorAction SilentlyContinue
-        if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+        Restore-YurunaTestEnvironment -Saved $oldLogDir
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
@@ -459,7 +459,7 @@ Describe 'Write-InnerLog' {
     It 'appends an [inner]-tagged line to outer.log under YURUNA_RUNTIME_DIR' {
         $d = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-il-" + [guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Path $d
-        $old = $env:YURUNA_RUNTIME_DIR
+        $old = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $d
         try {
             Write-InnerLog 'hello-innerlog-test'
@@ -467,7 +467,7 @@ Describe 'Write-InnerLog' {
             Assert-True (Test-Path $log) 'outer.log created'
             Assert-True ([bool]((Get-Content $log -Raw) -match '\[inner\] hello-innerlog-test')) 'line is [inner]-tagged and present'
         } finally {
-            $env:YURUNA_RUNTIME_DIR = $old
+            Restore-YurunaTestEnvironment -Saved $old
             Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -485,7 +485,7 @@ Describe 'Write-InnerLog' {
             $prefix.Add($statement.Extent.Text)
         }
         $handler = [scriptblock]::Create($prefix -join "`n")
-        $priorRuntime = $env:YURUNA_RUNTIME_DIR
+        $priorRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'pre-transcript-runtime'
         $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR
         $CycleCount = 42
@@ -498,7 +498,7 @@ Describe 'Write-InnerLog' {
             $log | Should -Match '\[inner\].*cycle 42.*fixture pre-transcript crash'
             $log | Should -Match 'Test.RunnerInnerLoop.Tests.ps1'
             $log | Should -Not -Match 'diagnostic-secret|diagnostic-url-secret'
-        } finally { $env:YURUNA_RUNTIME_DIR = $priorRuntime }
+        } finally { Restore-YurunaTestEnvironment -Saved $priorRuntime }
     }
 }
 
@@ -617,14 +617,7 @@ $projectSourceSelection = $Fixture.Project
         $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $project = Join-Path $root 'project'
         foreach ($path in @($root, $project)) {
-            $null = New-Item -ItemType Directory -Path $path -Force
-            & git init --quiet --initial-branch=main $path
-            & git -C $path config user.name Fixture
-            & git -C $path config user.email fixture@example.invalid
-            [IO.File]::WriteAllText((Join-Path $path 'source.txt'), $path)
-            & git -C $path add source.txt
-            & git -C $path commit --quiet -m source
-            if ($LASTEXITCODE -ne 0) { throw 'Could not initialize source provenance fixture.' }
+            $null = New-YurunaTestGitRepository -Path $path -File @{ 'source.txt' = $path } -CommitMessage 'source'
         }
         $script:ProvenanceFixture = @{
             RepoRoot=$root
@@ -759,7 +752,7 @@ Describe 'Write-CycleInfraFailure' {
     It 'resolves the -Global builders from module scope and writes last_failure.json' {
         $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-infra-" + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-        $oldLogDir = $env:YURUNA_LOG_DIR
+        $oldLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         $env:YURUNA_LOG_DIR = $tmp
         $global:__yrnInfraEventSent = $false
         # Each stub mirrors the signature of the -Global builder Write-CycleInfraFailure
@@ -808,23 +801,23 @@ Describe 'Write-CycleInfraFailure' {
         } finally {
             Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
             Remove-Variable -Name __yrnInfraEventSent -Scope Global -ErrorAction SilentlyContinue
-            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Restore-YurunaTestEnvironment -Saved $oldLogDir
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
     It 'is a no-op (never throws) when no record dir is resolvable' {
-        $oldLogDir = $env:YURUNA_LOG_DIR
+        $oldLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue
-        $oldCycleFolder = $global:__YurunaCycleFolder
-        $global:__YurunaCycleFolder = $null
+        $savedCycleGlobals = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
+        Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $null }
         try {
             InModuleScope Test.RunnerInnerLoop {
                 Write-CycleInfraFailure -Stage 'S' -FailureClass 'C' -HostType 'H'
             }
             # reaching here == did not throw
         } finally {
-            if ($null -ne $oldLogDir) { $env:YURUNA_LOG_DIR = $oldLogDir }
-            $global:__YurunaCycleFolder = $oldCycleFolder
+            Restore-YurunaTestEnvironment -Saved $oldLogDir
+            Restore-YurunaTestGlobal -Saved $savedCycleGlobals
         }
     }
     # A provisioning failure on the second guest used to be filed under the
@@ -839,7 +832,7 @@ Describe 'Write-CycleInfraFailure' {
         $null = $Case
         $tmp = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-        $oldLogDir = $env:YURUNA_LOG_DIR
+        $oldLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         $env:YURUNA_LOG_DIR = $tmp
         $failFile = Join-Path $tmp 'last_failure.json'
         Set-Content -LiteralPath $failFile -Value (@{ guestKey = $RecordedGuest; failureClass = 'ocr_timeout'; stage = 'Sequence' } | ConvertTo-Json)
@@ -875,7 +868,7 @@ Describe 'Write-CycleInfraFailure' {
             }
         } finally {
             Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile -ErrorAction SilentlyContinue
-            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Restore-YurunaTestEnvironment -Saved $oldLogDir
         }
     }
     It 'every call site threads -HostType $HostType and the closure is gone' {
@@ -898,10 +891,10 @@ Describe 'Write-CycleInfraFailure' {
         $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-mirror-" + [guid]::NewGuid().ToString('N'))
         $cycle = Join-Path $tmp 'cycle'
         New-Item -ItemType Directory -Path $cycle -Force | Out-Null
-        $oldLogDir = $env:YURUNA_LOG_DIR
-        $oldCycleFolder = $global:__YurunaCycleFolder
+        $oldLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
+        $savedCycleGlobals = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
         $env:YURUNA_LOG_DIR = $tmp
-        $global:__YurunaCycleFolder = $cycle
+        Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $cycle }
         Import-Module (Join-Path $here 'Test.Log.psm1') -Force -Global -DisableNameChecking
         function global:New-InfraFailureRecord {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
@@ -944,8 +937,8 @@ Describe 'Write-CycleInfraFailure' {
         } finally {
             Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
             Remove-Module Test.Log -Force -ErrorAction SilentlyContinue
-            $global:__YurunaCycleFolder = $oldCycleFolder
-            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Restore-YurunaTestGlobal -Saved $savedCycleGlobals
+            Restore-YurunaTestEnvironment -Saved $oldLogDir
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -958,10 +951,10 @@ Describe 'Write-CycleInfraFailure' {
         $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-mirror-" + [guid]::NewGuid().ToString('N'))
         $cycle = Join-Path $tmp 'cycle'
         New-Item -ItemType Directory -Path $cycle -Force | Out-Null
-        $oldLogDir = $env:YURUNA_LOG_DIR
-        $oldCycleFolder = $global:__YurunaCycleFolder
+        $oldLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
+        $savedCycleGlobals = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
         $env:YURUNA_LOG_DIR = $tmp
-        $global:__YurunaCycleFolder = $cycle
+        Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $cycle }
         Import-Module (Join-Path $here 'Test.Log.psm1') -Force -Global -DisableNameChecking
         function global:New-InfraFailureRecord {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
@@ -1001,8 +994,8 @@ Describe 'Write-CycleInfraFailure' {
         } finally {
             Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
             Remove-Module Test.Log -Force -ErrorAction SilentlyContinue
-            $global:__YurunaCycleFolder = $oldCycleFolder
-            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Restore-YurunaTestGlobal -Saved $savedCycleGlobals
+            Restore-YurunaTestEnvironment -Saved $oldLogDir
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -1013,7 +1006,7 @@ Describe 'Write-CycleInfraFailure' {
     It 'forwards the driver reading to the record builder untouched' {
         $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-hostmem-" + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-        $oldLogDir = $env:YURUNA_LOG_DIR
+        $oldLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         $env:YURUNA_LOG_DIR = $tmp
         $global:__yrnSeenHostMemory = 'not called'
         $global:__yrnSeenHostStorage = 'not called'
@@ -1050,7 +1043,7 @@ Describe 'Write-CycleInfraFailure' {
             Remove-Item function:New-InfraFailureRecord, function:global:Write-YurunaStateFile -ErrorAction SilentlyContinue
             Remove-Variable -Name __yrnSeenHostMemory -Scope Global -ErrorAction SilentlyContinue
             Remove-Variable -Name __yrnSeenHostStorage -Scope Global -ErrorAction SilentlyContinue
-            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Restore-YurunaTestEnvironment -Saved $oldLogDir
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -1557,19 +1550,19 @@ Describe 'Post-sync storage refusal preserves the completed cycle' {
         Initialize-YurunaEntryPointModuleSet -For Inner -ModulesDir $here
         Import-Module (Join-Path $here 'Test.ConfigValidator.psm1') -Global -DisableNameChecking
         Import-Module (Join-Path $here 'Test.RunnerOuterLoop.psm1') -Global -DisableNameChecking
-        $script:PriorRuntimeDir = $env:YURUNA_RUNTIME_DIR
-        $script:PriorCycleGeneration = $env:YURUNA_CYCLE_GENERATION
+        $script:PriorRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $script:PriorCycleGeneration = Save-YurunaTestEnvironment -Name 'YURUNA_CYCLE_GENERATION'
     }
     AfterAll {
-        $env:YURUNA_RUNTIME_DIR = $script:PriorRuntimeDir
-        $env:YURUNA_CYCLE_GENERATION = $script:PriorCycleGeneration
+        Restore-YurunaTestEnvironment -Saved $script:PriorRuntimeDir
+        Restore-YurunaTestEnvironment -Saved $script:PriorCycleGeneration
     }
     BeforeEach {
         Mock -ModuleName Test.RunnerInnerLoop Initialize-CycleGatingState {
             @{ CycleCount=42; ConsecutiveCrashes=0; FailuresBeforeAlert=3; SuccessesBeforeRearm=2; ConsecutiveFailures=1; ConsecutiveSuccesses=0; AlertArmed=$true; GatingFile='fixture-gating.json' }
         }
         Mock -ModuleName Test.RunnerInnerLoop Test-YurunaRefreshCycleGate { $true }
-        Mock -ModuleName Test.RunnerInnerLoop Assert-HostConditionSet { $true }
+        Mock -ModuleName Test.RunnerInnerLoop Get-HostConditionVerdict { [pscustomobject]@{ Passed = $true; Condition = ''; Detail = ''; FailureClass = ''; Message = '' } }
         Mock -ModuleName Test.RunnerInnerLoop Initialize-HostDisplay {}
         Mock -ModuleName Test.RunnerInnerLoop Initialize-HostMetricsExporter {}
         Mock -ModuleName Test.RunnerInnerLoop Invoke-RunnerTempHousekeeping {}
@@ -1708,11 +1701,11 @@ Describe 'A failure record carries the fields its class handler quotes' {
             param($FailureClass, $Severity, $SequenceName, $GuestKey, $StepName, $ErrorMessage, $VmName, $ClassificationSource, $Reason, [switch]$Confirm)
         }
         Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -DisableNameChecking
-        $script:SavedLogDir = $env:YURUNA_LOG_DIR
+        $script:SavedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
     }
     AfterAll {
         Remove-Item function:global:New-InfraFailureRecord, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
-        if ($null -eq $script:SavedLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $script:SavedLogDir }
+        Restore-YurunaTestEnvironment -Saved $script:SavedLogDir
     }
     BeforeEach {
         $env:YURUNA_LOG_DIR = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
@@ -1880,7 +1873,8 @@ Describe 'A cycle that failed nothing but skipped a planned guest is degraded' {
 # held the refusal until the preamble watchdog killed the cycle.
 Describe 'The sweep on the host-network refusal path' {
     BeforeAll {
-        $script:InnerScriptAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Invoke-TestRunnerInnerLoop.ps1'), [ref]$null, [ref]$null)
+        # The gate lives in Invoke-CycleHostNetworkGate; the entry script only calls it.
+        $script:InnerScriptAst = Get-YurunaTestFunctionAst -Path (Join-Path $PSScriptRoot 'Test.RunnerInnerLoop.psm1') -Name 'Invoke-CycleHostNetworkGate'
     }
     It 'runs once per loss, in a bounded process of its own' {
         $commands = @($script:InnerScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))
@@ -1896,5 +1890,37 @@ Describe 'The sweep on the host-network refusal path' {
             $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Write-YurunaStateFileJson' -and $n.Extent.Text -match 'HostNetworkStateFile' }, $true))
         Assert-True ($records.Count -ge 2) 'the streak record is written each lost cycle and after the sweep'
         foreach ($record in $records) { Assert-Match -Pattern 'sweptUtc\s*=' -Actual $record.Extent.Text -Because 'every write keeps the memory' }
+    }
+}
+
+Describe 'The inter-cycle wait paces only a cycle that another will follow' {
+    It 'waits the configured seconds when no one-shot run owns the runtime' {
+        InModuleScope Test.RunnerInnerLoop {
+            Mock Get-YurunaOneShotLeaseState { [pscustomobject]@{ State = 'Missing' } }
+            Assert-Equal 300 (Get-InterCycleDelay -CycleDelaySeconds 300 -RuntimeDir $TestDrive)
+        }
+    }
+    It 'skips the wait while a one-shot run holds the lease, without touching the configured value' {
+        InModuleScope Test.RunnerInnerLoop {
+            foreach ($state in 'Held', 'Self') {
+                Mock Get-YurunaOneShotLeaseState { [pscustomobject]@{ State = $state } }.GetNewClosure()
+                Assert-Equal 0 (Get-InterCycleDelay -CycleDelaySeconds 300 -RuntimeDir $TestDrive) -Because "a $state lease means no cycle follows"
+            }
+        }
+    }
+    It 'keeps the wait when the lease holder cannot be identified or the lease cannot be read' {
+        InModuleScope Test.RunnerInnerLoop {
+            Mock Get-YurunaOneShotLeaseState { [pscustomobject]@{ State = 'Unknown' } }
+            Assert-Equal 300 (Get-InterCycleDelay -CycleDelaySeconds 300 -RuntimeDir $TestDrive)
+            Mock Get-YurunaOneShotLeaseState { throw 'unreadable' }
+            Assert-Equal 300 (Get-InterCycleDelay -CycleDelaySeconds 300 -RuntimeDir $TestDrive)
+        }
+    }
+    It 'leaves a zero delay at zero and the cycle uses the helper' {
+        InModuleScope Test.RunnerInnerLoop {
+            Assert-Equal 0 (Get-InterCycleDelay -CycleDelaySeconds 0 -RuntimeDir $TestDrive)
+        }
+        $text = Get-Content -Raw (Join-Path $here 'Test.RunnerInnerLoop.psm1')
+        Assert-Match -Pattern '\$effectiveDelay = Get-InterCycleDelay' -Actual $text -Because 'the cycle''s wait takes its length from the helper'
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 428d1b23-c8e7-48f8-a3e7-5ef40beb397d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -9,10 +9,19 @@
 #>
 #requires -version 7
 
+# Checks that passed in this process, by kind, path and arguments. A product
+# check reads the tree and writes nothing to it, so a second identical call in
+# the same suite process would repeat the same run to the same verdict. A
+# failure is never kept: every call that failed runs again and reports itself.
+$script:PassedProductChecks = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+
 function Invoke-ProductGlobalizationCheck {
     <#
     .SYNOPSIS
         Execute the owning product tests and fail when a test process or required row fails.
+    .DESCRIPTION
+        A check that already passed in this process with the same kind, path
+        and arguments is not run again.
     #>
     [CmdletBinding()]
     param(
@@ -20,6 +29,8 @@ function Invoke-ProductGlobalizationCheck {
         [Parameter(Mandatory)][string]$Path,
         [string[]]$Argument = @()
     )
+    $passedKey = ConvertTo-Json -InputObject @($Kind, $Path, @($Argument)) -Compress
+    if ($script:PassedProductChecks.Contains($passedKey)) { return }
     $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $powerShell = (Get-Process -Id $PID).Path
     $resultPath = $null
@@ -44,6 +55,7 @@ function Invoke-ProductGlobalizationCheck {
                 throw "Product suite has failed or unverified rows ($Path): $output"
             }
         }
+        [void]$script:PassedProductChecks.Add($passedKey)
     } finally {
         if ($resultPath -and (Test-Path -LiteralPath $resultPath)) { Remove-Item -LiteralPath $resultPath -Force }
     }

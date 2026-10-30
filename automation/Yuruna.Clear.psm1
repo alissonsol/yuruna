@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d48379-bb62-43d9-b80a-bcbb0440f82e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,8 @@ $modulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Import.Yaml.ps
 Import-Module -Name $modulePath
 $validationModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Validation.psm1"
 Import-Module -Name $validationModulePath
+# The bound on each destroy, shared with the deploy phases' tool calls.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Global -Force
 
 function Clear-Configuration {
     param (
@@ -80,7 +82,10 @@ function Clear-Configuration {
             # command's successful exit code and authorize deleting local state.
             $global:LASTEXITCODE = $null
             try {
-                $result = & $tofuCommand.Source destroy -auto-approve -refresh=false 2>&1
+                # A destroy stopped at its bound exits 124 and keeps the work
+                # folder below, like any destroy that failed.
+                $destroySeconds = (Get-YurunaCommandTimeout -Call 'tofu destroy').Seconds
+                $result = Invoke-YurunaToolWithDeadline -Label "tofu destroy ($resourceName)" -TimeoutSeconds $destroySeconds -ScriptBlock { & $tofuCommand.Source destroy -auto-approve -refresh=false 2>&1 }
                 $destroyExit = if ($null -eq $global:LASTEXITCODE) { 127 } else { $global:LASTEXITCODE }
             }
             catch {

@@ -308,7 +308,9 @@ certificate/key pair is present; without them it serves HTTP. The protocol choic
 is specific to each client, rather than a separate aggregator process. Service
 VMs bake `https://<cache>:9400` and try TLS without certificate verification
 first, then plain HTTP. Hosts also announce themselves to the aggregator over
-plain HTTP. Prometheus on the cache scrapes the reachable hosts that the
+plain HTTP from the [host address beacon](../../test/modules/Invoke-HostAddressBeacon.ps1),
+a detached sidecar the status service starts, which records each move of the
+host's own address. Prometheus on the cache scrapes the reachable hosts that the
 aggregator lists as scrape targets: `windows_exporter` on port 9182 for Windows
 hosts, and memory gauges at `/metrics` on the status listener for Ubuntu and
 macOS hosts; see [Test.HostMetricsExporter](../../test/modules/Test.HostMetricsExporter.psm1)
@@ -419,7 +421,9 @@ Squid, Zot, the Zot prewarm, `zot-sync-selftest.py`, and
 repository's apt metadata pair through the local Squid and reports any pair that
 disagrees. Squid answers mutable apt metadata from the origin and still stores
 it, so a stored `InRelease` cannot sit beside an index from a later publish.
-Zot is a pinned,
+Squid files a versioned PowerShell Gallery package request under the CDN object
+the gallery redirects to, so a stored package is served without asking the
+gallery. Zot is a pinned,
 SHA-256-checked release with `http.compat` enabling Docker manifests, and its
 upstream sync leaves through the local Squid 3129 listener. The self-test syncs
 one probe image per upstream through Zot when Zot is installed and after each
@@ -653,6 +657,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 [Architecture](../architecture.md) | [Design overview](README.md)

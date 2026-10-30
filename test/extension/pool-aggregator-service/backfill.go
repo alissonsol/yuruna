@@ -793,7 +793,7 @@ func (b *backfiller) replayIncidents(ctx context.Context, h activeHost, hs *back
 	// resolve line.
 	for i := 0; i+1 < len(events); i += 2 {
 		open, resolved := events[i], events[i+1]
-		if !open.open || resolved.open || open.id != resolved.id || resolved.now.After(boundary) || have[open.id] || hs.Incidents[open.id] {
+		if !open.Open || resolved.Open || open.ID != resolved.ID || resolved.Now.After(boundary) || have[open.ID] || hs.Incidents[open.ID] {
 			continue
 		}
 		for _, ev := range []incidentEvent{open, resolved} {
@@ -801,7 +801,7 @@ func (b *backfiller) replayIncidents(ctx context.Context, h activeHost, hs *back
 				return n, err
 			}
 		}
-		hs.Incidents[open.id] = true
+		hs.Incidents[open.ID] = true
 		n++
 	}
 	return n, nil

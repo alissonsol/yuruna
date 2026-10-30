@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 420c75e4-0495-40be-af73-bb59295bcb3b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,10 +32,10 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1') -Force -DisableNameChecking
     $script:Fixture = Join-Path $PSScriptRoot '../fixtures/ocr/selftest.png'
     $script:AllWords = "YURUNA OCR SELF TEST`nlogin: operator`nPassword check 2468"
-    $script:SavedCombine = $env:YURUNA_OCR_COMBINE
+    $script:SavedCombine = Save-YurunaTestEnvironment -Name 'YURUNA_OCR_COMBINE'
 }
 AfterAll {
-    if ($null -eq $script:SavedCombine) { Remove-Item Env:\YURUNA_OCR_COMBINE -ErrorAction SilentlyContinue } else { $env:YURUNA_OCR_COMBINE = $script:SavedCombine }
+    Restore-YurunaTestEnvironment -Saved $script:SavedCombine
 }
 
 Describe 'The known-answer read of a committed frame' {

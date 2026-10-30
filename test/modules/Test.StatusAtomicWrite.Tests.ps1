@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 420bd99b-9a43-48a6-9d05-9d19abdacd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     gap-free atomic replace, so a concurrent reader never catches a half-written or
     momentarily-absent file.
 .DESCRIPTION
-    The status service here-string in Start-StatusService.ps1 writes several
+    The status service runtime (test/service/Invoke-StatusServiceRuntime.ps1) writes several
     read-by-others files (test.config.yml from the UI, perf checkpoints, status.json,
     streamed diagnostics). A write-.tmp-then-Move-Item -Force publish deletes the
     destination before renaming, so a reader that lands in the gap sees no file (or,
@@ -45,7 +45,7 @@
 
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
-$sss  = Join-Path (Split-Path -Parent $here) 'service/Start-StatusService.ps1'
+$sss  = Join-Path (Split-Path -Parent $here) 'service/Invoke-StatusServiceRuntime.ps1'
 $script:txt  = Get-Content -Raw -LiteralPath $sss
 $script:startCycleWorker = Get-Content -Raw -LiteralPath (Join-Path $here 'Invoke-StartCycleWorker.ps1')
 
@@ -62,15 +62,18 @@ Describe 'status-service shared-state writes are atomic and collision-free' {
             Assert-True ($m.Value -match 'serverLogFile') "non-atomic Move-Item on shared state: $($m.Value.Trim())"
         }
         $atomic = [regex]::Matches($script:txt, '\[(?:System\.)?IO\.File\]::Move\(').Count
-        Assert-True ($atomic -ge 4) "expected >= 4 atomic [IO.File]::Move publishes (test-config, perf-ckpt, the pause status.json rewrite, diagnostics); found $atomic"
+        Assert-True ($atomic -ge 3) "expected >= 3 atomic [IO.File]::Move publishes (test-config, perf-ckpt, diagnostics); found $atomic"
+        # The pause routes stamp status.json through the locked field update,
+        # whose writer is the same per-writer temp plus [IO.File]::Move replace.
+        Assert-True ($script:txt -match 'Update-StatusDocumentField -StatusPath \$statusJsonFile') 'the pause routes must stamp status.json through Update-StatusDocumentField'
     }
 
     It 'publishes the start-cycle status.json rewrite atomically from its worker' {
         # The listener no longer touches status.json for a start-cycle; the
         # worker rewrites the pause and lab-hold fields, and it must do so with
         # the same gap-free replace, never a delete-then-write.
-        Assert-True ($script:startCycleWorker -match "Write-YurunaStateFile -Path \`$statusPath") `
-            'the start-cycle worker must publish status.json through Write-YurunaStateFile'
+        Assert-True ($script:startCycleWorker -match "Update-StatusDocumentField -StatusPath \`$statusPath") `
+            'the start-cycle worker must publish status.json through the locked Update-StatusDocumentField'
         foreach ($pattern in @('Move-Item', 'Set-Content', 'Out-File', 'WriteAllText\(\$statusPath')) {
             Assert-True ($script:startCycleWorker -notmatch $pattern) "the start-cycle worker must not write shared state with $pattern"
         }
@@ -80,8 +83,8 @@ Describe 'status-service shared-state writes are atomic and collision-free' {
 
     It 'uses a per-writer unique temp for each publish (no fixed .tmp collision target)' {
         # A fixed "$file.tmp" lets two concurrent writers share -- and clobber -- one temp.
-        Assert-True ($script:txt -notmatch '"`\$testConfigFile\.tmp"') 'test-config temp must be unique, not a fixed .tmp'
-        Assert-True ($script:txt -notmatch '"`\$filePath\.tmp"')       'diagnostics temp must be unique, not a fixed .tmp'
+        Assert-True ($script:txt -notmatch '"\$testConfigFile\.tmp"') 'test-config temp must be unique, not a fixed .tmp'
+        Assert-True ($script:txt -notmatch '"\$filePath\.tmp"')       'diagnostics temp must be unique, not a fixed .tmp'
     }
 
     It '[IO.File]::Move overwrite atomically replaces an existing destination and consumes the temp' {

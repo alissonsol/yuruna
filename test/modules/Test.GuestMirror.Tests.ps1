@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e3dca5-b895-4c27-bb43-907134f1b511
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,7 @@ BeforeDiscovery {
 }
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Import-Module (Join-Path $PSScriptRoot 'Test.FrameworkSource.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
@@ -37,9 +38,7 @@ BeforeAll {
             }, $true)) { . ([scriptblock]::Create($definition.Extent.Text)) }
     function Invoke-GuestMirrorFixtureGit {
         param([string]$Path, [string[]]$Arguments)
-        $result = @(& git -C $Path @Arguments 2>&1)
-        if ($LASTEXITCODE -ne 0) { throw "Fixture Git failed: $($result -join ' ')" }
-        return ($result -join "`n").Trim()
+        return ((Invoke-YurunaTestGit -Path $Path -Argument $Arguments) -join "`n").Trim()
     }
 }
 
@@ -94,9 +93,7 @@ Describe 'Windows standalone framework materialization' {
         $script:Root = Join-Path $TestDrive ([Guid]::NewGuid().ToString('N'))
         $script:Upstream = Join-Path $script:Root upstream
         [IO.Directory]::CreateDirectory($script:Upstream) | Out-Null
-        $null = Invoke-GuestMirrorFixtureGit $script:Upstream @('init', '--quiet', '--initial-branch=main')
-        $null = Invoke-GuestMirrorFixtureGit $script:Upstream @('config', 'user.name', 'fixture')
-        $null = Invoke-GuestMirrorFixtureGit $script:Upstream @('config', 'user.email', 'fixture@example.invalid')
+        $null = New-YurunaTestGitRepository -Path $script:Upstream
         [IO.File]::WriteAllText((Join-Path $script:Upstream VERSION), '1.2.3')
         foreach ($excluded in @('docs', 'dev-only')) {
             [IO.Directory]::CreateDirectory((Join-Path $script:Upstream $excluded)) | Out-Null

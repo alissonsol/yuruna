@@ -10,6 +10,14 @@ const DatazhCNdownload = `{
   "download.actions": "操作",
   "download.actions_need_the_internal_authentication_key_as_a_bearer": "执行操作需要使用内部身份验证密钥作为bearer令牌",
   "download.api_arch_query_parameter_is_required_amd64_or_arm64": "必须提供arch查询参数（amd64或arm64）",
+  "download.api_delete_refused_reason": [
+    "删除被拒绝：",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "download.api_detail": [
     {
       "arg": "detail",
@@ -30,6 +38,14 @@ const DatazhCNdownload = `{
   "download.api_no_image_store_configured": "未配置镜像存储",
   "download.api_pool_refresh_refused_reason": [
     "池刷新被拒绝：",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "download.api_prune_refused_reason": [
+    "清理被拒绝：",
     {
       "arg": "reason",
       "type": "detail",

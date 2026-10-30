@@ -173,12 +173,16 @@ const DataheILaggregator = `{
   "aggregator.failed_to_encode_scrape_targets": "קידוד יעדי איסוף המדדים נכשל",
   "aggregator.failed_to_seal_the_token": "איטום האסימון נכשל",
   "aggregator.forget_host_disabled_no_auth_token_configured": "forget-host מושבת (לא הוגדר אסימון אימות)",
+  "aggregator.framework_ring_canary_invalid": "canary חייב לפרט מזהי מארח שמתחילים ב-42 (עד 64), מופרדים בפסיקים",
+  "aggregator.framework_ring_passes_invalid": "passes חייב להיות מספר שלם בין 1 ל-1000",
   "aggregator.help_address_to_listen_on_59add3f5": "כתובת להאזנה",
   "aggregator.help_allow_pseudo": "אפשרו הגדרות אזור מדומות לצורכי אבחון",
   "aggregator.help_display_language": "שפת תצוגה: auto או הגדרת אזור נתמכת",
   "aggregator.help_distinct_hosts_that_must_fail_within_cross_host_window_5475f083": "מספר המארחים השונים שחייבים להיכשל בתוך -cross-host-window כדי לפתוח אירוע תקלה בכלל המאגר",
   "aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1": "הסירו מארח מתצוגת המאגר לאחר שחלף פרק זמן זה מאז הקשר האחרון; מצב מניעת הכפילויות שלו לכל מחזור נשמר שעה נוספת כדי שמארח שמופיע מחדש לא ייספר פעמיים, וקישורים עמוקים ללוח הבקרה ממשיכים לפעול במשך לפחות 24h בכל מקרה. מוני pass⁦/fail⁩ המצטברים אינם מתאפסים בעקבות זאת -- השתמשו בפקודה POST ⁦/api/v1/forget-host⁩",
   "aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952": "קובץ המכיל את אסימון ה-Bearer המשותף הנדרש עבור ⁦POST /ingest⁩, ⁦POST /api/v1/forget-host⁩, ⁦POST /api/v1/handover-host⁩ ו-⁦GET /api/v1/host-history⁩; אם הנתיב ריק, הקובץ חסר או הקובץ ריק, פעולות אלה מושבתות (אין נתיב בקרה ללא אימות)",
+  "aggregator.help_framework_ring_state_file": "קובץ ששומר את גרסת ה-framework שכל מחזור שהושלם בכל מארח הריץ, כדי שטבעת הקנרית תשרוד הפעלה מחדש (ריק שומר אותה בזיכרון)",
+  "aggregator.help_loki_outbox_dir": "תיקייה ששומרת שורות Loki עד ש-Loki מקבל אותן (ריק שומר אותן בזיכרון, והן אובדות באתחול)",
   "aggregator.help_loki_push_api_url_c89d9321": "כתובת URL של ממשק הדחיפה של Loki",
   "aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f": "בעת ההפעלה, שחזרו את ספירות המחזורים מתוך Loki עבור חלון זמן זה לאחור (0 להשבתה)",
   "aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc": "פתחו אירוע תקלה לאחר מספר זה של מחזורים שנכשלו בתוך -incident-window",
@@ -197,6 +201,7 @@ const DataheILaggregator = `{
   "aggregator.host_not_known_to_the_pool": "המארח אינו מוכר למאגר",
   "aggregator.hostid_must_be_a_42_prefixed_32_hex_id": "hostId חייב להיות מזהה בן 32 ספרות הקסדצימליות המתחיל ב-42",
   "aggregator.ingest_disabled": "הקליטה מושבתת",
+  "aggregator.ingest_queue_full": "האוסף אינו יכול לשמור את השורות האלה כעת; נסו שוב מאוחר יותר",
   "aggregator.invalid_control_scope": "היקף בקרה לא חוקי",
   "aggregator.invalid_hostid": "hostId אינו תקין",
   "aggregator.invalid_hostid_or_area": "hostId או אזור אינם תקינים",
@@ -261,6 +266,36 @@ const DataheILaggregator = `{
       "trust": "external"
     },
     "); הרשומה נשארת מוסתרת עד שהשירות מכריז שוב או שזמן החיים של ההכרזה פג והיא מוסרת"
+  ],
+  "aggregator.log_framework_ring_state_unreadable": [
+    "טבעת ה-framework: לא ניתן לקרוא את ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); מתחילים ממה שהמארחים ידווחו בהמשך"
+  ],
+  "aggregator.log_framework_ring_state_unwritten": [
+    "טבעת ה-framework: לא ניתן לכתוב את ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); הגרסאות נשארות בזיכרון עד שכתיבה תצליח"
   ],
   "aggregator.log_host_metrics_port_value1_is_not_a_valid_port_keeping_t_e686d724": [
     "host-metrics-port ",
@@ -350,6 +385,76 @@ const DataheILaggregator = `{
       "trust": "external"
     },
     "); הקודים הקודמים נשמרים"
+  ],
+  "aggregator.log_loki_not_ready": [
+    "Loki לא היה מוכן אחרי ",
+    {
+      "arg": "duration",
+      "type": "detail",
+      "trust": "external"
+    },
+    "; קוראים ממנו בכל זאת"
+  ],
+  "aggregator.log_loki_outbox_enqueue_failed": [
+    {
+      "arg": "what",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": לא ניתן היה להכניס את השורה לתור של Loki: ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "aggregator.log_loki_outbox_full": [
+    "תור היציאה של Loki מלא (",
+    {
+      "arg": "lines",
+      "type": "detail",
+      "trust": "external"
+    },
+    " שורות); שורות חדשות נדחות עד ש-Loki יקבל חלק מהן"
+  ],
+  "aggregator.log_loki_outbox_memory_only": [
+    "תור היציאה של Loki: לא ניתן להשתמש ב-",
+    {
+      "arg": "dir",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); השורות ממתינות בזיכרון ואתחול מאבד אותן"
+  ],
+  "aggregator.log_loki_outbox_refused": [
+    "Loki דחה שורה מהתור (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); היא מושלכת"
+  ],
+  "aggregator.log_loki_outbox_unreadable": [
+    "תור היציאה של Loki: לא ניתן לקרוא את ",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); הוא מושלך"
   ],
   "aggregator.log_pool_aggregator_service_listening_on_value1_value2_poo_b30f8764": [
     "pool-aggregator-service מאזין ב-",

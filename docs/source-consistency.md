@@ -87,6 +87,33 @@ a surprising constraint. Stable heading IDs keep source references valid through
 renames and translation; generate the anchor manifest and link catalog after
 adding a target.
 
+<a id="42e220c4-001a"></a>
+
+## Comment placement
+
+The same split holds in every language, Go and JavaScript as much as
+PowerShell and shell:
+
+- **Contract at the code.** A doc comment says what the function or type does,
+  what it returns, what a caller must hold (a lock, a context) and what it must
+  not assume. A short comment marks an invariant or a surprise at the line it
+  guards.
+- **Rationale in the docs.** An explanation of why that runs longer than about eight lines
+  -- the failure that shaped the code, the alternatives rejected, how a
+  protocol or a peer behaves -- goes to a section of the component's
+  documentation (its implementation notes, or the guide it already has), and the
+  code keeps a one- or two-line summary with `See https://yuruna.link/<file>-<anchor>`,
+  or a `REGION:` link for a block.
+- **Kept local when moving it would hide it.** A lock ordering, a security
+  precondition or a "do not reorder" stays beside the code even when long, with
+  the fuller story linked.
+
+The rule is applied as files are edited, longest blocks first; it is not a gate.
+The Go services keep their remaining long rationale inline until they are next edited:
+[stash-implementation-notes.md](stash-implementation-notes.md) and
+[pool-aggregator-implementation-notes.md](pool-aggregator-implementation-notes.md)
+hold what has moved.
+
 <a id="42e220c4-0003"></a>
 
 ## Image acquisition
@@ -164,7 +191,10 @@ the relevant remedy rather than an unconditional Xcode instruction.
 `archive-virtio/`. The stable/latest convenience links can redirect through
 HTTP, which strict HTTPS clients and an inspecting proxy may refuse. To update
 the pin, find the version in `stable-virtio/` and select its concrete archived
-HTTPS file. This driver image uses the download-agent path before any origin
+HTTPS file, then record that file's SHA-256 beside the URL (`$virtioSha256`;
+Fedora publishes no checksum for the ISO) and move the download agent's
+`virtioWinURL` with it: the KVM Get-Image refuses bytes whose digest differs,
+whichever path served them. This driver image uses the download-agent path before any origin
 HEAD request; a healthy agent can satisfy a matching four-line sentinel without
 transferring bytes. A missing or failing agent leaves direct downloading
 available. Preserve the agent's original URL, size, and Last-Modified together;
@@ -337,6 +367,39 @@ may proceed when its final state and disk-lock checks establish safety.
 Saves attempt graceful shutdown first; rollback may force-stop because the
 current writes will be discarded.
 
+Every driver saves a snapshot through one algorithm,
+`Invoke-YurunaDiskSnapshotSave` in `Yuruna.HostProvision`, and supplies only
+the primitives that differ (state, snapshot state, stop, rename, remove, take
+snapshot). An earlier persisted VM with the snapshot's name is renamed aside to
+`<Id>.previous` instead of blocking the save, the working VM is renamed to
+`<Id>`, and the snapshot is taken under that final name: a KVM snapshot freezes
+the domain's name and disk paths, so one taken before the rename points at
+storage the rename moved. Only when the new snapshot is listed is the aside
+removed; a failed rename or snapshot renames both VMs back, so the earlier
+snapshot keeps its name. An aside left by an interrupted save is settled at
+the next save of that name: removed when `<Id>` holds a verified snapshot,
+renamed back otherwise, and the save stops when it cannot tell which.
+
+When the bounded call that takes a Hyper-V checkpoint does not list it back,
+the driver keeps reading, for a bounded number of polls, both the module's
+listing, which the verification and the next restore read by name, and the
+checkpoints Hyper-V records for the VM's Id (`Msvm_VirtualSystemSettingData`,
+keyed by an Id that a rename and a storage move leave unchanged). The save goes
+on once the module lists the checkpoint. Otherwise it fails with one of three
+warnings: the listing failed or reached its cap during the wait; Hyper-V holds
+the checkpoint but the module did not list it within the wait; or neither shows
+it, and the warning names what `Checkpoint-VM` returned, what the creating call
+listed and what Hyper-V holds, which tells a checkpoint under another name from
+one that was never made. The snapshot-state probe that verifies the save, and
+that a restore checks first, lists in a bounded call of its own; a listing that
+fails or reaches the cap reads as unknown, never as absent. A rename
+refuses a destination folder only when it holds a file of a kind the storage
+move writes (a disk, the configuration or a checkpoint): the move leaves the
+guest's seed ISO in its old folder, and a rename back into that folder must
+not be refused for it. A rename that returns a VM to the name it had before
+restores the NIC address it carried under that name, so a rolled-back save
+leaves the guest on the address it was built with.
+
 Teardown also removes managed-save, snapshot, checkpoint, and NVRAM metadata
 where libvirt supports them. A failed domain inventory is an error, not evidence
 that the VM is absent. The shared SSH key must match the harness diagnostics key;
@@ -362,6 +425,45 @@ the active provider and qualify native Hyper-V calls. New contract operations
 must exist in every provider before callers use them. Check actual module
 exports, propagate inventory errors, and keep active neighbor refresh separate
 from passive address reads.
+
+A host driver is its root module, `host/<driver>/modules/Yuruna.Host.psm1`,
+plus part files beside it, one per responsibility (`Yuruna.Host.<Part>.ps1`).
+The root loads each part with one line,
+`. (Join-Path $PSScriptRoot 'Yuruna.Host.<Part>.ps1')`, at the place the part's
+code runs from, so every function keeps the module's scope and run order,
+`Mock -ModuleName Yuruna.Host` still reaches it and `$PSScriptRoot` is the same
+folder; `Export-ModuleMember` and the contract-coverage assertion stay at the end
+of the root. A function is defined in exactly one of a driver's files
+(`Test.DriverSource.Tests.ps1`), and suites read a driver through
+`Test.DriverSource` or the shared AST and text readers, never by opening the
+root file alone.
+
+Every hypervisor call a contract verb makes is bounded, so a hypervisor that
+accepts a request and never answers becomes a classified fault inside a
+deadline instead of a step-watchdog kill. KVM runs every `virsh` call, and the
+builders' `virt-install` calls, under a cap (`Invoke-Virsh`,
+`Invoke-VirshBounded`, `Invoke-BoundedNativeCommand`); Hyper-V runs its
+lifecycle cmdlets in a thread job under a cap (`Invoke-HyperVBoundedCall`,
+`Invoke-HyperVLifecycleCmdlet`), and its test-guest builders send every
+Hyper-V cmdlet, named module-qualified, through
+`Invoke-HyperVGuestBuildCmdlet`; UTM goes through its bounded `utmctl`
+wrappers. A verb that returns a result record reports a call that did not
+answer as `failureClass` `hypervisor_unresponsive`, a builder records the
+`unresponsive` kind for its stage (and `tool` for a refusal), and a verb that
+returns a bool returns `$false` within the cap.
+`Yuruna.HostReliability.Tests.ps1` fails on a raw hypervisor call in a driver
+module or a KVM or Hyper-V test-guest builder.
+
+Host port forwards have owners. `Add-PortMap` and `Remove-PortMap` take a
+mandatory `-Owner` (the service name), and one host-level record
+(`Get-PortMapStatePath`, schema `yuruna.portmap/v2`) says which owner holds
+each forwarded host port. A call changes only its owner's forwarders and
+refuses a host port another owner holds, so the caching proxy's per-cycle
+re-map no longer removes the stash, pool-control and download-agent forwards.
+KVM and Hyper-V replace the owner's forwarders with the list a call gives; UTM
+is additive per port, as before. A forward no owner records was installed
+before owners were recorded: `Add-PortMap` replaces one on a port it installs,
+and `Remove-PortMap` removes them all, as the clear-all it replaces did.
 
 Host automation setup captures original settings once before changing them.
 Disable restores that capture, removes only provably Yuruna-owned additions if
@@ -1596,11 +1698,11 @@ change alone does not prove the panel finished its collapse transition.
 
 ### Image acquisition and build boundaries
 
-A workload first reuses local images. When a cache is configured, it pulls the registry image explicitly as `<cache>:5000/library/registry:2`; a bare Docker Hub reference could let Docker abandon a slow mirror and consume the lab's upstream quota. In a lab without a cache, `registry:2` is the appropriate upstream reference. Five attempts with increasing delays tolerate a cache VM restart. Final diagnostics identify the actual source: an unavailable cache, an unavailable upstream, a slow response, or throttling. See [registry startup](https://yuruna.link/42f6b05f-0019).
+A workload first reuses local images. When a cache is configured, it pulls the registry image explicitly as `<cache>:5000/library/registry:2`; a bare Docker Hub reference could let Docker abandon a slow mirror and consume the lab's upstream quota. In a lab without a cache, `registry:2` is the appropriate upstream reference. Five attempts with increasing delays tolerate a cache VM restart. Final diagnostics identify the actual source: an unavailable cache, an unavailable upstream, a slow response, or throttling. The registry's port is published on `127.0.0.1` only, because the deployment client and the node that pulls from it share the guest; a container an earlier run published on every address is created again. See [registry startup](https://yuruna.link/42f6b05f-0019).
 
 `warm_manifest` holds a bounded curl request open while a cold tag synchronizes. Docker's own response-header timeout can be shorter than this synchronization; increasing the surrounding pull timeout does not change Docker's internal limit. Warm-up is advisory and records HTTP status, elapsed time, and curl's exit code so connection refusal, DNS failure, and timeout remain distinguishable. The subsequent pull owns success or failure. `YURUNA_PULL_STALL_TIMEOUT` bounds elapsed pull time, not progress, and can be increased for slow links.
 
-Base images are acquired from the local Docker store, then the configured cache, then MCR, and seeded into the project's local distribution registry. Cache probes include the upstream namespace. Builds use that local registry for `FROM` metadata and layers so a remote metadata fetch cannot wedge a single opaque build invocation. The image lists must match Dockerfile `FROM` lines. Both shell and PowerShell seed paths skip images already available at the required destination. See [local base-image seeding](https://yuruna.link/42f6b05f-001a).
+Base images are acquired from the local Docker store, then the configured cache, then MCR, and seeded into the project's local distribution registry. Cache probes include the upstream namespace. Builds use that local registry for `FROM` metadata and layers so a remote metadata fetch cannot wedge a single opaque build invocation. Both paths read the image list from the Dockerfile's `FROM ${REGISTRY}` lines and the upstream from its `REGISTRY` default, so the Dockerfile is the only place the base-image identity is written. Both shell and PowerShell seed paths skip images already available at the required destination. See [local base-image seeding](https://yuruna.link/42f6b05f-001a).
 
 Shell command bounds use `timeout --foreground` to avoid stopping terminal-dependent children with SIGTTIN/SIGTTOU, returning 124 for retryable expiry. If `timeout` is unavailable the command runs without that bound. PowerShell's Docker wrapper bounds the process tree and keeps command output off the success stream, which contains only the exit code.
 
@@ -1775,6 +1877,16 @@ unrelated providers must survive a suite running in an existing session.
 After changing documentation links, run `tools/Invoke-DocAnchor.ps1 -Update`,
 `tools/Update-LinkCatalog.ps1 -Update`, and `tools/Test-RegionAnchors.ps1 -Quiet`
 with the project and link repositories checked out beside the framework.
+
+An implementation-note heading names the code it explains, either as
+`## <path>: <region>` or as a heading followed by a backticked `<repo>/<path>`
+line, and that code points back from directly under its REGION marker. When
+code is reorganized the pointer moves with its block, so after moving or
+renaming regions run `tools/Invoke-DocAnchor.ps1 -Check -HeadingRegion` and
+rename each reported heading to the region its pointer now sits in. The report
+skips a pointer inside a function body or under a link-named marker, and a
+section whose pointers sit in more than one region, and it does not change the
+exit code.
 The anchor gate also scans the AmisAd checkout and accepts extra source roots;
 Git ignores continue to exclude generated artifacts. Anchor generation accepts
 LF and CRLF equally so a Windows checkout cannot reissue existing heading IDs.
@@ -2604,6 +2716,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

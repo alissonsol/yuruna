@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42267d15-1bc0-481c-b068-2bb6d74f5ffb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
     Enroll THIS host in the lab: redeem the dashboard's Lab token for the
     internal authentication key and store it in the host vault (idempotent).
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-0080.
 .PARAMETER LabToken
     The 6-character code currently shown on the dashboard's "Lab token" tile
     (lowercase letters and digits; case and surrounding spaces are
@@ -89,7 +89,7 @@ Import-Module (Join-Path $PSScriptRoot '../modules/Test.ConfigServiceSync.psm1')
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -DisableNameChecking
 
 # --- REGION: Resolve the aggregator base URL
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-007f
 $addressSource = ''
 $proxyAddress  = ''
 $baseUrl       = ''
@@ -168,16 +168,20 @@ if ($provision.ok -and $proxyAddress -and ($addressSource -in @('parameter', 'pr
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.StateFile.psm1')  -Global -Force -DisableNameChecking
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.ConfigSync.psm1') -Force -DisableNameChecking
         if (Test-Path -LiteralPath $configPath) {
-            $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
-            if ($null -eq $cfg) { $cfg = [ordered]@{} }
-            if (-not ($cfg['vmStart'] -is [System.Collections.IDictionary])) { $cfg['vmStart'] = [ordered]@{} }
-            $current = "$($cfg['vmStart']['cachingProxyIp'])".Trim()
-            if ($current -eq $proxyAddress) {
-                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d24bb1160e14f86a' -Arguments @{ proxyAddress = "$proxyAddress" }) -InformationAction Continue
-            } else {
-                $cfg['vmStart']['cachingProxyIp'] = $proxyAddress
-                if (-not (Write-DocumentedTestConfig -ConfigPath $configPath -Config $cfg -Confirm:$false)) { throw 'Configuration update could not be written.' }
-                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a7167078df8a485b' -Arguments @{ proxyAddress = "$proxyAddress" }) -InformationAction Continue
+            # Read and write under the config's write lock, so a change another
+            # writer makes in between is not overwritten.
+            Use-TestConfigLock -Path $configPath -Action {
+                $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
+                if ($null -eq $cfg) { $cfg = [ordered]@{} }
+                if (-not ($cfg['vmStart'] -is [System.Collections.IDictionary])) { $cfg['vmStart'] = [ordered]@{} }
+                $current = "$($cfg['vmStart']['cachingProxyIp'])".Trim()
+                if ($current -eq $proxyAddress) {
+                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d24bb1160e14f86a' -Arguments @{ proxyAddress = "$proxyAddress" }) -InformationAction Continue
+                } else {
+                    $cfg['vmStart']['cachingProxyIp'] = $proxyAddress
+                    if (-not (Write-DocumentedTestConfig -ConfigPath $configPath -Config $cfg -Writer 'lab-token' -Confirm:$false)) { throw 'Configuration update could not be written.' }
+                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a7167078df8a485b' -Arguments @{ proxyAddress = "$proxyAddress" }) -InformationAction Continue
+                }
             }
         } else {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_4e417088d8a65a6f' -Arguments @{ proxyAddress = "$proxyAddress" })
@@ -188,7 +192,7 @@ if ($provision.ok -and $proxyAddress -and ($addressSource -in @('parameter', 'pr
 }
 
 # --- REGION: Seed the pool configuration store binding
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-007e
 $poolHost = if ($proxyAddress) { $proxyAddress } elseif ($baseUrl) { ([uri]$baseUrl).Host } else { '' }
 if ($provision.ok -and $poolHost -and -not $NoPoolConfig) {
     $configPath = Join-Path $PSScriptRoot '../test.config.yml'
@@ -199,31 +203,34 @@ if ($provision.ok -and $poolHost -and -not $NoPoolConfig) {
         if (-not (Test-Path -LiteralPath $configPath)) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8e8fecb6ffc7d3d6')
         } else {
-            $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
-            if ($null -eq $cfg) { $cfg = [ordered]@{} }
-            if (-not ($cfg['pool'] -is [System.Collections.IDictionary])) { $cfg['pool'] = [ordered]@{} }
-            $existingUrl = "$($cfg['pool']['configurationGitUrl'])".Trim()
-            # The READ-ONLY http url. The writable path (a file:// or local
-            # path to the bare repo) is for admin commands run ON the proxy;
-            # a runner must never hold a writable remote.
-            $configurationUrl = "http://$poolHost/pool-configuration.git"
-            # See https://yuruna.link/42010605-0003
-            $isOwnStaleSeed = $existingUrl -and
-                              ($existingUrl -ne $configurationUrl) -and
-                              ($existingUrl -match '^http://[^/]+/pool-configuration\.git$')
-            if ($existingUrl -and -not $isOwnStaleSeed) {
-                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_416973ff9c4b82f2' -Arguments @{ existingUrl = "$existingUrl" }) -InformationAction Continue
-            } else {
-                if ($isOwnStaleSeed) {
-                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b5e4a53c200e2211' -Arguments @{ existingUrl = "$existingUrl"; configurationUrl = "$configurationUrl" }) -InformationAction Continue
+            # Read and write under the config's write lock, as above.
+            Use-TestConfigLock -Path $configPath -Action {
+                $cfg = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
+                if ($null -eq $cfg) { $cfg = [ordered]@{} }
+                if (-not ($cfg['pool'] -is [System.Collections.IDictionary])) { $cfg['pool'] = [ordered]@{} }
+                $existingUrl = "$($cfg['pool']['configurationGitUrl'])".Trim()
+                # The READ-ONLY http url. The writable path (a file:// or local
+                # path to the bare repo) is for admin commands run ON the proxy;
+                # a runner must never hold a writable remote.
+                $configurationUrl = "http://$poolHost/pool-configuration.git"
+                # See https://yuruna.link/42010605-007d
+                $isOwnStaleSeed = $existingUrl -and
+                                  ($existingUrl -ne $configurationUrl) -and
+                                  ($existingUrl -match '^http://[^/]+/pool-configuration\.git$')
+                if ($existingUrl -and -not $isOwnStaleSeed) {
+                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_416973ff9c4b82f2' -Arguments @{ existingUrl = "$existingUrl" }) -InformationAction Continue
+                } else {
+                    if ($isOwnStaleSeed) {
+                        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b5e4a53c200e2211' -Arguments @{ existingUrl = "$existingUrl"; configurationUrl = "$configurationUrl" }) -InformationAction Continue
+                    }
+                    $cfg['pool']['configurationGitUrl'] = $configurationUrl
+                    # enabled goes WITH the url: configurationGitUrl alone is inert, so
+                    # seeding one without the other would look configured and do
+                    # nothing.
+                    $cfg['pool']['enabled'] = $true
+                    if (-not (Write-DocumentedTestConfig -ConfigPath $configPath -Config $cfg -Writer 'lab-token' -Confirm:$false)) { throw 'Configuration update could not be written.' }
+                    Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e178d69f96491585' -Arguments @{ configurationUrl = "$configurationUrl" }) -InformationAction Continue
                 }
-                $cfg['pool']['configurationGitUrl'] = $configurationUrl
-                # enabled goes WITH the url: configurationGitUrl alone is inert, so
-                # seeding one without the other would look configured and do
-                # nothing.
-                $cfg['pool']['enabled'] = $true
-                if (-not (Write-DocumentedTestConfig -ConfigPath $configPath -Config $cfg -Confirm:$false)) { throw 'Configuration update could not be written.' }
-                Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e178d69f96491585' -Arguments @{ configurationUrl = "$configurationUrl" }) -InformationAction Continue
             }
         }
     } catch {

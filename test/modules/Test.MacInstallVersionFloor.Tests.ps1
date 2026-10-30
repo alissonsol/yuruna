@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4207f1a4-6b1e-4c0a-9a05-9b2a1f6c3d77
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -405,5 +405,64 @@ bring_tools_to_required_versions
             Assert-Match ([regex]::Escape("'pwsh' resolves to $root/sysbin/pwsh")) $r.Output `
                 'the report has to name the binary that answered, not only the version it gave'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'record_dotnet_install_location keeps the operator''s .NET runtime location' -Skip:$IsWindows {
+    # The machine-wide location file is operator configuration: Microsoft's SDK
+    # package records its own runtime there. A built-in default (Homebrew's
+    # runtime) fills only an absent, blank or dead value, and a replacement is
+    # reported as previous -> new with the old file kept beside it.
+    BeforeAll {
+        $script:DotnetLifted = Get-YurunaTestShellFunction -Text $installerText -Name 'record_dotnet_install_location'
+        $script:DotnetPrelude = @'
+set -euo pipefail
+log()  { printf 'LOG %s\n' "$*"; }
+note_issue() { printf 'ISSUE %s\n' "$*"; }
+sudo() { "$@"; }
+'@
+        function Invoke-DotnetLocation {
+            param([string]$Root, [string]$Previous)
+            New-Item -ItemType Directory -Path (Join-Path $Root 'brew/libexec'), (Join-Path $Root 'etc') -Force | Out-Null
+            $file = Join-Path $Root 'etc/dotnet/install_location_arm64'
+            if ($null -ne $Previous) {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $file) -Force | Out-Null
+                [IO.File]::WriteAllText($file, "$Previous`n")
+            }
+            $body = @($script:DotnetPrelude, $script:DotnetLifted, "record_dotnet_install_location '$file' '$Root/brew/libexec'") -join "`n"
+            $run = Invoke-YurunaTestShell -Body $body
+            return @{ Run = $run; File = $file; Wanted = "$Root/brew/libexec" }
+        }
+    }
+
+    It 'keeps a location that names an existing runtime directory, unchanged on disk' {
+        $root = Join-Path $TestDrive 'kept'
+        $operator = Join-Path $root 'usr/local/share/dotnet'
+        New-Item -ItemType Directory -Path $operator -Force | Out-Null
+        $r = Invoke-DotnetLocation -Root $root -Previous $operator
+        $r.Run.ExitCode | Should -Be 0
+        [IO.File]::ReadAllText($r.File) | Should -BeExactly "$operator`n"
+        $r.Run.Output | Should -Match ([regex]::Escape("Keeping the .NET runtime location in $($r.File): $operator"))
+        @(Get-ChildItem -LiteralPath (Split-Path -Parent $r.File) -Filter '*.yuruna-backup.*') | Should -HaveCount 0
+    }
+
+    It 'replaces a location whose directory is gone, reporting previous -> new and keeping a backup' {
+        $root = Join-Path $TestDrive 'stale'
+        $dead = Join-Path $root 'missing/dotnet'
+        $r = Invoke-DotnetLocation -Root $root -Previous $dead
+        $r.Run.ExitCode | Should -Be 0
+        [IO.File]::ReadAllText($r.File) | Should -BeExactly "$($r.Wanted)`n"
+        $r.Run.Output | Should -Match ([regex]::Escape("install_location: $dead -> $($r.Wanted)"))
+        $backup = @(Get-ChildItem -LiteralPath (Split-Path -Parent $r.File) -Filter '*.yuruna-backup.*')
+        $backup | Should -HaveCount 1
+        [IO.File]::ReadAllText($backup[0].FullName) | Should -BeExactly "$dead`n"
+    }
+
+    It 'records the location when no file exists' {
+        $root = Join-Path $TestDrive 'absent'
+        $r = Invoke-DotnetLocation -Root $root -Previous $null
+        $r.Run.ExitCode | Should -Be 0
+        [IO.File]::ReadAllText($r.File) | Should -BeExactly "$($r.Wanted)`n"
+        $r.Run.Output | Should -Match 'Recording the .NET runtime location'
     }
 }

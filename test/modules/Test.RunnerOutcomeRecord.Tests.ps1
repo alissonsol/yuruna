@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f816f3-f8fb-4c0a-84b9-8070c8990937
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,7 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here '../../automation/Yuruna.Common.psm1') -Force -Global -DisableNameChecking
@@ -135,7 +136,7 @@ Describe 'Invoke-OuterCycleDispatch scores a cycle only from a valid outcome rec
     BeforeEach {
         $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('outdisp-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
-        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
         $script:CycleScript = Join-Path $script:Dir 'cycle.ps1'
         Set-Content -LiteralPath $script:CycleScript -Value '# fixture' -Encoding utf8
@@ -158,7 +159,7 @@ Describe 'Invoke-OuterCycleDispatch scores a cycle only from a valid outcome rec
     }
     AfterEach {
         Remove-Item Env:OUTREC_FIXTURE_TEXT, Env:OUTREC_FIXTURE_EXIT -ErrorAction SilentlyContinue
-        if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
     }
 

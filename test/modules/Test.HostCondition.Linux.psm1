@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4264541c-67da-418e-bf26-a11eb9662af8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,6 +29,11 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 # without -Force so an already-loaded copy, whose commands other modules hold,
 # is reused instead of being evicted into this module's private scope.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking
+
+# The condition the last Assert-LinuxHostConditionSet refused on; see
+# Get-LinuxHostConditionFailure.
+$script:HostConditionFailure = $null
+
 function Read-LibvirtGroupFact {
     <#
     .SYNOPSIS
@@ -250,6 +255,7 @@ function Assert-LinuxHostConditionSet {
     [CmdletBinding()]
     [OutputType([bool])]
     param([string]$HostType)
+    $script:HostConditionFailure = $null
     if ($HostType -ne 'host.ubuntu.kvm') { return $true }
     # --- REGION: Host clock drift warning
     # See https://yuruna.link/42d38664-001a
@@ -266,6 +272,7 @@ function Assert-LinuxHostConditionSet {
     }
     # --- REGION: Diagnose which precondition failed
     if (-not (Test-Path -LiteralPath '/dev/kvm')) {
+        $script:HostConditionFailure = [pscustomobject]@{ Condition = 'kvm-device'; Detail = '/dev/kvm absent' }
         Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_43e66f1b323df1ce')
         return $false
     }
@@ -282,6 +289,7 @@ function Assert-LinuxHostConditionSet {
         $socketRaw = & systemctl is-active libvirtd.socket 2>$null
         $socketActive = if ($socketRaw) { "$socketRaw".Trim() } else { '' }
         if ($socketActive -ne 'active') {
+            $script:HostConditionFailure = [pscustomobject]@{ Condition = 'libvirtd'; Detail = "libvirtd=$active libvirtd.socket=$socketActive" }
             Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_5bd775f79ee13443' -Arguments @{ active = "$active" })
             return $false
         }
@@ -295,6 +303,7 @@ function Assert-LinuxHostConditionSet {
     # as "not in the libvirt group" would send the operator to re-run the
     # installer for a membership that may well be in place.
     if (-not $groupState.Resolved) {
+        $script:HostConditionFailure = [pscustomobject]@{ Condition = 'libvirt-group'; Detail = 'membership unresolved' }
         Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_71200c53c662e070')
         return $false
     }
@@ -309,15 +318,32 @@ function Assert-LinuxHostConditionSet {
     if (-not $me) { $me = $env:USER }
     $me = ([string]$me).Trim()
     if ($libvirtMembers -contains $me -and $activeGroups -notcontains 'libvirt') {
+        $script:HostConditionFailure = [pscustomobject]@{ Condition = 'libvirt-group'; Detail = 'member, not in the active group set' }
         Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_6086c8f7e49eae24' -Arguments @{ me = "$me" })
         return $false
     }
     if ($libvirtMembers -notcontains $me) {
+        $script:HostConditionFailure = [pscustomobject]@{ Condition = 'libvirt-group'; Detail = 'not a member' }
         Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_af9331d7fcad1b25' -Arguments @{ me = "$me" })
         return $false
     }
+    $script:HostConditionFailure = [pscustomobject]@{ Condition = 'virtualization'; Detail = 'virsh round-trip failed' }
     Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_71200c53c662e070')
     return $false
+}
+
+function Get-LinuxHostConditionFailure {
+    <#
+    .SYNOPSIS
+        The condition the last Assert-LinuxHostConditionSet refused on, or
+        $null after a pass; the host-condition provider's Failure reader.
+    .OUTPUTS
+        [pscustomobject] Condition, Detail.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    return $script:HostConditionFailure
 }
 
 function Test-LinuxHostMinimum {
@@ -352,4 +378,4 @@ function Test-LinuxHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Get-LibvirtGroupState, Assert-LinuxHostConditionSet, Test-LinuxHostMinimum, Sync-LinuxHostClock
+Export-ModuleMember -Function Get-LibvirtGroupState, Assert-LinuxHostConditionSet, Get-LinuxHostConditionFailure, Test-LinuxHostMinimum, Sync-LinuxHostClock

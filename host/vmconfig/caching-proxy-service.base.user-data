@@ -379,6 +379,17 @@ write_files:
       refresh_pattern -i ^https?://contracts\.canonical\.com/              60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
       refresh_pattern -i ^https?://livepatch\.canonical\.com/              60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
 
+      # --- REGION: PowerShell Gallery package downloads
+      # See https://yuruna.link/42f6b05f-005c
+      # File a versioned package request under the CDN object it redirects to, so
+      # a stored package is served without asking the gallery.
+      acl yuruna_gallery_package url_regex -i ^https?://www\.powershellgallery\.com/api/v2/package/[^/]+/[^/?#]+$
+      store_id_program /usr/lib/squid/storeid_file_rewrite /etc/squid/yuruna-store-id.rules
+      store_id_children 2 startup=1 idle=1 concurrency=0
+      store_id_access allow yuruna_gallery_package
+      store_id_access deny all
+      refresh_pattern -i ^https?://cdn\.powershellgallery\.com/packages/    525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+
       logfile_rotate 2
 
       # --- REGION: TLS interception
@@ -411,6 +422,14 @@ write_files:
       # would clutter the client log, but without it the VM's own egress leaves
       # no trace and a stalled local service cannot be told from a stalled client.
       access_log stdio:/var/log/squid/yuruna_loopback.log yuruna yuruna_selfscrape
+  # --- REGION: PowerShell Gallery package store ID rules
+  # See https://yuruna.link/42f6b05f-005c
+  # One tab-separated rule and no comment lines, which the helper rejects; the
+  # double-quoted scalar carries the tab as an escape.
+  - path: /etc/squid/yuruna-store-id.rules
+    permissions: '0644'
+    owner: root:root
+    content: "^(https?)://www\\.powershellgallery\\.com/api/v2/package/([^/\\s]+)/([^/?#\\s]+)(?:\\s|$)\t$1://cdn.powershellgallery.com/packages/$2.$3.nupkg\n"
   # --- REGION: https://yuruna.link/42f6b05f-0016
   - path: /usr/share/squid/errors/templates/ERR_YURUNA_NO_UPSTREAM
     permissions: '0644'
@@ -1825,10 +1844,20 @@ write_files:
       fi
 
       # See https://yuruna.link/42f6b05f-0020
-      # Resolve the latest tag and its manifest exactly as the guest does.
-      FLANNEL_TAG=$(curl -fsSI --noproxy '*' -m 20 \
-          "https://github.com/flannel-io/flannel/releases/latest" 2>/dev/null \
-          | tr -d '\r' | awk 'tolower($1)=="location:"{n=split($2,a,"/"); print a[n]}')
+      # Resolve the tag and its manifest exactly as the guest does: the pinned
+      # release. A versions file that predates the pin leaves the latest
+      # release, which is what a guest built from it installs.
+      FLANNEL_TAG=""
+      if [ -n "$VERSIONS_TXT" ]; then
+          FLANNEL_VERSION=$(printf '%s\n' "$VERSIONS_TXT" \
+              | sed -n 's/^export YURUNA_FLANNEL_VERSION=\([0-9][0-9.]*\).*$/\1/p' | head -n1)
+          [ -n "$FLANNEL_VERSION" ] && FLANNEL_TAG="v${FLANNEL_VERSION}"
+      fi
+      if [ -z "$FLANNEL_TAG" ]; then
+          FLANNEL_TAG=$(curl -fsSI --noproxy '*' -m 20 \
+              "https://github.com/flannel-io/flannel/releases/latest" 2>/dev/null \
+              | tr -d '\r' | awk 'tolower($1)=="location:"{n=split($2,a,"/"); print a[n]}')
+      fi
       CNI_REFS=""
       if [ -n "$FLANNEL_TAG" ]; then
           CNI_REFS=$(curl -fsSL --noproxy '*' -m 30 \
@@ -2804,6 +2833,14 @@ write_files:
       YURUNA_CA_SHA256=YURUNA_CA_SHA256_PLACEHOLDER
       YURUNA_GITHUB_REPO=YURUNA_GITHUB_REPO_PLACEHOLDER
       YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
+  # The host's guest-channel key: host-locate and fetch-and-execute accept a
+  # status service only when it proves this key. An empty file (a host with no
+  # key) leaves those probes unverified.
+  - path: /etc/yuruna/guest-channel.key
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER
   # --- REGION: https://yuruna.link/429f3d06-002a
   # See https://yuruna.link/429f3d06-0054
   # This VM is provisioned once and runs for weeks, so it accumulates host
@@ -5441,9 +5478,9 @@ runcmd:
   - systemctl start squid || true
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
   # See https://yuruna.link/429f3d06-0037
+  # --- REGION: https://yuruna.link/429f3d06-0067
   # No `a2enmod cgi` / `a2enconf yuruna-cachemgr`: squid-cgi (cachemgr.cgi) is gone in
   # Ubuntu 26.04. Apache still serves the CA cert + pool-configuration.
-  # --- REGION: https://yuruna.link/429f3d06-0067
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
   # The statement names the seeded CA, so it is published only while squid bumps
   # with that CA; a proxy that generated its own serves none.
@@ -5562,7 +5599,7 @@ runcmd:
       fi
     }
     # --- REGION: https://yuruna.link/429f3d06-0070
-    mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/extension-sdk/beacon /opt/extension-sdk/controlproof /opt/extension-sdk/hostinfo /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n /opt/extension-sdk/servicecfg /opt/extension-sdk/internal/gatethrottle /opt/extension-sdk/jsonbody
+    mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/pool-aggregator-service/internal/loki /opt/pool-aggregator-service/internal/httpserve /opt/pool-aggregator-service/internal/hostpoll /opt/pool-aggregator-service/internal/incident /opt/extension-sdk/beacon /opt/extension-sdk/controlproof /opt/extension-sdk/hostinfo /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n /opt/extension-sdk/servicecfg /opt/extension-sdk/internal/gatethrottle /opt/extension-sdk/jsonbody
     cd /opt/pool-aggregator-service
     PA_OK=1
     for f in go.mod beacon/beacon.go controlproof/controlproof.go hostinfo/addresses.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go servicecfg/config.go internal/gatethrottle/throttle.go jsonbody/decode.go; do
@@ -5586,7 +5623,7 @@ runcmd:
         echo "== YURUNA: caching-proxy-parser-service build failed -- Recent 100 requests view will be unavailable =="
     fi
     cd /opt/pool-aggregator-service
-    for f in main.go handover.go mcp.go localization.go backfill.go backfill_index.go backfill_loki.go backfill_prom.go backfill_record.go backfill_source.go backfill_state.go internal/catalog/registry.go go.mod pool-aggregator-service.service pool-history-backfill.service; do
+    for f in main.go handover.go framework_ring.go mcp.go localization.go backfill.go backfill_index.go backfill_loki.go backfill_prom.go backfill_record.go backfill_source.go backfill_state.go internal/catalog/registry.go internal/loki/client.go internal/loki/outbox.go internal/httpserve/httpserve.go internal/hostpoll/hostpoll.go internal/incident/incident.go go.mod pool-aggregator-service.service pool-history-backfill.service; do
       yr_fetch "test/extension/pool-aggregator-service/$f" "$f" || PA_OK=0
       # An empty file (404 from the chosen source, or a stale/incomplete mirror)
       # is caught here so the cause is obvious in /var/log/cloud-init-output.log
@@ -5754,17 +5791,20 @@ runcmd:
   - systemctl enable --now yuruna-fit-pool-dashboard.timer
   # --- REGION: https://yuruna.link/429f3d06-007c
   - |
-    if curl -fsSL --retry 3 --retry-delay 5 --max-time 30 \
-         https://grafana.com/api/dashboards/20501/revisions/latest/download \
-       | /usr/local/bin/yuruna-rewrite-zot-dashboard.py \
-       > /tmp/zot_official.json ; then
+    # One reviewed revision, checked against its digest before the rewriter runs:
+    # the rewriter patches upstream panel ids, so a new revision is reviewed and
+    # pinned here rather than taken as it is published.
+    if curl -fsSL --retry 3 --retry-delay 5 --max-time 30 -o /tmp/zot_official.raw.json \
+         https://grafana.com/api/dashboards/20501/revisions/2/download \
+       && echo "51f48961689a1cdaee855a5ac461cb205aacef12149ded7cf12f153db78c233c  /tmp/zot_official.raw.json" | sha256sum -c --quiet - \
+       && /usr/local/bin/yuruna-rewrite-zot-dashboard.py < /tmp/zot_official.raw.json > /tmp/zot_official.json ; then
         install -m 0644 -o grafana -g grafana /tmp/zot_official.json \
             /var/lib/grafana/dashboards/zot-official.json
-        rm -f /tmp/zot_official.json
-        echo "yuruna: community Zot dashboard (Grafana ID 20501) installed at /var/lib/grafana/dashboards/zot-official.json"
+        echo "yuruna: community Zot dashboard (Grafana ID 20501, revision 2) installed at /var/lib/grafana/dashboards/zot-official.json"
     else
-        echo "== YURUNA: failed to fetch Grafana dashboard 20501 from grafana.com -- the 'Zot (official)' dashboard will be missing until the next boot retries =="
+        echo "== YURUNA: Grafana dashboard 20501 revision 2 was not fetched from grafana.com or did not match its pinned digest -- the 'Zot (official)' dashboard stays missing until this VM is rebuilt =="
     fi
+    rm -f /tmp/zot_official.raw.json /tmp/zot_official.json
   # --- REGION: https://yuruna.link/429f3d06-007d
   - systemctl enable --now yuruna-brand-dashboards.timer
   # Block scalar, not a plain one: the message carries a ": ", which YAML reads

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427cd801-2a06-4478-aac2-bff9219c1fdb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,9 +16,10 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $module = Import-Module (Join-Path $PSScriptRoot 'Test.SnapshotManifest.psm1') -Force -PassThru -DisableNameChecking
     $runner = Import-Module (Join-Path $PSScriptRoot 'Test.SequenceRunner.psm1') -Force -PassThru -DisableNameChecking
-    $script:savedRuntime = $env:YURUNA_RUNTIME_DIR
+    $script:savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     & $module {
         function script:Get-VMState { param($VMName) $null = $VMName; $script:FakeState }
         function script:Stop-VMForce {
@@ -66,7 +67,7 @@ BeforeEach {
     & $runner { param($Plan, $Sequences) $script:FixturePlan = $Plan; $script:FixtureSequences = $Sequences; $script:FixtureSnapshotPresent = $true } $plan $sequences
 }
 
-AfterAll { $env:YURUNA_RUNTIME_DIR = $script:savedRuntime }
+AfterAll { Restore-YurunaTestEnvironment -Saved $script:savedRuntime }
 
     It 'hashes file contents but excludes credentials' {
         ($identity | ConvertTo-Json -Depth 8) | Should -Not -Match 'do-not-store-this'

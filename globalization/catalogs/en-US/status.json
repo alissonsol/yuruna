@@ -181,6 +181,11 @@
       "description": "Host status HTTP error displayed at the request boundary.",
       "lifecycle": "active"
     },
+    "status.api_guest_channel_key_absent": {
+      "message": "this host holds no guest-channel key yet; it is created when the host first renders a guest seed",
+      "description": "Status service read route: an archive digest was requested but the host has no guest-channel key to prove it with.",
+      "lifecycle": "active"
+    },
     "status.api_host_refresh_authorization_refused": {
       "message": "refresh authorization refused ({reason})",
       "description": "Host status HTTP error (error field, 403) from test/service/Start-StatusService.ps1 when a non-loopback host-refresh request lacks a valid refresh proof; the reason is a refresh_* machine code shown as inert text.",
@@ -394,6 +399,23 @@
       "message": "PUT or POST required",
       "description": "Host status HTTP error displayed at the request boundary.",
       "lifecycle": "active"
+    },
+    "status.api_query_invalid": {
+      "message": "invalid query: {field} {reason}",
+      "description": "Status service read route: a query parameter is missing or malformed. Preserve the parameter name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "field": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "archive"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "must be framework or project"
+        }
+      }
     },
     "status.api_request_body_invalid": {
       "message": "invalid request body: {reason} ({field})",
@@ -1433,6 +1455,11 @@
       "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
+    "status.explain_details": {
+      "message": "Details",
+      "description": "Accessible name of the small ? button beside a link or control whose explanation used to live only in a hover tooltip (Y.explain in test/extension/extension-sdk/webui/assets/yuruna.core.js, Yuruna.explain in test/status/yuruna.common.js); pressing it shows that explanation inline.",
+      "lifecycle": "active"
+    },
     "status.external_detail": {
       "message": "The tool reported: {detail}",
       "description": "Frames text produced by a program outside Yuruna. The detail is shown as given and is never read back as state.",
@@ -2413,6 +2440,11 @@
     "status.performance_fit": {
       "message": "Fit all",
       "description": "Performance page button that resets time zoom to 1x and pans every timeline back to zero.",
+      "lifecycle": "active"
+    },
+    "status.performance_select_bar": {
+      "message": "Select a duration or a bar to read its details here.",
+      "description": "Initial text of the details region under each chart on test/status/performance.html (rendered by test/status/yuruna.common.js); focusing or tapping a duration or a bar replaces it with that item's details.",
       "lifecycle": "active"
     },
     "status.performance_zoom": {

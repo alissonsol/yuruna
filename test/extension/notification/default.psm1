@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4289a687-9c25-47df-950d-d43149e821f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,14 +82,16 @@ function Send-EmailViaResend {
     # command line into a horizontal scroll in every client that honors it.
     # It also states both of its own colors. A fragment that sets neither
     # inherits whatever the client paints behind it, and a dark-mode client
-    # renders the default near-black text onto a near-black ground.
+    # renders the default near-black text onto a near-black ground. A phone mail
+    # client that finds no viewport meta lays the message out 980px wide and
+    # shrinks it to fit, so the wrapped text arrives too small to read.
     $locale = Get-YurunaOperatorLocale
     $body = @{
         from    = $ResendCfg.fromEmail
         to      = $ToAddress
         subject = $Subject
         text    = $BodyText
-        html    = "<html lang=`"$($locale.ResolvedTag)`" dir=`"$($locale.Direction)`"><body style=`"background:#ffffff;color:#111827`"><pre style=`"white-space:pre-wrap;word-wrap:break-word;color:#111827`">$([System.Net.WebUtility]::HtmlEncode($BodyText))</pre></body></html>"
+        html    = "<html lang=`"$($locale.ResolvedTag)`" dir=`"$($locale.Direction)`"><head><meta name=`"viewport`" content=`"width=device-width, initial-scale=1`"></head><body style=`"background:#ffffff;color:#111827`"><pre style=`"white-space:pre-wrap;word-wrap:break-word;color:#111827`">$([System.Net.WebUtility]::HtmlEncode($BodyText))</pre></body></html>"
     } | ConvertTo-Json
     # -TimeoutSec bounds the call so a stalled Resend endpoint can't wedge a caller
     # (the file-spool pool notifier runs as an unattended cycle-end hook; an unbounded

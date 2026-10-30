@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d64f5a-8fc4-44e1-a87f-16aacb2e4fa0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,6 +85,8 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.RunnerState.psm1') -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+# The tests drive the run-id and cycle-start anchors; the suite puts back what the process held.
+$script:SavedAnchorGlobals = Save-YurunaTestGlobal -Name '__YurunaRunId', '__YurunaCycleStartUtc'
 
 # Runtime helpers are loaded before tests run; case tables above are loaded
 # during discovery so Pester can create every parameterized test.
@@ -108,11 +110,9 @@ function Initialize-TestRunId {
     .SYNOPSIS
         Set the run-id anchor the module reads to detect a prior runner's state.
     #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Initialize-RunnerState reads global:__YurunaRunId (set by Test.Log at module load); the test has to drive it to exercise boot recovery.')]
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$RunId)
-    $global:__YurunaRunId = $RunId
+    Set-YurunaTestGlobal -Value @{ __YurunaRunId = $RunId }
 }
 
 function Initialize-TestCycleStartUtc {
@@ -120,11 +120,9 @@ function Initialize-TestCycleStartUtc {
     .SYNOPSIS
         Set the cycle-id anchor Set-RunnerState copies onto a cycle-start write.
     #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Set-RunnerState reads global:__YurunaCycleStartUtc (set by Start-LogFile); the test has to drive it.')]
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$CycleStartUtc)
-    $global:__YurunaCycleStartUtc = $CycleStartUtc
+    Set-YurunaTestGlobal -Value @{ __YurunaCycleStartUtc = $CycleStartUtc }
 }
 
 
@@ -139,7 +137,8 @@ Describe 'Get-RunnerStateName' {
 }
 
 Describe 'Get-RunnerStatePath' {
-    AfterAll { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
+    BeforeAll { $script:PathEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR' }
+    AfterAll { Restore-YurunaTestEnvironment -Saved $script:PathEnvironment }
     It 'places runner.state.json under the published runtime dir' {
         $dir = Initialize-TestRuntimeDir
         try {
@@ -157,10 +156,10 @@ Describe 'Get-RunnerStatePath' {
 }
 
 Describe 'Get-RunnerState' {
-    BeforeAll { $null = Initialize-TestRuntimeDir }
+    BeforeAll { $script:BlockEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'; $null = Initialize-TestRuntimeDir }
     AfterAll {
         $dir = $env:YURUNA_RUNTIME_DIR
-        Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue
+        Restore-YurunaTestEnvironment -Saved $script:BlockEnvironment
         if ($dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
     BeforeEach { Remove-Item -LiteralPath (Get-RunnerStatePath) -Force -ErrorAction SilentlyContinue }
@@ -185,8 +184,8 @@ Describe 'Get-RunnerState' {
 }
 
 Describe 'Test-RunnerStateTransition' {
-    BeforeAll { $script:TransitionPriorRuntime = $env:YURUNA_RUNTIME_DIR; $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'transition-runtime'; $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR -Force }
-    AfterAll { if ($null -eq $script:TransitionPriorRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:TransitionPriorRuntime } }
+    BeforeAll { $script:TransitionPriorRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'; $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'transition-runtime'; $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR -Force }
+    AfterAll { Restore-YurunaTestEnvironment -Saved $script:TransitionPriorRuntime }
     It 'accepts every transition the lifecycle documents' -TestCases $script:ValidTransitionCase {
         param($From, $To)
         Assert-Equal -Expected $true -Actual (Test-RunnerStateTransition -From $From -To $To) -Because "$From -> $To is documented as valid"
@@ -205,10 +204,10 @@ Describe 'Test-RunnerStateTransition' {
 }
 
 Describe 'Initialize-RunnerState' {
-    BeforeAll { $null = Initialize-TestRuntimeDir }
+    BeforeAll { $script:BlockEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'; $null = Initialize-TestRuntimeDir }
     AfterAll {
         $dir = $env:YURUNA_RUNTIME_DIR
-        Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue
+        Restore-YurunaTestEnvironment -Saved $script:BlockEnvironment
         if ($dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
         Initialize-TestRunId -RunId ''
     }
@@ -273,13 +272,14 @@ Describe 'Initialize-RunnerState' {
 
 Describe 'Set-RunnerState' {
     BeforeAll {
+        $script:BlockEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $null = Initialize-TestRuntimeDir
         Initialize-TestRunId -RunId 'run-set'
         Initialize-TestCycleStartUtc -CycleStartUtc ''
     }
     AfterAll {
         $dir = $env:YURUNA_RUNTIME_DIR
-        Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue
+        Restore-YurunaTestEnvironment -Saved $script:BlockEnvironment
         if ($dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
         Initialize-TestRunId -RunId ''
         Initialize-TestCycleStartUtc -CycleStartUtc ''
@@ -369,4 +369,8 @@ Describe 'Set-RunnerState' {
         Assert-True ($null -eq $s)
         Assert-Equal -Expected 'idle' -Actual (Get-RunnerState).current
     }
+}
+
+AfterAll {
+    Restore-YurunaTestGlobal -Saved $script:SavedAnchorGlobals
 }

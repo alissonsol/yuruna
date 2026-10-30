@@ -71,7 +71,13 @@ the runner and restart without `-logLevel` to release the override.
 
 Child pwsh processes (the outer -> inner spawn, sequence engine
 sub-processes, `Debug-TestSequence` standalone) inherit `$env:YURUNA_LOG_LEVEL`
-but NOT PowerShell preference variables. The env var IS the propagation
+but NOT PowerShell preference variables. The resident runner and the
+per-cycle process resolve the level themselves (`-logLevel`, else the
+config's `logLevel`) before they start anything, so the watchdog job, the
+pool notifier and the runner's workers (`Invoke-StartCycleWorker`,
+`Invoke-HostDiagnosticWorker`, `Invoke-PoolStorageDrain`,
+`Invoke-PoolPushForwarder`, `Invoke-HostAddressBeacon`,
+`Invoke-RecoveryProbe`, `Invoke-GuestDiagnosticWorker`) inherit it. The env var IS the propagation
 channel. The cascade module exports `Use-LogLevelFromEnv`; every child
 script that should honor the parent's level calls it at the top:
 
@@ -174,6 +180,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

@@ -35,8 +35,8 @@ package_update: true
 packages:
   # cifs-utils: stash-share SMB3 mount (the bring-up script installs golang-go + libcap2-bin itself).
   - cifs-utils
-  # Network tools support console and SSH diagnostics.
   # --- REGION: https://yuruna.link/429f3d06-003a
+  # Network tools support console and SSH diagnostics.
   - net-tools
   - iputils-ping
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
@@ -109,7 +109,7 @@ write_files:
       YURUNA_ALLOW_PSEUDO_LOCALE=YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER
 
   # --- REGION: https://yuruna.link/429f3d06-0029
-  # Empty IP/PORT falls back to the public github mirror for the framework fetch.
+  # Empty IP/PORT falls back to the public GitHub mirror for the framework fetch.
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root
@@ -121,6 +121,14 @@ write_files:
       YURUNA_CA_SHA256=YURUNA_CA_SHA256_PLACEHOLDER
       YURUNA_GITHUB_REPO=YURUNA_GITHUB_REPO_PLACEHOLDER
       YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
+  # The host's guest-channel key: host-locate and fetch-and-execute accept a
+  # status service only when it proves this key. An empty file (a host with no
+  # key) leaves those probes unverified.
+  - path: /etc/yuruna/guest-channel.key
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER
   # Optional pool-aggregator URL; quote it like ystash-nas.env, and leave it empty to disable dependent features.
   - path: /etc/yuruna/pool.env
     permissions: '0644'
@@ -149,6 +157,8 @@ write_files:
         # storage-only on the NAS.
         /usr/local/bin/yuruna-nas-credential.sh stash /etc/yuruna/ystash-nas.cifs.cred ||
           echo "yuruna stash: no NAS credential from the host config service; the share mount below will fail." >&2
+        systemctl enable --now yuruna-nas-credential-refresh.timer ||
+          echo "yuruna stash: the NAS credential refresh timer did not start; a rotated NAS password needs a rebuild." >&2
         mkdir -p "$MOUNT"
         SVC_UID=$(id -u stash-admin); SVC_GID=$(id -g stash-admin)
         # Open modes and the absent iocharset are load-bearing; see the topic above.
@@ -202,6 +212,12 @@ write_files:
       YR_ARCHIVE_SHA=$(sed -nE 's/^([0-9a-f]{64})$/\1/p' /etc/yuruna/framework-archive.sha256 2>/dev/null | head -n1)
       # --- REGION: https://yuruna.link/42e220c4-0006
       ATTEMPT=1
+      # Without the seeded digest and commit no host archive can be accepted, so
+      # waiting for one would only delay the verified paths below.
+      if [ -z "$YR_ARCHIVE_SHA" ] || [ -z "$YR_ARCHIVE_COMMIT" ]; then
+        echo "yuruna stash: the seed carries no framework archive digest; skipping the host archive for the verified paths." >&2
+        ATTEMPT=7
+      fi
       while [ "$ATTEMPT" -le 6 ]; do
         if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
           # Check the transfer separately; tar can succeed after wget fails.
@@ -250,7 +266,7 @@ write_files:
         fi
       fi
       if [ "$OK" -eq 0 ]; then
-        echo "yuruna stash: host status service did not serve the framework after 6 attempts; cloning the public mirror instead -- this daemon will run PUBLISHED code, which is older than the host's enlistment." >&2
+        echo "yuruna stash: neither the host archive nor the LAN mirror provided the framework; cloning the public mirror instead -- this daemon will run PUBLISHED code, which is older than the host's enlistment." >&2
         if [ -n "$FETCH_DIR" ] &&
            git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone --depth 1 "$MIRROR_URL" "$FETCH_DIR/tree" && yuruna_accept_framework; then OK=1; fi
       fi
@@ -353,6 +369,38 @@ write_files:
       OnBootSec=30s
       OnUnitActiveSec=60s
       AccuracySec=5s
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=timers.target
+  # A rotated NAS password reaches this guest through this refresh instead of
+  # a rebuild; the script remounts a mounted share in place and never mounts
+  # or unmounts one otherwise.
+  - path: /etc/systemd/system/yuruna-nas-credential-refresh.service
+    permissions: '0644'
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Re-fetch the NAS credential from the host config service
+
+      # --- REGION: [Service]
+      [Service]
+      Type=oneshot
+      TimeoutStartSec=300
+      Environment=YURUNA_NAS_CREDENTIAL_ATTEMPTS=2
+      ExecStart=/usr/local/bin/yuruna-nas-credential.sh stash /etc/yuruna/ystash-nas.cifs.cred /mnt/ystash-nas
+  - path: /etc/systemd/system/yuruna-nas-credential-refresh.timer
+    permissions: '0644'
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Periodic NAS credential refresh
+
+      # --- REGION: [Timer]
+      [Timer]
+      OnBootSec=15min
+      OnUnitActiveSec=30min
+      RandomizedDelaySec=2min
 
       # --- REGION: [Install]
       [Install]

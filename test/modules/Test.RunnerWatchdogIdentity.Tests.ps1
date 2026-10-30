@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4226ec4a-0d3b-407b-80ff-4b853f0a15cc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,13 +77,15 @@ function Get-AssignmentCount {
     }, $true)).Count
 }
 
-# True when EVERY Stop-Process invocation sits inside an if-condition matching
-# $Pattern (i.e. the kill is identity-gated), and at least one exists.
+# True when EVERY kill (a Stop-Process, or a call of the rebuilt tree kill
+# `& $treeKill`) sits inside an if-condition matching $Pattern (i.e. the kill
+# is identity-gated), and at least one exists.
 function Test-StopProcessGatedBy {
     param($Ast, [string]$Pattern)
     $pat = $Pattern
     $stops = @($Ast.FindAll({ param($n)
-        $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Stop-Process'
+        $n -is [System.Management.Automation.Language.CommandAst] -and
+        ($n.GetCommandName() -eq 'Stop-Process' -or $n.CommandElements[0].Extent.Text -eq '$treeKill')
     }, $true))
     if ($stops.Count -lt 1) { return $false }
     foreach ($sp in $stops) {
@@ -139,6 +141,14 @@ Describe 'Watchdog gates disarm and kill on the armed identity' {
     }
     It 'kills only inside an identity-gated branch (never an unrelated reused PID)' {
         (Test-StopProcessGatedBy -Ast (Get-ModuleAst) -Pattern 'sameInner') | Should -Be $true
+    }
+    It 'kills with the shared process-tree kill and carries no tree walk of its own' {
+        # A second copy of the walk drifted from the takeover's: no TERM grace,
+        # and a different idea of which processes belong to the tree.
+        (Get-CommandInvokeCount -Ast (Get-ModuleAst) -Name 'Get-YurunaProcessTreeKillScript') | Should -BeGreaterOrEqual 1
+        $text = (Get-ModuleAst).Extent.Text
+        $text | Should -Not -Match '/bin/ps\b'
+        $text | Should -Not -Match '\btaskkill\b'
     }
 }
 

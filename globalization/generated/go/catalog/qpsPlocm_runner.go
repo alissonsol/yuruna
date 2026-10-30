@@ -265,6 +265,33 @@ const DataqpsPlocmrunner = `{
     },
     ")‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "runner.cycle_over_budget": [
+    "[!‮Çýçļé ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ƥáššéď íñ ",
+    {
+      "arg": "minutes",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " ɱíñ, óṽéř íţš ļéářñéď ƀúďğéţ óƒ ",
+    {
+      "arg": "budgetMinutes",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " ɱíñ (1.5 ţíɱéš ţħé 90ţħ ƥéřçéñţíļé óƒ ţħé ļášţ ",
+    {
+      "arg": "samples",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ƥáššíñğ çýçļéš). Ţħé çýçļé šţíļļ çóúñţš áš á ƥášš; ţħé ƥħášé řóŵš úñďéř ţéšţ/status/perf/phases šħóŵ ŵħíçħ ƥářţ ğřéŵ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "runner.cycle_record_clear_action": "[!‮Řéɱóṽé ţħé řúññéř çýçļé řéçóřď óƒ áñ éẋíţéď çýçļé‬ ~~~~~~~~~~~~~~~~~~~~]",
   "runner.cycle_record_write_action": "[!‮Ŵříţé ţħé řúññéř çýçļé řéçóřď‬ ~~~~~~~~~~~~]",
   "runner.cycle_result_missing": "[!‮Ţħé çýçļé řéţúřñéď ŵíţħóúţ ƥúƀļíšħíñğ á řéšúļţ. Řéçóřďíñğ íţ áš á ƒáíļéď çýçļé (ñó-çýçļé-řéšúļţ) íñšţéáď óƒ á çóɱƥļéţéď óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
@@ -332,6 +359,27 @@ const DataqpsPlocmrunner = `{
       "trust": "internal"
     },
     ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.entry_point_module_missing": [
+    "[!‮Íñíţíáļížé-ÝúřúñáÉñţřýƤóíñţⱮóďúļéŠéţ: ",
+    {
+      "arg": "modName",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " ñóţ ƒóúñď áţ ",
+    {
+      "arg": "modPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " (ķíñď=",
+    {
+      "arg": "for",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); ţħé éñţřý ƥóíñţ ďóéš ñóţ šţářţ ŵíţħóúţ íţš ɱóďúļé šéţ. Řéšţóřé ţħé ƒíļé íñ ţħíš çħéçķóúţ áñď šţářţ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "runner.failure_alert_state": {
     "kind": "select",
@@ -467,6 +515,120 @@ const DataqpsPlocmrunner = `{
     },
     "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "runner.framework_ring_follow": [
+    "[!‮Ţħíš ħóšţ ƒóļļóŵš íţš ƥóóļ'š çáñářý říñğ: íñšţáļļíñğ ƒřáɱéŵóřķ řéṽíšíóñ ",
+    {
+      "arg": "revision",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ", ŵħíçħ ħáš ",
+    {
+      "arg": "passes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ṽáļíď çáñářý ƥáššéš (íñšţáļļéď: ",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.framework_ring_hold_newer": [
+    "[!‮Ţħé říñğ'š ʠúáļíƒýíñğ řéṽíšíóñ ",
+    {
+      "arg": "revision",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íš ñóţ ñéŵéř ţħáñ ţħé íñšţáļļéď ",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; ţħé ƒřáɱéŵóřķ šţáýš áţ ",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.framework_ring_hold_not_in_history": [
+    "[!‮Ţħé říñğ'š ʠúáļíƒýíñğ řéṽíšíóñ ",
+    {
+      "arg": "revision",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íš ñóţ íñ ţħé ħíšţóřý óƒ ţħé ƒřáɱéŵóřķ úƥšţřéáɱ ţħíš ħóšţ ţřáçķš; ţħé ƒřáɱéŵóřķ šţáýš áţ ",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.framework_ring_hold_unqualified": [
+    "[!‮Ñó ƒřáɱéŵóřķ řéṽíšíóñ ħáš ",
+    {
+      "arg": "passes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ṽáļíď çáñářý ƥáššéš ýéţ; ţħé ƒřáɱéŵóřķ šţáýš áţ ",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.framework_ring_hold_unreachable": [
+    "[!‮Ţħíš ħóšţ ƒóļļóŵš íţš ƥóóļ'š çáñářý říñğ, ƀúţ ţħé ƥóóļ áğğřéğáţóř ďíď ñóţ áñšŵéř (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); ţħé ƒřáɱéŵóřķ šţáýš áţ ",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.gallery_package_digest_mismatch": [
+    "[!‮Řéƒúšíñğ ţó íñšţáļļ ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ",
+    {
+      "arg": "version",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ţħé ďóŵñļóáďéď ƥáçķáğé'š ŠĦÁ-512 (",
+    {
+      "arg": "actual",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") ďóéš ñóţ ɱáţçħ ţħé ƥíññéď ďíğéšţ (",
+    {
+      "arg": "expected",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "runner.gate_evidence_save_failed": [
     "[!‮Çóñƒíğúřáţíóñ ğáţé éṽíďéñçé çóúļď ñóţ ƀé šáṽéď: ",
     {
@@ -520,6 +682,15 @@ const DataqpsPlocmrunner = `{
     },
     "'  (ļóçáļ éďíţš řéɱáíñ íñ ğíţ šţášħ ļíšţ).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "runner.guest_channel_key_unreadable": [
+    "[!‮Ţħé ğúéšţ-çħáññéļ ķéý áţ ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " íš ñóţ 64 ļóŵéřçášé ħéẋ çħářáçţéřš, šó ğúéšţš çáññóţ ṽéříƒý ţħíš ħóšţ. Řéšţóřé ţħé ƒíļé, óř řéɱóṽé íţ áñď řéƀúíļď ţħé ğúéšţš ţó çřéáţé á ñéŵ ķéý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "runner.guest_folder_missing": [
     "[!‮Ğúéšţ ƒóļďéř ñóţ ƒóúñď: ",
     {
@@ -549,6 +720,21 @@ const DataqpsPlocmrunner = `{
       "trust": "external"
     },
     "‬ ~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.host_condition_probe_unanswered": [
+    "[!‮Ţħé ",
+    {
+      "arg": "probe",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " çóúļď ñóţ ƀé řéáď: ",
+    {
+      "arg": "tool",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " ďíď ñóţ áñšŵéř, šó ţħé šéţţíñğ íš úñďéţéřɱíñéď, ñóţ ķñóŵñ ţó ƀé šáƒé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "runner.host_diagnostic_timeout": "[!‮Ħóšţ ďíáğñóšţíçš ţíɱéď óúţ áƒţéř 120š; šéé ţħé éářļíéř ħóšţ šáɱƥļé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "runner.host_diagnostic_worker_failed": [
@@ -589,6 +775,21 @@ const DataqpsPlocmrunner = `{
       "trust": "internal"
     },
     " çħářáçţéřš]‬ ~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.host_input_unmappable": [
+    "[!‮Ţħé ",
+    {
+      "arg": "transport",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " íñƥúţ ƥáţħ ħáš ñó ķéý ƒóř ţħéšé çħářáçţéřš óƒ ţħé ţéẋţ: ",
+    {
+      "arg": "characters",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". Ñóţħíñğ ŵáš ţýƥéď; ţħé šţéƥ çáññóţ řúñ óñ ţħíš ħóšţ áš ŵříţţéñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "runner.host_network_sweep_timed_out": [
     "[!‮Ţħé šţřáñďéď-ṼⱮ šŵééƥ óñ ţħé ħóšţ-ñéţŵóřķ řéƒúšáļ ƥáţħ ďíď ñóţ ƒíñíšħ ŵíţħíñ ",
@@ -1376,6 +1577,42 @@ const DataqpsPlocmrunner = `{
       "trust": "internal"
     },
     ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.host_refresh_oneshot_active": [
+    "[!‮Íñṽóķé-ĦóšţŘéƒřéšħ: á óñé-šħóţ řúñ (ƤÍĎ ",
+    {
+      "arg": "pid",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", ļéášé ",
+    {
+      "arg": "leasePath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ") íš úšíñğ ţħíš řúñţíɱé; ñó řéƥáíř šţéƥ řúñš ŵħíļé íţ ħóļďš ţħé ļéášé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.host_refresh_oneshot_unconfirmed": [
+    "[!‮Íñṽóķé-ĦóšţŘéƒřéšħ: ţħé óñé-šħóţ ļéášé ",
+    {
+      "arg": "leasePath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " ñáɱéš ƤÍĎ ",
+    {
+      "arg": "pid",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", ŵħóšé íďéñţíţý çáññóţ ƀé çóñƒířɱéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); řéƥáíříñğ áñýŵáý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "runner.host_refresh_operator_instruction": [
     "[!‮  Řéɱéďý: ",
@@ -7433,15 +7670,6 @@ const DataqpsPlocmrunner = `{
     },
     " šó éṽéřý óţħéř çóñšúɱéř šééš ţħéɱ ţóó:‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "runner.operator_400de73dc7d7af50": [
-    "[!‮Ñó ṼÑÇ ķéýšýɱ ƒóř çħářáçţéř '",
-    {
-      "arg": "ch",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'. Šķíƥƥíñğ.‬ ~~~~~~~~~~~~~~~~~~]"
-  ],
   "runner.operator_40166e264a276e0a": "[!‮Éẋţéñďéď ƥɱšéţ ğúářďš ṽéříƒíéď áƒţéř áƥƥļýíñğ.‬ ~~~~~~~~~~~~~~~~~~~]",
   "runner.operator_40a63b3866ac44bd": [
     "[!‮Ħóšţ áďďřéšš çħáñğéš ďúříñğ ţħíš çýçļé çóúļď ñóţ ƀé çóúñţéď (",
@@ -10097,27 +10325,6 @@ const DataqpsPlocmrunner = `{
     "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "runner.operator_5ea26e2a1f29b25e": "[!‮ţħé ƒíñďíñğ çářříéš ñó ţářğéţ ďířéçţóřý ţó ţáķé óŵñéřšħíƥ óƒ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "runner.operator_5eb94d6047f29167": [
-    "[!‮Íñíţíáļížé-ÝúřúñáÉñţřýƤóíñţⱮóďúļéŠéţ: ",
-    {
-      "arg": "modName",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ñóţ ƒóúñď áţ ",
-    {
-      "arg": "modPath",
-      "type": "detail",
-      "trust": "external"
-    },
-    " (ķíñď=",
-    {
-      "arg": "for",
-      "type": "detail",
-      "trust": "external"
-    },
-    "); šķíƥƥíñğ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
-  ],
   "runner.operator_5ec100a74f28c9e9": "[!‮Ħóţ çóřñéřš: ñó ďáñğéřóúš ƀíñďíñğš (šçřééñ-šáṽéř / šļééƥ / ļóçķ) ďéţéçţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "runner.operator_5ee21a55ab02bc48": [
     "[!‮ŵ32ţɱ /resync ƒáíļéď: ",
@@ -10184,21 +10391,6 @@ const DataqpsPlocmrunner = `{
       "trust": "external"
     },
     "‬ ~~~~~~~~~]"
-  ],
-  "runner.operator_5f9af4fdfbb52214": [
-    "[!‮Ñó šçáñ çóďé ƒóř çħářáçţéř '",
-    {
-      "arg": "ch",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' (0ẋ",
-    {
-      "arg": "x2",
-      "type": "detail",
-      "trust": "external"
-    },
-    "). Šķíƥƥíñğ.‬ ~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "runner.operator_5fa4b4be805499ca": "[!‮Ţħé ÓÇŘ ŵáíţ ļóóƥ řéáďš ţħé ğúéšţ ƒřáɱéƀúƒƒéř ţħřóúğħ ŴⱮÍ áñď íš úñáƒƒéçţéď. Šçáļíñğ řéáçħéš ÓÇŘ ţħřóúğħ ţħé ṽɱçóññéçţ ŵíñďóŵ, ŵħíçħ ţáƥÓñ áļŵáýš çáƥţúřéš áñď ŵħíçħ ţħé ƒřáɱé ƥáţħ ƒáļļš ƀáçķ ţó ŵħéñ ţħé ŴⱮÍ řéáď ƒáíļš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "runner.operator_5fe7035d37195fae": "[!‮Ďéļéţé řéçúřšíṽéļý‬ ~~~~~~~~]",
@@ -20477,21 +20669,6 @@ const DataqpsPlocmrunner = `{
   ],
   "runner.operator_dfd19c97aaa9ff6e": "[!‮Íñṽóķé-ĦóšţŘéƒřéšħ: ħýƥéřṽíšóř řéšƥóñšíṽé áñď á řúññéř íš ƥřéšéñţ -- ṽéříƒíéď ñó-óƥ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "runner.operator_dfd80a749d4fee8f": "[!‮  Áďď Get-Image.ps1 + New-VM.ps1 úñďéř ţħáţ ƥáţħ ţó éñáƀļé ţħíš ğúéšţ, óř‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "runner.operator_dfe205f918802162": [
-    "[!‮Šéñď-ŢéẋţĶṽɱ: ñó ķéýçóďé ƒóř çħářáçţéř '",
-    {
-      "arg": "ch",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' (0ẋ",
-    {
-      "arg": "x2",
-      "type": "detail",
-      "trust": "external"
-    },
-    "). Šķíƥƥíñğ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
-  ],
   "runner.operator_e00026446a75f063": [
     "[!‮Ļóšţ ţħé ƥíďƒíļé řáçé áğáíñšţ á çóñçúřřéñţ Šţářţ-ŢéšţŘúññéř. Íñšƥéçţ ",
     {
@@ -23427,6 +23604,21 @@ const DataqpsPlocmrunner = `{
     },
     "). Úƥďáţé ţħíš çħéçķóúţ ƀéƒóřé çħáñğíñğ ƥóóļ çóñƒíğúřáţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "runner.pool_framework_ring_canary_not_member": [
+    "[!‮  pools.yml: ƥóóļ ",
+    {
+      "arg": "poolId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ñáɱéš ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íñ frameworkRing.canaryMembers, ƀúţ ţħáţ ħóšţ íš ñóţ óñé óƒ íţš ɱéɱƀéřš, šó íţš ƥáššéš ñéṽéř çóúñţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "runner.pool_notifier_busy": "[!‮Áñóţħéř ƥóóļ ñóţíƒíéř řúñ ħóļďš íţš ļóçķ óñ ţħíš ħóšţ; ţħíš óñé ďéļíṽéřéď ñóţħíñğ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "runner.pool_notifier_spool_errors": [
     "[!‮[óúţéř çýçļé ",
@@ -23468,6 +23660,16 @@ const DataqpsPlocmrunner = `{
     " ɱúšţ ƀé á ñóñ-éɱƥţý ÚŘĻ ŵíţħ ñó ŵħíţéšƥáçé óř çóñţřóļ çħářáçţéřš, áñď íţ ɱúšţ ñóţ šţářţ ŵíţħ '-'.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "runner.pool_status_repositories_none": "[!‮  řéƥóšíţóříéš: (ñóñé)‬ ~~~~~~~~~]",
+  "runner.pool_storage_sudo_rule_stale": "[!‮ (šúďó řéƒúšéď ţħé ɱóúñţ, šó ţħé ÑÁŠ ŵáš ñéṽéř çóñţáçţéď: ţħé íñšţáļļéď /etc/sudoers.d ďřóƥ-íñ ďóéš ñóţ ñáɱé ţħíš ɱóúñţ'š éẋáçţ çóɱɱáñď, ƀéçáúšé ţħé šţóřáğé šħářé óř ɱóúñţ ƥóíñţ çħáñğéď áƒţéř íţ ŵáš ŵříţţéñ, óř íţ íš ţħé ƀřóáď ğřáñţ óƒ áñ óļďéř řéļéášé -- řúñ ţéšţ/Test-Config.ps1 óř Šýñç-ĦóšţÇóñƒíğúřáţíóñ ƒřóɱ áñ íñţéřáçţíṽé šéššíóñ ţó íñšţáļļ ţħé çúřřéñţ řúļé)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "runner.pool_storage_sudoers_word_unsupported": [
+    "[!‮Ţħé šţóřáğé ƥáţħ '",
+    {
+      "arg": "word",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' çáññóţ ƀé ŵříţţéñ íñţó ţħé šúďóéřš řúļé éẋáçţļý (íţ çóñţáíñš ŵħíţéšƥáçé, á ʠúóţé óř á ŵíļďçářď çħářáçţéř); çħóóšé á šħářé áñď ɱóúñţ ƥóíñţ ŵíţħóúţ ţħéɱ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "runner.preflight_network_diagnostics": [
     "[!‮Ñéţŵóřķ ďíáğñóšţíçš: ",
     {
@@ -24300,6 +24502,72 @@ const DataqpsPlocmrunner = `{
     },
     "‬ ~~~~~~~~~~~~~~~~~]"
   ],
+  "runner.service_adopted": [
+    "[!‮Ķééƥíñğ ţħé řúññíñğ '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' áţ ",
+    {
+      "arg": "address",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); ƥášš -ƑóřçéŘéƀúíļď ţó řéƀúíļď íţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.service_advertisement_withdrawn": [
+    "[!‮Ŵíţħďřéŵ ţħé ",
+    {
+      "arg": "area",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " áďṽéřţíšéɱéñţ ƀéƒóřé ţħé řéƀúíļď; ţħíš ħóšţ ďřóƥš ƒřóɱ Éẋţéñšíóñ ħóšţš úñţíļ ţħé ñéŵ ṼⱮ šéřṽéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.service_build_plan_refused": [
+    "[!‮Ţħé ƀúíļď ƥļáñ ƒóř '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ŵáš řéƒúšéď (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "); ţħé ŵóřķíñğ ṼⱮ áñď íţš áďṽéřţíšéɱéñţ ŵéřé ļéƒţ úñţóúçħéď. Ţħé ƀúíļďéř óúţƥúţ áƀóṽé ñáɱéš ţħé ɱíššíñğ íñƥúţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.service_build_timeout": [
+    "[!‮Ţħé ƀúíļď óƒ '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ďíď ñóţ ƒíñíšħ ŵíţħíñ ",
+    {
+      "arg": "seconds",
+      "type": "token",
+      "trust": "internal"
+    },
+    " š áñď ŵáš šţóƥƥéď (ķíļļ ƒáíļéď: ",
+    {
+      "arg": "killFailed",
+      "type": "token",
+      "trust": "internal"
+    },
+    "). Řáíšé ÝÚŘÚÑÁ_ŠÉŘṼÍÇÉ_ṼⱮ_ɃÚÍĻĎ_ŢÍⱮÉÓÚŢ_ŠÉÇÓÑĎŠ ƒóř á šļóŵ ļíñķ, óř íñšƥéçţ ţħé ƀúíļďéř óúţƥúţ áƀóṽé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "runner.service_cachingproxy_utmctl_start_failed": [
     "[!‮'úţɱçţļ šţářţ ",
     {
@@ -24359,6 +24627,36 @@ const DataqpsPlocmrunner = `{
     "); šéřṽíçé šţářţ áñď šţóƥ šçříƥţš řéƒúšé úñţíļ íţ íš řéƥáířéď óř ɱóṽéď ášíďé. Ñóţħíñğ ŵáš çħáñğéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "runner.service_census_update_should_process": "[!‮Ɱéřğé šéřṽíçé óƀšéřṽáţíóñš íñţó ţħé šéřṽíçé çéñšúš‬ ~~~~~~~~~~~~~~~~~~~~]",
+  "runner.service_hostproof_exited": [
+    "[!‮Ţħé ħóšţ-šíďé ƥóóļ-çóñţřóļ ďáéɱóñ éẋíţéď áţ óñçé (éẋíţ ",
+    {
+      "arg": "code",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); ƥóřţ ",
+    {
+      "arg": "port",
+      "type": "token",
+      "trust": "internal"
+    },
+    " ɱáý ƀé ħéļď ƀý áñóţħéř ƥřóçéšš. Ñóţħíñğ ŵáš áďṽéřţíšéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.service_hostproof_previous_running": [
+    "[!‮Ţħé ƥřéṽíóúš ħóšţ-šíďé ƥóóļ-çóñţřóļ ďáéɱóñ (ƥíď ",
+    {
+      "arg": "pid",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") çóúļď ñóţ ƀé šţóƥƥéď (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "); řéƒúšíñğ ţó ļáúñçħ á šéçóñď óñé. Šţóƥ íţ, ţħéñ řé-řúñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "runner.service_lockset_should_process": [
     "[!‮Ţáķé ţħé óƥéřáţíóñ ļóçķš óƒ šéřṽíçéš ",
     {
@@ -24699,6 +24997,36 @@ const DataqpsPlocmrunner = `{
     },
     "); íţ ŵáš ñéíţħéř šţářţéď ñóř řéƀúíļţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "runner.service_start_degraded": [
+    "[!‮'",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ŵáš ƀúíļţ ŵíţħ ďéğřáďéď šééď ṽáļúéš: ",
+    {
+      "arg": "names",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". Ţħé šéřṽíçé řúñš, ƀúţ ţħé ğúéšţ ļáçķš ţħéɱ úñţíļ íţ íš řéƀúíļţ ŵíţħ ţħéɱ řéšóļṽéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.service_start_stop_requested": [
+    "[!‮Á šţóƥ óƒ '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ŵáš řéʠúéšţéď ŵħíļé ţħíš šţářţ řáñ, šó ţħé šéřṽíçé íš ñóţ áďṽéřţíšéď. Řúñ ",
+    {
+      "arg": "stopScript",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " áğáíñ ţó řéɱóṽé ţħé ṼⱮ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "runner.service_stop_final_state_unexpected": [
     "[!‮ṼⱮ '",
     {
@@ -24713,6 +25041,39 @@ const DataqpsPlocmrunner = `{
       "trust": "internal"
     },
     " (éẋƥéçţéď áƀšéñţ áƒţéř řéɱóṽáļ). Íñšƥéçţ íţ ŵíţħ ţħé ħóšţ'š ţóóļíñğ, ţħéñ řé-řúñ Stop-CachingProxyServiceVM.ps1.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.ssh_host_key_pin_mismatch": [
+    "[!‮Ţħé ŠŠĦ ħóšţ ķéý áţ ",
+    {
+      "arg": "address",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íš ñóţ ţħé ķéý '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ƥřéšéñţéď áţ ƒířšţ çóñţáçţ, šó ţħé çóɱɱáñď ŵáš ñóţ řúñ: šóɱéţħíñğ éļšé ɱáý áñšŵéř áţ ţħáţ áďďřéšš. Íƒ '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' ŵáš řéƀúíļţ óúţšíďé ţħé řúññéř, řúñ Řéšéţ-ĞúéšţĦóšţĶéýƤíñ -ṼⱮÑáɱé ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (ƥíññéď ķéý: ",
+    {
+      "arg": "pin",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "runner.start_cycle_worker_cleanup_failed": [
     "[!‮Šţářţ-çýçļé ",
@@ -24901,6 +25262,120 @@ const DataqpsPlocmrunner = `{
       "trust": "internal"
     },
     "/status/ ŵíļļ ţíɱé óúţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.status_listener_busy": [
+    "[!‮Šţáţúš šéřṽíçé (ƤÍĎ ",
+    {
+      "arg": "processId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") óñ ƥóřţ ",
+    {
+      "arg": "port",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ďíď ñóţ áñšŵéř ŵíţħíñ 3 š, ƀúţ íţš ļíṽéñéšš ļéášé šħóŵš íţ šéřṽíñğ ",
+    {
+      "arg": "route",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ƒóř ",
+    {
+      "arg": "seconds",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " š; ļéáṽíñğ íţ řúññíñğ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.status_listener_lease_verdict": [
+    "[!‮Šţáţúš šéřṽíçé (ƤÍĎ ",
+    {
+      "arg": "processId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "): ļíṽéñéšš ļéášé ",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", ",
+    {
+      "arg": "seconds",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " š).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.status_listener_replace_in_cycle": [
+    "[!‮Ħóšţ áďďřéšš ƀéáçóñ: ţħé šţáţúš šéřṽíçé (ƤÍĎ ",
+    {
+      "arg": "processId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") ďóéš ñóţ áñšŵéř áñď íţš ļéášé ħáš řéáď ŵéďğéď (",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ƒóř ",
+    {
+      "arg": "seconds",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " š óñ '",
+    {
+      "arg": "route",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'); ţħé řéƥļáçéɱéñţ šţářţ éẋíţéď ",
+    {
+      "arg": "exitCode",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.status_listener_replaced": [
+    "[!‮Šţářţ-ŠţáţúšŠéřṽíçé: šţóƥƥíñğ ţħé ŵéďğéď šţáţúš šéřṽíçé (ƤÍĎ ",
+    {
+      "arg": "processId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ƒóř ",
+    {
+      "arg": "seconds",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " š óñ '",
+    {
+      "arg": "route",
+      "type": "detail",
+      "trust": "external"
+    },
+    "') áñď šţářţíñğ á ñéŵ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "runner.status_refresh_safe_existing_ready": [
     "[!‮Šţáţúš šéřṽíçé ƤÍĎ ",
@@ -25162,6 +25637,45 @@ const DataqpsPlocmrunner = `{
       "trust": "external"
     },
     "). Ţħé çýçļé çóñţíñúéš, ďéļéţéš šţáý řéƒéřéñçé-çħéçķéď, áñď ţħé ñéẋţ çýçļé ţříéš áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "runner.wait_ended_on_kernel_stall": [
+    "[!‮Ţéẋţ '",
+    {
+      "arg": "patternLabel",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' ŵáíţ éñďéď áƒţéř ~",
+    {
+      "arg": "waited",
+      "type": "detail",
+      "trust": "external"
+    },
+    "š óƒ ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "š: ţħé ğúéšţ ķéřñéļ šéřṽíçéď ñó íñţéřřúƥţ óñ ṽířţúáļ ƥřóçéššóř(š) ",
+    {
+      "arg": "processors",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ƒóř ",
+    {
+      "arg": "silentSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "š áñď íţš šéříáļ çóñšóļé řéƥóřţéď ",
+    {
+      "arg": "kinds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "runner.warm_resume_declined_unverified": [
     "[!‮  ŴÁŘⱮ-ŘÉŠÚⱮÉ ďéçļíñéď: '",

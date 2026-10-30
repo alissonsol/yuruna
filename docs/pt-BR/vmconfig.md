@@ -357,6 +357,49 @@ Esses ajustes são distintos de `autoinstall.ssh` acima (a configuração SSH do
 subiquity no instalador), que mantém `authorized-keys` / `install-server`
 intactos.
 
+<a id="429f3d06-009d"></a>
+
+### Recriar chaves de host SSH perdidas
+
+*(autoinstall, ubuntu.server.24 e .26)*
+
+```
+[Unit]
+Description=Recreate missing or empty SSH host keys
+ConditionPathIsReadWrite=/etc/ssh
+Before=ssh.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+
+[Install]
+WantedBy=ssh.service
+```
+
+O `cc_ssh` do cloud-init apaga as chaves de host e grava novas na primeira
+inicialização do sistema instalado. Um convidado que trava poucos segundos
+depois dessa gravação e depois é desligado à força, que é o que faz a
+reinicialização a frio que resgata uma primeira inicialização travada, pode
+voltar com os novos arquivos de chave vazios ou ausentes: o ext4 pode
+confirmar os metadados dos arquivos, e o marcador do cloud-init de que o
+módulo foi executado, antes de gravar o conteúdo deles.
+O cloud-init nunca mais executa o módulo para essa instância, e cada início
+posterior do sshd falha com `sshd: no hostkeys available -- exiting.` Nada
+no convidado corrige isso. O `sshd-keygen.service` do próprio openssh-server
+(Ubuntu 26.04) só é executado em uma primeira inicialização do systemd, que o
+sistema instalado nunca tem porque o instalador grava o machine ID dele, e o
+Ubuntu 24.04 não traz essa unidade.
+
+`ssh-keygen -A` cria apenas os tipos de chave ausentes ou vazios, então em um
+convidado saudável a unidade não altera nada. `WantedBy=ssh.service` com
+`Before=ssh.service` a coloca à frente de todo início do sshd: na
+inicialização, quando o `ssh.socket` recebe uma conexão e em
+`systemctl start`. Ela não tem `RemainAfterExit=`, então fica inativa ao
+terminar e cada início posterior do serviço a executa de novo. Chaves
+regeneradas têm novas impressões digitais, então um pin de chave de host
+registrado antes da perda informa uma divergência em vez de conectar.
+
 <a id="429f3d06-0010"></a>
 
 <a id="lvm-sizing-policy"></a>
@@ -2485,7 +2528,7 @@ Habilite o temporizador que mantém os quadros por hospedeiro do painel Yuruna h
 
 ### Instalar o painel comunitário Zot
 
-Instale o painel comunitário Zot (ID Grafana 20501) ao lado do painel caching-proxy-service feito para o Yuruna. O reescritor de write_files (veja "Reescritor de painéis do Grafana" acima) o fixa em yuruna-prometheus com um uid estável e um título amigável, para que novas execuções sejam idempotentes. O provisionador de painéis em /etc/grafana/provisioning/dashboards/yuruna.yaml carrega o arquivo na próxima execução de 30s. O ramo `else` mantém os ciclos: uma indisponibilidade transitória de grafana.com resulta em "painel adicional ausente", em vez de fazer toda a fase runcmd falhar.
+Instale o painel comunitário Zot (ID Grafana 20501) ao lado do painel caching-proxy-service feito para o Yuruna. A seed busca uma revisão revisada (2) e a confere com um SHA-256 fixado antes da execução do reescritor, porque o reescritor altera identificadores de quadros de origem que uma revisão posterior pode renumerar; adotar uma nova revisão significa revisar o reescritor com ela e atualizar a revisão e o resumo criptográfico. O reescritor de write_files (veja "Reescritor de painéis do Grafana" acima) o fixa em yuruna-prometheus com um uid estável e um título amigável, para que novas execuções sejam idempotentes. O provisionador de painéis em /etc/grafana/provisioning/dashboards/yuruna.yaml carrega o arquivo na próxima execução de 30s. O ramo `else` mantém os ciclos: uma indisponibilidade de grafana.com ou um resumo criptográfico divergente resulta em "painel adicional ausente", em vez de fazer toda a fase runcmd falhar, e o painel continua ausente até que a VM seja recriada (runcmd é executado uma vez por instância).
 
 <a id="429f3d06-007d"></a>
 
@@ -2943,6 +2986,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../../README.md)

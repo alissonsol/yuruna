@@ -10,6 +10,14 @@ const DataptBRdownload = `{
   "download.actions": "Acções",
   "download.actions_need_the_internal_authentication_key_as_a_bearer": "As ações precisam da chave de autenticação interna como portador",
   "download.api_arch_query_parameter_is_required_amd64_or_arm64": "parâmetro de consulta do arco é necessário (amd64 ou arm64)",
+  "download.api_delete_refused_reason": [
+    "exclusão recusada: ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "download.api_detail": [
     {
       "arg": "detail",
@@ -30,6 +38,14 @@ const DataptBRdownload = `{
   "download.api_no_image_store_configured": "sem armazenamento de imagens configurado",
   "download.api_pool_refresh_refused_reason": [
     "atualização do pool recusada: ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "download.api_prune_refused_reason": [
+    "remoção da geração anterior recusada: ",
     {
       "arg": "reason",
       "type": "detail",

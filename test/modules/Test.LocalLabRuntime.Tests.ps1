@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427d7835-537a-46e8-a963-5fe9f73d0a55
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,7 +15,8 @@ param()
 BeforeAll {
     $script:TestRoot = Split-Path -Parent $PSScriptRoot
     $script:RepoRoot = Split-Path -Parent $script:TestRoot
-    $script:PriorRuntime = $env:YURUNA_RUNTIME_DIR
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Global -Force -DisableNameChecking
+    $script:PriorRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive runtime
     $null = New-Item -ItemType Directory $env:YURUNA_RUNTIME_DIR -Force
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -Global -Force
@@ -60,7 +61,7 @@ BeforeAll {
     function Get-BestHostIp { '192.0.2.10' }
 }
 
-AfterAll { $env:YURUNA_RUNTIME_DIR = $script:PriorRuntime }
+AfterAll { Restore-YurunaTestEnvironment -Saved $script:PriorRuntime }
 
 Describe 'local account elevation forwards identity fields' {
     It 'forwards explicit first and last names from the script invocation' {
@@ -230,6 +231,7 @@ Describe 'pool-control markers advertise reachable endpoints' {
     ) {
         param($Mode, $Forwarded, $Ready, $Unreachable, $Expected)
         $script:bundleMode=$Mode; $script:poolControlForwarded=$Forwarded; $script:daemonReady=$Ready
+        $script:startOutcome = [pscustomobject]@{ Advertise = $Ready }
         $script:listeningButUnreachable=$Unreachable; $script:HostType='host.macos.utm'; $script:vmIp='192.0.2.42'
         $ast = Get-FixtureAst 'service/Start-PoolControlServiceVM.ps1'
         $assignment = $ast.Find({param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$poolControlServiceBaseUrl'}, $true)
@@ -311,9 +313,9 @@ Describe 'host-side pool-control launch boundaries' {
     }
     It 'initializes identity and writes registration from the host-proof path' {
         function Get-YurunaHostId { 'fixture-host-id' }
-        $priorId = Get-Variable __YurunaHostId -Scope Global -ErrorAction SilentlyContinue
+        $savedGlobals = Save-YurunaTestGlobal -Name '__YurunaHostId'
         try {
-            Remove-Variable __YurunaHostId -Scope Global -ErrorAction SilentlyContinue
+            Set-YurunaTestGlobal -Remove '__YurunaHostId'
             $init = Get-FixtureRegion -Path 'service/Start-PoolControlServiceVM.ps1' -Start '$hostId = Get-YurunaHostId' -End '# Read the same validated lab-wide language'
             & { param($ModulesDir); . $init; $hostId | Should -Be 'fixture-host-id' } $PSScriptRoot
             (Get-Variable __YurunaHostId -Scope Global -ValueOnly) | Should -Be 'fixture-host-id'
@@ -328,8 +330,7 @@ Describe 'host-side pool-control launch boundaries' {
             $record.activeExtensions | Should -Contain pool-control-service
             $record.extensionTargets.'pool-control-service' | Should -Be 'http://192.0.2.10:8081'
         } finally {
-            if ($priorId) { Set-Variable __YurunaHostId -Scope Global -Value $priorId.Value }
-            else { Remove-Variable __YurunaHostId -Scope Global -ErrorAction SilentlyContinue }
+            Restore-YurunaTestGlobal -Saved $savedGlobals
         }
     }
 }

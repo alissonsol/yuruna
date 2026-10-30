@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 420eae9d-b5a9-4ca6-af97-df678c83b820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,8 @@ param(
 )
 
 Import-Module (Join-Path $GuestScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Stop on failed VM configuration; the child process exit is the caller's failure signal.
 $ErrorActionPreference = 'Stop'
 
 # --- REGION: Log level from environment
@@ -461,3 +463,7 @@ Write-Verbose "  1. Ubuntu Server autoinstalls via subiquity (~5-10 min)."
 Write-Verbose "  2. First boot lands at the text-mode login prompt."
 Write-Verbose ""
 Write-Verbose "Default credentials - username: $Username, password: <vault-managed> (must be changed on first login). Vault: test/status/extension/authentication/vault.yml"
+
+# --- REGION: Completion
+# Clear a successful native probe's stale exit code before returning to the wrapper.
+exit 0

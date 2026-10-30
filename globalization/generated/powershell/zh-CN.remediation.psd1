@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42be03d8-4355-03c3-fc00-b4ab4c0856f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,29 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'remediation.kernel_stall_action_evidence' = '阅读last_failure.json中的causeDetail.guestKernelFault和causeDetail.guestLivelock.processorWindow，以及客户机文件夹中serial-console.log里的内核报告'
+    'remediation.kernel_stall_action_family' = '在ARM64 Hyper-V主机上，阅读docs/host-hyperv.md中关于客户机内核卡死的章节（https://yuruna.link/42dc5bb9-0014），以确定卡死发生的时间并判断其形态'
+    'remediation.kernel_stall_action_rerun' = '在新的VM上运行该序列；内核已卡死的客户机无法恢复'
+    'remediation.kernel_stall_rationale' = @(
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '发生wait_timeout：客户机内核已停止推进（内核报告：'
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '；未处理任何中断的虚拟处理器：'
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '），因此脚本无法完成。这不是软件包镜像源缓慢所致，在同一客户机上重新运行该步骤也无济于事。'
     )
     'remediation.operator_00fd2209b1a993b2' = '手动检查last_failure.json'
     'remediation.operator_01b3c9512f168859' = @(

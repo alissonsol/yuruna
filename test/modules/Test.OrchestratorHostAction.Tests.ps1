@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c7e1a9-5b3d-4f0e-9a6c-2d8f1b7e4a53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -161,11 +161,7 @@ Describe 'Orchestration cycle repository provenance' {
         $script:ProvenanceRoot = Join-Path $TestDrive 'orchestration-repositories'
         $script:ProjectRoot = Join-Path $script:ProvenanceRoot 'project'
         foreach ($path in @($script:ProvenanceRoot, $script:ProjectRoot)) {
-            $null = New-Item -ItemType Directory -Path $path -Force
-            & git -C $path init --quiet 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "Could not initialize fixture repository: $path" }
-            & git -C $path -c user.name=fixture -c user.email=fixture@example.invalid -c core.hooksPath= commit --allow-empty --quiet -m "Fixture $(Split-Path -Leaf $path)" 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "Could not commit fixture repository: $path" }
+            $null = New-YurunaTestGitRepository -Path $path -CommitMessage "Fixture $(Split-Path -Leaf $path)"
         }
         & git -C $script:ProjectRoot remote add origin 'https://github.com/example/project.git'
         if ($LASTEXITCODE -ne 0) { throw 'Could not set the fixture project origin.' }
@@ -230,8 +226,8 @@ Describe 'Orchestration cycle repository provenance' {
                 }
                 function Set-NestedRunStatus { }
                 function Stop-NestedLogFile { }
-                $savedRuntime = $env:YURUNA_RUNTIME_DIR
-                $savedCache = $env:YURUNA_CACHING_PROXY_SERVICE_IP
+                $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+                $savedCache = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
                 try {
                     $env:YURUNA_RUNTIME_DIR = $runtimeDir
                     $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
@@ -242,8 +238,8 @@ Describe 'Orchestration cycle repository provenance' {
                     $capture.exitCode = Invoke-OrchestrationSequence -Sequence $sequence -SequencePath (Join-Path $Root 'suite.yml') `
                         -RepoRoot $Root -SequencesDir $Root -TestRoot $Root -HostType 'host.ubuntu.kvm' -Config $config -InformationAction SilentlyContinue @sealArgument
                 } finally {
-                    $env:YURUNA_RUNTIME_DIR = $savedRuntime
-                    $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedCache
+                    Restore-YurunaTestEnvironment -Saved $savedRuntime
+                    Restore-YurunaTestEnvironment -Saved $savedCache
                 }
                 return $capture
             } @($script:ProvenanceRoot, $ProjectUrl, [bool]$Nested, $FrameworkUrl, $ActionExit, $Seal, $Order)

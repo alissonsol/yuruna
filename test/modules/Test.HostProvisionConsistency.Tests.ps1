@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427dc7e5-42e7-4d34-bef6-83be459c7402
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,10 +44,8 @@ BeforeAll {
 
     function Get-ProvisionAst {
         param([string]$Path)
-        $errors = $null
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errors)
-        if ($errors) { throw "$Path does not parse: $($errors[0].Message)" }
-        return $ast
+        # Throws on a parse error and reads a host driver as a whole, parts included.
+        return (Get-YurunaTestFileAst -Path $Path)
     }
 
     function Get-EffectiveGuestBuilderSource {
@@ -228,12 +226,17 @@ Set-Content -LiteralPath (Join-Path $vmDir 'disk.qcow2') -Value 'retained guest 
     param($Mode, $ScratchRoot)
     $script:FixtureMode = $Mode
     $script:VmRootDir = $ScratchRoot
-    function script:virsh {
+    # Every virsh call the driver makes goes through Invoke-Virsh, so the
+    # stand-in replaces it and no call reaches the host's libvirt.
+    function script:Invoke-Virsh {
+        param([string[]]$VirshArgs, [int]$TimeoutSeconds)
+        $null = $TimeoutSeconds
+        $script:VirshLastCallUnanswered = $false
         $global:LASTEXITCODE = 1
-        if ($args[2] -eq 'undefine' -and $script:FixtureMode -like 'undefined-*') {
+        if ($VirshArgs[0] -eq 'undefine' -and $script:FixtureMode -like 'undefined-*') {
             $global:LASTEXITCODE = 0
         }
-        if ($args[2] -eq 'list' -and $script:FixtureMode -notin @('inventory-failed', 'undefined-inventory-failed')) {
+        if ($VirshArgs[0] -eq 'list' -and $script:FixtureMode -notin @('inventory-failed', 'undefined-inventory-failed')) {
             $global:LASTEXITCODE = 0
             if ($script:FixtureMode -in @('present', 'undefined-present')) { 'test-provision' }
         }
@@ -300,6 +303,28 @@ Describe 'Per-guest builder phase order' {
             $seedPhase = $text.IndexOf('# --- REGION: Generate cloud-init seed ISO', [StringComparison]::Ordinal)
             $diskPhase = $text.IndexOf($kvmDiskPhases[$relativePath], [StringComparison]::Ordinal)
             Assert-True ($seedPhase -ge 0 -and $diskPhase -gt $seedPhase) "$relativePath must preserve the prior disk until the seed preflight succeeds"
+        }
+    }
+}
+
+Describe 'Per-guest builder name validation' {
+    It 'refuses an invalid VM name with its own message in a fresh process for every New-VM builder' {
+        # A fresh process has none of the framework's modules loaded, so a
+        # message formatted before its module is imported fails as an unknown
+        # command instead of reaching the operator.
+        # The macOS guest's builder refuses any other host before it reads its
+        # parameters.
+        $builders = @($script:GuestBuilders | Where-Object { $IsMacOS -or $_.FullName -notmatch 'guest\.macos\.26' })
+        $pwsh = $script:Pwsh
+        $results = @($builders | ForEach-Object -ThrottleLimit 8 -Parallel {
+            $output = @(& $using:pwsh -NoLogo -NoProfile -NonInteractive -File $_.FullName -VMName 'bad name' 2>&1)
+            [pscustomobject]@{ Path = $_.FullName; ExitCode = $LASTEXITCODE; Output = ($output -join "`n") }
+        })
+        $results.Count | Should -Be $builders.Count
+        foreach ($result in $results) {
+            $result.ExitCode | Should -Be 1 -Because "$($result.Path) refuses the name"
+            $result.Output | Should -Not -Match 'is not recognized' -Because "$($result.Path) formats its message after importing the formatter"
+            $result.Output | Should -Match "'bad name'" -Because "$($result.Path) names the refused value"
         }
     }
 }
@@ -381,9 +406,10 @@ function Limit-HyperVLinuxGuestCoreCount {
     param([int]$RequestedCores, [int]$MaximumCores = 2)
     [math]::Min($RequestedCores, $MaximumCores)
 }
-function Set-VMNetworkAdapter {
-    param([string]$VMName, [string]$MacAddressSpoofing)
-    if ($VMName -ne 'test-release-policy' -or $MacAddressSpoofing -ne 'On') { throw 'Wrong network policy' }
+function Invoke-HyperVGuestBuildCmdlet {
+    param([string]$VMName, [string]$Command, [hashtable]$Parameter, [switch]$Optional)
+    if ($Command -ne 'Hyper-V\Set-VMNetworkAdapter') { throw "Unexpected call $Command" }
+    if ($VMName -ne 'test-release-policy' -or $Parameter.VMName -ne 'test-release-policy' -or $Parameter.MacAddressSpoofing -ne 'On') { throw 'Wrong network policy' }
     $script:SpoofCalls++
 }
 '@
@@ -854,5 +880,86 @@ function Remove-UtmTestVM {
         $run = Invoke-ProvisionFixture -Body $body
         $run.ExitCode | Should -Not -Be 0
         $run.Output | Should -Not -Match 'AFTER_REPLACEMENT_GATE'
+    }
+}
+
+Describe 'KVM Amazon Linux overlay backing' -Skip:($IsWindows -or -not (Get-Command qemu-img -ErrorAction SilentlyContinue)) {
+    # Get-Image publishes a new base image by renaming it over the shared path.
+    # An overlay backed by that path would then read another image's blocks, so
+    # each guest backs onto its own name for the base image it was built from.
+    BeforeAll {
+        $script:Al2023Builder = Join-Path $script:RepoRoot 'host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1'
+        $fn = @((Get-ProvisionAst -Path $script:Al2023Builder).FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'New-PrivateBackingImage' }, $true))
+        if ($fn.Count -ne 1) { throw 'New-PrivateBackingImage not found in the AL2023 KVM builder' }
+        . ([scriptblock]::Create($fn[0].Extent.Text))
+    }
+
+    It 'keeps an overlay on the image it was built from after the base is replaced' {
+        $root = Join-Path $script:FixtureRoot ([guid]::NewGuid().ToString('N'))
+        $imageDir = Join-Path $root 'image'; $vmDir = Join-Path $root 'vm'
+        $null = New-Item -ItemType Directory -Path $imageDir, $vmDir
+        $base = Join-Path $imageDir 'base.qcow2'
+        & qemu-img create -q -f qcow2 $base 64M
+        $backing = New-PrivateBackingImage -BaseImageFile $base -VMDirectory $vmDir -Confirm:$false
+        $backing | Should -Be (Join-Path $vmDir 'base.qcow2')
+        $overlay = Join-Path $vmDir 'vm.qcow2'
+        & qemu-img create -q -f qcow2 -F qcow2 -b $backing $overlay 64M
+        $LASTEXITCODE | Should -Be 0
+        # Publish a different base the way Get-Image does: write beside, rename over.
+        $next = Join-Path $imageDir 'base.qcow2.next'
+        & qemu-img create -q -f qcow2 $next 128M
+        [IO.File]::Move($next, $base, $true)
+        $chain = (& qemu-img info --output=json --backing-chain $overlay) -join "`n" | ConvertFrom-Json
+        $chain[0].'backing-filename' | Should -Be $backing
+        $chain[1].'virtual-size' | Should -Be (64MB) -Because 'the overlay still sees the 64 MiB image it was created on, not the 128 MiB replacement'
+        & qemu-img check -q $overlay
+        $LASTEXITCODE | Should -Be 0
+    }
+
+    It 'creates the overlay on the private backing, not on the shared base path' {
+        $text = Get-Content -LiteralPath $script:Al2023Builder -Raw
+        $text | Should -Match ([regex]::Escape('$backingImg = New-PrivateBackingImage -BaseImageFile $baseImageFile -VMDirectory $vmDir'))
+        $text | Should -Match ([regex]::Escape('qemu-img create -f qcow2 -F qcow2 -b $backingImg $diskImg'))
+        $text | Should -Not -Match ([regex]::Escape('-b $baseImageFile'))
+    }
+}
+
+Describe 'KVM virtio-win media is the pinned release' {
+    # Fedora publishes no checksum beside the versioned ISO, so the KVM Windows
+    # Get-Image pins the release's SHA-256 and refuses other bytes -- from a
+    # relay, a mirror or the download agent -- before they replace the media.
+    BeforeAll {
+        $script:WinGetImage = Join-Path $script:RepoRoot 'host/ubuntu.kvm/guest.windows.11/Get-Image.ps1'
+        $script:WinGetImageText = Get-Content -LiteralPath $script:WinGetImage -Raw
+        $start = $script:WinGetImageText.IndexOf('    $virtioActual = ')
+        $end = $script:WinGetImageText.IndexOf("`n    }", $start) + 6
+        $script:VirtioCheck = $script:WinGetImageText.Substring($start, $end - $start)
+    }
+
+    It 'pins one digest beside the URL the download agent also pins, and checks it before publishing' {
+        $url = ([regex]::Match($script:WinGetImageText, "(?m)^\`$virtioUrl = '([^']+)'")).Groups[1].Value
+        $script:WinGetImageText | Should -Match "(?m)^\`$virtioSha256 = '[0-9a-f]{64}'"
+        $agent = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'test/extension/download-agent-service/server/internal/imagestore/resolve.go') -Raw
+        ([regex]::Match($agent, 'const virtioWinURL = "([^"]+)"')).Groups[1].Value | Should -BeExactly $url
+        $script:WinGetImageText.IndexOf('$virtioActual -cne $virtioSha256') | Should -BeLessThan $script:WinGetImageText.IndexOf('Publish-YurunaBaseImage -DownloadFile $tmp -BaseImageFile $virtioIso')
+    }
+
+    It 'refuses other bytes as an integrity failure and keeps the matching ones' {
+        $tmp = Join-Path $script:FixtureRoot ([guid]::NewGuid().ToString('N') + '.iso')
+        [IO.File]::WriteAllText($tmp, 'not the release')
+        $record = Join-Path $script:FixtureRoot ([guid]::NewGuid().ToString('N') + '.kind')
+        $prelude = @"
+function Write-YurunaProvisionResult { param(`$Kind, `$Message) Set-Content -LiteralPath '$record' -Value `$Kind }
+`$tmp = '$tmp'; `$virtioUrl = 'https://example.invalid/virtio-win-0.1.302.iso'
+"@
+        $refused = Invoke-ProvisionFixture -Body ($prelude + "`n`$virtioSha256 = '$('0' * 64)'`n" + $script:VirtioCheck + "`n'kept'")
+        $refused.ExitCode | Should -Be 1
+        Get-Content -LiteralPath $record | Should -Be 'integrity'
+        Test-Path -LiteralPath $tmp | Should -BeFalse -Because 'refused bytes are discarded'
+        [IO.File]::WriteAllText($tmp, 'the release')
+        $sha = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
+        $kept = Invoke-ProvisionFixture -Body ($prelude + "`n`$virtioSha256 = '$sha'`n" + $script:VirtioCheck + "`n'kept'")
+        $kept.ExitCode | Should -Be 0
+        $kept.Output | Should -Match 'kept'
     }
 }

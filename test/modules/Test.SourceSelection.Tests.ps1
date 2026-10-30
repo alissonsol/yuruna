@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ad5782-14c1-45bd-8f19-ea58d1b6d0f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -10,6 +10,7 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.SourceSelection.psm1') -Force
     Import-Module powershell-yaml -Force
     $script:repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -31,7 +32,7 @@ Describe 'Source configuration snapshot and cycle handoff' {
         $script:configPath = Join-Path $TestDrive 'test.config.yml'
         $script:recordPath = Join-Path $TestDrive 'source-selection.json'
         $script:installedPath = Join-Path $TestDrive 'installed-sources.json'
-        $script:priorProxy = $env:YURUNA_CACHING_PROXY_SERVICE_IP
+        $script:priorProxy = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
         @{
             repositories=@{frameworkUrl='https://github.com/example/framework';projectUrl='https://github.com/example/project'}
@@ -41,7 +42,7 @@ Describe 'Source configuration snapshot and cycle handoff' {
         Mock Get-CachingProxyServiceStateIp -ModuleName Test.SourceSelection { '192.168.50.8' }
         Mock Read-YurunaPoolManifest -ModuleName Test.SourceSelection { $null }
     }
-    AfterEach { $env:YURUNA_CACHING_PROXY_SERVICE_IP = $script:priorProxy }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:priorProxy }
 
     It 'reads defaults and a configured proxy before a template write' {
         $before = [IO.File]::ReadAllBytes($script:configPath)

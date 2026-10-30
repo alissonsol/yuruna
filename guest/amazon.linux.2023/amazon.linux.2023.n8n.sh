@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 427b713e-587a-40e3-8a51-d9585e71a372
@@ -37,8 +37,32 @@ export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 echo ""
 echo -e "\e[1;36m==== Node.js ====\e[0m"
 # Install the manifest-pinned Node.js major (YURUNA_NODE_MAJOR); n8n needs a current LTS
-# NodeSource setup script auto-detects architecture
-wget_try -qO- "https://rpm.nodesource.com/setup_${YURUNA_NODE_MAJOR}.x${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo bash -
+# NodeSource's repository for that major, written the way its setup script
+# writes it, with the signing key checked against its pinned fingerprint
+# instead of piping that unverified script to a root shell. dnf then verifies
+# every package against the key.
+declare -F _yuruna_verify_key_fpr >/dev/null || { echo "ERROR: this guest's /usr/local/lib/yuruna/yuruna-retry.sh predates key fingerprint checks; rebuild the guest." >&2; exit 1; }
+command -v gpg >/dev/null 2>&1 || dnf_retry sudo dnf install -y gnupg2
+_ns_key="$(mktemp)"
+trap 'rm -f -- "${_ns_key:-}"' EXIT
+curl_retry -fsSL "https://rpm.nodesource.com/gpgkey/ns-operations-public.key${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o "$_ns_key"
+_yuruna_verify_key_fpr "$_ns_key" 242B813831AF09562B6C46F76B88DA4E3AF28A14 \
+    || { echo "NONZERO SCRIPT EXIT: NodeSource rpm key fingerprint mismatch" >&2; exit 1; }
+sudo install -d -m 755 /etc/pki/rpm-gpg
+sudo install -m 0644 "$_ns_key" /etc/pki/rpm-gpg/nodesource.asc
+rm -f -- "$_ns_key"
+sudo rpm --import /etc/pki/rpm-gpg/nodesource.asc
+sudo rm -f /etc/yum.repos.d/nodesource*.repo
+sudo tee /etc/yum.repos.d/nodesource-nodejs.repo > /dev/null <<EOF
+[nodesource-nodejs]
+name=Node.js Packages for Linux RPM based distros - ${ARCH}
+baseurl=https://rpm.nodesource.com/pub_${YURUNA_NODE_MAJOR}.x/nodistro/nodejs/${ARCH}
+priority=9
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/nodesource.asc
+module_hotfixes=1
+EOF
 dnf_retry sudo dnf -y install nodejs
 
 # --- REGION: Install n8n

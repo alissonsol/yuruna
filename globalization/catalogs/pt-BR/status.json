@@ -97,6 +97,11 @@
       "sourceHash": "c1e6111d2a870fa521b05f9c64f14fe65411000a6c2ee26d1dee4d33faabb54c",
       "message": "proibido: o alvo da sonda deve ser um endereço privado (loopback/RFC1918/link-local) ou o IP de cache configurado"
     },
+    "status.api_guest_channel_key_absent": {
+      "sourceHash": "a86a7d9cbef73fb87b3047edf5b3dc0aeb5b54c433917ef13f78b42a2df7c725",
+      "origin": "machine",
+      "message": "este host ainda não possui chave do canal de convidados; ela é criada quando o host gera a primeira seed de convidado"
+    },
     "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": {
       "sourceHash": "633aaafa885d71ff38403bac3bd2f6e64885805e955c2371ef0d732dcd7cca28",
       "message": "chave de autenticação interna não configurada nesta máquina"
@@ -188,6 +193,11 @@
     "status.api_put_or_post_required_1f919659": {
       "sourceHash": "57f9d8e98c7116b0506f0b55f4cd4b5b431b43da6ae8f7cc2766d19d834818e2",
       "message": "PUT ou POST requerido"
+    },
+    "status.api_query_invalid": {
+      "sourceHash": "87e6ae34e924853bf34dda6ededd3c5521162c85a5cfcfb05033bf4aba6e3f13",
+      "origin": "machine",
+      "message": "consulta inválida: {field} {reason}"
     },
     "status.api_runner_script_missing": {
       "sourceHash": "366a5be5ceec556cf401e43f5c43d7fb2a19f437ae88dcf49fe38b852fe2eeda",
@@ -814,6 +824,11 @@
       "sourceHash": "894800b923f1c7825b5d63c0022c117541ed6b77246d916e1ea60531bcf6564c",
       "message": "Cada pasta de convidados sob esta máquina já está na lista"
     },
+    "status.explain_details": {
+      "sourceHash": "c2d8d0d0c7b20ff59f1b2e164a60c48399a3eeb68f10aa8e2d09a3fb97f37ea6",
+      "message": "Detalhes",
+      "origin": "machine"
+    },
     "status.external_detail": {
       "sourceHash": "0e170252dc136b5efb624111cebf305a81efef1aa7ee125a239eb4a4490ca648",
       "message": "A ferramenta reportada: {detail}"
@@ -1121,6 +1136,11 @@
     "status.performance_fit": {
       "sourceHash": "146a96eb9a4cf9ed231ed1f6b5abc2c91ad469ff6cb81ee56f63eed182e315ba",
       "message": "Mostrar tudo",
+      "origin": "machine"
+    },
+    "status.performance_select_bar": {
+      "sourceHash": "d1fb64d481617237ae4b687f72fa436cde7cc313eb9df6b7d22375ce7e1ca8cb",
+      "message": "Selecione uma duração ou uma barra para ler os detalhes aqui.",
       "origin": "machine"
     },
     "status.performance_zoom": {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -350,6 +350,15 @@ function Invoke-Remediation {
         }
     }
 
+    # The guest kernel's fault kinds counted for the step (the advisory leaves
+    # out a recorder reading that may predate it) and the processors the host
+    # saw service no interrupt. A record that predates either reads as empty.
+    $advisory = & $causeField 'progressAdvisory'
+    $kernelFaultKinds = if ($advisory -is [System.Collections.IDictionary]) { [string[]]@($advisory['kernelFaults'] | Where-Object { $_ }) } else { [string[]]@() }
+    $livelockCause = & $causeField 'guestLivelock'
+    $processorWindow = if ($livelockCause -is [System.Collections.IDictionary]) { $livelockCause['processorWindow'] } else { $null }
+    $silentProcessors = if ($processorWindow) { [string[]]@($processorWindow.NoInterruptsServicedProcessors | Where-Object { $null -ne $_ -and "$_" -ne '' }) } else { [string[]]@() }
+
     $reproField   = & $recField 'repro'
     $reproCommand = if ($reproField -is [System.Collections.IDictionary] -and $reproField.Contains('command')) {
         [string]$reproField['command']
@@ -393,6 +402,8 @@ function Invoke-Remediation {
             # without the field behaves exactly as it does today.
             consoleStaticMeasured  = ($null -ne (& $causeField 'consoleStaticSeconds'))
             pauseBeforeStepSeconds = [int](& $causeField 'pauseBeforeStepSeconds')
+            guestKernelFaultKinds  = $kernelFaultKinds
+            silentProcessors       = $silentProcessors
         }
     }
     $handler = Get-RecoveryHandler -FailureClass $failureClass
@@ -690,6 +701,24 @@ function Register-BuiltinRecoveryHandler {
         # -- so the useful move is a backoff (give the upstream time to recover)
         # rather than an immediate re-run that races the same stall.
         if ($c.Context.actionVerb -eq 'fetchAndExecute') {
+            # A guest whose kernel reported a stall, or left a processor
+            # servicing no interrupt, never ran the script to its end: the
+            # mirror advice below would send the reader after a network that
+            # was not the cause.
+            $kinds = @($c.Context.guestKernelFaultKinds)
+            $silent = @($c.Context.silentProcessors)
+            if ($kinds.Count -or $silent.Count) {
+                return @{
+                    Recommendation = 'retry_with_backoff'
+                    Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.kernel_stall_rationale' -Arguments @{ vmName = "$($c.Context.vmName)"
+                        kinds = $(if ($kinds.Count) { $kinds -join ', ' } else { '-' }); processors = $(if ($silent.Count) { $silent -join ', ' } else { '-' }) })
+                    Actions        = @(
+                        (Format-YurunaOperatorMessage -Key 'remediation.kernel_stall_action_evidence'),
+                        (Format-YurunaOperatorMessage -Key 'remediation.kernel_stall_action_rerun'),
+                        (Format-YurunaOperatorMessage -Key 'remediation.kernel_stall_action_family')
+                    )
+                }
+            }
             return @{
                 Recommendation = 'retry_with_backoff'
                 Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_644fe260c47d5bf9' -Arguments @{ vmName = "$($c.Context.vmName)" })

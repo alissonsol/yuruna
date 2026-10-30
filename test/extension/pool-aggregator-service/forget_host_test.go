@@ -33,7 +33,7 @@ func TestForgetHostRemovesAllState(t *testing.T) {
 	s.hosts[hid] = &hostView{HostId: hid, LastSeenUnixMs: time.Now().UnixMilli()}
 	s.pass[hid] = 3
 	s.fail[hid] = 1
-	s.failWindow[hid] = []failRec{{t: time.Now(), class: "script_error"}}
+	s.failWindow[hid] = []failRec{{At: time.Now(), Class: "script_error"}}
 	s.incident[hid] = &incidentState{}
 	s.seen[hid+"|cyc1"] = "pass"
 	s.seenAt[hid+"|cyc1"] = time.Now()

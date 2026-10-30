@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 428bdced-5d24-48a9-b128-714be1d253d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,7 +62,7 @@ Describe 'caching-proxy-service exposed-port set is single-sourced' {
     }
 
     It 'no caller re-inlines the fixed @(80, 3000, 9302, ...) port set' {
-        foreach ($rel in @('test/service/Start-StatusService.ps1', 'test/modules/Invoke-TestRunnerInnerLoop.ps1', 'test/service/Start-CachingProxyServiceVM.ps1')) {
+        foreach ($rel in @('test/service/Start-StatusService.ps1', 'test/modules/Invoke-TestRunnerInnerLoop.ps1', 'test/modules/Test.RunnerInnerLoop.psm1', 'test/service/Start-CachingProxyServiceVM.ps1')) {
             $t = Get-Content -Raw -LiteralPath (Join-Path $script:repo $rel)
             Assert-True (-not ($t -match '@\(80,\s*3000,\s*9302,')) "the inline exposed-port set reappeared in $rel -- route it through Get-CachingProxyServiceExposedPort"
         }

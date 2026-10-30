@@ -38,6 +38,27 @@ short-circuits on the first engine that finds the search pattern. The
 first engine listed is therefore the primary; later engines are
 fallbacks invoked only when the primary's text did not match.
 
+A wait (`Wait-ForText`) also keeps a fallback's read between polls. The
+primary costs milliseconds and `tesseract` seconds of CPU, and a console
+parked on a screen the wait is not looking for would otherwise be read by both on
+every poll. While the primary reads exactly the text it read on the previous
+frame, a fallback that read that frame without a match is not run again: its
+previous text stands in for the frame, for at most two frames in a row, so a
+static screen is still read by every engine at least once every three polls.
+A fallback that would match only on a later read of an unchanged screen is
+therefore found up to two polls later; a screen that changed, or a primary
+that read nothing, runs every engine. The frame's OCR sidecar marks a kept
+read `kept from the previous frame`. `And` mode and the other callers read
+every engine on every frame.
+
+The cross-frame fallback for a pattern split between adjacent frames joins
+the last three frames' text per engine. The line-by-line strategies would
+only re-test lines that each frame's own poll already tested, so in `Or` mode
+the join runs the segment strategy alone, the one that reads a pattern's
+words across lines, and with `noSegmentMatch` it adds nothing and is skipped.
+`And` mode keeps the full test, since its engines' matching lines can come
+from different frames.
+
 <a id="42607283-0004"></a>
 
 ## Operator overrides
@@ -288,6 +309,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

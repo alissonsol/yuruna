@@ -168,6 +168,18 @@ operable with `Enter` or `Space`. The specifics worth knowing:
 | Sort a table | `Tab` to the column header's button, then `Enter` or `Space` |
 | Pause or resume auto-refresh | `Tab` to **Pause** in the footer, then `Enter` |
 | Leave the config editor with unsaved edits | `Escape`, then confirm |
+| Read a duration's or a bar's details on the performance page | `Tab` to the chart's first duration; arrow keys move through the durations and bars, `Home` and `End` jump to either end, and the details show under the chart |
+| Read why a value needs attention (pool hosts: control state, repository access, a re-keyed host) | `Tab` to the dotted-underlined value, or to the `?` button beside a link, then `Enter` or `Space` |
+
+**Hover text is never the only copy.** A tooltip reaches only a mouse that
+hovers; a keyboard never reaches it and a touch screen has no hover. Where a
+tooltip carries something an operator acts on -- what to fix, or what a chart
+bar measured -- the same text is also reachable by focus and by a tap: a
+plain value becomes a button that shows the text beside it, a link keeps its
+own action and gets a `?` button, and a chart shows the details of the focused
+or tapped bar in a region under it. The service pages share this through
+`Y.explain` in the SDK runtime, and the status pages through `Yuruna.explain`,
+which keeps the same contract.
 
 **Auto-refresh and the pause control.** Every page that refreshes itself carries
 a **Pause** button in its footer, next to the countdown. The choice is stored in
@@ -236,26 +248,61 @@ Two gates cover the shipped surfaces. Both run without network access and
 neither needs `node`.
 
 **[`tools/Invoke-A11yCheck.ps1`](../tools/Invoke-A11yCheck.ps1)** drives the
-installed Chrome over the DevTools Protocol and measures what a browser actually
-paints: composited text contrast, non-text contrast, reflow at 320 CSS px,
-target size, focusable `aria-hidden`, dangling ARIA references, duplicate ids
-and empty accessible names. Four of those have no answer in the source -- a
-token table is a hypothesis about a color that inheritance, overlays and
-ancestor opacity can still change.
+installed Chrome over the DevTools Protocol, and Firefox over WebDriver BiDi
+where Firefox is installed, and measures what a browser paints:
+composited text contrast, non-text contrast, reflow, target size, focusable
+`aria-hidden`, dangling ARIA references, duplicate ids and empty accessible
+names. Four of those have no answer in the source -- a token table is a
+hypothesis about a color that inheritance, overlays and ancestor opacity can
+still change.
 
 ```
 pwsh tools/Invoke-A11yCheck.ps1
 ```
 
-It exits `2` when it cannot run at all, which is never a pass. Headless Chrome
-clamps its viewport to a 500 CSS px floor, so the 320 px measurement is taken
-through `Emulation.setDeviceMetricsOverride` rather than `--window-size`.
+Each page is measured in both color schemes at the desktop widths 320 (the
+WCAG reflow width), 768, 1024 and 1280 CSS px with a fine pointer, and as a
+phone -- 360x780 upright and 844x390 on its side -- with a coarse pointer and
+touch emulation, so every `(pointer: coarse)` rule is evaluated. A page is
+measured as it loads and, where it has the controls for them, with its menu
+open and with its unlock prompt shown; a state the page offers that does not
+open is a finding. A phone view whose layout viewport is wider than the phone
+(a page without a `width=device-width` viewport meta) is a finding too, in
+Chrome; desktop Firefox ignores the viewport meta. The status overview and the
+performance page are also measured populated, from fixture data the exporter
+writes beside them. The default run measures about 1,500 page-views and takes
+about five minutes; `-Browser`, `-Width`, `-Phone` and `-State` narrow it.
+
+It exits `2` when it cannot run at all, which is never a pass. Chrome is
+required; Firefox is measured where it is installed and reported `SKIPPED`
+where it is not. Headless Chrome clamps its viewport to a 500 CSS px floor, so
+the narrow measurements are taken through `Emulation.setDeviceMetricsOverride`
+rather than `--window-size`. In `-Serve` mode an extension page's
+`/assets/yuruna.core.js` is answered from the SDK's shared folder, as the
+services answer it; without that the page would be measured as bare markup,
+with no script to open its menu or fill its tables.
+
+The gate's phone views measure the layout rules, not the phone engines. iOS
+Safari and Android Chrome stay manual checks on a real device. When a change
+touches a page, its stylesheet or the shared runtime, open the changed pages on
+one phone of each and check that:
+
+- upright and on its side, the page never scrolls sideways and its text reads
+  without zooming;
+- the menu opens and closes, and the unlock prompt can be filled in;
+- tapping into a text field does not zoom the page;
+- in landscape on a phone with a notch, no text or control sits under it;
+- a dotted-underlined value or a `?` button shows its explanation when tapped.
 
 **[`tools/Export-GeneratedPages.ps1`](../tools/Export-GeneratedPages.ps1)**
 materializes the surfaces that have no file: the two Go raw-string pages, a
 transcript written by the real log tee, a directory listing produced by the
-status service's own builder, and the html part of the failure email. The gate
-runs it automatically; run it directly when you want the pages on disk to open.
+status service's own builder, and the HTML part of the failure email. It also
+copies the status overview and the performance page into `status-populated/`
+with fixture answers at the relative URLs they read (`runtime/status.json`,
+`control/perf-aggregates`), so their tables, history and timelines are measured
+the same way on every host. The gate runs it automatically; run it directly
+when you want the pages on disk to open.
 
 **[`test/modules/Test.ExtensionUiChrome.Tests.ps1`](../test/modules/Test.ExtensionUiChrome.Tests.ps1)**
 holds the static assertions that run everywhere, with no browser: a document
@@ -273,6 +320,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

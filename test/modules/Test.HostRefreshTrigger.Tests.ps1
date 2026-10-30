@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4265d6db-e190-47e6-b2ae-7119aa42d885
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -988,12 +988,11 @@ Describe 'Invoke-HostRefreshAutoWorker -- the synchronous, bounded launch' {
     BeforeEach {
         $script:Started = [System.Collections.Generic.List[object]]::new()
         $script:Budget = New-HostRefreshBudget
-        $script:SavedNonInteractive = $env:YURUNA_NONINTERACTIVE
+        $script:SavedNonInteractive = Save-YurunaTestEnvironment -Name 'YURUNA_NONINTERACTIVE'
         Remove-Item -LiteralPath 'Env:YURUNA_NONINTERACTIVE' -ErrorAction SilentlyContinue
     }
     AfterEach {
-        if ($null -eq $script:SavedNonInteractive) { Remove-Item -LiteralPath 'Env:YURUNA_NONINTERACTIVE' -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_NONINTERACTIVE = $script:SavedNonInteractive }
+        Restore-YurunaTestEnvironment -Saved $script:SavedNonInteractive
     }
 
     It 'launches the internal vector only, one element per argument, non-interactive, and restores the environment' {
@@ -1507,7 +1506,7 @@ Describe 'A day of automatic attempts through the real admission and ledger' {
         $script:LockPath = Join-Path $dir 'host-refresh.admission.lock'
         $script:Launches = [System.Collections.Generic.List[string]]::new()
         $script:Now = Set-TestUtc '2026-09-25T10:00:00'
-        $script:SavedRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $script:SavedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = New-CaseDir -Name 'runtime'
         Mock -ModuleName Test.HostRefreshTrigger Write-HostRefreshAutoLog { }
         Mock -ModuleName Test.HostRefreshTrigger Get-HostRefreshAutoPoolContext { [pscustomobject]@{ ConfiguredState = 'run'; TestCycleOverride = @{}; Source = 'pull' } }
@@ -1521,8 +1520,7 @@ Describe 'A day of automatic attempts through the real admission and ledger' {
         $script:Worker = { param($Parameter) $script:Launches.Add($Parameter.RequestId); [pscustomobject]@{ Launched = $true; ExitCode = 2; TimedOut = $false; Reason = 'exited' } }
     }
     AfterEach {
-        if ($null -eq $script:SavedRuntimeDir) { Remove-Item -LiteralPath 'Env:YURUNA_RUNTIME_DIR' -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntimeDir }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeDir
     }
 
     It 'consumes the day on a failed attempt, records its outcome, and refuses the next one that day' {
@@ -1756,8 +1754,8 @@ Describe 'Invoke-RunnerOuterLoop -- the applied call sites' {
             return
         }
         $runtime = New-CaseDir -Name 'outer-runtime'
-        $savedRuntime = $env:YURUNA_RUNTIME_DIR
-        $savedLog = $env:YURUNA_LOG_DIR
+        $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $savedLog = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         $env:YURUNA_RUNTIME_DIR = $runtime
         $env:YURUNA_LOG_DIR = $runtime
         try {
@@ -1807,8 +1805,8 @@ Describe 'Invoke-RunnerOuterLoop -- the applied call sites' {
             ($script:Accounted -join ',') | Should -Be (($script:Generations | ForEach-Object { "$_/completed" }) -join ',')
             $script:States | Should -Not -Contain 'paused' -Because 'a repair on the failure branch skips the failure pause'
         } finally {
-            $env:YURUNA_RUNTIME_DIR = $savedRuntime
-            $env:YURUNA_LOG_DIR = $savedLog
+            Restore-YurunaTestEnvironment -Saved $savedRuntime
+            Restore-YurunaTestEnvironment -Saved $savedLog
         }
     }
 }

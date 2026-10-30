@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42bf60de-1efd-47a3-9c1c-7472978c1c6d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -148,6 +148,30 @@ function Stop-RunnerHeartbeat {
 # reported. Per process: the inner is fresh per cycle.
 $script:StepHeartbeatConsecutiveErrors = 0
 $script:StepHeartbeatLastReportUtc = [DateTime]::MinValue
+# The preamble phase this process is in and when it began, so the next
+# Write-RunnerPhase (or Clear-RunnerPhase) can time it.
+$script:OpenRunnerPhase = $null
+
+function Close-RunnerPhaseTiming {
+    <#
+    .SYNOPSIS
+        Write the duration row of the open preamble phase, if any.
+    .DESCRIPTION
+        Through Test.Perf's Write-PerfPhaseRow when the process has it; a
+        phase closed before Test.Perf is loaded is dropped, never a failure.
+    #>
+    [CmdletBinding()]
+    param()
+    $open = $script:OpenRunnerPhase
+    $script:OpenRunnerPhase = $null
+    if (-not $open) { return }
+    if (-not (Get-Command -Name Write-PerfPhaseRow -ErrorAction SilentlyContinue)) { return }
+    try {
+        Write-PerfPhaseRow -Phase $open.Phase -StartedAtUtc $open.StartedUtc -EndedAtUtc ([DateTime]::UtcNow) -Scope preamble
+    } catch {
+        Write-Verbose "Close-RunnerPhaseTiming: $($_.Exception.Message)"
+    }
+}
 
 function Get-RunnerHeartbeatError {
     <#
@@ -193,6 +217,10 @@ function Write-RunnerPhase {
         Justification = 'Writes a runner-local liveness marker consumed by the outer watchdog; there is no operator-visible state worth gating with -WhatIf, and it runs unconditionally on the inner startup path.')]
     param([Parameter(Mandatory)][string]$Phase)
     if (-not $env:YURUNA_RUNTIME_DIR) { return }
+    # Each phase is timed from its Write-RunnerPhase to the next one (or to
+    # Clear-RunnerPhase), so a preamble that grows slower names the phase.
+    Close-RunnerPhaseTiming
+    $script:OpenRunnerPhase = @{ Phase = $Phase; StartedUtc = [DateTime]::UtcNow }
     try {
         [System.IO.File]::WriteAllText((Join-Path $env:YURUNA_RUNTIME_DIR 'runner.phase'), $Phase)
     } catch {
@@ -234,6 +262,8 @@ function Write-RunnerStepHeartbeat {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Updates a runner-local liveness marker; gating this telemetry write would manufacture a stalled runspace.')]
     param([string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR, [string]$Path)
+    # Chaos tests only (Test.FaultInjection): hang here and the step stops reporting.
+    if ($env:YURUNA_FAULT_POINTS) { Import-Module (Join-Path $PSScriptRoot 'Test.FaultInjection.psm1') -DisableNameChecking; Invoke-YurunaFaultPoint -Name 'step-heartbeat' }
     $target = $Path
     if (-not $target) {
         if ([string]::IsNullOrWhiteSpace($RuntimeDir)) { return }
@@ -282,6 +312,7 @@ function Clear-RunnerPhase {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Removes a runner-local liveness marker consumed by the outer watchdog; there is no operator-visible state worth gating with -WhatIf.')]
     param()
+    Close-RunnerPhaseTiming
     if (-not $env:YURUNA_RUNTIME_DIR) { return }
     $phasePath = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.phase'
     # See https://yuruna.link/4213a0b3-00e0

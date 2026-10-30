@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 429793e2-063a-4471-aed6-44421c62b4e4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,7 +185,7 @@ Describe 'A failed VM start is never reported as success' {
         # result sees an Object[] instead of the record and skips its own
         # failure check -- which is how a VM that never started was reported
         # as a restored, running guest.
-        $text = Get-Content -Raw (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
+        $text = Get-YurunaTestSourceText -Path (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
         $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
         $fn = @($ast.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -201,7 +201,7 @@ Describe 'A failed VM start is never reported as success' {
         # Every guest of a kind is built under the same test-VM name, so a
         # topology that promotes several VMs out of that namespace has them
         # all pinned to one port and only the first can start.
-        $text = Get-Content -Raw (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
+        $text = Get-YurunaTestSourceText -Path (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
         $body = [regex]::Match($text, '(?ms)^function Start-UtmVM\b.*?\n\}').Value
         Assert-True ($body -match 'Find-FreeVncDisplay') 'start picks a free display'
         Assert-True ($body -match 'Set-VncDisplayInBundle') 'and records it in the bundle'
@@ -217,7 +217,7 @@ Describe 'A failed VM start is never reported as success' {
         # utmctl start acknowledges the request, not the guest. QEMU can exit
         # immediately afterwards over a port it cannot bind, and returning
         # success there buys a dead VM a whole sequence of downstream steps.
-        $text = Get-Content -Raw (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
+        $text = Get-YurunaTestSourceText -Path (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
         $classify = [regex]::Match($text, '(?ms)^function Get-UtmStartFailureKind\b.*?\n\}').Value
         Assert-True ($classify.Length -gt 0) 'the start-failure classifier is defined'
         Assert-True ($classify -match 'QEMU exited from an error') 'the QEMU death notice is recognized'
@@ -243,7 +243,7 @@ Describe 'A failed VM start is never reported as success' {
         # consumes the service down with it. A QEMU death is the opposite case:
         # the VM launched and its process died, and repeating that only delays
         # the news.
-        $text = Get-Content -Raw (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
+        $text = Get-YurunaTestSourceText -Path (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
         $starter = [regex]::Match($text, '(?ms)^function Invoke-UtmVMStartWithRetry\b.*?\n\}').Value
         Assert-True ($starter.Length -gt 0) 'the retrying starter is defined'
         Assert-True ($starter -match 'MaxAttempts') 'it takes an attempt budget'
@@ -262,7 +262,7 @@ Describe 'A failed VM start is never reported as success' {
         # life of the app, so a rewrite performed against a VM it already holds
         # changes the file and not the QEMU command line. The rename is the one
         # window where the file is authoritative again.
-        $text = Get-Content -Raw (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
+        $text = Get-YurunaTestSourceText -Path (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
         $body = [regex]::Match($text, '(?ms)^function Rename-VM\b.*?\n\}').Value
         Assert-True ($body -match 'Set-VncDisplayInBundle') 'the rename records a display'
         # The quit and the relaunch are the UTM stop and start primitives.

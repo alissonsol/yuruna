@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 422c7a57-c395-4a3c-9648-066af9dbee1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,11 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
+# --- REGION: Failure records
+# A failure this script can name is recorded for the runner before it exits:
+# https://yuruna.link/42820e91-000a
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.HostProvision.psm1') -DisableNameChecking
+
 # --- REGION: Platform guard
 if (-not $IsLinux) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a96b67d0b8d27088')
@@ -56,7 +61,9 @@ if (-not $IsLinux) {
 # --- REGION: Host architecture
 $arch = (& uname -m).Trim()
 if ($arch -ne 'x86_64') {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_314ad0568cf5e5b2' -Arguments @{ arch = "$arch" })
+    $message = Format-YurunaOperatorMessage -Key 'host.operator_314ad0568cf5e5b2' -Arguments @{ arch = "$arch" }
+    Write-YurunaProvisionResult -Kind unsupported -Message $message
+    Write-Error $message
     exit 1
 }
 
@@ -86,7 +93,9 @@ if (-not (Test-Path -LiteralPath $winIso)) {
         try {
             $null = Publish-YurunaBaseImage -DownloadFile $candidateOriginalPath -BaseImageFile $winIso -PreviousFile (Join-Path $downloadDir "$baseImageName.previous.iso") -ExpectedSize $candidate.Length -Confirm:$false
         } catch {
-            Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$winIso"; message = "$($_.Exception.Message)" })
+            $message = Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$winIso"; message = "$($_.Exception.Message)" }
+            Write-YurunaProvisionResult -Kind tool -Message $message
+            Write-Error $message
             exit 1
         }
         # Provenance sidecar for Write-BaseImageProvenance (original filename +
@@ -134,7 +143,9 @@ if (-not (Test-Path -LiteralPath $winIso)) {
                     $stagedSize = (Get-Item -LiteralPath $agentStagingFile -ErrorAction Stop).Length
                     $keptPrevious = Publish-YurunaBaseImage -DownloadFile $agentStagingFile -BaseImageFile $winIso -PreviousFile $previousFile -ExpectedSize $stagedSize -Confirm:$false
                 } catch {
-                    Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$winIso"; message = "$($_.Exception.Message)" })
+                    $message = Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$winIso"; message = "$($_.Exception.Message)" }
+                    Write-YurunaProvisionResult -Kind tool -Message $message
+                    Write-Error $message
                     exit 1
                 }
                 if ($keptPrevious) {
@@ -172,7 +183,9 @@ if (-not (Test-Path -LiteralPath $winIso)) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_a9e197e13deba921' -Arguments @{ downloadDir = "$downloadDir" })
     Write-Output ""
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_957da187da3adef7')
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_2148bcc575bad4ac' -Arguments @{ winIso = "$winIso" })
+    $message = Format-YurunaOperatorMessage -Key 'host.operator_2148bcc575bad4ac' -Arguments @{ winIso = "$winIso" }
+    Write-YurunaProvisionResult -Kind unsupported -Message $message
+    Write-Error $message
     exit 1
 }
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_1af721e69b7a4d55' -Arguments @{ winIso = "$winIso" })
@@ -186,6 +199,11 @@ $ErrorActionPreference = 'Stop'
 # See https://yuruna.link/42e220c4-0003
 # Use the archived HTTPS URL to avoid downgrade redirects in the convenience URL.
 $virtioUrl = 'https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302.iso'
+# The archived URL names one release, so its bytes have one digest; Fedora
+# publishes no checksum beside the ISO, so it was taken from a download of that
+# URL over HTTPS. Move it with the URL (the download agent pins the same URL in
+# its imagestore resolver).
+$virtioSha256 = '303f7ae40dad495d6ae474fdc571df58958a4dbc5c37a522d80f9a203867949d'
 
 # See https://yuruna.link/42e220c4-0003
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
@@ -291,12 +309,25 @@ if ($virtioAgentSkipped) {
         }
     }
     $size = (Get-Item -LiteralPath $tmp).Length
+    # Bytes a relay, a mirror or the download agent served under this URL are
+    # refused unless they are the release the URL names, before they replace the
+    # media a Windows guest loads its storage and network drivers from.
+    $virtioActual = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($virtioActual -cne $virtioSha256) {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        $message = Format-YurunaOperatorMessage -Key 'host.media_digest_mismatch' -Arguments @{ file = 'virtio-win.iso'; url = "$virtioUrl"; actual = "$virtioActual"; expected = "$virtioSha256" }
+        Write-YurunaProvisionResult -Kind integrity -Message $message
+        Write-Error $message
+        exit 1
+    }
     # The sentinel below vouches for the media, so it follows only a swap that
     # is proven to have put the downloaded bytes there.
     try {
         $null = Publish-YurunaBaseImage -DownloadFile $tmp -BaseImageFile $virtioIso -PreviousFile (Join-Path $downloadDir 'virtio-win.previous.iso') -ExpectedSize $size -Confirm:$false
     } catch {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$virtioIso"; message = "$($_.Exception.Message)" })
+        $message = Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$virtioIso"; message = "$($_.Exception.Message)" }
+        Write-YurunaProvisionResult -Kind tool -Message $message
+        Write-Error $message
         exit 1
     }
     if ($virtioAgentServed) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b4865f-6a1d-415a-a630-1e2183bca862
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,7 +45,7 @@ function New-RuntimeFixture {
     param()
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-hostid-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-    $prev = $env:YURUNA_RUNTIME_DIR
+    $prev = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     $env:YURUNA_RUNTIME_DIR = $tmp
     return @{ Tmp = $tmp; Prev = $prev }
 }
@@ -54,7 +54,7 @@ function Remove-RuntimeFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test teardown: restores the env var + removes the temp dir.')]
     param([Parameter(Mandatory)][hashtable]$Fixture)
-    $env:YURUNA_RUNTIME_DIR = $Fixture.Prev
+    Restore-YurunaTestEnvironment -Saved $Fixture.Prev
     Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
@@ -193,7 +193,7 @@ Describe 'Get-YurunaHostId keys a host on its hardware, not on chance' {
         # Deriving from hardware would otherwise hand back the very id the
         # removed runtime dir had, taking away the deliberate re-key that
         # removing that dir is meant to produce.
-        $prevSeed = $env:YURUNA_HOST_ID_SEED
+        $prevSeed = Save-YurunaTestEnvironment -Name 'YURUNA_HOST_ID_SEED'
         $env:YURUNA_HOST_ID_SEED = 'random'
         $ids = @()
         try {
@@ -201,7 +201,7 @@ Describe 'Get-YurunaHostId keys a host on its hardware, not on chance' {
                 $fx = New-RuntimeFixture
                 try { $ids += [string](Get-YurunaHostId) } finally { Remove-RuntimeFixture -Fixture $fx }
             }
-        } finally { $env:YURUNA_HOST_ID_SEED = $prevSeed }
+        } finally { Restore-YurunaTestEnvironment -Saved $prevSeed }
         foreach ($id in $ids) { Assert-True ($id -match '^42[0-9a-fA-F]{30}$') "id shape under the override: $id" }
         Assert-True ($ids[0] -cne $ids[1]) 'the random override returned one id twice'
     }

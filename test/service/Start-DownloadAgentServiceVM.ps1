@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f17d0e-cf42-4655-b11b-a34a4a0b449c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,9 @@
     Legitimate off-LAN, where the mirror is the only source there is.
 .PARAMETER AllowPseudoLocale
     Enable developer pseudo locales for the rebuilt service VM. Disabled by default.
+.PARAMETER ForceRebuild
+    Rebuild the VM even when the running one serves the current build or is
+    still building it. Without it a re-run keeps such a VM (adopts it).
 .EXAMPLE
     pwsh test/service/Start-DownloadAgentServiceVM.ps1
     # Builds + starts the VM, waits for :80, and publishes the marker.
@@ -60,7 +63,8 @@ param(
     [Parameter(Position = 0)]
     [string]$VMName = 'yuruna-download-agent-service',
     [switch]$AllowMirrorSource,
-    [switch]$AllowPseudoLocale
+    [switch]$AllowPseudoLocale,
+    [switch]$ForceRebuild
 )
 
 # --- REGION: Confirm the service operation
@@ -238,18 +242,40 @@ if (-not (Assert-GuestFrameworkSource -RepoRoot $repoRoot -StatusDecision $statu
     exit $ExitFailure
 }
 
-# --- REGION: Create the VM
-# Each New-VM runs Get-Image auto-fetch when the base image is missing, tears
-# down any prior VM, creates the new one, and (Hyper-V + KVM) starts it. UTM only
-# builds the bundle; Invoke-YurunaServiceVmBuild registers and starts it.
-if (-not $PSCmdlet.ShouldProcess($VMName, "Build and start the download-agent service VM on $HostType")) {
-    Write-Verbose "Skipped: '$VMName' would be rebuilt on $HostType (nothing was changed)."
-    exit $ExitOk
+# --- REGION: Adopt a running VM
+# See https://yuruna.link/42e220c4-0008
+# A running guest that serves the current build, or is still building it, is
+# kept: a re-run only re-asserts what the host publishes about it.
+Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
+$adoption = if ($ForceRebuild) { [pscustomobject]@{ Decision = 'rebuild'; Reason = '-ForceRebuild'; Address = '' } } else {
+    Resolve-YurunaServiceVmAdoption -VMName $VMName -Port 80 -GuestKey 'guest.download-agent-service' -User 'download-agent-service-admin' -SourceCheck {
+        param($Address)
+        $deployed = Test-ServiceVmFrameworkSource -Address $Address -Port 80 -GuestKey 'guest.download-agent-service' -User 'download-agent-service-admin' -Expected $frameworkExpected
+        -not ($deployed.Verified -and -not $deployed.Matches -and -not $AllowMirrorSource)
+    }
 }
-Write-Information "== Bringing up '$VMName' on $HostType ==" -InformationAction Continue
-$build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VMName $VMName -OperationContext $serviceOp -AllowPseudoLocale:$AllowPseudoLocale -Confirm:$false
-if (-not $build.Ok) { Write-Error $build.Error -ErrorAction Continue; exit $build.ExitCode }
-$serviceOpResult = 'confirmed'
+$buildDegraded = @()
+if ($adoption.Decision -ne 'rebuild') {
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.service_adopted' -Arguments @{ vmName = $VMName; reason = [string]$adoption.Reason; address = [string]$adoption.Address }) -InformationAction Continue
+} else {
+    # --- REGION: Create the VM
+    # The builder's plan runs first, while the working VM and its advertisement
+    # are still in place; only an accepted plan withdraws the advertisement and
+    # lets the builder tear down the prior VM, create the new one, and
+    # (Hyper-V + KVM) start it. UTM only builds the bundle;
+    # Invoke-YurunaServiceVmBuild registers and starts it.
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Build and start the download-agent service VM on $HostType")) {
+        Write-Verbose "Skipped: '$VMName' would be rebuilt on $HostType (nothing was changed)."
+        exit $ExitOk
+    }
+    Write-Information "== Bringing up '$VMName' on $HostType ($($adoption.Reason)) ==" -InformationAction Continue
+    $plan = Test-YurunaServiceVmBuildPlan -BuilderPath $newVm -VMName $VMName -AllowPseudoLocale:$AllowPseudoLocale
+    if (-not $plan.Ok) { Write-Error $plan.Error -ErrorAction Continue; exit $ExitFailure }
+    [void](Remove-YurunaServiceVmAdvertisement -Area 'download-agent-service' -HostType $HostType -RepoRoot $repoRoot -RuntimeDir $runtimeDir -Confirm:$false)
+    $build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VMName $VMName -OperationContext $serviceOp -AllowPseudoLocale:$AllowPseudoLocale -Confirm:$false
+    if (-not $build.Ok) { Write-Error $build.Error -ErrorAction Continue; exit $build.ExitCode }
+    $buildDegraded = @($build.Degraded)
+}
 
 # --- REGION: Resolve the VM address
 # See https://yuruna.link/42e220c4-0008
@@ -266,11 +292,14 @@ if ($HostType -eq 'host.macos.utm') {
     $bundleMode = [string](Get-UtmNetworkModeFromBundle -VMName $VMName)
     $uplinkMode = Resolve-UtmNetworkMode
     if ($bundleMode -and $uplinkMode -and $bundleMode -ne $uplinkMode) {
-        Write-Warning "'$VMName' was built for '$bundleMode' networking but this host's uplink now wants '$uplinkMode' (Wi-Fi and Ethernet differ). The VM's baked addresses are for the old topology; rebuild it (Stop-DownloadAgentServiceVM.ps1 then re-run this script)."
+        Write-Warning "'$VMName' was built for '$bundleMode' networking but this host's uplink now wants '$uplinkMode' (Wi-Fi and Ethernet differ). The VM's baked addresses are for the old topology; run Stop-DownloadAgentServiceVM.ps1 and then this script again to rebuild it."
     }
+    # Host port 8082, not 80: on a shared-services machine the caching-proxy
+    # already forwards host :80 (its CA-cert endpoint) and pool-control holds
+    # 8081, so this UI takes a host port of its own.
     if ($bundleMode -eq 'Shared') {
         if ($vmIp) {
-            $mapped = Add-PortMap -VMIp $vmIp -Port @() -PortRemap @{ 8082 = 80 } -Confirm:$false
+            $mapped = Add-PortMap -Owner 'download-agent-service' -VMIp $vmIp -Port @() -PortRemap @{ 8082 = 80 } -Confirm:$false
             $hostAddress = [string](Get-BestHostIp)
             if ($mapped) { Write-Information "  Shared NAT: peers reach the download-agent service UI at http://${hostAddress}:8082/ (forwarded to ${vmIp}:80), not at the VM's address." -InformationAction Continue }
             else {
@@ -311,7 +340,7 @@ if ($vmIp) {
         param($newAddress)
         $script:vmIp = $newAddress
         if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
-            if (Add-PortMap -VMIp $newAddress -Port @() -PortRemap @{ 8082 = 80 } -Confirm:$false) {
+            if (Add-PortMap -Owner 'download-agent-service' -VMIp $newAddress -Port @() -PortRemap @{ 8082 = 80 } -Confirm:$false) {
                 $script:hostAddress = [string](Get-BestHostIp)
                 Write-Verbose "  Re-pointed host :8082 -> ${newAddress}:80."
             }
@@ -361,7 +390,7 @@ if ((Get-ServiceVmReadinessVerdict -Endpoint $endpoint).IsFailure) {
         $vmIp = $recoveredIp
         $endpoint = New-ServiceVmRecoveredEndpoint -Endpoint $endpoint -Address $recoveredIp -WaitedSeconds $ipWaitSeconds
         if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
-            if (Add-PortMap -VMIp $recoveredIp -Port @() -PortRemap @{ 8082 = 80 } -Confirm:$false) {
+            if (Add-PortMap -Owner 'download-agent-service' -VMIp $recoveredIp -Port @() -PortRemap @{ 8082 = 80 } -Confirm:$false) {
                 $hostAddress = [string](Get-BestHostIp)
                 Write-Verbose "  Re-pointed host :8082 -> ${recoveredIp}:80."
             }
@@ -424,17 +453,56 @@ To hold this script longer next time:
     }
 }
 
+# --- REGION: Report the deployed source
+# See https://yuruna.link/42fffc2c-0013
+# The daemon is serving, so this is the first point where the framework it
+# was built from can be answered from evidence rather than prediction. It is
+# read before anything is published, so a refused build is never advertised.
+$sourceAccepted = $true
+if ($daemonReady) {
+    $sourceAccepted = Assert-ServiceVmFrameworkSource -Address ([string]$vmIp) -Port 80 `
+        -GuestKey 'guest.download-agent-service' -User 'download-agent-service-admin' `
+        -Expected $frameworkExpected -ServiceLabel 'download-agent-service' `
+        -AllowMirrorSource:$AllowMirrorSource
+}
+
+# --- REGION: Decide the start outcome
+# One record decides the census result, the advertisement and the exit. A stop
+# requested while this start ran wins: nothing is advertised for it.
+$stillWanted = Test-YurunaServiceOperationCurrent -Context $serviceOp
+$startOutcome = Resolve-YurunaServiceStartOutcome -Verdict $verdict -StillWanted $stillWanted -SourceAccepted $sourceAccepted -Degraded $buildDegraded
+if ($startOutcome.Result -eq 'confirmed') { $serviceOpResult = 'confirmed' }
+if (-not $stillWanted) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_start_stop_requested' -Arguments @{ vmName = $VMName; stopScript = 'Stop-DownloadAgentServiceVM.ps1' })
+}
+
 # --- REGION: Publish service readiness
 # See https://yuruna.link/42fffc2c-0008
-$downloadAgentServiceBaseUrl = if ($daemonReady -and -not $listeningButUnreachable) {
+$downloadAgentServiceBaseUrl = if ($startOutcome.Advertise -and -not $listeningButUnreachable) {
     Resolve-DownloadAgentServiceBaseUrl -VMIp ([string]$vmIp) -NetworkMode $bundleMode -HostAddress $hostAddress
 } else { '' }
-[void](Write-DownloadAgentServiceMarker -RuntimeDir $runtimeDir -Active $daemonReady -VMName $VMName -HostType $HostType -BaseUrl $downloadAgentServiceBaseUrl)
+[void](Write-DownloadAgentServiceMarker -RuntimeDir $runtimeDir -Active $startOutcome.Advertise -VMName $VMName -HostType $HostType -BaseUrl $downloadAgentServiceBaseUrl)
 try {
     Set-Variable -Name '__YurunaHostId' -Scope Global -Value (Get-YurunaHostId)
     Import-Module (Join-Path $ModulesDir 'Test.Capability.psm1') -Global -Force
     [void](Write-HostRegistrationRecord -HostType $HostType -RepoRoot $repoRoot)
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
+
+if ($startOutcome.Degraded.Count -gt 0) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_start_degraded' -Arguments @{ vmName = $VMName; names = ($startOutcome.Degraded -join ', ') })
+}
+if ($startOutcome.State -eq 'stop-requested') {
+    Write-Verbose "  Stop: test/service/Stop-DownloadAgentServiceVM.ps1"
+    exit $ExitFailure
+}
+if ($startOutcome.State -eq 'wrong-build') {
+    Write-Verbose ""
+    Write-Verbose "== download-agent-service start: FAILED (deployed an obsolete framework snapshot) =="
+    Write-Verbose "  VM:   $VMName ($HostType)"
+    Write-Information "  The VM is up and the daemon is serving -- it is running the WRONG BUILD, not nothing." -InformationAction Continue
+    Write-Verbose "  Stop: test/service/Stop-DownloadAgentServiceVM.ps1"
+    exit $ExitFailure
+}
 
 if ($stillBuilding) {
     Write-Verbose ""
@@ -453,22 +521,6 @@ if ($stillBuilding) {
 }
 
 if ($daemonReady) {
-    # --- REGION: Report the deployed source
-    # See https://yuruna.link/42fffc2c-0013
-    # The daemon is serving, so this is the first point where the framework it
-    # was built from can be answered from evidence rather than prediction.
-    if (-not (Assert-ServiceVmFrameworkSource -Address ([string]$vmIp) -Port 80 `
-                -GuestKey 'guest.download-agent-service' -User 'download-agent-service-admin' `
-                -Expected $frameworkExpected -ServiceLabel 'download-agent-service' `
-                -AllowMirrorSource:$AllowMirrorSource)) {
-        Write-Verbose ""
-        Write-Verbose "== download-agent-service start: FAILED (deployed an obsolete framework snapshot) =="
-        Write-Verbose "  VM:   $VMName ($HostType)"
-        Write-Information "  The VM is up and the daemon is serving -- it is running the WRONG BUILD, not nothing." -InformationAction Continue
-        Write-Verbose "  Stop: test/service/Stop-DownloadAgentServiceVM.ps1"
-        exit $ExitFailure
-    }
-
     Write-Verbose ""
     if ($listeningButUnreachable) {
         Write-Verbose "== download-agent-service is RUNNING (daemon serving on :80 in-guest; not reachable from this host) =="

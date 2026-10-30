@@ -29,6 +29,30 @@ const DataenUSremediation = `{
       "trust": "external"
     }
   ],
+  "remediation.kernel_stall_action_evidence": "Read causeDetail.guestKernelFault and causeDetail.guestLivelock.processorWindow in last_failure.json, and the kernel's reports in the guest folder's serial-console.log",
+  "remediation.kernel_stall_action_family": "On the ARM64 Hyper-V host, read the guest kernel wedges section of docs/host-hyperv.md (https://yuruna.link/42dc5bb9-0014) to date the wedge and tell its shape",
+  "remediation.kernel_stall_action_rerun": "Run the sequence on a new VM; a guest whose kernel wedged does not recover",
+  "remediation.kernel_stall_rationale": [
+    "wait_timeout on ",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": the guest kernel stopped making progress (kernel reports: ",
+    {
+      "arg": "kinds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "; virtual processors that serviced no interrupt: ",
+    {
+      "arg": "processors",
+      "type": "detail",
+      "trust": "external"
+    },
+    "), so the script could not finish. This is not a slow package mirror, and re-running the step on the same guest cannot help."
+  ],
   "remediation.operator_00fd2209b1a993b2": "inspect last_failure.json manually",
   "remediation.operator_01b3c9512f168859": [
     "console_flooded on ",

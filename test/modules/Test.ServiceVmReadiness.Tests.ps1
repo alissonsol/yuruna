@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a24e8a-bb70-4de1-b78f-9bbdd82d9ea7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,7 +136,7 @@ function Invoke-SilentGuestWait {
         [string]$SeedAddress = '',
         [scriptblock]$ResolveAddress = { '192.168.7.234' }
     )
-    $savedNonInteractive = $env:YURUNA_NONINTERACTIVE
+    $savedNonInteractive = Save-YurunaTestEnvironment -Name 'YURUNA_NONINTERACTIVE'
     try {
         # Forces the line-per-update path, which is the one a captured child
         # writes into a log -- and the only one whose text can be read back.
@@ -147,7 +147,7 @@ function Invoke-SilentGuestWait {
             -ServiceLabel 'stash-service daemon' -InGuestCheckAfterSeconds 0 -InGuestCheckEverySeconds 1 `
             -Address $SeedAddress `
             -ResolveAddress $ResolveAddress -TestPortOpen { $false } -InvokeInGuest { $null } 6>&1
-    } finally { $env:YURUNA_NONINTERACTIVE = $savedNonInteractive }
+    } finally { Restore-YurunaTestEnvironment -Saved $savedNonInteractive }
     $record = @($emitted | Where-Object { $_ -is [pscustomobject] }) | Select-Object -Last 1
     $lines  = @($emitted | Where-Object { $_ -is [System.Management.Automation.InformationRecord] } |
         ForEach-Object { [string]$_.MessageData })
@@ -442,14 +442,14 @@ Describe 'A service that is merely powered on is not a service' {
         Assert-Equal -Expected 1 -Actual $writes.Count -Because 'one readiness decision must produce one marker write'
         $assignments = @($ast.FindAll({ param($node)
                     $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-                    $node.Left.Extent.Text -eq '$stashDaemonReady'
+                    $node.Left.Extent.Text -eq '$startOutcome'
                 }, $true))
         Assert-Equal -Expected 1 -Actual $assignments.Count -Because 'the advertised state must be assigned from the verdict'
-        Assert-True ($assignments[0].Right.Extent.Text -match [regex]::Escape("`$stashVerdict.Outcome -in @('Ready', 'Unreachable')")) `
-            'a still-building guest is not an active service'
+        Assert-True ($assignments[0].Right.Extent.Text -match [regex]::Escape('Resolve-YurunaServiceStartOutcome -Verdict $stashVerdict')) `
+            'the one outcome record is derived from the verdict (a still-building guest is not advertised)'
         Assert-True ($assignments[0].Extent.EndOffset -lt $writes[0].Extent.StartOffset) 'readiness must precede the advertisement'
-        Assert-True ($writes[0].Extent.Text -match '-Active \$stashDaemonReady') 'the marker must carry the readiness decision'
-        Assert-True ($script:StashSource -match "if \(\`$runtimeDir -and \`$stashVerdict.Outcome -eq 'Ready'\)") `
+        Assert-True ($writes[0].Extent.Text -match '-Active \$startOutcome\.Advertise') 'the marker must carry the readiness decision'
+        Assert-True ($script:StashSource -match "if \(\`$runtimeDir -and \`$startOutcome.Advertise -and \`$stashVerdict.Outcome -eq 'Ready'\)") `
             'only a daemon reachable from the host may publish a URL'
     }
 }

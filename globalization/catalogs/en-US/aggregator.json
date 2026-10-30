@@ -993,6 +993,152 @@
       "message": "invalid control scope",
       "description": "Operator-facing HTTP failure from pool-aggregator /go/host when the scope parameter is not a well-formed control scope. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
       "lifecycle": "active"
+    },
+    "aggregator.help_loki_outbox_dir": {
+      "message": "folder that keeps Loki lines until Loki accepts them (empty keeps them in memory, lost on restart)",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.log_loki_not_ready": {
+      "message": "Loki was not ready after {duration}; reading it anyway",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "duration": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_loki_outbox_memory_only": {
+      "message": "Loki outbox: {dir} cannot be used ({reason}); lines wait in memory and a restart loses them",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "dir": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_loki_outbox_full": {
+      "message": "Loki outbox is full ({lines} lines); new lines are refused until Loki takes some",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "lines": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_loki_outbox_refused": {
+      "message": "Loki refused a queued line ({reason}); it is dropped",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_loki_outbox_unreadable": {
+      "message": "Loki outbox: {name} cannot be read ({reason}); it is dropped",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_loki_outbox_enqueue_failed": {
+      "message": "{what}: the line could not be queued for Loki: {reason}",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "what": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.ingest_queue_full": {
+      "message": "the collector cannot hold these lines now; try again later",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.framework_ring_canary_invalid": {
+      "message": "canary must list 42-prefixed host IDs (at most 64), separated by commas",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.framework_ring_passes_invalid": {
+      "message": "passes must be a whole number from 1 to 1000",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
+    },
+    "aggregator.help_framework_ring_state_file": {
+      "message": "file that keeps the framework revision each host's completed cycles ran, so the canary ring survives a restart (empty keeps it in memory)",
+      "description": "Aggregator operator command help.",
+      "lifecycle": "active"
+    },
+    "aggregator.log_framework_ring_state_unreadable": {
+      "message": "framework ring: {path} cannot be read ({reason}); starting from what the hosts report next",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
+    },
+    "aggregator.log_framework_ring_state_unwritten": {
+      "message": "framework ring: {path} cannot be written ({reason}); the revisions stay in memory until a write succeeds",
+      "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "value"
+        }
+      }
     }
   }
 }

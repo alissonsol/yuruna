@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f7b847-f2dc-43ee-b9f7-f70bdc728c72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,7 +75,7 @@ function Write-Status {
     }
 }
 
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0030
 if (-not $ExplicitPrefix) {
     $configPath = Join-Path $TestRoot 'test.config.yml'
     if (Test-Path $configPath) {
@@ -140,7 +140,7 @@ $prefixLabel = ($Prefix -join "', '")
 Write-Status "Stopping VMs with prefix '$prefixLabel'..."
 Write-Status ""
 
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-002f
 $survivors = [System.Collections.Generic.List[string]]::new()
 $removedCount = 0
 
@@ -220,7 +220,7 @@ if ($survivors.Count -gt 0) {
 }
 Write-Status ""
 
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-002e
 Write-Status "Releasing host virtual display (if attached)..."
 Remove-HostDisplay -HostType $HostType
 Write-Status ""
@@ -232,7 +232,7 @@ if (-not (Test-Path $cleanupScript)) {
     exit 1
 }
 
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-002d
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0727e0f3d5181249' -Arguments @{ cleanupScript = "$cleanupScript" })
 Write-Status ""
 $orphanArgs = @{ Force = $true }

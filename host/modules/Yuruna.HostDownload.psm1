@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d93b11-69e5-4250-b84e-294562b68efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -295,18 +295,20 @@ function Save-CachedHttpUri {
         [scriptblock]$ResolveCacheHostIp
     )
     # See https://yuruna.link/42e220c4-0003
+    # Every path runs on the resumable engine, so a transfer cut short resumes
+    # at its next attempt instead of starting over.
     if (-not $ResolveCacheHostIp) {
-        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -ErrorAction Stop
+        $null = Invoke-YurunaResumableDownload -Uri $Uri -OutFile $OutFile
         return
     }
     $cfg = Get-CacheProxyForHostDownload -Uri $Uri -ResolveCacheHostIp $ResolveCacheHostIp
     if (-not $cfg) {
-        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -ErrorAction Stop
+        $null = Invoke-YurunaResumableDownload -Uri $Uri -OutFile $OutFile
         return
     }
     if (-not $cfg.CaPemPath) {
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_6324f0717ba924d0' -Arguments @{ proxy = "$($cfg.Proxy)" }) -InformationAction Continue
-        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -Proxy $cfg.Proxy -ErrorAction Stop
+        $null = Invoke-YurunaResumableDownload -Uri $Uri -OutFile $OutFile -ProxyUrl $cfg.Proxy
         return
     }
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_103c960e4cbdd8a2' -Arguments @{ proxy = "$($cfg.Proxy)"; caPemPath = "$($cfg.CaPemPath)" }) -InformationAction Continue
@@ -371,7 +373,8 @@ function Invoke-HttpsViaSquidBump {
     <#
     .SYNOPSIS
         Stream $Uri to $OutFile through the squid SSL-bump proxy, trusting only
-        the cache's CA at $CaPemPath (per-process, via a compiled validator).
+        the cache's CA at $CaPemPath (per-process, via a compiled validator),
+        on the resumable download engine.
     #>
     [CmdletBinding()]
     [OutputType([void])]
@@ -383,78 +386,280 @@ function Invoke-HttpsViaSquidBump {
         [datetime]$Deadline = [datetime]::UtcNow.AddHours(2),
         [ValidateRange(1, 3600)][int]$IdleTimeoutSeconds = 60
     )
-    # yuruna-squid-ca.crt is a cert-only PEM, so CreateFromPemFile (which expects
-    # cert+key in one file) is not an option. Load from the DER bytes parsed out of
-    # the PEM rather than the X509Certificate2 file constructor: the constructor's
-    # PEM auto-detection goes through the platform crypto backend, which reads PEM
-    # on Windows but FAILS on macOS. DER bytes load identically on every platform.
-    $caPemText = [System.IO.File]::ReadAllText($CaPemPath)
-    $caDerB64  = (($caPemText -split "`r?`n") | Where-Object { $_ -and ($_ -notmatch 'CERTIFICATE') }) -join ''
-    $extraCa   = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($caDerB64))
+    $null = Invoke-YurunaResumableDownload -Uri $Uri -OutFile $OutFile -ProxyUrl $ProxyUrl -CaPemPath $CaPemPath `
+        -Deadline $Deadline -IdleTimeoutSeconds $IdleTimeoutSeconds -Activity "Downloading $Uri (via squid SSL-bump)"
+}
+
+function Read-YurunaDownloadSidecar {
+    <#
+    .SYNOPSIS
+        The record beside a partial download: the URI it came from, the
+        validator the server sent, and the full length when known; $null when
+        there is none or it does not parse.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    try { $record = Get-Content -Raw -LiteralPath $Path -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop }
+    catch { return $null }
+    if ($record -isnot [System.Collections.IDictionary]) { return $null }
+    $length = 0L
+    $null = [int64]::TryParse([string]$record['length'], [ref]$length)
+    return @{ uri = [string]$record['uri']; etag = [string]$record['etag']; lastModified = [string]$record['lastModified']; length = $length }
+}
+
+function Invoke-YurunaResumableDownload {
+    <#
+    .SYNOPSIS
+        Download $Uri to $OutFile through the one HttpClient engine every image
+        path uses (origin, squid proxy, squid SSL-bump, download agent), resuming
+        a transfer an earlier attempt or process left part-way.
+    .DESCRIPTION
+        Bytes go to <OutFile>.partial, and <OutFile>.partial.json records the
+        URI, the validator the server sent (a strong ETag, else Last-Modified)
+        and the full length. A later attempt for the same URI asks for the
+        remainder with Range and If-Range: a 206 that continues at the right
+        offset is appended, and any other answer -- a server that ignored the
+        range, or an entity that changed under its validator -- starts the file
+        again from zero. A transfer with no validator cannot prove the
+        remainder belongs to the same bytes, so it is never resumed unless the
+        caller says the URI names immutable bytes (-AssumeImmutable).
+
+        Only a complete transfer is renamed to $OutFile. A failed one keeps the
+        partial and its record, so the next attempt -- in this call, a later
+        retry, or a later cycle after the step watchdog ended this one -- pays
+        only for the bytes still missing. A refusal that no retry changes (an
+        HTTP 4xx other than 408, 425 and 429) is thrown at once, with its
+        status in the message for the caller's classification.
+    .PARAMETER ProxyUrl
+        HTTP proxy for the request: the squid HTTP port, or its SSL-bump port.
+    .PARAMETER CaPemPath
+        With -ProxyUrl: trust only this CA for the TLS the proxy re-signs.
+    .PARAMETER ExpectedByteCount
+        The full length when the caller already knows it, or 0.
+    .PARAMETER AssumeImmutable
+        The URI names one immutable artifact (a content-named download-agent
+        generation), so a transfer resumes without a validator.
+    .PARAMETER Deadline
+        UTC wall-clock deadline for this call.
+    .PARAMETER IdleTimeoutSeconds
+        Longest wait for response headers or the next bytes.
+    .PARAMETER MaxAttempt
+        Requests this call may send, resuming between them.
+    .OUTPUTS
+        [int64] the size of $OutFile.
+    #>
+    [CmdletBinding()]
+    [OutputType([int64])]
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$OutFile,
+        [string]$ProxyUrl,
+        [string]$CaPemPath,
+        [int64]$ExpectedByteCount = 0,
+        [switch]$AssumeImmutable,
+        [datetime]$Deadline = [datetime]::UtcNow.AddHours(2),
+        [ValidateRange(1, 3600)][int]$IdleTimeoutSeconds = 60,
+        [ValidateRange(1, 20)][int]$MaxAttempt = 3,
+        [string]$Activity
+    )
+    if (-not $Activity) { $Activity = "Downloading $Uri" }
+    $partial = "$OutFile.partial"
+    $sidecarPath = "$partial.json"
+    $parent = Split-Path -Parent $OutFile
+    if ($parent -and -not (Test-Path -LiteralPath $parent)) { $null = New-Item -ItemType Directory -Path $parent -Force -ErrorAction Stop }
+    $state = Read-YurunaDownloadSidecar -Path $sidecarPath
+    if (-not $state -or $state.uri -cne $Uri -or (-not $AssumeImmutable -and -not $state.etag -and -not $state.lastModified)) {
+        $state = $null
+        Remove-Item -LiteralPath $partial, $sidecarPath -Force -ErrorAction SilentlyContinue
+    }
 
     $handler = [System.Net.Http.HttpClientHandler]::new()
-    $handler.UseProxy = $true
-    $handler.Proxy = [System.Net.WebProxy]::new([System.Uri]$ProxyUrl, $true)
-    # A compiled C# delegate, not a scriptblock: the callback fires on
-    # HttpClient's TLS worker thread, which has no PowerShell runspace.
-    $handler.ServerCertificateCustomValidationCallback = Get-SquidBumpCertValidator -ExtraCa $extraCa
-
+    $extraCa = $null
+    if ($ProxyUrl) {
+        $handler.UseProxy = $true
+        $handler.Proxy = [System.Net.WebProxy]::new([System.Uri]$ProxyUrl, $true)
+    }
+    if ($CaPemPath) {
+        # yuruna-squid-ca.crt is a cert-only PEM, so CreateFromPemFile (which
+        # expects cert+key in one file) is not an option. Load from the DER bytes
+        # parsed out of the PEM rather than the X509Certificate2 file constructor:
+        # its PEM auto-detection goes through the platform crypto backend, which
+        # reads PEM on Windows but FAILS on macOS. DER bytes load identically on
+        # every platform.
+        $caPemText = [System.IO.File]::ReadAllText($CaPemPath)
+        $caDerB64  = (($caPemText -split "`r?`n") | Where-Object { $_ -and ($_ -notmatch 'CERTIFICATE') }) -join ''
+        $extraCa   = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($caDerB64))
+        # A compiled C# delegate, not a scriptblock: the callback fires on
+        # HttpClient's TLS worker thread, which has no PowerShell runspace.
+        $handler.ServerCertificateCustomValidationCallback = Get-SquidBumpCertValidator -ExtraCa $extraCa
+    }
     $client = [System.Net.Http.HttpClient]::new($handler, $true)
-    # 4 GB at ~50 MB/s LAN cache = ~80s; HTTP/SSL handshake + cold cache
-    # populate from origin can stretch this. Generous timeout vs. the
-    # default 100s which would abort mid-fetch on a cold ISO pull.
+    # No client-level timeout: a cold multi-GB image legitimately takes hours;
+    # the deadline and the idle timeout are what bound this call.
     $client.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
-    $deadlineCancellation = [System.Threading.CancellationTokenSource]::new()
-    $remaining = [Math]::Max(0, ($Deadline - [datetime]::UtcNow).TotalMilliseconds)
-    $deadlineCancellation.CancelAfter([int][Math]::Min([int]::MaxValue, $remaining))
-    $idleCancellation = [System.Threading.CancellationTokenSource]::CreateLinkedTokenSource($deadlineCancellation.Token)
-    $request = $null
+    $null = $client.DefaultRequestHeaders.UserAgent.TryParseAdd("Yuruna PowerShell/$($PSVersionTable.PSVersion)")
+    $complete = $false
+    $lastError = ''
     try {
-        $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, [System.Uri]$Uri)
-        $idleCancellation.CancelAfter([TimeSpan]::FromSeconds($IdleTimeoutSeconds))
-        $response = $client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead, $idleCancellation.Token).GetAwaiter().GetResult()
-        try {
-            if (-not $response.IsSuccessStatusCode) {
-                throw (Format-YurunaOperatorMessage -Key 'exceptions.host_3fa13d65fc1bcf6d' -Arguments @{ statusCode = "$([int]$response.StatusCode)"; reasonPhrase = "$($response.ReasonPhrase)"; uri = "$Uri" })
-            }
-            $total = $response.Content.Headers.ContentLength
-            $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        for ($attempt = 1; $attempt -le $MaxAttempt -and -not $complete; $attempt++) {
+            if ([datetime]::UtcNow -ge $Deadline) { $lastError = 'the deadline expired'; break }
+            $offset = if (Test-Path -LiteralPath $partial) { (Get-Item -LiteralPath $partial).Length } else { 0L }
+            if ($state -and $state.length -gt 0 -and $offset -eq $state.length) { $complete = $true; break }
             try {
-                $out = [System.IO.File]::Create($OutFile)
-                try {
-                    $buf = [byte[]]::new(64 * 1024)
-                    $written = 0L
-                    $next = [DateTime]::UtcNow.AddSeconds(2)
-                    $activity = "Downloading $Uri (via squid SSL-bump)"
-                    while ($true) {
-                        $idleCancellation.CancelAfter([TimeSpan]::FromSeconds($IdleTimeoutSeconds))
-                        $n = $stream.ReadAsync($buf, 0, $buf.Length, $idleCancellation.Token).GetAwaiter().GetResult()
-                        if ($n -eq 0) { break }
-                        $out.Write($buf, 0, $n)
-                        $written += $n
-                        if ([DateTime]::UtcNow -gt $next) {
-                            if ($total) {
-                                $pct = [math]::Round($written * 100.0 / $total, 1)
-                                Write-Progress -Activity $activity -Status (Format-YurunaOperatorMessage -Key 'host.operator_ede646f387ba0602' -FormatValues (($written/1MB), ($total/1MB), $pct) -FormatBindings @{ mB = '0:N1'; mB2 = '1:N1'; pct = '2' }) -PercentComplete $pct
-                            } else {
-                                Write-Progress -Activity $activity -Status (Format-YurunaOperatorMessage -Key 'host.operator_e12c13989dfbd234' -FormatValues (($written/1MB)) -FormatBindings @{ mB = '0:N1' })
-                            }
-                            $next = [DateTime]::UtcNow.AddSeconds(2)
-                        }
-                    }
-                } finally { $out.Dispose() }
-            } finally { $stream.Dispose() }
-            Write-Progress -Activity $activity -Completed
-        } finally { $response.Dispose() }
+                $answer = Receive-YurunaDownloadResponse -Client $client -Uri $Uri -Partial $partial -SidecarPath $sidecarPath `
+                    -State $state -Offset $offset -ExpectedByteCount $ExpectedByteCount `
+                    -Deadline $Deadline -IdleTimeoutSeconds $IdleTimeoutSeconds -Activity $Activity
+                $state = $answer.State
+                $complete = [bool]$answer.Complete
+                if (-not $complete) { $lastError = "the transfer ended at $((Get-Item -LiteralPath $partial).Length) of $($state.length) byte(s)" }
+            } catch {
+                $lastError = $_.Exception.Message
+                if ($_.Exception.Data.Contains('YurunaTerminal')) { throw }
+                $state = Read-YurunaDownloadSidecar -Path $sidecarPath
+                Write-Verbose "Invoke-YurunaResumableDownload: attempt $attempt of $Uri failed: $lastError"
+            }
+        }
     } finally {
-        if ($request) { $request.Dispose() }
+        Write-Progress -Activity $Activity -Completed
+        $client.Dispose()
+        if ($extraCa) { $extraCa.Dispose() }
+    }
+    if (-not $complete) {
+        $have = if (Test-Path -LiteralPath $partial) { (Get-Item -LiteralPath $partial).Length } else { 0L }
+        throw (Format-YurunaOperatorMessage -Key 'host.download_incomplete' -Arguments @{ uri = "$Uri"; bytes = "$have"; detail = "$lastError" })
+    }
+    Move-Item -LiteralPath $partial -Destination $OutFile -Force -ErrorAction Stop
+    Remove-Item -LiteralPath $sidecarPath -Force -ErrorAction SilentlyContinue
+    return (Get-Item -LiteralPath $OutFile).Length
+}
+
+function Receive-YurunaDownloadResponse {
+    <#
+    .SYNOPSIS
+        One GET of the resumable engine: ranged when bytes are already staged,
+        copied onto the partial file.
+    .OUTPUTS
+        [hashtable] @{ Complete = [bool]; State = sidecar record }
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][System.Net.Http.HttpClient]$Client,
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$Partial,
+        [Parameter(Mandatory)][string]$SidecarPath,
+        [AllowNull()][hashtable]$State,
+        [int64]$Offset = 0,
+        [int64]$ExpectedByteCount = 0,
+        [datetime]$Deadline = [datetime]::MaxValue,
+        [ValidateRange(1, 3600)][int]$IdleTimeoutSeconds = 60,
+        [Parameter(Mandatory)][string]$Activity
+    )
+    $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, [System.Uri]$Uri)
+    $ranged = $Offset -gt 0 -and $State
+    if ($ranged) {
+        $request.Headers.Range = [System.Net.Http.Headers.RangeHeaderValue]::new($Offset, $null)
+        if ($State.etag) {
+            $request.Headers.IfRange = [System.Net.Http.Headers.RangeConditionHeaderValue]::new([System.Net.Http.Headers.EntityTagHeaderValue]::Parse($State.etag))
+        } elseif ($State.lastModified) {
+            $request.Headers.IfRange = [System.Net.Http.Headers.RangeConditionHeaderValue]::new(
+                [DateTimeOffset]::Parse($State.lastModified, [System.Globalization.CultureInfo]::InvariantCulture))
+        }
+    }
+    $deadlineCancellation = [System.Threading.CancellationTokenSource]::new()
+    if ($Deadline -ne [datetime]::MaxValue) {
+        $remaining = [Math]::Max(0, ($Deadline - [datetime]::UtcNow).TotalMilliseconds)
+        $deadlineCancellation.CancelAfter([int][Math]::Min([int]::MaxValue, $remaining))
+    }
+    $idleCancellation = [System.Threading.CancellationTokenSource]::CreateLinkedTokenSource($deadlineCancellation.Token)
+    $response = $null
+    try {
+        $idleCancellation.CancelAfter([TimeSpan]::FromSeconds($IdleTimeoutSeconds))
+        $response = $Client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead, $idleCancellation.Token).GetAwaiter().GetResult()
+        $status = [int]$response.StatusCode
+        $range = $response.Content.Headers.ContentRange
+        if ($status -eq 416) {
+            # Nothing past the offset: the staged bytes are whole when the
+            # server's length says so, and otherwise start again.
+            if ($range -and $range.Length -eq $Offset) {
+                $State.length = $Offset
+                return @{ Complete = $true; State = $State }
+            }
+            Remove-Item -LiteralPath $Partial, $SidecarPath -Force -ErrorAction SilentlyContinue
+            throw "the server refused the range from byte $Offset"
+        }
+        if (-not $response.IsSuccessStatusCode) {
+            $failure = [System.InvalidOperationException]::new((Format-YurunaOperatorMessage -Key 'exceptions.host_3fa13d65fc1bcf6d' -Arguments @{ statusCode = "$status"; reasonPhrase = "$($response.ReasonPhrase)"; uri = "$Uri" }))
+            if ($status -ge 400 -and $status -lt 500 -and $status -notin @(408, 425, 429)) { $failure.Data['YurunaTerminal'] = $true }
+            throw $failure
+        }
+        $append = $ranged -and $status -eq 206 -and $range -and $range.From -eq $Offset
+        if ($ranged -and $status -eq 206 -and -not $append) {
+            Remove-Item -LiteralPath $Partial, $SidecarPath -Force -ErrorAction SilentlyContinue
+            throw "the server continued at byte $($range.From) instead of $Offset"
+        }
+        if (-not $append) {
+            # A fresh transfer, or a server that answered a ranged request in
+            # full (it ignored the range, or the entity changed under its
+            # validator): record what this response describes before its bytes.
+            $etag = $response.Headers.ETag
+            $State = @{
+                uri          = $Uri
+                etag         = $(if ($etag -and -not $etag.IsWeak) { $etag.ToString() } else { '' })
+                lastModified = $(if ($response.Content.Headers.LastModified) { $response.Content.Headers.LastModified.Value.ToString('R', [System.Globalization.CultureInfo]::InvariantCulture) } else { '' })
+                # A length the caller already knows wins over this response's:
+                # a relay that cut the body short can also send a short length.
+                length       = $(if ($ExpectedByteCount -gt 0) { $ExpectedByteCount } elseif ($response.Content.Headers.ContentLength) { [int64]$response.Content.Headers.ContentLength } else { 0L })
+            }
+            [System.IO.File]::WriteAllText($SidecarPath, (ConvertTo-Json -Compress -InputObject $State))
+        } elseif ($State.length -le 0 -and $range.Length) {
+            $State.length = [int64]$range.Length
+            [System.IO.File]::WriteAllText($SidecarPath, (ConvertTo-Json -Compress -InputObject $State))
+        }
+        $mode = if ($append) { [System.IO.FileMode]::Append } else { [System.IO.FileMode]::Create }
+        $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        try {
+            $out = [System.IO.FileStream]::new($Partial, $mode, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+            try {
+                $buffer = [byte[]]::new(256 * 1024)
+                $written = if ($append) { $Offset } else { 0L }
+                $next = [datetime]::UtcNow.AddSeconds(2)
+                while ($true) {
+                    $idleCancellation.CancelAfter([TimeSpan]::FromSeconds($IdleTimeoutSeconds))
+                    $read = $stream.ReadAsync($buffer, 0, $buffer.Length, $idleCancellation.Token).GetAwaiter().GetResult()
+                    if ($read -eq 0) { break }
+                    $out.Write($buffer, 0, $read)
+                    $written += $read
+                    if ([datetime]::UtcNow -gt $next) {
+                        if ($State.length -gt 0) {
+                            $pct = [Math]::Min(100, [Math]::Round($written * 100.0 / $State.length, 1))
+                            Write-Progress -Activity $Activity -Status (Format-YurunaOperatorMessage -Key 'host.operator_ede646f387ba0602' -FormatValues (($written / 1MB), ($State.length / 1MB), $pct) -FormatBindings @{ mB = '0:N1'; mB2 = '1:N1'; pct = '2' }) -PercentComplete $pct
+                        } else {
+                            Write-Progress -Activity $Activity -Status (Format-YurunaOperatorMessage -Key 'host.operator_e12c13989dfbd234' -FormatValues (($written / 1MB)) -FormatBindings @{ mB = '0:N1' })
+                        }
+                        $next = [datetime]::UtcNow.AddSeconds(2)
+                    }
+                }
+            } finally { $out.Dispose() }
+        } finally { $stream.Dispose() }
+        $have = (Get-Item -LiteralPath $Partial).Length
+        if ($State.length -gt 0 -and $have -gt $State.length) {
+            Remove-Item -LiteralPath $Partial, $SidecarPath -Force -ErrorAction SilentlyContinue
+            throw "the transfer ran past its length ($have of $($State.length) byte(s))"
+        }
+        # With no length to compare, a body that ended without an error is the
+        # whole of it.
+        return @{ Complete = ($State.length -le 0 -or $have -eq $State.length); State = $State }
+    } finally {
+        if ($response) { $response.Dispose() }
+        $request.Dispose()
         $idleCancellation.Dispose()
         $deadlineCancellation.Dispose()
-        $client.Dispose()
-        $handler.Dispose()
-        $extraCa.Dispose()
     }
 }
 
 # --- REGION: Exports
-Export-ModuleMember -Function Test-CachingProxyServicePort, Test-DownloadAlreadyCurrent, Write-ImageSentinel, Get-CacheProxyForHostDownload, Save-CachedHttpUri, Invoke-HttpsViaSquidBump
+Export-ModuleMember -Function Test-CachingProxyServicePort, Test-DownloadAlreadyCurrent, Write-ImageSentinel, Get-CacheProxyForHostDownload, Save-CachedHttpUri, Invoke-HttpsViaSquidBump, `
+    Invoke-YurunaResumableDownload

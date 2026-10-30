@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4227f6df-0fe0-4a7d-b85b-64c7c2f5ede7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ BeforeAll {
             Justification = 'Test fixture: copies the working tree into a private temp directory.')]
         [CmdletBinding()]
         [OutputType([hashtable])]
-        param([switch]$StubInner)
+        param([switch]$StubInner, [string]$StubPrologue = '')
         $base = New-YurunaTestTempDir -Prefix 'yrn-chain'
         $tree = Join-Path $base 'tree'
         Push-Location -LiteralPath $script:RepoRoot
@@ -130,7 +130,7 @@ while (-not (Test-Path -LiteralPath $release) -and [DateTime]::UtcNow -lt $until
 Remove-Item -LiteralPath $release -Force -ErrorAction SilentlyContinue
 exit 0
 '@
-            [System.IO.File]::WriteAllText($innerPath, "#requires -version 7`n" + $real.ParamBlock.Extent.Text + "`n" + $body)
+            [System.IO.File]::WriteAllText($innerPath, "#requires -version 7`n" + $real.ParamBlock.Extent.Text + "`n" + $StubPrologue + "`n" + $body)
         }
         return $f
     }
@@ -140,7 +140,7 @@ exit 0
             Justification = 'Test fixture: starts the copied runner under private state; the suite kills its tree.')]
         [CmdletBinding()]
         [OutputType([System.Diagnostics.Process])]
-        param([hashtable]$F, [string[]]$Arguments, [switch]$Relative)
+        param([hashtable]$F, [string[]]$Arguments, [switch]$Relative, [hashtable]$Environment = @{})
         # -Relative is the documented launch: from the checkout root, naming
         # the script by a relative path.
         $scriptArgument = if ($Relative) { 'test/Start-TestRunner.ps1' } else { Join-Path $F.Tree 'test/Start-TestRunner.ps1' }
@@ -159,7 +159,8 @@ exit 0
         $psi.Environment['YURUNA_LOG_DIR'] = $F.Log
         $psi.Environment['CHAIN_OUT'] = Join-Path $F.Base "runner.$([guid]::NewGuid().ToString('N')).out"
         $psi.Environment['CHAIN_ERR'] = Join-Path $F.Base "runner.$([guid]::NewGuid().ToString('N')).err"
-        foreach ($name in @('YURUNA_CONFIG_PATH', 'YURUNA_RUNNER_RELAUNCH', 'YURUNA_CACHING_PROXY_SERVICE_IP', 'YURUNA_STATUS_PUBLIC_URL')) { [void]$psi.Environment.Remove($name) }
+        foreach ($name in @('YURUNA_CONFIG_PATH', 'YURUNA_RUNNER_RELAUNCH', 'YURUNA_CACHING_PROXY_SERVICE_IP', 'YURUNA_STATUS_PUBLIC_URL', 'YURUNA_FAULT_POINTS')) { [void]$psi.Environment.Remove($name) }
+        foreach ($name in $Environment.Keys) { $psi.Environment[$name] = [string]$Environment[$name] }
         $process = [System.Diagnostics.Process]::Start($psi)
         $script:Started.Add($process)
         return $process
@@ -215,6 +216,31 @@ exit 0
             $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8)
             try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
         } catch [System.IO.IOException] { return '' } catch [System.UnauthorizedAccessException] { return '' }
+    }
+
+    function Wait-ChainCycleRow {
+        <#
+        .SYNOPSIS
+            The resident's first 'cycle' phase row (perf/phases beside the
+            chain's runtime folder), or $null when none appears in time.
+        #>
+        [CmdletBinding()]
+        [OutputType([pscustomobject])]
+        param([hashtable]$F, [int]$Seconds = 240, [System.Diagnostics.Process]$Runner)
+        $dir = Join-Path $F.Base 'perf/phases'
+        $until = [DateTime]::UtcNow.AddSeconds($Seconds)
+        while ([DateTime]::UtcNow -lt $until) {
+            foreach ($file in @(Get-ChildItem -LiteralPath $dir -Filter '*.jsonl' -ErrorAction SilentlyContinue)) {
+                foreach ($line in @((Read-ChainText -Path $file.FullName) -split "`n")) {
+                    if (-not $line.Trim()) { continue }
+                    try { $row = $line | ConvertFrom-Json } catch { continue }
+                    if ($row.phase -ceq 'cycle' -and $row.scope -ceq 'resident') { return $row }
+                }
+            }
+            if ($Runner -and $Runner.HasExited) { break }
+            Start-Sleep -Milliseconds 500
+        }
+        return $null
     }
 
     function Initialize-ChainPrivateRoot {
@@ -463,6 +489,64 @@ Describe 'Case C: the real inner runs only its preflight and acknowledges it' -S
             Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'status.json')) 'a preflight writes no status document'
             Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'host.registration.json')) 'a preflight registers nothing'
             Assert-True (Test-Path -LiteralPath (Join-Path $f.Runtime 'inner.start')) 'the inner published its start record'
+        } finally {
+            if ($runner -and -not $runner.HasExited) { $runner.Kill($true) }
+            Remove-YurunaTestTempDir $f.Base
+        }
+    }
+}
+
+# Chaos: the runner's fault points (Test.FaultInjection) fired inside the real
+# chain. Each case arms one point through YURUNA_FAULT_POINTS and the marker in
+# its private runtime folder, then asserts where the loop ends up: a scored
+# non-pass, the evidence of the point, and a resident that is still running.
+Describe 'Chaos: a fault inside the real chain ends as a scored non-pass and the runner survives it' -Skip:(-not $script:CanRunChain) {
+    It 'scores a cycle process that dies after loading its modules, without starting an inner' {
+        $f = New-ChainTree -StubInner
+        $runner = $null
+        try {
+            $null = New-Item -ItemType File -Path (Join-Path $f.Runtime 'fault-injection.enabled')
+            $runner = Start-ChainRunner -F $f -Environment @{ YURUNA_FAULT_POINTS = 'cycle-import' } `
+                -Arguments @('-ConfigPath', $f.Config, '-NoGitPull', '-NoStatusService', '-NoConfigGate')
+            $row = Wait-ChainCycleRow -F $f -Runner $runner
+            Assert-NotNull $row (Get-ChainDiagnostic -F $f)
+            Assert-True ($row.outcome -in @('cycle-aborted', 'outcome-unrecorded')) "a dead cycle process is never a pass: $($row.outcome)"
+            Assert-Match -Pattern 'point=cycle-import action=throw' -Actual (Read-ChainText -Path (Join-Path $f.Runtime 'fault-injection.log'))
+            Assert-Equal -Expected 0 -Actual @(Get-ChildItem -LiteralPath $f.Runtime -Filter 'stub-capture.*.json' -ErrorAction SilentlyContinue).Count -Because 'no inner was started'
+            Start-Sleep -Seconds 2
+            Assert-False $runner.HasExited "the resident keeps running: $(Get-ChainDiagnostic -F $f)"
+            $health = Get-Content -LiteralPath (Join-Path $f.Runtime 'runner.framework-health.json') -Raw | ConvertFrom-Json
+            Assert-True ([int]$health.streak -ge 1) 'the framework-health streak counts the dispatch that produced no outcome'
+        } finally {
+            if ($runner -and -not $runner.HasExited) { $runner.Kill($true) }
+            Remove-YurunaTestTempDir $f.Base
+        }
+    }
+
+    It 'scores an inner that fails before it records itself, and leaves no live inner behind' {
+        # The stub inner opens with the real inner's guarded call (its placement
+        # before inner.pid is pinned in Test.FaultInjection), so a fault that
+        # failed to fire parks the stub instead of running a real preamble.
+        $f = New-ChainTree -StubInner -StubPrologue "if (`$env:YURUNA_FAULT_POINTS) { Import-Module (Join-Path `$PSScriptRoot 'Test.FaultInjection.psm1') -DisableNameChecking; Invoke-YurunaFaultPoint -Name 'before-inner-pid' }"
+        $runner = $null
+        try {
+            $null = New-Item -ItemType File -Path (Join-Path $f.Runtime 'fault-injection.enabled')
+            $runner = Start-ChainRunner -F $f -Environment @{ YURUNA_FAULT_POINTS = 'before-inner-pid' } `
+                -Arguments @('-ConfigPath', $f.Config, '-NoGitPull', '-NoStatusService', '-NoConfigGate')
+            $row = Wait-ChainCycleRow -F $f -Runner $runner
+            Assert-NotNull $row (Get-ChainDiagnostic -F $f)
+            Assert-True ($row.outcome -cne 'pass') "an inner that died is never a pass: $($row.outcome)"
+            Assert-Match -Pattern 'point=before-inner-pid action=throw' -Actual (Read-ChainText -Path (Join-Path $f.Runtime 'fault-injection.log'))
+            Assert-Equal -Expected 0 -Actual @(Get-ChildItem -LiteralPath $f.Runtime -Filter 'stub-capture.*.json' -ErrorAction SilentlyContinue).Count -Because 'the inner died before its own work'
+            # The cycle process records the inner it starts; what must not remain
+            # is a live inner behind that record.
+            $innerPidFile = Join-Path $f.Runtime 'inner.pid'
+            if (Test-Path -LiteralPath $innerPidFile) {
+                $innerPid = [int]((Get-Content -LiteralPath $innerPidFile -Raw).Trim())
+                Assert-Null (Get-Process -Id $innerPid -ErrorAction SilentlyContinue) "inner $innerPid is gone"
+            }
+            Start-Sleep -Seconds 2
+            Assert-False $runner.HasExited "the resident keeps running: $(Get-ChainDiagnostic -F $f)"
         } finally {
             if ($runner -and -not $runner.HasExited) { $runner.Kill($true) }
             Remove-YurunaTestTempDir $f.Base

@@ -714,6 +714,16 @@ and snippets (web UI + scp). Elevated on Windows. It mounts the
 first. No login; trusted networks only. User guide:
 [stash-guide.md](stash-guide.md).
 
+Re-running it, or the pool-control and download-agent scripts, keeps a VM
+that serves the current build or is still building it, judged at the
+address the host driver resolves now; `-ForceRebuild` rebuilds anyway, and a
+serving VM built from another framework snapshot is rebuilt. A rebuild first
+runs the builder with `-PlanOnly`, so a missing SSH key, vault password, seed
+template or guest network stops it while the working VM is still advertised.
+The build itself is bounded (`YURUNA_SERVICE_VM_BUILD_TIMEOUT_SECONDS`,
+90 minutes by default; the caching proxy's build too), and a seed value it had
+to bake empty is reported as a degraded bring-up instead of a clean one.
+
 <a id="42ad660e-001f"></a>
 
 ### B.10 Run one test cycle
@@ -889,6 +899,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

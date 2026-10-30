@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,6 +89,8 @@ function Restore-Knob {
 }
 
 # --- REGION: Prime sudo
+# Prime sudo once, before the run, with the reasons visible -- the same posture
+# Enable uses. Under -WhatIf nothing elevated actually runs, so skip the prompt.
 if (-not $WhatIfPreference) {
     [void](Initialize-SudoCache -Reasons @(
         'ufw delete allow <status port>',

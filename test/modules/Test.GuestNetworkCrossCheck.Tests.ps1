@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 422dbaf3-8d25-41fa-abc0-e70b2229b2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
 }
 
 BeforeAll {
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $here = Split-Path -Parent $PSCommandPath
     Import-Module (Join-Path $here 'Test.EventSchema.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.GuestNetworkCrossCheck.psm1') -Force -DisableNameChecking
@@ -66,8 +67,8 @@ BeforeAll {
     $script:OpenProbe = { param($Address, $Port) [ordered]@{ address = $Address; port = $Port; open = $true; ms = 3; error = $null } }
     $script:ClosedProbe = { param($Address, $Port) [ordered]@{ address = $Address; port = $Port; open = $false; ms = 2000; error = 'timeout' } }
     $script:ThrowingProbe = { param($Address, $Port) throw "socket exploded for ${Address}:$Port" }
-    $script:SavedHttpPort = $env:YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT
-    $script:SavedHttpsPort = $env:YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT
+    $script:SavedHttpPort = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT'
+    $script:SavedHttpsPort = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT'
     $env:YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT = ''
     $env:YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT = ''
 
@@ -99,11 +100,35 @@ BeforeAll {
         if ($Neighbor -eq 'throw') { Mock -CommandName Get-GuestNetworkCrossCheckNeighborState -ModuleName $script:ModuleName -MockWith { throw 'neighbor exploded' } }
         else { $state = $Neighbor; Mock -CommandName Get-GuestNetworkCrossCheckNeighborState -ModuleName $script:ModuleName -MockWith { $state }.GetNewClosure() }
     }
+    # One-shot HTTP 200 on a listener the caller already started, with no
+    # Content-Type header, the way the caching proxy serves /cache-health.
+    function Start-UntypedHttpResponder {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
+            Justification = 'Both values arrive through -ArgumentList into the job param() block; the analyzer does not follow that path.')]
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+            Justification = 'Test helper: serves one response on a loopback listener the test owns.')]
+        param([System.Net.Sockets.TcpListener]$Listener, [string]$Body)
+        return Start-ThreadJob -ScriptBlock {
+            param($Listener, $Body)
+            try {
+                $client = $Listener.AcceptTcpClient()
+                try {
+                    $stream = $client.GetStream()
+                    [void]$stream.Read([byte[]]::new(4096), 0, 4096)
+                    $payload = [System.Text.Encoding]::UTF8.GetBytes($Body)
+                    $head = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: $($payload.Length)`r`nConnection: close`r`n`r`n")
+                    $stream.Write($head, 0, $head.Length)
+                    $stream.Write($payload, 0, $payload.Length)
+                    $stream.Flush()
+                } finally { $client.Close() }
+            } finally { $Listener.Stop() }
+        } -ArgumentList $Listener, $Body
+    }
 }
 
 AfterAll {
-    $env:YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT = $script:SavedHttpPort
-    $env:YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT = $script:SavedHttpsPort
+    Restore-YurunaTestEnvironment -Saved $script:SavedHttpPort
+    Restore-YurunaTestEnvironment -Saved $script:SavedHttpsPort
 }
 
 Describe 'the verdict names which end the host could reach' {
@@ -236,6 +261,21 @@ Describe 'the check probes both ends and lands its files' {
         $result.port | Should -Be $port
         $result.error | Should -Not -BeNullOrEmpty
         $result.ms | Should -Not -BeNullOrEmpty
+    }
+
+    It 'records the first line of a page served without a Content-Type as its text' {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+        $job = Start-UntypedHttpResponder -Listener $listener -Body "yuruna caching-proxy health -- 2026-10-29T04:15:00Z`n`nzot /v2/ answered"
+        try {
+            $result = & (Get-Module $script:ModuleName) {
+                param([int]$ProbePort)
+                Test-GuestNetworkCrossCheckHttp -Uri "http://127.0.0.1:$ProbePort/cache-health" -TimeoutSec 5
+            } $port
+        } finally { $listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        $result.status | Should -Be 200
+        $result.firstLine | Should -BeExactly 'yuruna caching-proxy health -- 2026-10-29T04:15:00Z' -Because 'Invoke-WebRequest returns an untyped body as bytes, which a [string] cast lists as numbers'
     }
 }
 

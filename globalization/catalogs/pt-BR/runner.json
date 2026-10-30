@@ -45,6 +45,11 @@
         }
       }
     },
+    "runner.gallery_package_digest_mismatch": {
+      "sourceHash": "6735a211315f8e2f16d7ddc3fa69c3b12758d1b4ba2054be15f111733cc9c666",
+      "origin": "machine",
+      "message": "Recusando instalar {name} {version}: o SHA-512 do pacote baixado ({actual}) não corresponde ao digest fixado ({expected})."
+    },
     "runner.gate_evidence_save_failed": {
       "sourceHash": "3f8d00fb4def0ebce10f1f38700416336edbdd4de79f4c845d6a759cf69ed1c5",
       "message": "Não foi possível salvar as evidências da verificação de configuração: {detail}"
@@ -52,6 +57,11 @@
     "runner.git_recovery_command": {
       "sourceHash": "598ba54b325537706364840fa3f8b33c827c530d1758c98ef59e10cdec5087e1",
       "message": "Recuperar com: git -C '{repoRoot}' checkout --theirs . ; git -C '{repoRoot}' reset --hard '{upstreamReference}' (edições locais permanecem na lista git stash)."
+    },
+    "runner.guest_channel_key_unreadable": {
+      "sourceHash": "ea9526e818272d4e87a0a2d906893886b05146c1d800fbd805c06c0101ae0fb3",
+      "origin": "machine",
+      "message": "A chave do canal de convidados em {path} não tem 64 caracteres hexadecimais minúsculos, portanto os convidados não conseguem verificar este host. Restaure o arquivo ou remova-o e recrie os convidados para criar uma nova chave."
     },
     "runner.guest_folder_missing": {
       "sourceHash": "0a914482bb9a298fec6bd6851e575909f7cf20b1ef23c34173111de045ec5b06",
@@ -2701,10 +2711,6 @@
       "sourceHash": "75912ca9274a6f5540eebdb315a6246cd8b62f40a3a263f7480df3ac258aa709",
       "message": "O host de referência {referenceHost} ainda usa {count} nome(s) de chave de configuração descontinuado(s). Eles foram convertidos nesta sincronização; corrija-os na origem com \"pwsh tools/Update-TestConfigNaming.ps1\" em {referenceHost}, para que os demais consumidores também recebam a correção:"
     },
-    "runner.operator_400de73dc7d7af50": {
-      "sourceHash": "ef42d6fd2accd9db211c7eaa4a582019e3392f5effae196418f2db527d2a599a",
-      "message": "Nenhum keysym VNC para o caracter '{ch}'. Saltando."
-    },
     "runner.operator_40166e264a276e0a": {
       "sourceHash": "23e5c9531f52e17ae553564fd0c4579c980f5183136a8cf998f395174803f8b3",
       "message": "Guardas pmset estendidas verificadas após a aplicação."
@@ -3609,6 +3615,11 @@
       "origin": "machine",
       "message": "A espera pelo texto '{patternLabel}' terminou após ~{waited}s de {timeoutSeconds}s: o hipervisor relata o convidado em livelock ({detail})"
     },
+    "runner.wait_ended_on_kernel_stall": {
+      "sourceHash": "d2b406ef891b882ac1a4befffffdf42ec59fc541a76333ce4ecaa2eeabff25bc",
+      "origin": "machine",
+      "message": "A espera pelo texto '{patternLabel}' terminou após ~{waited}s de {timeoutSeconds}s: o kernel do convidado não atendeu nenhuma interrupção no(s) processador(es) virtual(is) {processors} por {silentSeconds}s e o seu console serial relatou {kinds}"
+    },
     "runner.operator_557ad99d1ffd4409": {
       "sourceHash": "db73d48750929866a850cecc23a80fa09fcc56deaf0281f97f37f1deff7daf7a",
       "message": "Criar chave de acessibilidade"
@@ -4051,10 +4062,6 @@
       "sourceHash": "5ba9ce5101178658b5e129826e8ceeb5c15e9478c47ce83d0aa61c30e88841d9",
       "message": "a descoberta não tem nenhum diretório-alvo para se apropriar."
     },
-    "runner.operator_5eb94d6047f29167": {
-      "sourceHash": "2dec2376f8981aa02416c524a77e6412904e3b554dc6f1ba6d6104c838888174",
-      "message": "Initialize-YurunaEntryPointModuleSet: {modName} não encontrado em {modPath} (kind={for}); pulando."
-    },
     "runner.operator_5ec100a74f28c9e9": {
       "sourceHash": "9d87f01a9de338999fde52c4f53033eafaa58906fc506363c26b1263d83db141",
       "message": "Cantos quentes: nenhuma ligação perigosa (salvador de tela / sono / bloqueio) detectado."
@@ -4090,10 +4097,6 @@
     "runner.operator_5f87f120a40e8157": {
       "sourceHash": "1de8bb621c3c025302f2d76c0efd2a9f4739c820adc51b3f03da0405bb37e56e",
       "message": "raiz de armazenamento: {root}"
-    },
-    "runner.operator_5f9af4fdfbb52214": {
-      "sourceHash": "2b1ec161ffc7f3dfe5ea3fa34c117e6538df8453209097f22af4b5e02191e392",
-      "message": "Nenhum código de verificação para o caracter '{ch}' (0x{x2}). Pular."
     },
     "runner.operator_5fa4b4be805499ca": {
       "sourceHash": "223d4d8ec3b312e64cb7e827b9d2f2ff188ff1b62e09402e07db32948200ac82",
@@ -9364,10 +9367,6 @@
       "sourceHash": "ca36b17602e7fa949f1dc4ec87427177c457d7ec8882e47d70be3dc8eedd4c8b",
       "message": "Adicionar Get-Image.ps1 + New-VM.ps1 sob esse caminho para habilitar este convidado, ou"
     },
-    "runner.operator_dfe205f918802162": {
-      "sourceHash": "02d1a449323269063d64fe041f0eb6d9bd5e579eac9ebc524d44877e60f3bde6",
-      "message": "Send-TextKvm: nenhum código chave para o caracter '{ch}' (0x{x2}). Saltando."
-    },
     "runner.operator_e00026446a75f063": {
       "sourceHash": "6f8bab522a0cdf66114cca3c27d26a4cb7c35b2a379ca60d1f2f2f578589638e",
       "message": "Perdeu a corrida pidfile contra um Start-TestRunner concorrente. Inspecione {runnerPidFile} e tente novamente."
@@ -10738,6 +10737,16 @@
       "sourceHash": "67c5a5bd41904537a222690cf0edd9f7d034c9d1663e289ba7b81270a99c9b04",
       "message": "a tentativa do executor falhou"
     },
+    "runner.pool_storage_sudo_rule_stale": {
+      "sourceHash": "8f8e09f7de2ce293d2d8f0d405689a64f9f2df33be9511d7a6c4000b83c83633",
+      "origin": "machine",
+      "message": " (o sudo recusou a montagem, portanto o NAS nunca foi contatado: o drop-in instalado em /etc/sudoers.d não nomeia o comando exato desta montagem, porque o compartilhamento ou o ponto de montagem mudou depois que ele foi escrito, ou ele é a permissão ampla de uma versão anterior -- execute test/Test-Config.ps1 ou Sync-HostConfiguration em uma sessão interativa para instalar a regra atual)"
+    },
+    "runner.pool_storage_sudoers_word_unsupported": {
+      "sourceHash": "a5d2f47a5d0277eb81b8bc3fe2344793d78a1e18307d24d1c4786671560dead8",
+      "origin": "machine",
+      "message": "O caminho de armazenamento '{word}' não pode ser escrito exatamente na regra do sudoers (contém espaço em branco, aspas ou um caractere curinga); escolha um compartilhamento e um ponto de montagem sem eles."
+    },
     "runner.prior_runner_cleanup_action": {
       "sourceHash": "ee10928d58c5b0b5614484f46b54af576bf89bf58283c52a9e93d1b0753fb84c",
       "message": "Ação: parando-o e rodando\nRemove-TestVMFiles.ps1 antes de iniciar"
@@ -10773,6 +10782,11 @@
     "runner.sequence_step": {
       "sourceHash": "752cc54c856d7bed023c47573406a0b28f78381fc1e1233a7c704340d166452d",
       "message": "[{index}/{total}] {action}: {description}"
+    },
+    "runner.ssh_host_key_pin_mismatch": {
+      "sourceHash": "62d1daa94439d9fef4824f393142ef8dbb9a38035a7781ad9a073de2f10e239a",
+      "origin": "machine",
+      "message": "A chave de host SSH em {address} não é a chave que '{vmName}' apresentou no primeiro contato, portanto o comando não foi executado: outra máquina pode estar respondendo nesse endereço. Se '{vmName}' foi recriada fora do executor, execute Reset-GuestHostKeyPin -VMName {vmName} (chave fixada: {pin})."
     },
     "runner.stash_probe_unconfirmed": {
       "sourceHash": "0bbca6b6ee1ce7c2e49b22ee7002b0311f8405db4799a698fba0aada53ed16c2",
@@ -11219,6 +11233,16 @@
       "sourceHash": "9e3f51514cbae6943a8ab13f38d5ee33f3cb5a5be24d0822695cf1f073293cad",
       "origin": "machine",
       "message": "Invoke-HostRefresh: {obligation} não é um item pendente da solicitação {requestId}."
+    },
+    "runner.host_refresh_oneshot_active": {
+      "sourceHash": "8411856250a87ac59a28a29781c3cabdf9966430215c1c72eba151d5c6b93c30",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: uma execução única (PID {pid}, concessão {leasePath}) está usando este runtime; nenhuma etapa de reparo é executada enquanto ela detiver a concessão."
+    },
+    "runner.host_refresh_oneshot_unconfirmed": {
+      "sourceHash": "f583920a1c72990d9c961ea058b65f8e20e0e8fa7181f3688631cbb55c0758a5",
+      "origin": "machine",
+      "message": "Invoke-HostRefresh: a concessão de execução única {leasePath} indica o PID {pid}, cuja identidade não pode ser confirmada ({reason}); reparando mesmo assim."
     },
     "runner.host_refresh_operator_instruction": {
       "sourceHash": "d100fae791851766cd671f838d6fc7a1b18554e434c19e91d7da75d5d29d8d8f",
@@ -11710,6 +11734,46 @@
       "origin": "machine",
       "message": "{script}: outro início ou parada do serviço '{key}' ainda mantém seu bloqueio de operação (solicitação registrada mais recente: {detail}). Tente novamente após a conclusão; nada foi alterado."
     },
+    "runner.service_build_plan_refused": {
+      "sourceHash": "d5dd5759cae6632c875abac1cec0f1256d04ac2e92eafa68408326dedb5be95c",
+      "origin": "machine",
+      "message": "O plano de build de '{vmName}' foi recusado ({detail}); a VM em funcionamento e seu anúncio não foram alterados. A saída do builder acima indica a entrada ausente."
+    },
+    "runner.service_build_timeout": {
+      "sourceHash": "9a226277548836b3e23932113c6ad17cbd39ac3ef5a2fbdac776192bd9d5dc51",
+      "origin": "machine",
+      "message": "O build de '{vmName}' não terminou em {seconds} s e foi interrompido (falha ao encerrar: {killFailed}). Aumente YURUNA_SERVICE_VM_BUILD_TIMEOUT_SECONDS para um link lento ou examine a saída do builder acima."
+    },
+    "runner.service_adopted": {
+      "sourceHash": "8bd181c6e108e0280b7eae8dc90a85451812dcd817102e305018a9c8138a31c2",
+      "origin": "machine",
+      "message": "Mantendo '{vmName}' em execução em {address} ({reason}); use -ForceRebuild para reconstruí-la."
+    },
+    "runner.service_advertisement_withdrawn": {
+      "sourceHash": "854f0905cdef342c97a2ec5d01165a358e5281692c95624057a82f5d6b6ee453",
+      "origin": "machine",
+      "message": "O anúncio de {area} foi retirado antes da reconstrução; este host sai de Extension hosts até que a nova VM sirva."
+    },
+    "runner.service_start_stop_requested": {
+      "sourceHash": "905d025f1df1fefb2ad12ac06217b16ce94274f47cb96b20efe69ddc6303a19d",
+      "origin": "machine",
+      "message": "Uma parada de '{vmName}' foi solicitada enquanto este início era executado, então o serviço não é anunciado. Execute {stopScript} novamente para remover a VM."
+    },
+    "runner.service_start_degraded": {
+      "sourceHash": "89a8f1c5c5109572267286820931e1d72db8095176f29fc68ad97e39507de097",
+      "origin": "machine",
+      "message": "'{vmName}' foi construída com valores de seed degradados: {names}. O serviço é executado, mas o convidado não os tem até ser reconstruído com eles resolvidos."
+    },
+    "runner.service_hostproof_previous_running": {
+      "sourceHash": "d56a6dd002345e94b84b476e62680af92961ee626613b8678da58d249de4e22a",
+      "origin": "machine",
+      "message": "O daemon pool-control anterior no host (pid {pid}) não pôde ser parado ({reason}); recusando iniciar um segundo. Pare-o e execute novamente."
+    },
+    "runner.service_hostproof_exited": {
+      "sourceHash": "ef83ba7c0583bfb1a1c3dab9e059dd6ed9a925449ca449544bcdb72535d887c2",
+      "origin": "machine",
+      "message": "O daemon pool-control no host encerrou imediatamente (código {code}); a porta {port} pode estar em uso por outro processo. Nada foi anunciado."
+    },
     "runner.service_operation_complete_should_process": {
       "sourceHash": "877baf6455a2759140a36dbc1dd91e5e46645d6af73b0dbd3a5e4ef1925765ad",
       "origin": "machine",
@@ -11859,6 +11923,26 @@
       "sourceHash": "f08743bb0dba9c8b1b4bc72b1b1b6fd1d2fd75f85bca4f59b483434bb8a0e4e7",
       "origin": "machine",
       "message": "http://localhost:{port}/status/ funciona, mas clientes da LAN que acessam http://{address}:{port}/status/ terão o tempo esgotado."
+    },
+    "runner.status_listener_busy": {
+      "sourceHash": "fa084dae446914504db8f229fce6bcd4529e1731f3b1c6e67a22f504d221c2fd",
+      "origin": "machine",
+      "message": "O serviço de status (PID {processId}) na porta {port} não respondeu em 3 s, mas sua concessão de atividade mostra que ele está atendendo {route} há {seconds} s; ele continua em execução."
+    },
+    "runner.status_listener_lease_verdict": {
+      "sourceHash": "ab4a1332e87f0903fa3ebe0f7a865a3c9956795ff53fe236482164402567bf6c",
+      "origin": "machine",
+      "message": "Serviço de status (PID {processId}): concessão de atividade {verdict} ({reason}, {seconds} s)."
+    },
+    "runner.status_listener_replaced": {
+      "sourceHash": "c2126e7c53285beba9a188a0e75eb833bd4f8d6af3fca293d850cc7f437ba675",
+      "origin": "machine",
+      "message": "Start-StatusService: parando o serviço de status travado (PID {processId}, {state} há {seconds} s em '{route}') e iniciando um novo."
+    },
+    "runner.status_listener_replace_in_cycle": {
+      "sourceHash": "7aebd68d212b57a7feb61890823a84456c4b2cc75c9aa6d8898eb1780daaa537",
+      "origin": "machine",
+      "message": "Sinalizador de endereço do hospedeiro: o serviço de status (PID {processId}) não responde e sua concessão indicou travamento ({state} há {seconds} s em '{route}'); o início de substituição terminou com {exitCode}."
     },
     "runner.status_refresh_safe_existing_ready": {
       "sourceHash": "0500a2998344eddf69482c836c14eee7f143de32568976547378517e590d9f0f",
@@ -12260,6 +12344,11 @@
       "origin": "machine",
       "message": "Etapa {step} ({action}): o handler lançou uma exceção: {message}. A etapa falha, e um retry em volta dela pode executá-la de novo."
     },
+    "runner.host_input_unmappable": {
+      "sourceHash": "2ba0889864b92a7f386c8ca43a897007719b0c92bb7e8f6f1d6165aedae406c1",
+      "origin": "machine",
+      "message": "O caminho de entrada {transport} não tem tecla para estes caracteres do texto: {characters}. Nada foi digitado; a etapa não pode ser executada neste hospedeiro como está escrita."
+    },
     "runner.pool_notifier_busy": {
       "sourceHash": "87ec6fd0063fbe642ef91456aa91fbaa3500c71db8b35d5741783793ee949662",
       "origin": "machine",
@@ -12279,6 +12368,36 @@
       "sourceHash": "038878f2fe6d6f572d6227622f70e9e8f10b18001274b01c9127df811b505303",
       "origin": "machine",
       "message": "  O ciclo {cycleCount} não teve falhas, mas pulou {skipped} de {planned} convidado(s) planejado(s) ({guests}): ele está degradado, não aprovado, então a sequência de falhas e o alerta ficam como estavam."
+    },
+    "runner.pool_framework_ring_canary_not_member": {
+      "sourceHash": "a110f7a2f09101908e81e8c8d0604c02bfc3b39c00f6c2ce0aaecdb1bf8387b8",
+      "origin": "machine",
+      "message": "  pools.yml: o pool {poolId} cita {hostId} em frameworkRing.canaryMembers, mas esse host não é um dos seus membros, então suas aprovações nunca contam."
+    },
+    "runner.framework_ring_follow": {
+      "sourceHash": "81c367aeefc992ce1520f94b51e9eb10b1f115e3b8d193d8b1243d0dac771c63",
+      "origin": "machine",
+      "message": "Este host segue o anel canário do seu pool: instalando a revisão do framework {revision}, que tem {passes} aprovações canárias válidas (instalada: {current})."
+    },
+    "runner.framework_ring_hold_unreachable": {
+      "sourceHash": "609da276d4fa2dd565b9243191f89cbb1daffdaca4371b9d6dec33c435974725",
+      "origin": "machine",
+      "message": "Este host segue o anel canário do seu pool, mas o agregador do pool não respondeu ({detail}); o framework permanece em {current}."
+    },
+    "runner.framework_ring_hold_unqualified": {
+      "sourceHash": "68e84ad5b093c9a2fb558ea1041d7155bbbebdfae7a523672d2aaa3610e0856a",
+      "origin": "machine",
+      "message": "Nenhuma revisão do framework tem {passes} aprovações canárias válidas ainda; o framework permanece em {current}."
+    },
+    "runner.framework_ring_hold_newer": {
+      "sourceHash": "1d99b39f297ba1a14a1d94e584f6e76a0a74057340977f2df44349fe39009863",
+      "origin": "machine",
+      "message": "A revisão qualificada do anel {revision} não é mais nova que a instalada {current}; o framework permanece em {current}."
+    },
+    "runner.framework_ring_hold_not_in_history": {
+      "sourceHash": "5cb895df5f1a8b20474b8f176c8d895e9e2221d5e97133ae4319d75bf0d3db5e",
+      "origin": "machine",
+      "message": "A revisão qualificada do anel {revision} não está no histórico do upstream do framework que este host acompanha; o framework permanece em {current}."
     },
     "runner.project_cycle_not_run": {
       "sourceHash": "399864ad299651e0b811dee9978498d4332a144aebc1fe5fc0edd1f0a4093519",
@@ -12344,6 +12463,21 @@
       "sourceHash": "7dc05c265dfd0efd30e73c2b1770ec63a126c4ec49a5a0d38422ebc9827f0755",
       "origin": "machine",
       "message": "Não foi possível montar o resumo do arquivo de {repoDir} em {commit}, então o script de atualização descompacta essa árvore sem verificá-la."
+    },
+    "runner.cycle_over_budget": {
+      "sourceHash": "3f9c1b765915c9882f36ced18a85af386346ce43601896b04eb16422c1cb69cc",
+      "origin": "machine",
+      "message": "O ciclo {cycle} passou em {minutes} min, acima do orçamento aprendido de {budgetMinutes} min (1,5 vez o percentil 90 dos últimos {samples} ciclos aprovados). O ciclo continua contando como aprovado; as linhas de fase em test/status/perf/phases mostram qual parte cresceu."
+    },
+    "runner.entry_point_module_missing": {
+      "sourceHash": "ff679f8f90371fd96f5f86a4a3b53b1f9b9fd6b1d91c33d492ce61f74816d086",
+      "origin": "machine",
+      "message": "Initialize-YurunaEntryPointModuleSet: {modName} não encontrado em {modPath} (kind={for}); o ponto de entrada não inicia sem o seu conjunto de módulos. Restaure o arquivo neste checkout e inicie novamente."
+    },
+    "runner.host_condition_probe_unanswered": {
+      "sourceHash": "7fdc6b34b1ab5468b2cdde1ab7a3ec85204038d9cd03e9b9aa8aef6616ebb6f8",
+      "origin": "machine",
+      "message": "Não foi possível ler {probe}: {tool} não respondeu, então a configuração está indeterminada, e não se sabe se é segura."
     }
   }
 }

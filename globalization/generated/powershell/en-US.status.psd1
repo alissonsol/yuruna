@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 429cc804-7b62-2db1-9091-f5ab5410d797
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,6 +127,7 @@
     'status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5' = 'forbidden: missing X-Yuruna request header (cross-site request guard)'
     'status.api_forbidden_not_served' = 'Forbidden (not a served file)'
     'status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac' = 'forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP'
+    'status.api_guest_channel_key_absent' = 'this host holds no guest-channel key yet; it is created when the host first renders a guest seed'
     'status.api_host_refresh_authorization_refused' = @(
         'refresh authorization refused ('
         @{
@@ -215,6 +216,20 @@
     'status.api_project_repo_not_present_on_host_885e6338' = 'project repo not present on host'
     'status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b' = 'proof mismatch (wrong or stale internal authentication key)'
     'status.api_put_or_post_required_1f919659' = 'PUT or POST required'
+    'status.api_query_invalid' = @(
+        'invalid query: '
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
     'status.api_request_body_invalid' = @(
         'invalid request body: '
         @{
@@ -642,6 +657,7 @@
     'status.error_file_too_large' = 'File too large'
     'status.error_not_found' = 'Not found'
     'status.every_guest_folder_under_this_host_is_already_in_the_list' = 'Every guest folder under this host is already in the list'
+    'status.explain_details' = 'Details'
     'status.external_detail' = @(
         'The tool reported: '
         @{
@@ -1302,6 +1318,7 @@
     'status.perf_yuruna' = 'Perf — Yuruna'
     'status.performance' = 'Performance'
     'status.performance_fit' = 'Fit all'
+    'status.performance_select_bar' = 'Select a duration or a bar to read its details here.'
     'status.performance_zoom' = 'Time zoom'
     'status.pill_new_vm_resource' = 'New VM'
     'status.pill_start_guestos' = 'Start OS'

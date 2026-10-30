@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42fa6f61-9143-4a1d-9bdb-005d250ec17e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -229,9 +229,7 @@ Describe 'Generated status service performance route' {
             Get-PerfTestRow -Ordinal 3 -Start ($base + 3000) -End ($base + 4000)
         }
         $rows | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content (Join-Path $cyclesDir 'cycle.jsonl')
-        $source = [IO.File]::ReadAllText((Join-Path $script:Root 'test/service/Start-StatusService.ps1'))
-        $raw = [regex]::Match($source, '(?ms)^\$serverScript = @"\r?\n(.*?)^"@').Groups[1].Value
-        $server = $ExecutionContext.InvokeCommand.ExpandString($raw)
+        $server = [IO.File]::ReadAllText((Join-Path $script:Root 'test/service/Invoke-StatusServiceRuntime.ps1'))
         $parseErrors = $null
         $ast = [Management.Automation.Language.Parser]::ParseInput($server, [ref]$null, [ref]$parseErrors)
         @($parseErrors).Count | Should -Be 0
@@ -258,11 +256,9 @@ Describe 'Generated status service performance route' {
     }
 }
 
-Describe 'Generated checkpoint ingestion' {
+Describe 'Status server checkpoint ingestion' {
     It 'preserves bounded execution identities in the written sidecar' {
-        $source = [IO.File]::ReadAllText((Join-Path $script:Root 'test/service/Start-StatusService.ps1'))
-        $raw = [regex]::Match($source, '(?ms)^\$serverScript = @"\r?\n(.*?)^"@').Groups[1].Value
-        $server = $ExecutionContext.InvokeCommand.ExpandString($raw)
+        $server = [IO.File]::ReadAllText((Join-Path $script:Root 'test/service/Invoke-StatusServiceRuntime.ps1'))
         $ast = [Management.Automation.Language.Parser]::ParseInput($server, [ref]$null, [ref]$null)
         $writer = $ast.Find({ param($node)
             $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-PerfCheckpointWrite'

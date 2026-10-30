@@ -5,7 +5,9 @@
 package imagestore
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -146,34 +148,72 @@ func TestPromoteStagingNeverReplacesAServedGeneration(t *testing.T) {
 	served := filepath.Join(s.Dir(id), gen)
 
 	// A host is streaming the current generation while a second agent promotes
-	// the same one. Landing on that path would tear the stream; the existing
-	// file must survive byte for byte.
+	// the same one: same content name, same byte count. Landing on that path
+	// would tear the stream; the existing file must survive byte for byte.
 	reader, err := os.Open(served)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	before, err := reader.Stat()
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	staged, err := s.NewStagingPath(id, "img.iso")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(staged, make([]byte, 99), 0o644); err != nil {
+	if err := os.WriteFile(staged, []byte("xxxxxxxx"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PromoteStaging(id, staged, gen); err != nil {
 		t.Fatalf("PromoteStaging: %v", err)
 	}
-	after, err := os.Stat(served)
+	after, err := os.ReadFile(served)
 	if err != nil {
 		t.Fatalf("the served generation disappeared: %v", err)
 	}
-	if after.Size() != before.Size() {
-		t.Fatalf("the served generation is now %d bytes, was %d: promote landed over a path a reader holds open", after.Size(), before.Size())
+	if !bytes.Equal(after, make([]byte, 8)) {
+		t.Fatalf("the served generation now holds %q: promote landed over a path a reader holds open", after)
+	}
+}
+
+// A file under a generation's name with the wrong byte count is not that
+// generation -- a copy cut short, or a drop that grew after it was hashed. The
+// verified bytes replace it, and a reader already streaming the old file keeps
+// reading it to its end.
+func TestPromoteStagingReplacesAGenerationOfTheWrongSize(t *testing.T) {
+	s := testStore(t)
+	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
+	gen := mustCommit(t, s, id, "img.iso", "6666666666666666", 8, time.Now())
+	served := filepath.Join(s.Dir(id), gen)
+	reader, err := os.Open(served)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	verified := bytes.Repeat([]byte("v"), 20)
+	staged, err := s.NewStagingPath(id, "img.iso")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staged, verified, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PromoteStaging(id, staged, gen); err != nil {
+		t.Fatalf("PromoteStaging: %v", err)
+	}
+	after, err := os.ReadFile(served)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, verified) {
+		t.Fatalf("the generation holds %d byte(s), want the %d verified ones", len(after), len(verified))
+	}
+	old, err := io.ReadAll(reader)
+	if err != nil || len(old) != 8 {
+		t.Fatalf("the open reader got %d byte(s) (%v), want the 8 it opened", len(old), err)
+	}
+	if _, err := os.Stat(staged); !os.IsNotExist(err) {
+		t.Fatalf("staging entry survived promote: %v", err)
 	}
 }
 

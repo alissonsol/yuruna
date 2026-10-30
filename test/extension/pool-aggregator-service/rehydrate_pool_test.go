@@ -71,14 +71,14 @@ func TestRehydrateRegisteredPoolsPreservesCountsIncidentsAndDeduplication(t *tes
 		state.seen[failHost+"|fail-cycle"] != "fail" || !state.counted[failHost+"|fail-cycle"] {
 		t.Fatal("terminal transitions must retain both deduplication records")
 	}
-	if len(state.failWindow[failHost]) != 1 || state.failWindow[failHost][0].class != "network_timeout" {
+	if len(state.failWindow[failHost]) != 1 || state.failWindow[failHost][0].Class != "network_timeout" {
 		t.Fatalf("failure window was not restored: %+v", state.failWindow[failHost])
 	}
 	incident := state.incident[failHost]
-	if incident == nil || incident.id != "original-incident" || !incident.startedAt.Equal(started) {
+	if incident == nil || incident.ID != "original-incident" || !incident.StartedAt.Equal(started) {
 		t.Fatalf("original incident identity was lost: %+v", incident)
 	}
-	if state.poolIncident == nil || state.poolIncident.id != "original-pool-incident" {
+	if state.poolIncident == nil || state.poolIncident.ID != "original-pool-incident" {
 		t.Fatalf("collector-scoped incident was lost: %+v", state.poolIncident)
 	}
 
@@ -118,7 +118,7 @@ func TestRehydrateRegisteredPoolsPreservesCountsIncidentsAndDeduplication(t *tes
 	if cyclePushes != 0 || state.pass[passHost] != 1 || state.fail[failHost] != 1 {
 		t.Fatalf("first poll duplicated restored cycles: pushes=%d pass=%v fail=%v", cyclePushes, state.pass, state.fail)
 	}
-	if state.incident[failHost] == nil || state.incident[failHost].id != "original-incident" {
+	if state.incident[failHost] == nil || state.incident[failHost].ID != "original-incident" {
 		t.Fatal("first poll replaced the restored per-host incident")
 	}
 }

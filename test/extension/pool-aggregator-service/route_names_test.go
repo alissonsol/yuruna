@@ -11,7 +11,7 @@ import (
 )
 
 // crossLanguageRoute pins the routes this area serves to PowerShell callers.
-// The same five literals live in default.psm1's Endpoints map, and
+// The same six literals live in default.psm1's Endpoints map, and
 // Test.ExtensionArea.Tests.ps1 asserts that side against this same list.
 //
 // The two sides are wired independently -- Go registers a handler, PowerShell
@@ -25,6 +25,7 @@ var crossLanguageRoute = map[string]string{
 	"Status":         "/api/v1/pool-status",
 	"ExtensionHosts": "/api/v1/extension-hosts",
 	"LabToken":       "/api/v1/lab-token",
+	"FrameworkRing":  "/api/v1/framework-ring",
 }
 
 // TestCrossLanguageRouteNamesPinned fails when a route constant changes value.
@@ -37,6 +38,7 @@ func TestCrossLanguageRouteNamesPinned(t *testing.T) {
 		"Status":         routePoolStatus,
 		"ExtensionHosts": routeExtensionHosts,
 		"LabToken":       routeLabToken,
+		"FrameworkRing":  routeFrameworkRing,
 	}
 	if len(got) != len(crossLanguageRoute) {
 		t.Fatalf("route vector has %d entries, constants cover %d", len(crossLanguageRoute), len(got))
@@ -59,7 +61,7 @@ func TestCrossLanguageRoutesAreRegisteredByConstant(t *testing.T) {
 		t.Fatalf("read main.go: %v", err)
 	}
 	body := string(src)
-	for _, name := range []string{"routeHealth", "routeMetrics", "routePoolStatus", "routeExtensionHosts", "routeLabToken"} {
+	for _, name := range []string{"routeHealth", "routeMetrics", "routePoolStatus", "routeExtensionHosts", "routeLabToken", "routeFrameworkRing"} {
 		if !strings.Contains(body, "mux.HandleFunc("+name+",") {
 			t.Errorf("no mux registration uses %s; the constant and the served path can now differ", name)
 		}

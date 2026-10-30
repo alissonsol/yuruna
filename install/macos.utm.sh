@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42f9c4ac-c6ad-4def-81e6-8822c5a6abdb
@@ -304,6 +304,61 @@ yuruna_cleanup_tmp_paths() {
   done
   YURUNA_TMP_PATHS=()
 }
+# --- REGION: Machine-readable outcome
+# One JSON record of how the run ended, at a fixed path and beside the log, so a
+# caller (automation, a nested host) reads the outcome instead of parsing the
+# closing text: outcome succeeded | succeeded-with-issues | failed, the exit code,
+# the last step, every deferred issue, the installed VERSION and the log path.
+# Best-effort: it runs from the EXIT trap and never changes the exit code.
+yuruna_json_string() {
+  # A character loop rather than ${s//...}: bash 3.2 (macOS) and 5.x treat a
+  # backslash in a pattern replacement differently, while double-quote escaping
+  # below means the same in every version.
+  local s="$1" out="" c i
+  for (( i = 0; i < ${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      '\') out="$out\\\\" ;;
+      '"') out="$out\\\"" ;;
+      $'\n') out="$out\\n" ;;
+      $'\r') out="$out\\r" ;;
+      $'\t') out="$out\\t" ;;
+      *) out="$out$c" ;;
+    esac
+  done
+  out="$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\010\013\014\016-\037')"
+  printf '"%s"' "$out"
+}
+write_install_result() {
+  local rc="$1" installer="$2" outcome dir file issues_json="" issue version=""
+  if [[ "$rc" -ne 0 ]]; then
+    outcome="failed"
+  elif [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
+    outcome="succeeded-with-issues"
+  else
+    outcome="succeeded"
+  fi
+  if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
+    for issue in "${YURUNA_ISSUES[@]}"; do
+      [[ -z "$issues_json" ]] || issues_json="$issues_json,"
+      issues_json="$issues_json$(yuruna_json_string "$issue")"
+    done
+  fi
+  if [[ -n "${YURUNA_DIR:-}" && -r "${YURUNA_DIR:-}/VERSION" ]]; then
+    version="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION" 2>/dev/null || true)"
+  fi
+  dir="${XDG_STATE_HOME:-$HOME/.local/state}/yuruna"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  file="$dir/install-result.json"
+  if printf '{"schema":1,"installer":%s,"version":%s,"outcome":"%s","exitCode":%d,"step":%s,"issues":[%s],"log":%s,"finishedUtc":"%s"}\n' \
+       "$(yuruna_json_string "$installer")" "$(yuruna_json_string "$version")" "$outcome" "$rc" \
+       "$(yuruna_json_string "${_yuruna_step:-}")" "$issues_json" "$(yuruna_json_string "${YURUNA_INSTALL_LOG:-}")" \
+       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$file.tmp" 2>/dev/null && mv -f "$file.tmp" "$file" 2>/dev/null; then
+    if [[ -n "${YURUNA_INSTALL_LOG:-}" ]]; then cp -f "$file" "${YURUNA_INSTALL_LOG%.log}.result.json" 2>/dev/null || true; fi
+  fi
+  return 0
+}
+
 yuruna_install_cleanup() {
   local rc=$?
   kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
@@ -315,6 +370,7 @@ yuruna_install_cleanup() {
     printf '\n\033[1;31mXX \033[0m installer exited with code %d.\n' "$rc" >&2
     printf '   Full log: %s\n' "${YURUNA_INSTALL_LOG:-<none>}" >&2
   fi
+  write_install_result "$rc" "macos.utm"
   _yuruna_flush_log
 }
 trap yuruna_install_cleanup EXIT
@@ -1158,19 +1214,40 @@ if ! command -v pwsh >/dev/null 2>&1; then
 fi
 
 # --- REGION: .NET runtime location
-# For a framework-dependent PowerShell: a nested `sudo pwsh` strips DOTNET_ROOT and exits
-# 131 before running any script. The runtime's machine-wide fallback file is written once
-# here instead of at each call site. The cask and .pkg builds are self-contained and never
-# read it.
 # See https://yuruna.link/42885ada-0006
+# A framework-dependent PowerShell needs the machine-wide runtime location file
+# for a nested `sudo pwsh`; the cask and .pkg builds are self-contained and never read it.
+# A location another installer recorded (Microsoft's SDK package writes
+# /usr/local/share/dotnet) is operator configuration: it is kept, and only an
+# absent or blank file, or one naming a directory that no longer exists, takes
+# Homebrew's runtime. A replaced value is reported as previous -> new and kept
+# in a backup beside the file before anything is written.
+record_dotnet_install_location() {
+  local location_file="$1" wanted="$2" previous="" backup
+  if [[ -r "$location_file" ]]; then
+    previous="$(head -n 1 "$location_file" 2>/dev/null || true)"
+  fi
+  [[ "$previous" == "$wanted" ]] && return 0
+  if [[ -n "$previous" && -d "$previous" ]]; then
+    log "Keeping the .NET runtime location in $location_file: $previous (Homebrew's runtime is $wanted; a nested 'sudo pwsh' uses the kept one)"
+    return 0
+  fi
+  if [[ -n "$previous" ]]; then
+    backup="$location_file.yuruna-backup.$(date +%Y%m%d%H%M%S)"
+    log "install_location: $previous -> $wanted (the recorded directory no longer exists; the previous file is kept as $backup)"
+    if ! sudo cp -p "$location_file" "$backup"; then
+      note_issue "Could not back up $location_file to $backup, so it was left unchanged ($previous)."
+      return 0
+    fi
+  else
+    log "Recording the .NET runtime location at $location_file"
+  fi
+  sudo mkdir -p "$(dirname "$location_file")"
+  printf '%s\n' "$wanted" | sudo tee "$location_file" >/dev/null
+}
 if command -v pwsh >/dev/null 2>&1 && dotnet_libexec="$(brew --prefix dotnet 2>/dev/null)/libexec" \
    && [[ -d "$dotnet_libexec" ]]; then
-  dotnet_location_file="/etc/dotnet/install_location_$(uname -m)"
-  if [[ "$(cat "$dotnet_location_file" 2>/dev/null)" != "$dotnet_libexec" ]]; then
-    log "Recording the .NET runtime location at $dotnet_location_file"
-    sudo mkdir -p /etc/dotnet
-    printf '%s\n' "$dotnet_libexec" | sudo tee "$dotnet_location_file" >/dev/null
-  fi
+  record_dotnet_install_location "/etc/dotnet/install_location_$(uname -m)" "$dotnet_libexec"
 fi
 
 log "Running brew cleanup"
@@ -1213,22 +1290,53 @@ command -v utmctl >/dev/null 2>&1 || die "$UTMCTL_LINK exists, but 'utmctl' stil
    PATH seen by this run: $PATH"
 
 # --- REGION: PowerShell modules
+# The pinned version and the SHA-512 the gallery publishes for its package
+# (PackageHash, base64): the bytes are checked before anything is unpacked.
+# The same pin lives in test/modules/Test.HostGit.psm1, which installs it on a
+# host set up without this script; Test.HostGitInstall keeps the two equal.
+POWERSHELL_YAML_VERSION="0.4.12"
+POWERSHELL_YAML_SHA512="Vc5DLyw7hLsCL6yFlSvzsdUUWmgfqoM35XmRavtKOz37GHBg3p+vWxaO/9wS8MbptzWspdUBcVRGSqAdlJmtUg=="
 log "Installing required PowerShell modules"
-pwsh -NoProfile -Command '
-    if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue) {
+YURUNA_MODULE_VERSION="$POWERSHELL_YAML_VERSION" YURUNA_MODULE_SHA512="$POWERSHELL_YAML_SHA512" pwsh -NoProfile -Command '
+    $name = "powershell-yaml"; $version = $env:YURUNA_MODULE_VERSION; $sha512 = $env:YURUNA_MODULE_SHA512
+    if (Get-Module -ListAvailable -Name $name -ErrorAction SilentlyContinue) {
         Write-Output "  powershell-yaml already installed"
     } else {
-        Write-Output "  installing powershell-yaml (CurrentUser scope)"
+        Write-Output "  installing powershell-yaml $version (CurrentUser scope)"
+        $package = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-$name-" + [guid]::NewGuid().ToString("N") + ".nupkg")
         try {
-            Install-Module -Name powershell-yaml -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+            Invoke-WebRequest -Uri "https://www.powershellgallery.com/api/v2/package/$name/$version" -OutFile $package -TimeoutSec 300 -ErrorAction Stop | Out-Null
+            $actual = [Convert]::ToBase64String([Security.Cryptography.SHA512]::HashData([IO.File]::ReadAllBytes($package)))
+            if ($actual -cne $sha512) { throw "the package SHA-512 $actual does not match the pinned $sha512" }
+            $data = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { Join-Path $HOME ".local/share" }
+            $nameDir = Join-Path $data "powershell/Modules/$name"
+            $staging = Join-Path $nameDir (".$version." + [guid]::NewGuid().ToString("N") + ".staging")
+            $stagingFull = [IO.Path]::GetFullPath($staging) + [IO.Path]::DirectorySeparatorChar
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [IO.Compression.ZipFile]::OpenRead($package)
+            try {
+                foreach ($entry in $zip.Entries) {
+                    $relative = [uri]::UnescapeDataString($entry.FullName)
+                    if (-not $entry.Name -or $relative -eq "[Content_Types].xml" -or $relative -like "_rels/*" -or $relative -like "package/*" -or ($relative -notmatch "/" -and $relative -like "*.nuspec")) { continue }
+                    $destination = [IO.Path]::GetFullPath((Join-Path $staging $relative))
+                    if (-not $destination.StartsWith($stagingFull, [StringComparison]::Ordinal)) { throw "package entry $($entry.FullName) escapes the module directory" }
+                    [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination))
+                    [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destination, $false)
+                }
+            } finally { $zip.Dispose() }
+            $target = Join-Path $nameDir $version
+            if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+            [IO.Directory]::Move($staging, $target)
         } catch {
-            Write-Warning "  Install-Module powershell-yaml failed: $($_.Exception.Message)"
+            if ($staging) { Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue }
+            Write-Warning "  installing powershell-yaml $version failed: $($_.Exception.Message)"
             Write-Warning "  Invoke-TestProject.ps1 will refuse to run until this is fixed."
-            Write-Warning "  Try manually: pwsh -Command ''Install-Module powershell-yaml -Scope CurrentUser''"
             exit 1
+        } finally {
+            Remove-Item -LiteralPath $package -Force -ErrorAction SilentlyContinue
         }
     }
-' || note_issue "Installing the powershell-yaml module reported an error; the harness needs it to read any YAML config. Retry with: pwsh -Command 'Install-Module powershell-yaml -Scope CurrentUser'"
+' || note_issue "Installing the powershell-yaml module reported an error; the harness needs it to read any YAML config. Re-run this installer, or install it by hand with: pwsh -Command 'Install-Module powershell-yaml -RequiredVersion $POWERSHELL_YAML_VERSION -Scope CurrentUser'"
 
 # --- REGION: Preserve test/status runtime state
 TEST_STATUS_SUBDIRS=(runtime perf log extension captures ssh)

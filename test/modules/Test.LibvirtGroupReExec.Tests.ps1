@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 423d18da-7e97-4117-9ac0-6c6e5a592415
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ BeforeAll {
     if (-not $script:Pwsh) { $script:Pwsh = 'pwsh' }
     $script:User = if ($env:USER) { $env:USER } else { [Environment]::UserName }
     $script:HadRelaunch = Test-Path -LiteralPath Env:YURUNA_SG_RELAUNCH
-    $script:SavedRelaunch = $env:YURUNA_SG_RELAUNCH
+    $script:SavedRelaunch = Save-YurunaTestEnvironment -Name 'YURUNA_SG_RELAUNCH'
 
     function Get-FakeBoundedResult {
         param([int]$ExitCode = 0, [string]$StdOut = '', [switch]$TimedOut, [switch]$NotStarted,
@@ -84,7 +84,7 @@ BeforeAll {
     }
 
     function Restore-RelaunchMarker {
-        if ($script:HadRelaunch) { $env:YURUNA_SG_RELAUNCH = $script:SavedRelaunch }
+        if ($script:HadRelaunch) { Restore-YurunaTestEnvironment -Saved $script:SavedRelaunch }
         else { Remove-Item -LiteralPath Env:YURUNA_SG_RELAUNCH -ErrorAction SilentlyContinue }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b2a26c-2f83-45a5-9ea1-2968fe3e40d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@ BeforeAll {
     $here = Split-Path -Parent $PSCommandPath
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:Work = New-YurunaTestTempDir -Prefix 'yrn-config-tls'
-    $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+    $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     $script:CaModule = Join-Path $here 'Test.ConfigServiceCA.psm1'
     Import-Module $script:CaModule -Force -DisableNameChecking
     $env:YURUNA_RUNTIME_DIR = Join-Path $script:Work 'trusted'
@@ -141,8 +141,7 @@ AfterAll {
             if (-not $script:Server.HasExited) { $script:Server.Kill(); $null = $script:Server.WaitForExit(10000) }
         } finally { $script:Server.Dispose() }
     }
-    if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
-    else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+    Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
     Remove-YurunaTestTempDir $script:Work
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42fd45e3-d490-4fe2-a3d8-49d6577c6a35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     against a temp YURUNA_RUNTIME_DIR (never the live runtime file). Structural
     guards assert the self-heal SHAPE in the bash update scripts (bump-port
     boundary, --no-proxy fetch, non-lying re-probe) and the /ca.crt HEAD-body
-    guard in Start-StatusService.ps1 -- shape, so a comment cannot satisfy them.
+    guard in Invoke-StatusServiceRuntime.ps1 -- shape, so a comment cannot satisfy them.
 
     The throw-based Assert-* helpers live at script scope and are referenced
     from It blocks, so this runs under Pester 5.x.
@@ -72,15 +72,15 @@ function Get-TestCaPem {
 # as test-case data and reads the file itself, so nothing has to survive the phase change.
 $script:retryLibBody = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'automation/yuruna-retry.sh')
 $script:fetchExecBody = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'automation/fetch-and-execute.sh')
-$statusServicePath = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
+$statusServicePath = Join-Path $repoRoot 'test/service/Invoke-StatusServiceRuntime.ps1'
 $script:statusServiceBody = Get-Content -Raw -LiteralPath $statusServicePath
 
 }
 
 Describe 'Test.CachingProxyService CA-source helpers' {
     BeforeEach {
-        $script:PreviousRuntimeDir = [Environment]::GetEnvironmentVariable('YURUNA_RUNTIME_DIR', 'Process')
-        $script:PreviousProxyIp = [Environment]::GetEnvironmentVariable('YURUNA_CACHING_PROXY_SERVICE_IP', 'Process')
+        $script:PreviousRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $script:PreviousProxyIp = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
         $script:sandbox = Join-Path ([System.IO.Path]::GetTempPath()) ("cpca_" + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:sandbox -Force | Out-Null
         $env:YURUNA_RUNTIME_DIR = $script:sandbox
@@ -90,8 +90,8 @@ Describe 'Test.CachingProxyService CA-source helpers' {
     }
 
     AfterEach {
-        [Environment]::SetEnvironmentVariable('YURUNA_RUNTIME_DIR', $script:PreviousRuntimeDir, 'Process')
-        [Environment]::SetEnvironmentVariable('YURUNA_CACHING_PROXY_SERVICE_IP', $script:PreviousProxyIp, 'Process')
+        Restore-YurunaTestEnvironment -Saved $script:PreviousRuntimeDir
+        Restore-YurunaTestEnvironment -Saved $script:PreviousProxyIp
         if ($script:sandbox) { Remove-Item -LiteralPath $script:sandbox -Recurse -Force -ErrorAction SilentlyContinue }
     }
 

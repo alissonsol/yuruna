@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,208 +20,261 @@
 # ../../docs/failure-schema.md#failure-record-schema for why this is one
 # registry-backed store rather than per-module $script: variables. -- Test.SequenceFailureState.psm1
 
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Global -Force
 Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -DisableNameChecking
 
+# --- REGION: Slot declarations
+# Every slot the store holds, with its default and its lifetime: when the
+# engine puts it back to that default (Reset-SequenceFailureSlot).
+#   sequence  at the start of each top-level sequence
+#   step      at the start of each attempted step, nested ones included,
+#             and of each sequence
+#   wait      at the entry of each screen wait, and of each step and sequence
+#   gate      by the sequence-start pause gate, before it runs, since the
+#             gate itself records the hold the first step reads
+#   process   seeded once; its one writer overwrites it before each use
+# One table instead of a reset list per site: a slot added to a list and not
+# to its siblings outlived the step or wait it described and reached a later
+# failure record as that failure's cause.
+$script:SequenceFailureSlots = [ordered]@{}
+function Add-SequenceFailureSlot {
+    # Private: declare one slot. A [string[]] default is copied on every
+    # reset, so no two resets share an array.
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][ValidateSet('sequence', 'step', 'wait', 'gate', 'process')][string]$Lifetime,
+        [AllowNull()][AllowEmptyString()][AllowEmptyCollection()]$Default
+    )
+    $script:SequenceFailureSlots[$Name] = [pscustomobject]@{ Name = $Name; Lifetime = $Lifetime; Default = $Default }
+}
+
+Add-SequenceFailureSlot -Name 'LastFailureLabel' -Lifetime sequence -Default $null
+Add-SequenceFailureSlot -Name 'LastFailureDescription' -Lifetime sequence -Default $null
+Add-SequenceFailureSlot -Name 'LastFailedAction' -Lifetime sequence -Default $null
+Add-SequenceFailureSlot -Name 'LastFailedStepNumber' -Lifetime sequence -Default 0
+# When the failing step began. The failure record judges the per-VM screen
+# artifacts at the log root against it: those files are sticky and only the
+# verbs that read a screen rewrite them, so anything written before the step
+# started belongs to an earlier one and must not be claimed as this
+# failure's evidence. $null means no boundary is known, and the record then
+# claims the artifacts as it always did rather than guessing.
+Add-SequenceFailureSlot -Name 'LastFailedStepStartedUtc' -Lifetime sequence -Default $null
+Add-SequenceFailureSlot -Name 'LastFailedStepInvocationId' -Lifetime step -Default ''
+Add-SequenceFailureSlot -Name 'LastFailedSequenceInvocationId' -Lifetime step -Default ''
+# The outer retry owns the failure event; the leaf owns its fetch evidence.
+Add-SequenceFailureSlot -Name 'OriginatingStepInvocationId' -Lifetime step -Default ''
+Add-SequenceFailureSlot -Name 'OriginatingSequenceInvocationId' -Lifetime step -Default ''
+# Inner-verb slots: a retry Handler captures the deepest inner verb's
+# classification here before the outer per-step path overwrites
+# LastFailedAction with 'retry', so the failure record can surface both
+# the outer 'retry_exhausted' class and the inner cause a remediator
+# needs to pick a recovery. [string[]] empty array, never $null, so the
+# NDJSON field always renders as a JSON array.
+Add-SequenceFailureSlot -Name 'LastInnerFailedAction' -Lifetime sequence -Default $null
+Add-SequenceFailureSlot -Name 'LastInnerFailureClass' -Lifetime sequence -Default $null
+Add-SequenceFailureSlot -Name 'LastInnerSeverity' -Lifetime sequence -Default $null
+Add-SequenceFailureSlot -Name 'LastInnerSuggestedRecoveries' -Lifetime sequence -Default ([string[]]@())
+# 0 = "no step succeeded": a fresh-cycle failure on step 1 must not carry
+# a leftover resume boundary from a prior sequence's run.
+Add-SequenceFailureSlot -Name 'LastSucceededStepNumber' -Lifetime sequence -Default 0
+# Cross-function anti-pattern signal; reset per-step inside Wait-ForText
+# and sshWaitReady, cleared here too so a sequence starts clean.
+Add-SequenceFailureSlot -Name 'WaitForTextMatchedFailurePattern' -Lifetime wait -Default $null
+# Runtime cause signal captured at the wait/OCR failure site: the freshest
+# full-screen OCR text (bounded tail) and the patterns the wait was seeking.
+# Lets a consumer see WHAT was on screen vs WHAT was sought, not just the
+# verb-static failureClass. [string[]] empty (never $null) so the NDJSON
+# field always renders as a JSON array, same guard as the inner-recovery slot.
+Add-SequenceFailureSlot -Name 'WaitForTextOcrTail' -Lifetime wait -Default $null
+Add-SequenceFailureSlot -Name 'WaitForTextPatternsSought' -Lifetime wait -Default ([string[]]@())
+# Populated when a freshMatch wait times out on text the engines DID read
+# but that had scrolled past the tail window. Without it the record shows a
+# sought pattern, an OCR tail that appears not to contain it, and no way to
+# tell "never printed" from "printed, then pushed out of the window" -- two
+# failures with different owners and different fixes.
+Add-SequenceFailureSlot -Name 'WaitForTextFreshWindowNearMiss' -Lifetime wait -Default ([string[]]@())
+# See https://yuruna.link/4213a0b3-014e
+Add-SequenceFailureSlot -Name 'WaitForTextClosestOnScreen' -Lifetime wait -Default $null
+# Populated when the console filled with one repeating log line while the
+# wait was seeking its pattern. That case is NOT the same failure as a
+# pattern that never printed, and the byte-hash freeze detector cannot see
+# it: a scrolling flood changes every frame, so the feed is live and only the
+# CONTENT is useless. Left as one class they are indistinguishable in the
+# record, and the flood is the one whose owner is the guest rather than the
+# capture path.
+Add-SequenceFailureSlot -Name 'WaitForTextConsoleFlood' -Lifetime wait -Default $null
+# Longest run, in seconds, that the console CONTENT stayed unchanged during
+# the wait. Separates the two screens the flood detail alone cannot: one
+# scrolling a repeating line, and one frozen on text that scrolled past
+# already -- the second is a guest parked on something, and the wait it
+# failed was never going to end on its own.
+Add-SequenceFailureSlot -Name 'WaitForTextConsoleStaticSeconds' -Lifetime wait -Default 0
+# Last substantive Subiquity stage visible during the wait and seconds
+# since that marker changed. Network update chatter is excluded; this is
+# an observation, not proof that the stage is still executing.
+Add-SequenceFailureSlot -Name 'WaitForTextInstallerStage' -Lifetime wait -Default ''
+Add-SequenceFailureSlot -Name 'WaitForTextInstallerStageSeconds' -Lifetime wait -Default 0
+# Set only on timeout with sustained static content and an independent
+# hypervisor framebuffer confirmation. Never inferred from OCR absence.
+Add-SequenceFailureSlot -Name 'WaitForTextGuestBootStalled' -Lifetime wait -Default $false
+# Independent VM-console observations are distinct from the Windows host
+# sampler's virtual-processor counters. Retain unavailable readings too,
+# so absence of a probe is never reported as a measured idle guest.
+Add-SequenceFailureSlot -Name 'WaitForTextConsoleSecondOpinion' -Lifetime wait -Default $null
+# The host recording's livelock verdict at the failed wait (see
+# Get-YurunaVmLivelockVerdict), and whether it found every virtual
+# processor pinned in the hypervisor for the verdict's full window.
+# $null when no host recording exists: not measured, which is not the
+# same reading as measured and found running.
+Add-SequenceFailureSlot -Name 'WaitForTextGuestLivelock' -Lifetime wait -Default $null
+Add-SequenceFailureSlot -Name 'WaitForTextGuestLivelocked' -Lifetime wait -Default $false
+# The evidence a wait ended on before its deadline because the guest kernel
+# wedged with a processor silent (see Get-GuestKernelStallEnd); $null when
+# the wait did not end that way.
+Add-SequenceFailureSlot -Name 'WaitForTextKernelStallEnd' -Lifetime wait -Default $null
+# Seconds the console had read blank -- no engine found any text -- when
+# the wait ended. The content-static slot above measures only readable
+# text, so without this a guest that went black leaves a record that
+# reads like a wait that compared nothing.
+Add-SequenceFailureSlot -Name 'WaitForTextBlankScreenSeconds' -Lifetime wait -Default 0
+# Whether the wait that failed actually evaluated the two slots above. A
+# tail-confined match reads the same frames but runs neither tracker, so it
+# leaves them at these initializers -- which are also what a measured, moving,
+# non-repeating console produces. Defaults to $true so a failure with no wait
+# behind it keeps the shape it has always had; only a wait that declined to
+# measure clears it.
+Add-SequenceFailureSlot -Name 'WaitForTextConsoleSignalsMeasured' -Lifetime wait -Default $true
+Add-SequenceFailureSlot -Name 'WaitForTextOutputStaticSeconds' -Lifetime wait -Default $null
+Add-SequenceFailureSlot -Name 'StepProgressAdvisory' -Lifetime step -Default $null
+# The guest kernel's own reports for the failed step: @{ stepInvocationId;
+# serial; recorder } from Get-StepGuestKernelFault, else $null. A retry
+# wrapper leaves its failed attempt's reading in place, and the record keeps
+# it only for the step it names.
+Add-SequenceFailureSlot -Name 'StepGuestKernelFault' -Lifetime step -Default $null
+# Set by the sequence-start / per-step pause gate when an operator hold is
+# released: @{ releasedAtUtc; heldSeconds; label; pauseScope }. The gate holds
+# the runner while the guest keeps running, so a hold is part of the cause of
+# whatever the next step finds on screen, and a record that omits it sends the
+# reader looking for a guest fault that is not there.
+Add-SequenceFailureSlot -Name 'LastPauseRelease' -Lifetime gate -Default $null
+# Set by the ssh verbs when host-side discovery never produced an address
+# and the bare VM name was dialed as the last route left. The verb registry
+# classifies those verbs by their COMMON failure -- a guest command that
+# exited non-zero -- but a step that never reached the guest is a different
+# fault with a different owner, so the class is corrected from this signal
+# rather than from the registry default.
+Add-SequenceFailureSlot -Name 'StepGuestAddressUnresolved' -Lifetime step -Default $null
+# Set by the ssh verbs when the session died mid-command instead of the
+# guest reporting a status. The verb registry classifies those verbs by
+# their COMMON failure -- a guest command that exited non-zero -- and a
+# dropped transport is not that: nothing is known about the command, which
+# may have completed, and the fault is on the path rather than in the
+# script. The class is corrected from this signal so the record names the
+# right fault and reaches the recovery that suits it.
+Add-SequenceFailureSlot -Name 'StepGuestTransportLost' -Lifetime step -Default $null
+# Set by the ssh verbs when a DETACHED run could not be accounted for: the
+# supervisor was reached but the payload it was watching left no exit
+# status. Distinct from a dropped transport, which says only that the host
+# stopped watching -- here the work itself is gone, so re-attaching cannot
+# recover it and the honest report is that the step's outcome is unknown.
+Add-SequenceFailureSlot -Name 'StepGuestRunLost' -Lifetime step -Default $null
+# Set by the ssh verbs when the guest ran the fetch wrapper but no source
+# served the script. The verb registry classifies these verbs by their COMMON
+# failure -- a guest command that exited non-zero -- and this is the opposite:
+# no command ran at all. The wrapper says so in its own output; without this
+# signal that statement is discarded and an operator is sent to debug a script
+# that never executed.
+Add-SequenceFailureSlot -Name 'StepGuestPayloadUnavailable' -Lifetime step -Default $null
+# Set by a GUI fetch whose staged input was still open in the guest shell
+# when the wait gave up. The closing guard never ran, so the payload never
+# executed; that is what separates this from a script that ran and stalled.
+Add-SequenceFailureSlot -Name 'StepInputLost' -Lifetime step -Default $null
+# Set by the input dispatcher when the step's last key, text or click send
+# failed: @{ action; stepInvocationId; kind; reason; transport; detail;
+# delivered; total }, else $null. kind 'deterministic' -- text the input
+# path has no key for, a key name no map defines, an action the host never
+# registered -- fails the same way on every retry, so the step is filed as
+# plan_invalid instead of the input verbs' retryable host_io_blocked.
+Add-SequenceFailureSlot -Name 'StepHostInputFault' -Lifetime step -Default $null
+# Set by a GUI fetch whose guest launcher refused the typed envelope, from the
+# launcher's own record: the YFE code, the length and SHA-256 it received and
+# those that were typed, and whether a context was prepared. Every refusal
+# comes before the payload runs. The last refusal of the step, or $null.
+Add-SequenceFailureSlot -Name 'StepLauncherRejection' -Lifetime step -Default $null
+# Set by an SSH fetch whose apt reported an index that disagrees with its
+# InRelease: the URL, the sizes, the server apt named, and what apt_retry saw
+# of the caching proxy's copy. The script did fail, but the fix is in the
+# cache or the origin, which script_error alone does not say.
+Add-SequenceFailureSlot -Name 'StepAptIndexMismatch' -Lifetime step -Default $null
+# Set by stopVm and startVm when the guest did not reach the stopped state
+# inside the step's deadline. A VM that ignores a shutdown request is not a
+# provisioning fault, and retrying the same wait cannot help it: the record
+# carries the state the host observed, how long it waited, and the console
+# and hypervisor evidence captured at that moment.
+# @{ observedState; waitedSeconds; requestedAtUtc; action } or $null.
+Add-SequenceFailureSlot -Name 'StepVmNotStopped' -Lifetime step -Default $null
+# The step and verb whose handler is running, recorded before the handler is
+# invoked, so a crash names the step it happened in rather than the last
+# step that failed in the ordinary way.
+Add-SequenceFailureSlot -Name 'CurrentAction' -Lifetime process -Default $null
+Add-SequenceFailureSlot -Name 'CurrentStepNumber' -Lifetime process -Default 0
+# A handler that threw on the current attempted step: @{ stepInvocationId;
+# message; origin }, else $null. The step fails like a handler that
+# returned $false, so a retry wrapping it can run it again; the record keeps
+# the class unknown, because an unexpected exception says nothing about the
+# verb's own failure class, and names the exception.
+Add-SequenceFailureSlot -Name 'StepHandlerError' -Lifetime step -Default $null
+# Which part of a wait-then-type step failed: 'wait' (the screen never
+# showed what the step waited for), 'input' or 'confirm'. A verb's
+# registered class describes the part that can only fail after the wait --
+# passwdPrompt's credential_expired is a rejected password -- so a step that
+# never got past its wait is filed as the wait's timeout instead.
+Add-SequenceFailureSlot -Name 'StepFailurePhase' -Lifetime step -Default $null
+# A handler's proof that the current attempted step did nothing to the
+# guest: @{ effect = 'none-proven'; source; stepInvocationId }, else $null.
+# Set through Set-StepEffectNoneProven by the handlers that hold such
+# evidence; read only for the step that published it.
+Add-SequenceFailureSlot -Name 'StepEffect' -Lifetime step -Default $null
+# The deploy result a guest entry point reported on its YURUNA_RESULT line,
+# read by the ssh verbs: @{ failureClass (canonical); deployFailureClass;
+# errorMessage }, else $null. The guest said why its deploy failed, which
+# the verb's registered script_error cannot.
+Add-SequenceFailureSlot -Name 'StepDeployResult' -Lifetime step -Default $null
+# The earliest moment in the current top-level sequence at which the guest
+# stopped answering: a dropped SSH transport, typed input the console never
+# acknowledged, a diagnostic that no rung could reach, or a shutdown request
+# the guest ignored. Each later failure record carries it so a reader finds
+# the first symptom instead of only the step that finally gave up. Reset
+# at sequence start, never per step.
+Add-SequenceFailureSlot -Name 'FirstGuestSilenceUtc' -Lifetime sequence -Default $null
+Add-SequenceFailureSlot -Name 'FirstGuestSilenceSource' -Lifetime sequence -Default $null
+
 function Initialize-SequenceFailureStateStore {
-    # Private: seed every slot on $Store with its default, in place (callers
-    # cache the store by reference, so it must never rebind). Run once, only
-    # when the store is first created -- the engine resets the slots itself
-    # at the top of each sequence run via member access on the live store.
+    # Private: seed every declared slot the store does not hold yet with its
+    # default, in place (callers cache the store by reference, so it must
+    # never rebind). On a fresh store that is every slot; after a -Force
+    # re-import that is only a slot an updated module declared, so live
+    # failure state survives the re-import.
     param([Parameter(Mandatory)]$Store)
-    $Store['LastFailureLabel']       = $null
-    $Store['LastFailureDescription'] = $null
-    $Store['LastFailedAction']       = $null
-    $Store['LastFailedStepNumber']   = 0
-    # When the failing step began. The failure record judges the per-VM screen
-    # artifacts at the log root against it: those files are sticky and only the
-    # verbs that read a screen rewrite them, so anything written before the step
-    # started belongs to an earlier one and must not be claimed as this
-    # failure's evidence. $null means no boundary is known, and the record then
-    # claims the artifacts as it always did rather than guessing.
-    $Store['LastFailedStepStartedUtc'] = $null
-    $Store['LastFailedStepInvocationId'] = ''
-    $Store['LastFailedSequenceInvocationId'] = ''
-    # The outer retry owns the failure event; the leaf owns its fetch evidence.
-    $Store['OriginatingStepInvocationId'] = ''
-    $Store['OriginatingSequenceInvocationId'] = ''
-    # Inner-verb slots: a retry Handler captures the deepest inner verb's
-    # classification here before the outer per-step path overwrites
-    # LastFailedAction with 'retry', so the failure record can surface both
-    # the outer 'retry_exhausted' class and the inner cause a remediator
-    # needs to pick a recovery. [string[]] empty array, never $null, so the
-    # NDJSON field always renders as a JSON array.
-    $Store['LastInnerFailedAction']        = $null
-    $Store['LastInnerFailureClass']        = $null
-    $Store['LastInnerSeverity']            = $null
-    $Store['LastInnerSuggestedRecoveries'] = [string[]]@()
-    # 0 = "no step succeeded": a fresh-cycle failure on step 1 must not carry
-    # a leftover resume boundary from a prior sequence's run.
-    $Store['LastSucceededStepNumber']      = 0
-    # Cross-function anti-pattern signal; reset per-step inside Wait-ForText
-    # and sshWaitReady, cleared here too so a sequence starts clean.
-    $Store['WaitForTextMatchedFailurePattern'] = $null
-    # Runtime cause signal captured at the wait/OCR failure site: the freshest
-    # full-screen OCR text (bounded tail) and the patterns the wait was seeking.
-    # Lets a consumer see WHAT was on screen vs WHAT was sought, not just the
-    # verb-static failureClass. [string[]] empty (never $null) so the NDJSON
-    # field always renders as a JSON array, same guard as the inner-recovery slot.
-    $Store['WaitForTextOcrTail']        = $null
-    $Store['WaitForTextPatternsSought'] = [string[]]@()
-    # Populated when a freshMatch wait times out on text the engines DID read
-    # but that had scrolled past the tail window. Without it the record shows a
-    # sought pattern, an OCR tail that appears not to contain it, and no way to
-    # tell "never printed" from "printed, then pushed out of the window" -- two
-    # failures with different owners and different fixes.
-    $Store['WaitForTextFreshWindowNearMiss'] = [string[]]@()
-    # See https://yuruna.link/4213a0b3-014e
-    $Store['WaitForTextClosestOnScreen'] = $null
-    # Populated when the console filled with one repeating log line while the
-    # wait was seeking its pattern. That case is NOT the same failure as a
-    # pattern that never printed, and the byte-hash freeze detector cannot see
-    # it: a scrolling flood changes every frame, so the feed is live and only the
-    # CONTENT is useless. Left as one class they are indistinguishable in the
-    # record, and the flood is the one whose owner is the guest rather than the
-    # capture path.
-    $Store['WaitForTextConsoleFlood'] = $null
-    # Longest run, in seconds, that the console CONTENT stayed unchanged during
-    # the wait. Separates the two screens the flood detail alone cannot: one
-    # scrolling a repeating line, and one frozen on text that scrolled past
-    # already -- the second is a guest parked on something, and the wait it
-    # failed was never going to end on its own.
-    $Store['WaitForTextConsoleStaticSeconds'] = 0
-    # Last substantive Subiquity stage visible during the wait and seconds
-    # since that marker changed. Network update chatter is excluded; this is
-    # an observation, not proof that the stage is still executing.
-    $Store['WaitForTextInstallerStage'] = ''
-    $Store['WaitForTextInstallerStageSeconds'] = 0
-    # Set only on timeout with sustained static content and an independent
-    # hypervisor framebuffer confirmation. Never inferred from OCR absence.
-    $Store['WaitForTextGuestBootStalled'] = $false
-    # Independent VM-console observations are distinct from the Windows host
-    # sampler's virtual-processor counters. Retain unavailable readings too,
-    # so absence of a probe is never reported as a measured idle guest.
-    $Store['WaitForTextConsoleSecondOpinion'] = $null
-    # The host recording's livelock verdict at the failed wait (see
-    # Get-YurunaVmLivelockVerdict), and whether it found every virtual
-    # processor pinned in the hypervisor for the verdict's full window.
-    # $null when no host recording exists: not measured, which is not the
-    # same reading as measured and found running.
-    $Store['WaitForTextGuestLivelock'] = $null
-    $Store['WaitForTextGuestLivelocked'] = $false
-    # Seconds the console had read blank -- no engine found any text -- when
-    # the wait ended. The content-static slot above measures only readable
-    # text, so without this a guest that went black leaves a record that
-    # reads like a wait that compared nothing.
-    $Store['WaitForTextBlankScreenSeconds'] = 0
-    # Whether the wait that failed actually evaluated the two slots above. A
-    # tail-confined match reads the same frames but runs neither tracker, so it
-    # leaves them at these initializers -- which are also what a measured, moving,
-    # non-repeating console produces. Defaults to $true so a failure with no wait
-    # behind it keeps the shape it has always had; only a wait that declined to
-    # measure clears it.
-    $Store['WaitForTextConsoleSignalsMeasured'] = $true
-    $Store['WaitForTextOutputStaticSeconds'] = $null
-    $Store['StepProgressAdvisory'] = $null
-    # Set by the sequence-start / per-step pause gate when an operator hold is
-    # released: @{ releasedAtUtc; heldSeconds; label; pauseScope }. The gate holds
-    # the runner while the guest keeps running, so a hold is part of the cause of
-    # whatever the next step finds on screen, and a record that omits it sends the
-    # reader looking for a guest fault that is not there.
-    $Store['LastPauseRelease'] = $null
-    # Set by the ssh verbs when host-side discovery never produced an address
-    # and the bare VM name was dialed as the last route left. The verb registry
-    # classifies those verbs by their COMMON failure -- a guest command that
-    # exited non-zero -- but a step that never reached the guest is a different
-    # fault with a different owner, so the class is corrected from this signal
-    # rather than from the registry default.
-    $Store['StepGuestAddressUnresolved'] = $null
-    # Set by the ssh verbs when the session died mid-command instead of the
-    # guest reporting a status. The verb registry classifies those verbs by
-    # their COMMON failure -- a guest command that exited non-zero -- and a
-    # dropped transport is not that: nothing is known about the command, which
-    # may have completed, and the fault is on the path rather than in the
-    # script. The class is corrected from this signal so the record names the
-    # right fault and reaches the recovery that suits it.
-    $Store['StepGuestTransportLost'] = $null
-    # Set by the ssh verbs when a DETACHED run could not be accounted for: the
-    # supervisor was reached but the payload it was watching left no exit
-    # status. Distinct from a dropped transport, which says only that the host
-    # stopped watching -- here the work itself is gone, so re-attaching cannot
-    # recover it and the honest report is that the step's outcome is unknown.
-    $Store['StepGuestRunLost'] = $null
-    # Set by the ssh verbs when the guest ran the fetch wrapper but no source
-    # served the script. The verb registry classifies these verbs by their COMMON
-    # failure -- a guest command that exited non-zero -- and this is the opposite:
-    # no command ran at all. The wrapper says so in its own output; without this
-    # signal that statement is discarded and an operator is sent to debug a script
-    # that never executed.
-    $Store['StepGuestPayloadUnavailable'] = $null
-    # Set by a GUI fetch whose staged input was still open in the guest shell
-    # when the wait gave up. The closing guard never ran, so the payload never
-    # executed; that is what separates this from a script that ran and stalled.
-    $Store['StepInputLost'] = $null
-    # Set by a GUI fetch whose guest launcher refused the typed envelope, from the
-    # launcher's own record: the YFE code, the length and SHA-256 it received and
-    # those that were typed, and whether a context was prepared. Every refusal
-    # comes before the payload runs. The last refusal of the step, or $null.
-    $Store['StepLauncherRejection'] = $null
-    # Set by an SSH fetch whose apt reported an index that disagrees with its
-    # InRelease: the URL, the sizes, the server apt named, and what apt_retry saw
-    # of the caching proxy's copy. The script did fail, but the fix is in the
-    # cache or the origin, which script_error alone does not say.
-    $Store['StepAptIndexMismatch'] = $null
-    # Set by stopVm and startVm when the guest did not reach the stopped state
-    # inside the step's deadline. A VM that ignores a shutdown request is not a
-    # provisioning fault, and retrying the same wait cannot help it: the record
-    # carries the state the host observed, how long it waited, and the console
-    # and hypervisor evidence captured at that moment.
-    # @{ observedState; waitedSeconds; requestedAtUtc; action } or $null.
-    $Store['StepVmNotStopped'] = $null
-    # The step and verb whose handler is running, recorded before the handler is
-    # invoked, so a crash names the step it happened in rather than the last
-    # step that failed in the ordinary way.
-    $Store['CurrentAction'] = $null
-    $Store['CurrentStepNumber'] = 0
-    # A handler that threw on the current attempted step: @{ stepInvocationId;
-    # message; origin }, else $null. The step fails like a handler that
-    # returned $false, so a retry wrapping it can run it again; the record keeps
-    # the class unknown, because an unexpected exception says nothing about the
-    # verb's own failure class, and names the exception.
-    $Store['StepHandlerError'] = $null
-    # Which part of a wait-then-type step failed: 'wait' (the screen never
-    # showed what the step waited for), 'input' or 'confirm'. A verb's
-    # registered class describes the part that can only fail after the wait --
-    # passwdPrompt's credential_expired is a rejected password -- so a step that
-    # never got past its wait is filed as the wait's timeout instead.
-    $Store['StepFailurePhase'] = $null
-    # A handler's proof that the current attempted step did nothing to the
-    # guest: @{ effect = 'none-proven'; source; stepInvocationId }, else $null.
-    # Set through Set-StepEffectNoneProven by the handlers that hold such
-    # evidence; read only for the step that published it.
-    $Store['StepEffect'] = $null
-    # The deploy result a guest entry point reported on its YURUNA_RESULT line,
-    # read by the ssh verbs: @{ failureClass (canonical); deployFailureClass;
-    # errorMessage }, else $null. The guest said why its deploy failed, which
-    # the verb's registered script_error cannot.
-    $Store['StepDeployResult'] = $null
-    # The earliest moment in the current top-level sequence at which the guest
-    # stopped answering: a dropped SSH transport, typed input the console never
-    # acknowledged, a diagnostic that no rung could reach, or a shutdown request
-    # the guest ignored. Each later failure record carries it so a reader finds
-    # the first symptom instead of only the step that finally gave up. Reset
-    # at sequence start, never per step.
-    $Store['FirstGuestSilenceUtc'] = $null
-    $Store['FirstGuestSilenceSource'] = $null
+    foreach ($slot in $script:SequenceFailureSlots.Values) {
+        if (-not $Store.Contains($slot.Name)) { $Store[$slot.Name] = Copy-SequenceFailureSlotDefault -Slot $slot }
+    }
+}
+
+function Copy-SequenceFailureSlotDefault {
+    # Private: the slot's default, as a fresh array when it is one.
+    param([Parameter(Mandatory)]$Slot)
+    if ($Slot.Default -is [array]) { return , ([string[]]$Slot.Default.Clone()) }
+    return $Slot.Default
 }
 
 $script:SeqFailReg = New-YurunaRegistry -Name 'SequenceFailureState'
 
-# Seed the slots once, on first creation only. A -Force re-import mid-cycle
-# must NOT wipe live failure state, so seed defaults only when the global
-# store is still empty (New-YurunaRegistry reuses the existing store across
-# re-imports, so a re-import lands here with the slots already populated).
-if ($script:SeqFailReg.Store[0].Count -eq 0) { Initialize-SequenceFailureStateStore $script:SeqFailReg.Store[0] }
+# A -Force re-import mid-cycle must NOT wipe live failure state:
+# New-YurunaRegistry reuses the existing store across re-imports, and the seed
+# fills only the slots it does not hold yet.
+Initialize-SequenceFailureStateStore $script:SeqFailReg.Store[0]
 
 function Get-SequenceFailureState {
     <#
@@ -240,6 +293,151 @@ function Get-SequenceFailureState {
     return $script:SeqFailReg.Store[0]
 }
 
+function Get-SequenceFailureSlot {
+    <#
+    .SYNOPSIS
+        The declared slots of the failure-state store: Name, Lifetime and
+        Default, in declaration order.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param()
+    return @($script:SequenceFailureSlots.Values)
+}
+
+function Reset-SequenceFailureSlot {
+    <#
+    .SYNOPSIS
+        Put the slots of one lifetime back to their declared defaults.
+    .DESCRIPTION
+        Lifetimes nest: a sequence start also resets the step and wait slots,
+        and a step start the wait slots, because a step or wait that ended
+        with its sequence or step must not leave a cause behind for the next
+        one's failure record. The gate and process slots are never reset
+        here; their owners write them.
+    .PARAMETER Lifetime
+        sequence, step or wait.
+    .PARAMETER State
+        The failure-state store; the shared one when omitted.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Resets in-memory failure-state slots; it changes no system state.')]
+    param(
+        [Parameter(Mandatory)][ValidateSet('sequence', 'step', 'wait')][string]$Lifetime,
+        [System.Collections.IDictionary]$State = (Get-SequenceFailureState)
+    )
+    $covered = switch ($Lifetime) {
+        'sequence' { @('sequence', 'step', 'wait') }
+        'step'     { @('step', 'wait') }
+        'wait'     { @('wait') }
+    }
+    foreach ($slot in $script:SequenceFailureSlots.Values) {
+        if ($slot.Lifetime -in $covered) { $State[$slot.Name] = Copy-SequenceFailureSlotDefault -Slot $slot }
+    }
+}
+
+function Save-WaitFailureEvidence {
+    <#
+    .SYNOPSIS
+        Keep a failed wait's last screen and text beside its failure record,
+        and put the bounded text and the sought patterns into the cause slots.
+    .DESCRIPTION
+        One writer for every wait that gives up -- a timeout, a matched failure
+        pattern, an installer failure while waiting for SSH, a guest that
+        never stopped -- so they cannot drift in the file names, in how much
+        text the record keeps, or in whether a path holding wildcard
+        characters is copied at all. The patterns are recorded even with no
+        readable text: a blank console's record would otherwise read like a
+        wait that sought nothing.
+    .PARAMETER CapturePath
+        The last frame the wait read; copied to failure_screenshot_<vm>.png.
+    .PARAMETER OcrText
+        That frame's text; written to failure_ocr_<vm>.txt, its last 1200
+        characters into the record.
+    .PARAMETER Pattern
+        What the wait sought. Omit it for a wait that sought no text.
+    .PARAMETER LivelockVerdict
+        The host recording's verdict over the wait, when one was read.
+    .PARAMETER State
+        The failure-state store; the shared one when omitted.
+    #>
+    [CmdletBinding()]
+    param(
+        [AllowEmptyString()][AllowNull()][string]$LogDir,
+        [Parameter(Mandatory)][string]$VMName,
+        [AllowEmptyString()][AllowNull()][string]$CapturePath,
+        [AllowEmptyString()][AllowNull()][string]$OcrText,
+        [AllowEmptyCollection()][string[]]$Pattern,
+        $LivelockVerdict,
+        [System.Collections.IDictionary]$State = (Get-SequenceFailureState)
+    )
+    if ($LogDir -and $CapturePath -and (Test-Path -LiteralPath $CapturePath)) {
+        $failScreenPath = Join-Path $LogDir "failure_screenshot_${VMName}.png"
+        Copy-Item -LiteralPath $CapturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b24a2d8bfa724905' -Arguments @{ failScreenPath = "$failScreenPath"; screensDir = "$(Split-Path -Parent $CapturePath)" })
+    }
+    if ($PSBoundParameters.ContainsKey('Pattern')) { $State.WaitForTextPatternsSought = [string[]]@($Pattern) }
+    if ($OcrText) {
+        if ($LogDir) {
+            $failOcrPath = Join-Path $LogDir "failure_ocr_${VMName}.txt"
+            Set-Content -LiteralPath $failOcrPath -Value $OcrText -Force -ErrorAction SilentlyContinue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_ae9f061222f374f7' -Arguments @{ failOcrPath = "$failOcrPath" })
+        }
+        $State.WaitForTextOcrTail = if ($OcrText.Length -le 1200) { $OcrText } else { $OcrText.Substring($OcrText.Length - 1200) }
+    }
+    if ($LivelockVerdict) {
+        $State.WaitForTextGuestLivelock = $LivelockVerdict
+        $State.WaitForTextGuestLivelocked = ($LivelockVerdict.Verdict -eq 'livelocked')
+    }
+}
+
+function Test-StepHostInputFaultDeterministic {
+    <#
+    .SYNOPSIS
+        Whether the last failed step's own input call failed in a way every
+        retry would repeat.
+    .DESCRIPTION
+        Reads the StepHostInputFault slot the input dispatcher sets, and
+        counts it only for the step that recorded it: a fault left by a step
+        that ran earlier says nothing about the one that just failed.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        # The failure-state store; the shared one when omitted.
+        [System.Collections.IDictionary]$State = (Get-SequenceFailureState)
+    )
+    $fail = $State
+    $fault = $fail.StepHostInputFault
+    return ($fault -is [System.Collections.IDictionary] -and [string]$fault.kind -ceq 'deterministic' -and
+        [string]$fault.stepInvocationId -ceq [string]$fail.LastFailedStepInvocationId)
+}
+
+function Get-GuestKernelFaultKind {
+    <#
+    .SYNOPSIS
+        The fault kinds either source of a guest kernel reading names for the
+        step, in ordinal order; empty when the reading names none or is absent.
+    .DESCRIPTION
+        A recorder reading that says mayPredateStep can hold reports from
+        before the step began, so its kinds stay in the reading and out of
+        what the step is said to have shown.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([AllowNull()]$Reading)
+    $kinds = [Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)
+    if ($Reading -is [System.Collections.IDictionary]) {
+        foreach ($source in 'serial', 'recorder') {
+            $part = $Reading[$source]
+            if ($part -isnot [System.Collections.IDictionary] -or $part['mayPredateStep'] -eq $true) { continue }
+            foreach ($kind in @($part['kinds'])) { if ($kind) { [void]$kinds.Add([string]$kind) } }
+        }
+    }
+    return [string[]]@($kinds)
+}
+
 function Get-GuestProgressAdvisory {
     <# .SYNOPSIS
         Describe independent progress observations without authorizing recovery.
@@ -252,17 +450,24 @@ function Get-GuestProgressAdvisory {
         # Warning codes from the guest clock analysis of the step's recorder
         # samples. A clock that jumped is independent evidence about the
         # guest, never a stall signal on its own: it is listed, not scored.
-        [AllowEmptyCollection()][string[]]$ClockWarningCodes = @()
+        [AllowEmptyCollection()][string[]]$ClockWarningCodes = @(),
+        # Fault kinds the guest kernel reported during the step (see
+        # Get-GuestKernelFaultKind). The guest's own word on a stall, listed
+        # beside the others and not scored: a lockup report that reached the
+        # console says the kernel saw one, not how long the guest stopped.
+        [AllowEmptyCollection()][string[]]$KernelFaultKinds = @()
     )
     $static = $null -ne $OutputStaticSeconds -and $OutputStaticSeconds -ge 120
     $stale = $null -ne $HeartbeatAgeSeconds -and $HeartbeatAgeSeconds -ge 120
     $unresponsive = $SshResponsiveness -eq 'unresponsive'
     [string[]]$clockAnomaly = @($ClockWarningCodes | Where-Object { $_ -and $_ -ne 'clock-evidence-incomplete' } | Select-Object -Unique)
+    [string[]]$kernelFaults = @($KernelFaultKinds | Where-Object { $_ } | Select-Object -Unique)
     $signals = @()
     if ($static) { $signals += 'static-output' }
     if ($stale) { $signals += 'stale-recorder-heartbeat' }
     if ($unresponsive) { $signals += 'ssh-unresponsive' }
     if ($clockAnomaly.Count) { $signals += 'guest-clock-anomaly' }
+    if ($kernelFaults.Count) { $signals += 'guest-kernel-fault' }
     $verdict = if (($static -and ($stale -or $unresponsive)) -or ($stale -and $unresponsive)) { 'progress-suspect' }
         elseif ($signals.Count) { 'insufficient-evidence' }
         elseif ($null -eq $OutputStaticSeconds -and $null -eq $HeartbeatAgeSeconds -and $SshResponsiveness -eq 'unavailable') { 'unavailable' }
@@ -271,6 +476,7 @@ function Get-GuestProgressAdvisory {
         verdict=$verdict; signals=$signals; outputStaticSeconds=$OutputStaticSeconds
         heartbeatAgeSeconds=$HeartbeatAgeSeconds; sshResponsiveness=$SshResponsiveness
         clockWarnings=$clockAnomaly
+        kernelFaults=$kernelFaults
         automaticRecoveryAllowed=$false
     }
 }
@@ -364,6 +570,18 @@ function New-SequenceFailureRecord {
         expectedSha256 = [string]$fail.StepLauncherRejection.expectedSha256
         payloadState   = [string]$fail.StepLauncherRejection.payloadState
     } } else { $null }
+    # The step's own failed input call only: a nested step's fault says nothing
+    # about the wrapper that ran it.
+    $hostInputFault = if ($fail.StepHostInputFault -is [System.Collections.IDictionary] -and
+        [string]$fail.StepHostInputFault.stepInvocationId -ceq [string]$fail.LastFailedStepInvocationId) { [ordered]@{
+        action    = [string]$fail.StepHostInputFault.action
+        kind      = [string]$fail.StepHostInputFault.kind
+        reason    = [string]$fail.StepHostInputFault.reason
+        transport = [string]$fail.StepHostInputFault.transport
+        detail    = [string]$fail.StepHostInputFault.detail
+        delivered = [int]$fail.StepHostInputFault.delivered
+        total     = [int]$fail.StepHostInputFault.total
+    } } else { $null }
     $aptIndexMismatch = if ($fail.StepAptIndexMismatch -is [System.Collections.IDictionary]) { [ordered]@{
         kind               = [string]$fail.StepAptIndexMismatch.kind
         url                = [string]$fail.StepAptIndexMismatch.url
@@ -375,6 +593,27 @@ function New-SequenceFailureRecord {
         proxyCopy          = [string]$fail.StepAptIndexMismatch.proxyCopy
         proxyPurgeStatus   = $fail.StepAptIndexMismatch.proxyPurgeStatus
     } } else { $null }
+    # The guest kernel's own reports, kept only for the step the reading names:
+    # after a retry forwards its failed attempt, that is the originating step,
+    # and a reading left by any other step describes a different failure.
+    $guestKernelFault = if ($fail.StepGuestKernelFault -is [System.Collections.IDictionary] -and
+        [string]$fail.StepGuestKernelFault['stepInvocationId'] -ceq $originatingStepInvocationId) { [ordered]@{
+        serial   = $fail.StepGuestKernelFault['serial']
+        recorder = $fail.StepGuestKernelFault['recorder']
+    } } else { $null }
+    [string[]]$guestKernelFaultKinds = @(Get-GuestKernelFaultKind -Reading $guestKernelFault)
+    # The host's own address moving while the step ran is evidence the step
+    # cannot report about itself: a guest that fetched from the host's old
+    # address fails with a plain script error, and the SSH session the runner
+    # held into the guest dies with the address it was bound to. The beacon
+    # records every move with its instant; the moves that fell inside this
+    # step are carried here so the reader meets the cause before the symptom.
+    $hostAddressChanges = Get-StepHostAddressChange -Fail $fail
+    $hostAddressChangeSummary = ''
+    if ($hostAddressChanges -and @($hostAddressChanges).Count -gt 0) {
+        $latestMove = @($hostAddressChanges)[-1]
+        $hostAddressChangeSummary = "$($latestMove.previous) -> $($latestMove.current) at $($latestMove.changedAtUtc)"
+    }
     # Runtime cause signal (empty-array guard mirrors innerSuggestedRecoveries so
     # patternsSought never collapses to $null via the if-pipeline flatten).
     $ocrTail = if ($fail.WaitForTextOcrTail) { [string]$fail.WaitForTextOcrTail } else { '' }
@@ -449,6 +688,14 @@ function New-SequenceFailureRecord {
         elseif ($fail.StepDeployResult -is [System.Collections.IDictionary]) {
             $failureClass = [string]$fail.StepDeployResult['failureClass']
             [string[]]$suggested = if ($failureClass -ceq 'network_timeout') { @('retry_with_backoff','pause_and_inspect') } else { @('pause_and_inspect') }
+        }
+        # A send the host can never make -- text its input path has no key for,
+        # a key name no map defines -- fails the same way on every attempt, so
+        # the retryable host_io_blocked would only repeat it. The step asks for
+        # something this host cannot run: a plan problem, for a person to fix.
+        elseif ($hostInputFault -and $hostInputFault.kind -ceq 'deterministic') {
+            $failureClass = 'plan_invalid'
+            [string[]]$suggested = @('pause_and_inspect')
         }
         # See https://yuruna.link/4213a0b3-0150
         elseif ($fail.StepInputLost) {
@@ -710,6 +957,11 @@ function New-SequenceFailureRecord {
                     # intercepts it was taking. $null when the host keeps no
                     # recording to judge from.
                     guestLivelock = $guestLivelock
+                    # Why a wait on a wedged guest kernel ended before its
+                    # deadline: the silent processors, their longest run and
+                    # the fault kinds on the serial console. $null when the
+                    # wait did not end that way.
+                    guestKernelStallEnd = $fail.WaitForTextKernelStallEnd
                     consoleSecondOpinion = $consoleSecondOpinion
                     progressAdvisory = $progressAdvisory
                     installerStage = $installerStage
@@ -736,6 +988,19 @@ function New-SequenceFailureRecord {
                     # An apt index that disagreed with its InRelease, as apt and
                     # apt_retry reported it. $null when apt reported none.
                     aptIndexMismatch       = $aptIndexMismatch
+                    # How the step's last key, text or click send failed, as the
+                    # transport reported it. $null when no send failed.
+                    hostInputFault         = $hostInputFault
+                    # The lockups, stalls, hung tasks, oopses and panics the
+                    # guest kernel reported while the step ran: on its serial
+                    # console (Hyper-V) and in the recorder's frozen first stall.
+                    # $null when neither source could be read.
+                    guestKernelFault       = $guestKernelFault
+                    # The host's own address changes the beacon recorded while
+                    # the step ran, each with its instant and the addresses it
+                    # moved between. $null when no record or window existed;
+                    # an empty list is a host that held its address.
+                    hostAddressChanges     = $hostAddressChanges
                 }
             }
         }
@@ -794,6 +1059,10 @@ function New-SequenceFailureRecord {
         firstGuestSilenceSource = $firstGuestSilenceSource
         causeLauncherRejection  = if ($launcherRejection) { $launcherRejection.code } else { '' }
         causeAptIndexMismatch   = if ($aptIndexMismatch) { $aptIndexMismatch.url } else { '' }
+        causeHostInputFault     = if ($hostInputFault) { $hostInputFault.reason } else { '' }
+        causeGuestKernelFault   = $guestKernelFaultKinds -join ','
+        causeHostAddressChange  = $hostAddressChangeSummary
+        guestKernelFault        = $guestKernelFault
         progressAdvisory         = $progressAdvisory
         guestProcessorWindow    = if ($guestLivelock) { $guestLivelock.processorWindow } else { $null }
         consoleSecondOpinion    = $consoleSecondOpinion
@@ -819,6 +1088,59 @@ function New-SequenceFailureRecord {
     }
 
     return @{ File = $file; Event = $eventRecord }
+}
+
+function Get-StepHostAddressChange {
+<#
+.SYNOPSIS
+    The host address changes the beacon recorded between the failed step's
+    start and now; $null when there is no window or no record to read over it.
+.DESCRIPTION
+    The window opens at the step's recorded start and, for a failure before
+    any step start was recorded, at the cycle start the log module stamps.
+    The beacon module is imported on demand, as Stop-LogFile does: it imports
+    nothing, so no cycle forms, and a Get-Command guard alone would be false
+    in every session that has not loaded it. Nothing here throws: the record
+    is being written for a failure that already happened, and a reading that
+    cannot be taken is carried as absent rather than as a second failure.
+.OUTPUTS
+    [object[]] of ordered hashtables (changedAtUtc, previous, current), empty
+    when the host held its address; $null when unmeasured.
+#>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([Parameter(Mandatory)]$Fail)
+    $startUtc = $Fail.LastFailedStepStartedUtc -as [DateTime]
+    if (-not $startUtc) {
+        # The cycle-start stamp the log module keeps for the whole runner.
+        $cycleStart = Get-Variable -Name '__YurunaCycleStartUtc' -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+        if ($cycleStart) {
+            try {
+                $startUtc = [datetime]::Parse([string]$cycleStart, [Globalization.CultureInfo]::InvariantCulture).ToUniversalTime()
+            } catch {
+                $startUtc = $null
+            }
+        }
+    }
+    if (-not $startUtc) { return $null }
+    if (-not (Get-Command Get-HostAddressChangeRow -ErrorAction SilentlyContinue)) {
+        try {
+            Import-Module (Join-Path $PSScriptRoot 'Test.HostAddressBeacon.psm1') -Force -Global -DisableNameChecking -ErrorAction Stop
+        } catch {
+            Write-Verbose "step failure record: host-address beacon module unavailable -- $($_.Exception.Message)"
+            return $null
+        }
+    }
+    $runtimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR }
+                  else { Join-Path (Split-Path -Parent $PSScriptRoot) 'status' -AdditionalChildPath 'runtime' }
+    try {
+        $rows = Get-HostAddressChangeRow -RuntimeDir $runtimeDir -StartUtc $startUtc -EndUtc ([datetime]::UtcNow)
+    } catch {
+        Write-Verbose "step failure record: host address changes unreadable -- $($_.Exception.Message)"
+        return $null
+    }
+    if ($null -eq $rows) { return $null }
+    return ,@($rows)
 }
 
 function New-InfraFailureRecord {
@@ -932,4 +1254,5 @@ function New-InfraFailureRecord {
     return @{ File = $file; Event = $eventRecord }
 }
 
-Export-ModuleMember -Function Get-SequenceFailureState, Get-GuestProgressAdvisory, New-SequenceFailureRecord, New-InfraFailureRecord
+Export-ModuleMember -Function Get-SequenceFailureState, Get-GuestProgressAdvisory, Get-GuestKernelFaultKind, New-SequenceFailureRecord, New-InfraFailureRecord, Test-StepHostInputFaultDeterministic, `
+    Get-SequenceFailureSlot, Reset-SequenceFailureSlot, Save-WaitFailureEvidence

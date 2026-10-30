@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d7e0b4-3a91-4c6f-8b25-1e9d6f4a7c80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,8 +98,8 @@ BeforeAll {
             function Checkpoint-VM {
                 <# .SYNOPSIS
                     Stub checkpoint creation that refuses to run. #>
-                [CmdletBinding(SupportsShouldProcess)] param([string]$Name, [string]$SnapshotName)
-                if ($PSCmdlet.ShouldProcess($Name)) { throw "Unexpected live checkpoint creation: $SnapshotName" }
+                [CmdletBinding(SupportsShouldProcess)] param([string]$Name, [string]$SnapshotName, [switch]$Passthru)
+                if ($PSCmdlet.ShouldProcess($Name)) { throw "Unexpected live checkpoint creation: $SnapshotName $Passthru" }
             }
             function Restore-VMCheckpoint {
                 <# .SYNOPSIS
@@ -123,10 +123,26 @@ BeforeAll {
             [CmdletBinding()] param([string[]]$Name) throw "Unexpected live service query: $Name"
         }
     }
+    # Get-CimInstance exists only on Windows; the checkpoint record read is mocked.
+    $script:CimStub = $false
+    if (-not (Get-Command -Name 'Get-CimInstance' -ErrorAction SilentlyContinue)) {
+        $script:CimStub = $true
+        function global:Get-CimInstance {
+            <# .SYNOPSIS
+                Stub CIM query; tests mock it. #>
+            [CmdletBinding()] param([string]$Namespace, [string]$ClassName, [string]$Filter) throw "Unexpected live CIM query: $Namespace $ClassName $Filter"
+        }
+    }
 
     $script:DriverPath = Join-Path $repoRoot 'host/windows.hyper-v/modules/Yuruna.Host.psm1'
     Import-Module $script:DriverPath -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
     $script:Module = Get-Module Yuruna.Host
+    # A lifecycle cmdlet runs in a thread job on a host; here it runs in this
+    # runspace, where the module-scoped Hyper-V mocks answer it.
+    Mock -ModuleName Yuruna.Host Invoke-HyperVBoundedCall {
+        try { @{ TimedOut = $false; Error = $null; Output = @(& $ScriptBlock @ArgumentList) } }
+        catch { @{ TimedOut = $false; Error = $_; Output = @() } }
+    }
     $script:ProbeScript   = & $script:Module { $script:HyperVProbeScript }
     $script:ServiceScript = & $script:Module { $script:HyperVServiceScript }
     $script:StartScript   = & $script:Module { $script:HyperVStartScript }
@@ -215,6 +231,7 @@ AfterAll {
     Get-Module -Name 'Yuruna.Host' -All | Remove-Module -Force -ErrorAction SilentlyContinue
     if ($script:HyperVStub) { Remove-Module -ModuleInfo $script:HyperVStub -Force -ErrorAction SilentlyContinue }
     if ($script:ServiceStub) { Remove-Item -Path 'Function:\Get-Service' -ErrorAction SilentlyContinue }
+    if ($script:CimStub) { Remove-Item -Path 'Function:\Get-CimInstance' -ErrorAction SilentlyContinue }
 }
 
 Describe 'Hyper-V probe child scripts' {
@@ -587,7 +604,10 @@ Describe 'Hyper-V VM presence: a provider failure never reads as absent' {
         $script:Inventory = @()
         $script:InventoryThrows = $false
         Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VM' {
-            if ($Name) {
+            # A mock body sees only the parameters the call bound; an unbound $Name
+            # would resolve through the callers' scopes and could read any variable
+            # of that name, so the lookup is told from the inventory by binding.
+            if ($PesterBoundParameters.ContainsKey('Name')) {
                 switch ($script:LookupBehavior) {
                     'throw'  { throw [System.Management.Automation.ItemNotFoundException]::new('Hyper-V konnte keinen virtuellen Computer finden.') }
                     'empty'  { return }
@@ -646,7 +666,7 @@ Describe 'Hyper-V VM presence: a provider failure never reads as absent' {
         $resolved.Presence | Should -Be 'present'
         $resolved.VM.Name | Should -BeExactly $VMName
         Get-VMState -VMName $VMName | Should -Be 'stopped'
-        Should -Invoke -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VM' -Times 0 -Exactly -ParameterFilter { $null -ne $Name }
+        Should -Invoke -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VM' -Times 0 -Exactly -ParameterFilter { $PesterBoundParameters.ContainsKey('Name') }
     }
 
     It 'Resolve-HyperVVM reads a wildcard-bearing name as <Presence>/<Cause> when the inventory lists it <Listed> times' -ForEach @(
@@ -750,7 +770,7 @@ Describe 'Hyper-V VM presence: a provider failure never reads as absent' {
     It 'Rename-VM refuses an unknown destination without calling Hyper-V\Rename-VM' {
         $script:LookupBehavior = 'throw'
         Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VM' {
-            if ($Name -and $Name[0] -eq 'src') { return [pscustomobject]@{ Name = 'src'; State = 'Off' } }
+            if ($PesterBoundParameters.ContainsKey('Name') -and $Name[0] -eq 'src') { return [pscustomobject]@{ Name = 'src'; State = 'Off' } }
             throw 'Die RPC-Verbindung ist fehlgeschlagen.'
         }
         Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Rename-VM' { }
@@ -768,8 +788,9 @@ Describe 'Hyper-V VM presence: a provider failure never reads as absent' {
 
     It 'Rename-VM refuses a source that is not positively stopped' {
         Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VM' {
-            if ($Name -and $Name[0] -eq 'src') { return [pscustomobject]@{ Name = 'src'; State = 'Running' } }
-            if ($Name) { throw [System.Management.Automation.ItemNotFoundException]::new('not found') }
+            $named = $PesterBoundParameters.ContainsKey('Name')
+            if ($named -and $Name[0] -eq 'src') { return [pscustomobject]@{ Name = 'src'; State = 'Running' } }
+            if ($named) { throw [System.Management.Automation.ItemNotFoundException]::new('not found') }
             return @([pscustomobject]@{ Name = 'src'; State = 'Running' })
         }
         Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Rename-VM' { }
@@ -780,8 +801,9 @@ Describe 'Hyper-V VM presence: a provider failure never reads as absent' {
 
     It 'Rename-VM renames a present source onto a positively absent destination' {
         Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VM' {
-            if ($Name -and $Name[0] -eq 'src') { return [pscustomobject]@{ Name = 'src'; State = 'Off' } }
-            if ($Name) { throw [System.Management.Automation.ItemNotFoundException]::new('not found') }
+            $named = $PesterBoundParameters.ContainsKey('Name')
+            if ($named -and $Name[0] -eq 'src') { return [pscustomobject]@{ Name = 'src'; State = 'Off' } }
+            if ($named) { throw [System.Management.Automation.ItemNotFoundException]::new('not found') }
             return @([pscustomobject]@{ Name = 'src'; State = 'Off' })
         }
         Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Rename-VM' { }
@@ -789,6 +811,91 @@ Describe 'Hyper-V VM presence: a provider failure never reads as absent' {
         Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VMHost' { [pscustomobject]@{ VirtualHardDiskPath = $null } }
         Rename-VM -VMName 'src' -NewName 'dst' -Confirm:$false | Should -BeTrue
         Should -Invoke -ModuleName Yuruna.Host -CommandName 'Hyper-V\Rename-VM' -Times 1 -Exactly
+    }
+
+    Context 'Rename-VM into a destination folder that already exists' {
+        BeforeEach {
+            Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VM' {
+                $named = $PesterBoundParameters.ContainsKey('Name')
+                if ($named -and $Name[0] -eq 'src') { return [pscustomobject]@{ Name = 'src'; State = 'Off' } }
+                if ($named) { throw [System.Management.Automation.ItemNotFoundException]::new('not found') }
+                return @([pscustomobject]@{ Name = 'src'; State = 'Off' })
+            }
+            $script:Vhd = Join-Path $script:TempRoot ('vhd-' + [guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Path (Join-Path $script:Vhd 'dst') -Force
+            Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VMHost' { [pscustomobject]@{ VirtualHardDiskPath = $script:Vhd } }
+            Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Rename-VM' { }
+            Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VMNetworkAdapter' { }
+            Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Move-VMStorage' { }
+        }
+
+        # The storage move leaves the seed ISO in the folder a test guest was
+        # built in; a snapshot save that renamed the guest away and has to
+        # rename it back finds that file there and must not be refused for it.
+        It 'renames into a folder that holds only files the storage move does not write' {
+            Set-Content -LiteralPath (Join-Path $script:Vhd 'dst/seed.iso') -Value 'seed'
+            Rename-VM -VMName 'src' -NewName 'dst' -Confirm:$false | Should -BeTrue
+            Should -Invoke -ModuleName Yuruna.Host -CommandName 'Hyper-V\Rename-VM' -Times 1 -Exactly
+            Should -Invoke -ModuleName Yuruna.Host -CommandName 'Hyper-V\Move-VMStorage' -Times 1 -Exactly
+            $script:Keys | Should -Not -Contain 'host.hyperv_rename_destination_dir_occupied'
+        }
+
+        It 'refuses a folder that holds <File>, which the storage move would write' -ForEach @(
+            @{ File = 'Virtual Hard Disks/dst.vhdx' }
+            @{ File = 'Virtual Machines/0A1B2C3D.vmcx' }
+            @{ File = 'Snapshots/0A1B2C3D.bin' }
+            @{ File = 'dst.avhdx' }
+        ) {
+            $path = Join-Path $script:Vhd "dst/$File"
+            $null = New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force
+            Set-Content -LiteralPath (Join-Path $script:Vhd 'dst/seed.iso') -Value 'seed'
+            Set-Content -LiteralPath $path -Value 'storage'
+            Rename-VM -VMName 'src' -NewName 'dst' -Confirm:$false -WarningAction SilentlyContinue | Should -BeFalse
+            Should -Invoke -ModuleName Yuruna.Host -CommandName 'Hyper-V\Rename-VM' -Times 0 -Exactly
+            $script:Keys | Should -Contain 'host.hyperv_rename_destination_dir_occupied'
+        }
+    }
+
+    Context 'a rename back to the name a VM had restores its address' {
+        # A snapshot save renames its guest to the snapshot id and, when the
+        # snapshot fails, renames it back. A guest pinned at build time to its
+        # promoted identity carries, on the way back, the address the name being
+        # left derives -- the one case where the rename rule alone would move it.
+        BeforeEach {
+            $ledger = Get-Variable -Name 'YurunaRenameMacLedger' -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+            if ($ledger) { $ledger.Clear() }
+            $script:VmName = 'test-guest.ubuntu.server.24-01'
+            $script:MacWrites = 0
+            Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VM' {
+                $named = $PesterBoundParameters.ContainsKey('Name')
+                if ($named -and $Name[0] -eq $script:VmName) { return [pscustomobject]@{ Name = $script:VmName; State = 'Off' } }
+                if ($named) { throw [System.Management.Automation.ItemNotFoundException]::new('not found') }
+                return @([pscustomobject]@{ Name = $script:VmName; State = 'Off' })
+            }
+            Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Rename-VM' { $script:VmName = $NewName }
+            Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VMHost' { [pscustomobject]@{ VirtualHardDiskPath = $null } }
+            Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VMNetworkAdapter' { [pscustomobject]@{ Name = 'Network Adapter'; MacAddress = $script:Mac } }
+            Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Set-VMNetworkAdapter' { $script:Mac = $StaticMacAddress; $script:MacWrites++ }
+        }
+
+        It 'keeps a guest pinned to its promoted identity on its own address, there and back' {
+            $script:Mac = (Get-YurunaGuestMacAddress -VMName 'amisad-build') -replace ':', ''
+            $built = $script:Mac
+            Rename-VM -VMName 'test-guest.ubuntu.server.24-01' -NewName 'amisad-build' -Confirm:$false | Should -BeTrue
+            Rename-VM -VMName 'amisad-build' -NewName 'test-guest.ubuntu.server.24-01' -Confirm:$false | Should -BeTrue
+            $script:Mac | Should -BeExactly $built
+            $script:MacWrites | Should -Be 0
+        }
+
+        It 'returns a slot-pinned guest to the slot address when its promotion is undone' {
+            $script:Mac = (Get-YurunaGuestMacAddress -VMName 'test-guest.ubuntu.server.24-01') -replace ':', ''
+            $slot = $script:Mac
+            Rename-VM -VMName 'test-guest.ubuntu.server.24-01' -NewName 'amisad-build' -Confirm:$false | Should -BeTrue
+            $script:Mac | Should -BeExactly ((Get-YurunaGuestMacAddress -VMName 'amisad-build') -replace ':', '') -Because 'the slot address follows the slot'
+            Rename-VM -VMName 'amisad-build' -NewName 'test-guest.ubuntu.server.24-01' -Confirm:$false | Should -BeTrue
+            $script:Mac | Should -BeExactly $slot
+            $script:MacWrites | Should -Be 2
+        }
     }
 }
 
@@ -825,23 +932,26 @@ Describe 'Hyper-V disk snapshots require confirmed power-off' {
         Mock -ModuleName Yuruna.Host 'Hyper-V\Restore-VMCheckpoint' { $script:SnapshotCalls.Add('restore') }
         Mock -ModuleName Yuruna.Host Rename-VM { throw 'Snapshot fixture must not rename its retained VM.' }
         Mock -ModuleName Yuruna.Host Format-YurunaOperatorMessage { $Key }
+        # No earlier save left an aside, and the checkpoint just taken is listed.
+        Mock -ModuleName Yuruna.Host Get-VMState { 'absent' } -ParameterFilter { $VMName -like '*.previous' }
+        Mock -ModuleName Yuruna.Host Get-VMDiskSnapshotState { $script:SnapshotCalls.Add('probe'); 'present' }
     }
 
     It 'confirms graceful shutdown before replacing a saved checkpoint' {
         Save-VMDiskSnapshot -VMName 'vm-a' -Id 'vm-a' -Confirm:$false | Should -BeTrue
-        ($script:SnapshotCalls -join '|') | Should -Be 'state:present:Running|graceful|state:present:Off|lookup|delete|create'
+        ($script:SnapshotCalls -join '|') | Should -Be 'state:present:Running|graceful|state:present:Off|lookup|delete|create|lookup|probe'
         Should -Invoke -ModuleName Yuruna.Host Stop-VMForce -Times 0 -Exactly
     }
 
     It 'confirms the force-stop fallback before saving when graceful shutdown fails' {
         $script:SnapshotGraceful = $false
         Save-VMDiskSnapshot -VMName 'vm-a' -Id 'vm-a' -Confirm:$false -WarningAction SilentlyContinue | Should -BeTrue
-        ($script:SnapshotCalls -join '|') | Should -Be 'state:present:Running|graceful|force|state:present:Off|lookup|delete|create'
+        ($script:SnapshotCalls -join '|') | Should -Be 'state:present:Running|graceful|force|state:present:Off|lookup|delete|create|lookup|probe'
     }
 
     It 'validates the checkpoint and force-stops before restoring without requesting a flush' {
         Restore-VMDiskSnapshot -VMName 'vm-a' -Id 'vm-a' -Confirm:$false | Should -BeTrue
-        ($script:SnapshotCalls -join '|') | Should -Be 'lookup|state:present:Running|force|state:present:Off|restore'
+        ($script:SnapshotCalls -join '|') | Should -Be 'probe|state:present:Running|force|state:present:Off|restore'
         Should -Invoke -ModuleName Yuruna.Host Stop-VM -Times 0 -Exactly
     }
 
@@ -915,5 +1025,204 @@ Describe 'Hyper-V disk snapshots require confirmed power-off' {
     ) {
         & "$Operation-VMDiskSnapshot" -VMName 'vm-a' -Id 'vm-a' -WhatIf | Should -BeFalse
         $script:SnapshotCalls.Count | Should -Be 0
+    }
+}
+
+Describe 'A new Hyper-V checkpoint the creating call does not list is waited for, with Hyper-V''s record as evidence' {
+    # In this fixture Checkpoint-VM puts the checkpoint in Hyper-V's record at
+    # once, and the module's listing shows it after a set number of reads. That
+    # is one of the explanations the warnings have to tell apart, beside a
+    # checkpoint under another name and one that was never made.
+    BeforeAll {
+        # Mock needs a command to replace; this stand-in exists only where the
+        # driver has no Get-HyperVCheckpointRecord, and that driver never calls it.
+        & (Get-Module Yuruna.Host) {
+            if (-not (Get-Command -Name 'Get-HyperVCheckpointRecord' -CommandType Function -ErrorAction SilentlyContinue)) {
+                function script:Get-HyperVCheckpointRecord { param([guid]$VMId, [int]$TimeoutSeconds) $null = $VMId, $TimeoutSeconds }
+            }
+        }
+    }
+    BeforeEach {
+        $script:Keys = [System.Collections.Generic.List[string]]::new()
+        $script:MessageArgs = @{}
+        Mock -ModuleName Yuruna.Host Format-YurunaOperatorMessage { $script:Keys.Add($Key); $script:MessageArgs[$Key] = $Arguments; $Key }
+        $script:Created = [System.Collections.Generic.List[string]]::new()
+        $script:CheckpointLands = $true
+        $script:DefaultName = ''
+        $script:LagListings = 0
+        $script:Misses = 0
+        $script:RecordUnreadable = $false
+        $script:Sleeps = 0
+        $script:VmId = [guid]'1be1d34c-5633-449f-aaa9-c4e7190cb91b'
+        Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Get-VMCheckpoint' {
+            if ($script:Misses -gt 0) { $script:Misses--; return }
+            foreach ($name in $script:Created) {
+                if (-not $PesterBoundParameters.ContainsKey('Name') -or $name -eq $PesterBoundParameters['Name']) { [pscustomobject]@{ Name = $name } }
+            }
+        }
+        Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Checkpoint-VM' {
+            if (-not $script:CheckpointLands) { return }
+            $name = if ($script:DefaultName) { $script:DefaultName } else { [string]$PesterBoundParameters['SnapshotName'] }
+            $script:Created.Add($name)
+            $script:Misses = $script:LagListings
+            if ($PesterBoundParameters['Passthru']) { [pscustomobject]@{ Name = $name; Id = [guid]'6f1c2d3e-5a4b-4c3d-9e8f-0a1b2c3d4e5f' } }
+        }
+        Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Remove-VMCheckpoint' { }
+        Mock -ModuleName Yuruna.Host Get-HyperVCheckpointRecord {
+            if ($script:RecordUnreadable) { return $null }
+            return , @($script:Created | ForEach-Object { [pscustomobject]@{ Name = $_; Type = 'Microsoft:Hyper-V:Snapshot:Realized'; Created = '' } })
+        }
+        Mock -ModuleName Yuruna.Host Resolve-HyperVVM { [pscustomobject]@{ Presence = 'present'; VM = [pscustomobject]@{ State = 'Off'; Id = $script:VmId } } }
+        Mock -ModuleName Yuruna.Host Start-Sleep { $script:Sleeps++ }
+        Mock -ModuleName Yuruna.Host Get-VMState { 'stopped' }
+    }
+
+    It 'Get-VMDiskSnapshotState lists through a bounded call and matches by name' {
+        $script:Created.Add('amisad-build')
+        Get-VMDiskSnapshotState -VMName 'amisad-build' -Id 'amisad-build' | Should -Be 'present'
+        Get-VMDiskSnapshotState -VMName 'amisad-build' -Id 'other' | Should -Be 'absent'
+        Should -Invoke -ModuleName Yuruna.Host Invoke-HyperVBoundedCall -Times 2 -Exactly
+    }
+
+    It 'Get-VMDiskSnapshotState reads a listing that does not answer within the cap as unknown' {
+        Mock -ModuleName Yuruna.Host Invoke-HyperVBoundedCall { @{ TimedOut = $true; Error = $null; Output = @() } }
+        Get-VMDiskSnapshotState -VMName 'amisad-build' -Id 'amisad-build' | Should -Be 'unknown'
+    }
+
+    It 'New-HyperVDiskSnapshot confirms a checkpoint the creating call lists, without reading Hyper-V''s record' {
+        & (Get-Module Yuruna.Host) { New-HyperVDiskSnapshot -VMName 'amisad-build' -Id 'amisad-build' } | Should -BeTrue
+        $script:Keys | Should -Not -Contain 'host.hyperv_checkpoint_not_listed'
+        Should -Invoke -ModuleName Yuruna.Host Get-HyperVCheckpointRecord -Times 0 -Exactly
+        Should -Invoke -ModuleName Yuruna.Host -CommandName 'Hyper-V\Checkpoint-VM' -Times 1 -Exactly -ParameterFilter { $Passthru }
+    }
+
+    It 'New-HyperVDiskSnapshot keeps a checkpoint that Hyper-V holds while the module listing trails it' {
+        $script:LagListings = 2
+        & (Get-Module Yuruna.Host) { New-HyperVDiskSnapshot -VMName 'amisad-build' -Id 'amisad-build' } | Should -BeTrue
+        $script:Keys | Should -Not -Contain 'host.hyperv_checkpoint_not_listed'
+        $script:Keys | Should -Not -Contain 'host.hyperv_checkpoint_listing_lagged'
+        Should -Invoke -ModuleName Yuruna.Host Get-HyperVCheckpointRecord -Times 1 -Exactly -ParameterFilter { $VMId -eq $script:VmId }
+        $script:Sleeps | Should -Be 2 -Because 'the creating call and the first poll miss; the second poll lists it'
+    }
+
+    It 'New-HyperVDiskSnapshot gives up after the settle bound when the module never lists what Hyper-V holds' {
+        $script:LagListings = 1000
+        & (Get-Module Yuruna.Host) { New-HyperVDiskSnapshot -VMName 'amisad-build' -Id 'amisad-build' -WarningAction SilentlyContinue } | Should -BeFalse
+        $script:Keys | Should -Contain 'host.hyperv_checkpoint_listing_lagged'
+        $script:MessageArgs['host.hyperv_checkpoint_listing_lagged'].seconds | Should -Match '^\d+$' -Because 'the warning names the measured wait'
+        $script:Sleeps | Should -Be 15 -Because '30 s polled every 2 s'
+    }
+
+    It 'New-HyperVDiskSnapshot reports a checkpoint Hyper-V''s record shows only during the wait as late in the listing' {
+        # The record is empty at the first read and holds the checkpoint later,
+        # while the module never lists it.
+        $script:LagListings = 1000
+        $script:RecordReads = 0
+        Mock -ModuleName Yuruna.Host Get-HyperVCheckpointRecord {
+            if ($script:RecordReads++ -lt 1) { return , @() }
+            return , @($script:Created | ForEach-Object { [pscustomobject]@{ Name = $_; Type = 'Microsoft:Hyper-V:Snapshot:Realized'; Created = '' } })
+        }
+        & (Get-Module Yuruna.Host) { New-HyperVDiskSnapshot -VMName 'amisad-build' -Id 'amisad-build' -WarningAction SilentlyContinue } | Should -BeFalse
+        $script:Keys | Should -Contain 'host.hyperv_checkpoint_listing_lagged'
+        $script:Keys | Should -Not -Contain 'host.hyperv_checkpoint_not_listed'
+        Should -Invoke -ModuleName Yuruna.Host Get-HyperVCheckpointRecord -Times 2 -Exactly -Because 'the record is read again only until it holds the checkpoint'
+    }
+
+    It 'New-HyperVDiskSnapshot stops waiting, and says so, when the listing stops answering' {
+        $script:LagListings = 1
+        Mock -ModuleName Yuruna.Host Get-VMDiskSnapshotState { 'unknown' }
+        & (Get-Module Yuruna.Host) { New-HyperVDiskSnapshot -VMName 'amisad-build' -Id 'amisad-build' -WarningAction SilentlyContinue } | Should -BeFalse
+        $script:Keys | Should -Contain 'host.hyperv_checkpoint_listing_unanswered'
+        $script:Keys | Should -Not -Contain 'host.hyperv_checkpoint_listing_lagged' -Because 'a listing that failed is not a listing that is late'
+        $answer = $script:MessageArgs['host.hyperv_checkpoint_listing_unanswered']
+        $answer.seconds | Should -Match '^\d+$'
+        $answer.held | Should -BeExactly 'amisad-build [Microsoft:Hyper-V:Snapshot:Realized]'
+        $script:Sleeps | Should -Be 1
+    }
+
+    It 'New-HyperVDiskSnapshot names what Checkpoint-VM returned, the module listed and Hyper-V holds when <Case>' -ForEach @(
+        @{ Case = 'the checkpoint carries another name'; DefaultName = 'amisad-build - (10/27/2026 - 7:16:43 PM)'; Lands = $true; Unreadable = $false
+            Held = 'amisad-build - (10/27/2026 - 7:16:43 PM) [Microsoft:Hyper-V:Snapshot:Realized]'; Made = 'amisad-build - (10/27/2026 - 7:16:43 PM) (6f1c2d3e-5a4b-4c3d-9e8f-0a1b2c3d4e5f)' }
+        @{ Case = 'no checkpoint was created'; DefaultName = ''; Lands = $false; Unreadable = $false; Held = ''; Made = '' }
+        @{ Case = 'Hyper-V''s record cannot be read'; DefaultName = ''; Lands = $false; Unreadable = $true; Held = '?'; Made = '' }
+    ) {
+        $script:DefaultName = $DefaultName
+        $script:CheckpointLands = $Lands
+        $script:RecordUnreadable = $Unreadable
+        & (Get-Module Yuruna.Host) { New-HyperVDiskSnapshot -VMName 'amisad-build' -Id 'amisad-build' -WarningAction SilentlyContinue } | Should -BeFalse
+        $script:Keys | Should -Contain 'host.hyperv_checkpoint_not_listed'
+        $named = $script:MessageArgs['host.hyperv_checkpoint_not_listed']
+        $named.held | Should -BeExactly $Held
+        $named.made | Should -BeExactly $Made
+        $named.listed | Should -BeExactly $(if ($Lands) { $DefaultName } else { '' })
+        $script:Sleeps | Should -Be 15
+        # Read once before the wait and again at every poll while it does not
+        # hold the checkpoint; a read that failed is not repeated.
+        Should -Invoke -ModuleName Yuruna.Host Get-HyperVCheckpointRecord -Times $(if ($Unreadable) { 1 } else { 16 }) -Exactly
+    }
+
+    It 'New-HyperVDiskSnapshot keeps a checkpoint Hyper-V''s record reports late' {
+        # Neither reading shows it at first; the record catches up, then the listing.
+        $script:LagListings = 4
+        $script:RecordReads = 0
+        Mock -ModuleName Yuruna.Host Get-HyperVCheckpointRecord {
+            if ($script:RecordReads++ -lt 2) { return , @() }
+            return , @($script:Created | ForEach-Object { [pscustomobject]@{ Name = $_; Type = 'Microsoft:Hyper-V:Snapshot:Realized'; Created = '' } })
+        }
+        & (Get-Module Yuruna.Host) { New-HyperVDiskSnapshot -VMName 'amisad-build' -Id 'amisad-build' } | Should -BeTrue
+        $script:Keys | Should -Not -Contain 'host.hyperv_checkpoint_not_listed'
+    }
+
+    It 'Restore-VMDiskSnapshot finds a checkpoint through the bounded listing' {
+        $script:Created.Add('amisad-build')
+        Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Restore-VMCheckpoint' { }
+        Restore-VMDiskSnapshot -VMName 'amisad-build' -Id 'amisad-build' -Confirm:$false | Should -BeTrue
+        Should -Invoke -ModuleName Yuruna.Host -CommandName 'Hyper-V\Restore-VMCheckpoint' -Times 1 -Exactly
+    }
+
+    It 'a save that renames its guest keeps it when the module lists the new checkpoint late' {
+        $script:LagListings = 2
+        $script:Renames = [System.Collections.Generic.List[string]]::new()
+        $script:Renamed = $false
+        Mock -ModuleName Yuruna.Host Get-VMState {
+            if ($VMName -like '*.previous') { return 'absent' }
+            if ($VMName -eq 'amisad-build') { if ($script:Renamed) { return 'stopped' } else { return 'absent' } }
+            return 'stopped'
+        }
+        Mock -ModuleName Yuruna.Host Rename-VM { $script:Renames.Add("$VMName>$NewName"); $script:Renamed = ($NewName -eq 'amisad-build'); $true }
+        Save-VMDiskSnapshot -VMName 'test-guest.ubuntu.server.24-01' -Id 'amisad-build' -Confirm:$false | Should -BeTrue
+        @($script:Renames) | Should -Be @('test-guest.ubuntu.server.24-01>amisad-build')
+        $script:Keys | Should -Not -Contain 'host.snapshot_save_rollback_incomplete'
+        $script:Keys | Should -Not -Contain 'host.snapshot_save_rolled_back'
+    }
+}
+
+Describe 'Get-HyperVCheckpointRecord reads Hyper-V''s own record by VM Id' {
+    It 'Get-HyperVCheckpointRecord reads Hyper-V''s snapshot rows for the VM Id through a bounded call' {
+        $script:CimCalls = [System.Collections.Generic.List[hashtable]]::new()
+        $script:CimRows = @([pscustomobject]@{ ElementName = 'amisad-build'; VirtualSystemType = 'Microsoft:Hyper-V:Snapshot:Realized'; CreationTime = '20261027191643.000000-240' })
+        Mock -ModuleName Yuruna.Host Get-CimInstance {
+            $script:CimCalls.Add(@{ Namespace = $Namespace; ClassName = $ClassName; Filter = $Filter })
+            $script:CimRows
+        }
+        $rows = & (Get-Module Yuruna.Host) { Get-HyperVCheckpointRecord -VMId ([guid]'1be1d34c-5633-449f-aaa9-c4e7190cb91b') }
+        $script:CimCalls.Count | Should -Be 1
+        $script:CimCalls[0].Namespace | Should -BeExactly 'root/virtualization/v2'
+        $script:CimCalls[0].ClassName | Should -BeExactly 'Msvm_VirtualSystemSettingData'
+        $script:CimCalls[0].Filter | Should -BeExactly "VirtualSystemIdentifier='1BE1D34C-5633-449F-AAA9-C4E7190CB91B' AND VirtualSystemType LIKE 'Microsoft:Hyper-V:Snapshot:%'"
+        @($rows).Count | Should -Be 1
+        $rows[0].Name | Should -BeExactly 'amisad-build'
+        $rows[0].Type | Should -BeExactly 'Microsoft:Hyper-V:Snapshot:Realized'
+        Should -Invoke -ModuleName Yuruna.Host Invoke-HyperVBoundedCall -Times 1 -Exactly
+        $script:CimRows = @()
+        $none = & (Get-Module Yuruna.Host) { Get-HyperVCheckpointRecord -VMId ([guid]'1be1d34c-5633-449f-aaa9-c4e7190cb91b') }
+        ($null -eq $none) | Should -BeFalse -Because 'no checkpoint is an answer, not a failed read'
+        @($none).Count | Should -Be 0
+        Mock -ModuleName Yuruna.Host Get-CimInstance { throw 'Invalid namespace' }
+        $failed = & (Get-Module Yuruna.Host) { Get-HyperVCheckpointRecord -VMId ([guid]'1be1d34c-5633-449f-aaa9-c4e7190cb91b') }
+        ($null -eq $failed) | Should -BeTrue -Because 'a failed read must not read as holding nothing'
+        Mock -ModuleName Yuruna.Host Invoke-HyperVBoundedCall { @{ TimedOut = $true; Error = $null; Output = @() } }
+        $hung = & (Get-Module Yuruna.Host) { Get-HyperVCheckpointRecord -VMId ([guid]'1be1d34c-5633-449f-aaa9-c4e7190cb91b') }
+        ($null -eq $hung) | Should -BeTrue
     }
 }

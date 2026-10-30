@@ -31,17 +31,17 @@ import (
 var version = "dev"
 
 func main() {
-	shareFolder := flag.String("share-folder", "", "share-side StashFolder on the mounted stash share, e.g. <localPath>/stash/<hostId> (holds hostkey/ + files/) (section 6.1) -- required")
-	metadataDir := flag.String("metadata-dir", config.DefaultMetadataDir, "VM-local metadata index directory (section 8)")
-	bufferDir := flag.String("buffer-dir", config.DefaultBufferDir, "VM-local NAS-offline buffer directory (section 8.4)")
-	listenAddr := flag.String("listen-addr", config.ListenAddress, "SCP/SFTP sink listen address (section 4.2); override only for dev when :22 is taken by the OS sshd")
+	shareFolder := flag.String("share-folder", "", "share-side StashFolder on the mounted stash share, e.g. <localPath>/stash/<hostId> (holds hostkey/ + files/) (https://yuruna.link/429e934f-000a) -- required")
+	metadataDir := flag.String("metadata-dir", config.DefaultMetadataDir, "VM-local metadata index directory (https://yuruna.link/429e934f-000c)")
+	bufferDir := flag.String("buffer-dir", config.DefaultBufferDir, "VM-local NAS-offline buffer directory (https://yuruna.link/429e934f-000e)")
+	listenAddr := flag.String("listen-addr", config.ListenAddress, "SCP/SFTP sink listen address (https://yuruna.link/429e934f-0003); override only for dev when :22 is taken by the OS sshd")
 	httpAddr := flag.String("http-addr", config.DefaultHTTPAddress, "UI/API HTTP listen address; empty disables the UI")
 	poolWindowDays := flag.Int("pool-window-days", config.DefaultPoolWindowDays, "days of cross-host sidecars the pool index holds in memory")
 	poolRefreshSecs := flag.Int("pool-refresh-secs", 60, "pool-index rescan interval in seconds")
 	listLimit := flag.Int("list-default-limit", config.DefaultListLimit, "default page size for the recent-stash list")
-	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator-service base URL for hostId->stash-UI resolution and the presence beacon (section 4.7); empty disables both (best-effort)")
-	hostID := flag.String("host-id", "", "owning HOST's hostId (the pool-table identity) the presence beacon announces under (section 4.7); empty disables the beacon")
-	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "presence re-announce period to the pool-aggregator-service (section 4.7); 0 disables the beacon")
+	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator-service base URL for hostId->stash-UI resolution and the presence beacon (https://yuruna.link/429e934f-0006); empty disables both (best-effort)")
+	hostID := flag.String("host-id", "", "owning HOST's hostId (the pool-table identity) the presence beacon announces under (https://yuruna.link/429e934f-0006); empty disables the beacon")
+	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "presence re-announce period to the pool-aggregator-service (https://yuruna.link/429e934f-0006); 0 disables the beacon")
 	language := flag.String("language", "auto", "Display language: auto or a supported locale")
 	allowPseudo := flag.Bool("allow-pseudo-locale", false, "Enable diagnostic pseudo locales")
 	flag.Parse()
@@ -59,15 +59,15 @@ func main() {
 	}
 	// The share may be offline at startup (e.g. the cifs mount failed). That
 	// is NOT fatal -- the daemon buffers locally and flushes when the share
-	// returns (section 8.4). Surface it loudly so an operator isn't left guessing
+	// returns (https://yuruna.link/429e934f-000e). Surface it loudly so an operator isn't left guessing
 	// when uploads are buffering instead of landing on the NAS.
 	if !store.ShareOnline(*shareFolder) {
-		log.Printf("WARNING: share %s is not a writable network mount; buffering locally until it returns (section 8.4)", *shareFolder)
+		log.Printf("WARNING: share %s is not a writable network mount; buffering locally until it returns (https://yuruna.link/429e934f-000e)", *shareFolder)
 	}
 
 	// VM-local dirs: the metadata index and the offline buffer never live
-	// on the share (section 6.1, section 8). The buffer mirrors the share's files/ layout
-	// (NewFilesOnly) so a flush is a same-relative-path copy (section 8.4).
+	// on the share (https://yuruna.link/429e934f-000a, https://yuruna.link/429e934f-000c). The buffer mirrors the share's files/ layout
+	// (NewFilesOnly) so a flush is a same-relative-path copy (https://yuruna.link/429e934f-000e).
 	if err := os.MkdirAll(*metadataDir, 0o700); err != nil {
 		log.Fatalf("metadata dir: %v", err)
 	}
@@ -82,8 +82,8 @@ func main() {
 	}
 	defer m.Close()
 
-	// section 8.5: on a fresh VM (e.g. after a reimage) the VM-local index is
-	// empty -- rebuild it from the durable on-share sidecars so prior
+	// On a fresh VM (e.g. after a reimage) the VM-local index is
+	// empty -- rebuild it from the durable on-share sidecars (https://yuruna.link/429e934f-000f) so prior
 	// uploads remain searchable. A normal restart finds a populated index
 	// and skips the (potentially large) share scan.
 	if n, cerr := m.Count(); cerr != nil {
@@ -98,7 +98,7 @@ func main() {
 
 	// Seed the allocator from BOTH the share and the buffer so a restart
 	// mid-outage cannot reissue an ID a not-yet-flushed buffered artifact
-	// already claims (section 7, section 8.4), and give it the index lookup so
+	// already claims (https://yuruna.link/429e934f-0009, https://yuruna.link/429e934f-000e), and give it the index lookup so
 	// it cannot hand out an ID an older day's row still owns -- the index's id
 	// column is a primary key spanning every day, not just today's folder.
 	ids := id.New(m.Exists, st.FilesRoot(), buf.FilesRoot())
@@ -112,7 +112,7 @@ func main() {
 	defer cancel()
 
 	// Drain the offline buffer in the background (and on startup, covering
-	// a restart after the outage ended) (section 8.4).
+	// a restart after the outage ended) (https://yuruna.link/429e934f-000e).
 	go srv.RunFlushWorker(ctx)
 
 	// Two listeners in one process: the SCP/SFTP sink on :22 and the UI/API
@@ -145,7 +145,7 @@ func main() {
 		log.Printf("stash-service UI disabled (--http-addr empty)")
 	}
 
-	// Presence beacon (section 4.7): self-announce to the pool-aggregator-service on boot,
+	// Presence beacon (https://yuruna.link/429e934f-0006): self-announce to the pool-aggregator-service on boot,
 	// every --presence-interval, and (best-effort) at shutdown, so the
 	// dashboard's Extension hosts row exists WITHOUT the owning host's status
 	// server. The announce carries only the UI PORT; the aggregator derives the

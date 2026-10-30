@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42db5b4f-9255-4491-9e61-27cc60af1914
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,12 +32,8 @@
     this cannot pass against an allowlist that no longer exists or has been
     widened somewhere else in the file.
 
-    Read from Start-StatusService.ps1, which is the tracked GENERATOR, not
-    from test/status/runtime/.status-service.ps1 -- that copy is gitignored
-    runtime output, absent on a fresh clone and overwritten on every service
-    start, so a guard reading it would test a file no commit can change.
-    The generator emits the route inside a here-string, hence the escaped `$
-    in the pattern below.
+    Read from test/service/Invoke-StatusServiceRuntime.ps1, the tracked
+    runtime the service runs.
 
     Throw-based assertions (no Should), so the file runs standalone.
     Run: pwsh -NoProfile -File test/modules/Test.StatusUploadAllowlist.Tests.ps1
@@ -46,18 +42,16 @@
 BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
-$svcPath  = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
+$svcPath  = Join-Path $repoRoot 'test/service/Invoke-StatusServiceRuntime.ps1'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # File scope, above the first Describe: a Describe body is evaluated during
 # discovery and its variables are gone before any It runs.
 $SvcSource = Get-Content -Raw -LiteralPath $svcPath
-# The literal the route actually tests uploads against. In the generator the
-# route lives in a here-string, so the end-anchor is written as a backtick-
-# escaped `$; strip that escape to recover the regex the running service uses.
-$UploadRegexMatch = [regex]::Match($SvcSource, "uploadRel\s+-match\s+'(\\\.\([^']+\)``?\$)'")
-$script:UploadRegex = if ($UploadRegexMatch.Success) { $UploadRegexMatch.Groups[1].Value -replace '`\$', '$' } else { $null }
+# The literal the route actually tests uploads against.
+$UploadRegexMatch = [regex]::Match($SvcSource, "uploadRel\s+-match\s+'(\\\.\([^']+\)\$)'")
+$script:UploadRegex = if ($UploadRegexMatch.Success) { $UploadRegexMatch.Groups[1].Value } else { $null }
 
 }
 

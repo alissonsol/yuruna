@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 422650f8-dbc0-42cf-8dcf-e365f9c7de11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -107,12 +107,16 @@ Describe 'Guest boot stall evidence' {
         $script:Fail.WaitForTextGuestBootStalled | Should -Be $Expected
     }
     It 'clears prior stall evidence at both wait and step boundaries' {
-        $resets = @($script:stallAssignments | Where-Object { $_.Right.Extent.Text -eq '$false' })
-        $resets.Count | Should -Be 2
-        foreach ($reset in $resets) {
-            $script:Fail = @{ WaitForTextGuestBootStalled = $true }
-            . ([scriptblock]::Create($reset.Extent.Text))
-            $script:Fail.WaitForTextGuestBootStalled | Should -BeFalse
+        # Declared as a wait slot, so the wait entry and the step start both
+        # put it back to $false.
+        $slot = @(Get-SequenceFailureSlot | Where-Object Name -eq 'WaitForTextGuestBootStalled')[0]
+        $slot.Lifetime | Should -Be 'wait'
+        $script:engineText | Should -Match 'Reset-SequenceFailureSlot -Lifetime wait -State \$script:Fail'
+        $script:engineText | Should -Match 'Reset-SequenceFailureSlot -Lifetime step -State \$script:Fail'
+        foreach ($lifetime in 'wait', 'step') {
+            $state = @{ WaitForTextGuestBootStalled = $true }
+            Reset-SequenceFailureSlot -Lifetime $lifetime -State $state
+            $state.WaitForTextGuestBootStalled | Should -BeFalse
         }
     }
 }
@@ -160,11 +164,21 @@ Describe 'Independent console observations remain available after the timeout' {
     It 'clears independent observations at the wait and step boundaries and for a step whose handler threw' {
         # The third reset keeps a child's or a half-run's observation off the
         # record of a step that failed by throwing.
-        $script:SecondOpinionResets.Count | Should -Be 3
+        # The wait and step boundaries reset the declared wait slot; the
+        # handler-threw path assigns it.
+        $script:SecondOpinionResets.Count | Should -Be 1
         foreach ($reset in $script:SecondOpinionResets) {
             $script:Fail = @{ WaitForTextConsoleSecondOpinion = @{ Verdict = 'guest-wedged' } }
             . ([scriptblock]::Create($reset.Extent.Text))
             $script:Fail.WaitForTextConsoleSecondOpinion | Should -BeNullOrEmpty
+        }
+        @(Get-SequenceFailureSlot | Where-Object Name -eq 'WaitForTextConsoleSecondOpinion')[0].Lifetime | Should -Be 'wait'
+        $script:engineText | Should -Match 'Reset-SequenceFailureSlot -Lifetime wait -State \$script:Fail'
+        $script:engineText | Should -Match 'Reset-SequenceFailureSlot -Lifetime step -State \$script:Fail'
+        foreach ($lifetime in 'wait', 'step') {
+            $state = @{ WaitForTextConsoleSecondOpinion = @{ Verdict = 'guest-wedged' } }
+            Reset-SequenceFailureSlot -Lifetime $lifetime -State $state
+            $state.WaitForTextConsoleSecondOpinion | Should -BeNullOrEmpty
         }
     }
 }

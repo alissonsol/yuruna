@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c6a229-b03a-4ffe-979e-1360be03ef47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -271,45 +271,64 @@ function Clear-CachingProxyServiceLock {
 function Get-CachingProxyServiceAdoptDecision {
     <#
     .SYNOPSIS
-        Pure adopt decision: adopt only a running VM with a recorded IP whose
-        health probe fully succeeded (strict -- a half-wedged proxy rebuilds).
+        Pure adopt decision: adopt only a running VM at its live address whose
+        health probe there fully succeeded (strict -- a half-wedged proxy
+        rebuilds).
+    .DESCRIPTION
+        Keyed on the live address the host driver resolves now, never on the
+        recorded one alone: DHCP can hand a recorded address to another
+        machine, and a probe of that address would vouch for a proxy that is
+        not this VM. A recorded address that differs is reported, so the caller
+        refreshes the record instead of rebuilding a healthy proxy.
+    .PARAMETER Ip
+        The live address, the one the probe was sent to.
+    .PARAMETER RecordedIp
+        The address the state file holds, for the report only.
     .OUTPUTS
-        [hashtable] Adoptable [bool], Reason [string], Ip [string].
+        [hashtable] Adoptable [bool], Reason [string], Ip [string] (the live
+        address), Moved [bool].
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
         [AllowNull()][string]$VmState,
         [bool]$ProbeSuccess,
-        [AllowNull()][string]$Ip
+        [AllowNull()][string]$Ip,
+        [AllowNull()][string]$RecordedIp
     )
-    if ([string]$VmState -ne 'running') { return @{ Adoptable = $false; Reason = "vm-not-running ($VmState)"; Ip = '' } }
-    if ([string]::IsNullOrWhiteSpace($Ip)) { return @{ Adoptable = $false; Reason = 'no-recorded-ip'; Ip = '' } }
-    if (-not $ProbeSuccess) { return @{ Adoptable = $false; Reason = 'probe-unhealthy'; Ip = [string]$Ip } }
-    return @{ Adoptable = $true; Reason = 'healthy'; Ip = [string]$Ip }
+    if ([string]$VmState -ne 'running') { return @{ Adoptable = $false; Reason = "vm-not-running ($VmState)"; Ip = ''; Moved = $false } }
+    if ([string]::IsNullOrWhiteSpace($Ip)) { return @{ Adoptable = $false; Reason = 'no-live-address'; Ip = ''; Moved = $false } }
+    if (-not $ProbeSuccess) { return @{ Adoptable = $false; Reason = 'probe-unhealthy'; Ip = [string]$Ip; Moved = $false } }
+    $moved = (-not [string]::IsNullOrWhiteSpace($RecordedIp)) -and ([string]$RecordedIp -ne [string]$Ip)
+    $reason = if ($moved) { "healthy (address moved from $RecordedIp)" } else { 'healthy' }
+    return @{ Adoptable = $true; Reason = $reason; Ip = [string]$Ip; Moved = $moved }
 }
 
 function Test-CachingProxyServiceAdoptable {
     <#
     .SYNOPSIS
-        I/O wrapper: resolve the proxy VM state + recorded IP + a full health
-        probe, then apply the pure adopt decision.
+        I/O wrapper: resolve the proxy VM state and live address, run a full
+        health probe at that address, then apply the pure adopt decision.
     .OUTPUTS
-        [hashtable] Adoptable [bool], Reason [string], Ip [string].
+        [hashtable] Adoptable [bool], Reason [string], Ip [string], Moved [bool].
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$VMName)
     $state = if (Get-Command Get-VMState -ErrorAction SilentlyContinue) { [string](Get-VMState -VMName $VMName) } else { 'unknown' }
-    $ip = ''
+    $liveIp = ''
+    if ($state -eq 'running' -and (Get-Command Get-VMIp -ErrorAction SilentlyContinue)) {
+        try { $liveIp = [string](Get-VMIp -VMName $VMName) } catch { $liveIp = '' }
+    }
+    $recordedIp = ''
     if (Get-Command Read-CachingProxyServiceState -ErrorAction SilentlyContinue) {
-        try { $ip = [string](Read-CachingProxyServiceState).ipAddress } catch { $ip = '' }
+        try { $recordedIp = [string](Read-CachingProxyServiceState).ipAddress } catch { $recordedIp = '' }
     }
     $probeSuccess = $false
-    if ($ip -and (Get-Command Invoke-CachingProxyServiceProbe -ErrorAction SilentlyContinue)) {
-        try { $probeSuccess = [bool](Invoke-CachingProxyServiceProbe -CacheIp $ip).Success } catch { $probeSuccess = $false }
+    if ($liveIp -and (Get-Command Invoke-CachingProxyServiceProbe -ErrorAction SilentlyContinue)) {
+        try { $probeSuccess = [bool](Invoke-CachingProxyServiceProbe -CacheIp $liveIp).Success } catch { $probeSuccess = $false }
     }
-    return (Get-CachingProxyServiceAdoptDecision -VmState $state -ProbeSuccess $probeSuccess -Ip $ip)
+    return (Get-CachingProxyServiceAdoptDecision -VmState $state -ProbeSuccess $probeSuccess -Ip $liveIp -RecordedIp $recordedIp)
 }
 
 Export-ModuleMember -Function `

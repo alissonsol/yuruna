@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 425779d7-e711-456a-80b5-6b5e2f85b853
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -288,6 +288,8 @@ function Read-RecoveryLedger {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param([Parameter(Mandatory)][string]$RuntimeDir)
+    # Chaos tests only (Test.FaultInjection).
+    if ($env:YURUNA_FAULT_POINTS) { Import-Module (Join-Path $PSScriptRoot 'Test.FaultInjection.psm1') -DisableNameChecking; Invoke-YurunaFaultPoint -Name 'ledger-read' -RuntimeDir $RuntimeDir }
     $read = Read-RecoveryLedgerEntry -RuntimeDir $RuntimeDir
     $records = [Collections.Generic.List[hashtable]]::new()
     foreach ($entry in $read.Entries) { $records.Add((ConvertTo-RecoveryPlainValue -Value $entry.Record)) }

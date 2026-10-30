@@ -143,10 +143,10 @@
       "why": "The per-cycle transcript page. Its stylesheet is a here-string inside the renderer and declares its own light ground, so the colors below it are measured against a white this file states rather than one the browser chose."
     },
     {
-      "path": "test/service/Start-StatusService.ps1",
+      "path": "test/service/Invoke-StatusServiceRuntime.ps1",
       "kind": "Html",
       "palette": "test/status/yuruna.common.css",
-      "why": "The directory listing is built in a PowerShell here-string, so a search for stylesheets never finds it."
+      "why": "The directory listing is built in PowerShell inside the status service runtime, so a search for stylesheets never finds it."
     },
     {
       "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/style.css",

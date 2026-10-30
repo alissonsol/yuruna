@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 # SSH-based guest driver, a parallel path to the GUI keystroke flow. See
 # ../../docs/host-io.md#backends-today for the keystrokeMechanism config
-# knob and why host-key checking is disabled. -- Test.Ssh.psm1
+# knob and how guest host keys are pinned per VM. -- Test.Ssh.psm1
 
 # -Global is load-bearing: without it, -Force evicts Test.VMUtility from
 # the runner's session mid-cycle (Start-GuestOS triggers this re-import)
@@ -32,6 +32,9 @@ Import-Module (Join-Path $PSScriptRoot 'Test.VMUtility.psm1') -Force -DisableNam
 $script:SshKeyDir  = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'status' -AdditionalChildPath 'ssh'
 $script:SshKeyPath = Join-Path $script:SshKeyDir "yuruna_ed25519"
 $script:SshPubPath = "$script:SshKeyPath.pub"
+# One known_hosts file per guest name, holding the host key that guest presented
+# at first contact (see Get-YurunaSshHostKeyOption).
+$script:HostKeyPinDir = Join-Path $script:SshKeyDir 'known_hosts.d'
 # How long a transport-loss reconnect waits for the guest's sshd to give up on
 # the dead session and SIGHUP what it was running. Sized off the ClientAlive
 # bound the guest seed installs (15s x 4), with margin for the guest to act on
@@ -47,14 +50,15 @@ $script:CachedSshKey = $null
 # Per-cycle overrides for Get-GuestSshUser. Global scope survives the defensive
 # -Force re-imports that would otherwise wipe the cascade mid-cycle.
 if (-not (Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ErrorAction SilentlyContinue)) {
-    Set-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -Value @{}
+    # Process memory: built even under an entry point's -WhatIf.
+    Set-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -Value @{} -WhatIf:$false -Confirm:$false
 }
 $script:GuestSshUserOverrides = Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ValueOnly
 
 # --- REGION: https://yuruna.link/4220a755-003d
 # See https://yuruna.link/4213a0b3-016e
 if (-not (Get-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -ErrorAction SilentlyContinue)) {
-    Set-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -Value @{}
+    Set-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -Value @{} -WhatIf:$false -Confirm:$false
 }
 $script:ProvenGuestAddress = Get-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -ValueOnly
 
@@ -303,29 +307,146 @@ System.String. Absolute path to the private key file.
     return $script:SshKeyPath
 }
 
+function Get-GuestHostKeyPinPath {
+<#
+.SYNOPSIS
+Returns the known_hosts file that pins one guest's SSH host key, or '' when the
+target carries no guest identity.
+.DESCRIPTION
+The pin is keyed by guest name. An address literal is not an identity -- NAT
+and DHCP hand the same address to a different machine later -- so an address
+target gets '' and keeps unpinned checking. A name that is not a plain file
+name is hashed into one.
+.PARAMETER VMName
+Guest name or address, as the SSH helpers receive it.
+.OUTPUTS
+System.String.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$VMName)
+    if ([string]::IsNullOrWhiteSpace($VMName) -or (Test-IpAddress $VMName)) { return '' }
+    $leaf = if ($VMName -match '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$') { $VMName } else {
+        'sha256-' + [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($VMName)), 0, 16).ToLowerInvariant()
+    }
+    return (Join-Path $script:HostKeyPinDir $leaf)
+}
+
+function Reset-GuestHostKeyPin {
+<#
+.SYNOPSIS
+Forgets the host key pinned for a guest, so the next connection learns the key
+of the guest now behind that name.
+.DESCRIPTION
+Called where a guest of that name is (re)built: a new guest generates new SSH
+host keys, and the key pinned for the previous one would refuse it. Also the
+operator's remedy for a guest rebuilt outside the runner.
+.PARAMETER VMName
+Guest name.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $pin = Get-GuestHostKeyPinPath -VMName $VMName
+    if (-not $pin -or -not (Test-Path -LiteralPath $pin)) { return }
+    if (-not $PSCmdlet.ShouldProcess($pin, 'Remove pinned SSH host key')) { return }
+    Remove-Item -LiteralPath $pin -Force -ErrorAction SilentlyContinue
+}
+
+function Move-GuestHostKeyPin {
+<#
+.SYNOPSIS
+Moves the host key pinned for a guest to the name the guest was renamed to.
+.DESCRIPTION
+saveDiskSnapshot renames the working VM to the snapshot id, so the guest pinned
+under its build name answers under the id from then on, while the pin already
+under the id belongs to whichever guest held that name before -- one built in
+an earlier cycle -- and would refuse it. The key moves instead of being
+forgotten, so the renamed guest stays pinned through the restore that follows.
+The host field is replaced, not edited, because ssh may have stored it hashed
+(HashKnownHosts). When the old name holds no pin, the new name's pin is
+forgotten and the next connection learns the key.
+.PARAMETER VMName
+Guest name before the rename.
+.PARAMETER NewVMName
+Guest name after the rename.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$NewVMName)
+    $from = Get-GuestHostKeyPinPath -VMName $VMName
+    $to = Get-GuestHostKeyPinPath -VMName $NewVMName
+    if (-not $to -or $from -eq $to) { return }
+    if (-not $PSCmdlet.ShouldProcess($to, 'Move pinned SSH host key')) { return }
+    $alias = "yuruna-guest-$(Split-Path -Leaf $to)"
+    $lines = @()
+    if ($from -and (Test-Path -LiteralPath $from -PathType Leaf)) {
+        $lines = @(foreach ($line in [IO.File]::ReadAllLines($from)) {
+                $fields = @(-split $line)
+                if ($fields.Count -eq 0 -or $fields[0].StartsWith('#')) { continue }
+                # An @cert-authority or @revoked marker comes before the host field.
+                $marker = @()
+                if ($fields[0].StartsWith('@')) { $marker = @($fields[0]); $fields = @($fields | Select-Object -Skip 1) }
+                if ($fields.Count -lt 3) { continue }
+                (@($marker) + @($alias) + @($fields | Select-Object -Skip 1)) -join ' '
+            })
+    }
+    if ($lines.Count -eq 0) {
+        Remove-Item -LiteralPath $to -Force -ErrorAction SilentlyContinue
+        return
+    }
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $to))
+    $temp = "$to.$([guid]::NewGuid().ToString('N')).tmp"
+    [IO.File]::WriteAllText($temp, (($lines -join "`n") + "`n"))
+    [IO.File]::Move($temp, $to, $true)
+    if ($from) { Remove-Item -LiteralPath $from -Force -ErrorAction SilentlyContinue }
+}
+
 function Get-YurunaSshHostKeyOption {
 <#
 .SYNOPSIS
-Returns the three host-key ssh -o options every yuruna ssh call site must pass.
+Returns the host-key ssh -o options every yuruna ssh call site must pass.
 .DESCRIPTION
-yuruna recreates guests constantly and reuses VM names and NAT-assigned IPs, so
-every fresh guest presents a different host key on an address that previously had
-a different one. Skipping any one of these would trip a "REMOTE HOST
-IDENTIFICATION HAS CHANGED" refusal (or a ssh-keyscan-into-ssh_known_hosts trap
-for the global file). Returned as a flat -o/value sequence so it drops straight
-into a ProcessStartInfo.ArgumentList or a native-ssh argument array; divergent
-per-call options (ConnectTimeout / ServerAlive / LogLevel) stay caller-appended.
+For a named guest the host key is pinned: the first connection records the key
+the guest presents (StrictHostKeyChecking=accept-new) in that guest's own
+known_hosts file, under an alias of the guest name rather than its address, and
+every later connection must present the same key. A different responder at the
+guest's address -- a stale lease handed to another machine, another host's
+guest on a bridged LAN -- is refused with "Host key verification failed"
+instead of running the command. yuruna recreates guests and reuses their
+names, so the pin is forgotten wherever a guest is built
+(Reset-GuestHostKeyPin).
+
+An address target has no identity to pin, and neither does a call without a
+guest name: they keep the unpinned options (no checking, no recording), as a
+NAT address is reused by different guests over time.
+
+Returned as a flat -o/value sequence so it drops straight into a
+ProcessStartInfo.ArgumentList or a native-ssh argument array; divergent per-call
+options (ConnectTimeout / ServerAlive / LogLevel) stay caller-appended.
+.PARAMETER VMName
+Guest name (or address) the connection is for.
 .OUTPUTS
-System.String[]. Six elements: -o StrictHostKeyChecking=no -o
-UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null.
+System.String[].
 #>
     [CmdletBinding()]
     [OutputType([string[]])]
-    param()
+    param([string]$VMName = '')
+    $pin = Get-GuestHostKeyPinPath -VMName $VMName
+    if (-not $pin) {
+        return [string[]]@(
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', 'GlobalKnownHostsFile=/dev/null'
+        )
+    }
+    [void][System.IO.Directory]::CreateDirectory((Split-Path -Parent $pin))
     return [string[]]@(
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', 'GlobalKnownHostsFile=/dev/null'
+        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', "UserKnownHostsFile=`"$pin`"",
+        '-o', 'GlobalKnownHostsFile=/dev/null',
+        '-o', "HostKeyAlias=yuruna-guest-$(Split-Path -Leaf $pin)",
+        '-o', 'CheckHostIP=no'
     )
 }
 
@@ -889,7 +1010,7 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         if (-not $ipEverDiscovered -and $target -and $target -ne $VMName -and (Test-IpAddress $target)) {
             $ipEverDiscovered = $true
         }
-        $probeArguments = @('-i', $key, '-o', 'BatchMode=yes') + @(Get-YurunaSshHostKeyOption) +
+        $probeArguments = @('-i', $key, '-o', 'BatchMode=yes') + @(Get-YurunaSshHostKeyOption -VMName $VMName) +
             @('-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=3', '-o', 'ServerAliveCountMax=2',
                 '-o', 'LogLevel=ERROR', "$user@$target", 'echo yuruna-ssh-ready')
         $probeMs = [int][Math]::Max([double]0, [Math]::Min([double]($probeCapSeconds * 1000), ($deadline - (Get-Date)).TotalMilliseconds))
@@ -960,6 +1081,9 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     }
     Write-Verbose "  private key   : $key"
 
+    if ($cause -eq 'host_key_changed' -and (Get-GuestHostKeyPinPath -VMName $VMName)) {
+        Write-Verbose "  $(Format-YurunaOperatorMessage -Key 'runner.ssh_host_key_pin_mismatch' -Arguments @{ vmName = "$VMName"; address = "$lastTarget"; pin = "$(Get-GuestHostKeyPinPath -VMName $VMName)" })"
+    }
     if ($cause -eq 'vm_not_running') {
         # The VM is not running, so sshd/auth/discovery dumps would all
         # re-document the same absence. Point at the machine-level fact.
@@ -1007,7 +1131,7 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         # the worst place to block).
         Write-Verbose "  --- verbose handshake follows ---"
         try {
-            $verboseArguments = @('-v', '-i', $key, '-o', 'BatchMode=yes') + @(Get-YurunaSshHostKeyOption) +
+            $verboseArguments = @('-v', '-i', $key, '-o', 'BatchMode=yes') + @(Get-YurunaSshHostKeyOption -VMName $VMName) +
                 @('-o', 'ConnectTimeout=5', "$user@$lastTarget", 'echo yuruna-ssh-ready')
             $verboseProbe = Invoke-BoundedNativeCommand -FilePath 'ssh' -ArgumentList $verboseArguments -TimeoutSeconds $probeCapSeconds
             if (Test-BoundedNativeResultComplete -Result $verboseProbe) {
@@ -1467,7 +1591,7 @@ with a different owner, that is likewise invisible in the exit status.
         $sshArguments = @(
                 '-i', $keyPath,
                 '-o', 'BatchMode=yes') +
-                (Get-YurunaSshHostKeyOption) +
+                (Get-YurunaSshHostKeyOption -VMName $VMName) +
                 @('-o', 'ConnectTimeout=10',
                 '-o', 'ServerAliveInterval=15',
                 '-o', 'ServerAliveCountMax=4',
@@ -1547,6 +1671,26 @@ with a different owner, that is likewise invisible in the exit status.
                 runLost         = $false
                 detachToken     = $DetachToken
                 linesConsumed   = $fromLine
+            }
+        }
+        # A pinned guest name answered by a different host key: ssh refused it
+        # (255) before running anything, and retrying the same address cannot
+        # change the answer, so the result says what happened and where the pin is.
+        if ($exit -eq 255 -and $output -match 'Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED') {
+            $hostKeyPin = Get-GuestHostKeyPinPath -VMName $VMName
+            if ($hostKeyPin) {
+                $preface = Format-YurunaOperatorMessage -Key 'runner.ssh_host_key_pin_mismatch' -Arguments @{ vmName = "$VMName"; address = "$address"; pin = "$hostKeyPin" }
+                return @{
+                    success         = $false
+                    exitCode        = 255
+                    output          = "$preface`n$output"
+                    addressResolved = $addressResolved
+                    transportLost   = $false
+                    runLost         = $false
+                    detachToken     = $DetachToken
+                    linesConsumed   = $fromLine
+                    hostKeyMismatch = $true
+                }
             }
         }
         # Any exit other than 255 came from the far end, which means the session
@@ -2362,5 +2506,5 @@ final observation, in words) and Reachability.
     }
 }
 
-Export-ModuleMember -Function New-ServiceVmRecoveredEndpoint, Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-LastSshReadiness, Get-SshReadinessFailureCause, Test-SshEndpointAnswered, Select-SshReadinessEvidence, Test-SshTransportLoss, Test-DetachedRunInterrupted, Get-GuestRunToken, Get-GuestRunWrapperCommand, Invoke-GuestSsh,
+Export-ModuleMember -Function New-ServiceVmRecoveredEndpoint, Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Get-GuestHostKeyPinPath, Reset-GuestHostKeyPin, Move-GuestHostKeyPin, Wait-SshReady, Get-LastSshReadiness, Get-SshReadinessFailureCause, Test-SshEndpointAnswered, Select-SshReadinessEvidence, Test-SshTransportLoss, Test-DetachedRunInterrupted, Get-GuestRunToken, Get-GuestRunWrapperCommand, Invoke-GuestSsh,
     Set-ProvenGuestAddress, Get-ProvenGuestAddress, Clear-ProvenGuestAddress, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp, Get-ServiceVmObservedState, Get-ServiceVmReadinessVerdict, Format-GuestSshDiagnosticHint, Resolve-GuestDiagnosticAddress, Confirm-ServiceVmAtRecoveredAddress, Wait-YurunaServiceVmDaemon

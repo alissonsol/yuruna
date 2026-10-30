@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d72ff5-6cb1-4b14-bcba-89b71d42a68f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,7 +80,7 @@ BeforeAll {
 
 Describe 'optional GitHub mirror token configuration' {
     BeforeEach {
-        $script:PreviousRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:PreviousRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'runtime'
         $script:CanPrompt = $true
         $script:Reply = ''
@@ -140,7 +140,7 @@ Describe 'optional GitHub mirror token configuration' {
             $script:Reports.Add(@{ Message = [string]$MessageData; Writes = @($script:Events | Where-Object { $_ -like 'write:*' }).Count })
         }
     }
-    AfterEach { $env:YURUNA_RUNTIME_DIR = $script:PreviousRuntime }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:PreviousRuntime }
 
     It 'keeps anonymous access on Enter without initializing the authentication provider' {
         $result = @(Initialize-CachingProxyGitMirrorToken -Confirm:$false)

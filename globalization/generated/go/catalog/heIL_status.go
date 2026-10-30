@@ -135,6 +135,7 @@ const DataheILstatus = `{
   "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": "הגישה אסורה: כותרת הבקשה X-Yuruna חסרה (הגנה מפני בקשות בין אתרים)",
   "status.api_forbidden_not_served": "אסור (אינו קובץ שמוגש)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "אסור: יעד הבדיקה חייב להיות כתובת פרטית (loopback⁦/RFC1918/link-local⁩) או כתובת IP המוגדרת עבור המטמון",
+  "status.api_guest_channel_key_absent": "למארח זה אין עדיין מפתח ערוץ אורחים; הוא נוצר כשהמארח מייצר לראשונה seed של אורח",
   "status.api_host_refresh_authorization_refused": [
     "ההרשאה לרענון נדחתה (",
     {
@@ -223,6 +224,20 @@ const DataheILstatus = `{
   "status.api_project_repo_not_present_on_host_885e6338": "מאגר הקוד של הפרויקט אינו קיים במארח",
   "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b": "אי-התאמה בהוכחה (מפתח אימות פנימי שגוי או לא עדכני)",
   "status.api_put_or_post_required_1f919659": "נדרשת בקשת PUT או POST",
+  "status.api_query_invalid": [
+    "שאילתה לא תקינה: ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
   "status.api_request_body_invalid": [
     "גוף בקשה לא תקין: ",
     {
@@ -650,6 +665,7 @@ const DataheILstatus = `{
   "status.error_file_too_large": "הקובץ גדול מדי",
   "status.error_not_found": "לא נמצא",
   "status.every_guest_folder_under_this_host_is_already_in_the_list": "כל תיקיות האורחים תחת מארח זה כבר מופיעות ברשימה",
+  "status.explain_details": "פרטים",
   "status.external_detail": [
     "הכלי דיווח: ",
     {
@@ -1375,6 +1391,7 @@ const DataheILstatus = `{
   "status.perf_yuruna": "ביצועים — Yuruna",
   "status.performance": "ביצועים",
   "status.performance_fit": "התאימו הכול לתצוגה",
+  "status.performance_select_bar": "בחרו משך או עמודה כדי לקרוא כאן את הפרטים.",
   "status.performance_zoom": "הגדלת ציר הזמן",
   "status.pill_new_vm_resource": "מכונה וירטואלית חדשה",
   "status.pill_start_guestos": "הפעלת מערכת ההפעלה",

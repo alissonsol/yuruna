@@ -7,6 +7,42 @@ package catalog
 // DataqpsPlocmautomation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataqpsPlocmautomation = `{
+  "automation.deploy_phase_reused": [
+    "[!‮Ţħé ",
+    {
+      "arg": "phase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ƥħášé íš šķíƥƥéď: íţ ƥáššéď ŵíţħ ţħéšé íñƥúţš ƀéƒóřé ţħé ",
+    {
+      "arg": "failedPhase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ƥħášé ƒáíļéď, áñď íţš óúţƥúţš ářé šţíļļ íñ ƥļáçé. Ďéļéţé ",
+    {
+      "arg": "ledgerPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ţó řúñ éṽéřý ƥħášé áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "automation.deploy_tool_deadline": [
+    "[!‮",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ďíď ñóţ ƒíñíšħ ŵíţħíñ ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " šéçóñďš áñď ŵáš šţóƥƥéď. Íţ çóúñţš áš á ţíɱéóúţ, áñď ŵħáţ íţ ďíď ƀéƒóřé íţ ŵáš šţóƥƥéď íš úñķñóŵñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "automation.diagnostic_checkout_unavailable": "[!‮(ñóţ áƥƥļíçáƀļé: çħéçķóúţ éṽíďéñçé íš úñáṽáíļáƀļé; ƥášš -ÇħéçķóúţŘóóţ ţó úšé áñ éẋíšţíñğ Ýúřúñá çħéçķóúţ)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "automation.diagnostic_phase_log_limits": "[!‮Ƥħášé ļóğ šçáñ íš ļíɱíţéď ţó 100 ƒíļéš, 12 ďířéçţóřý ļéṽéļš, áñď 10 šéçóñďš; éáçħ ļóğ šħóŵš áţ ɱóšţ íţš ļášţ 64 ĶíɃ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "automation.host_setup_module_install_skipped": [
@@ -23,6 +59,27 @@ const DataqpsPlocmautomation = `{
       "trust": "internal"
     },
     " -Šçóƥé ÇúřřéñţÚšéř‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "automation.memory_commit_charge": [
+    "[!‮Çóɱɱíţ : ",
+    {
+      "arg": "charged",
+      "type": "detail",
+      "trust": "external"
+    },
+    " óƒ ",
+    {
+      "arg": "limit",
+      "type": "detail",
+      "trust": "external"
+    },
+    " çħářğéď, ",
+    {
+      "arg": "uncharged",
+      "type": "detail",
+      "trust": "external"
+    },
+    " úñçħářğéď (á ṼⱮ šţářţ íš çħářğéď áğáíñšţ ţħíš ļíɱíţ, ñóţ áğáíñšţ ƒřéé ƥħýšíçáļ ɱéɱóřý)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "automation.memory_plan": {
     "kind": "plural",
@@ -129,6 +186,15 @@ const DataqpsPlocmautomation = `{
       ]
     }
   },
+  "automation.network_dhcp_lease": [
+    "[!‮ĎĦÇƤ ļéášé óñ ţħé ďéƒáúļţ řóúţé ďéṽíçé (",
+    {
+      "arg": "device",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")‬ ~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "automation.operator_00010ebe540ede32": "[!‮ţħíš ħóšţ ďóéš ñóţ řéƥóřţ íţš íñšţáļļéď ɱéɱóřý‬ ~~~~~~~~~~~~~~~~~~~]",
   "automation.operator_0006b705ae0abd93": [
     "[!‮!! ",
@@ -5229,6 +5295,39 @@ const DataqpsPlocmautomation = `{
     "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "automation.runtime_ipc_remove_action": "[!‮Řéɱóṽé ţħé ļéƒţóṽéř .ÑÉŢ řúñţíɱé éñţřý óƒ á ƥřóçéšš ţħáţ íš ğóñé‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "automation.seed_value_unsafe": [
+    "[!‮Ţħé šééď ṽáļúé ƒóř ",
+    {
+      "arg": "placeholder",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " çáññóţ ƀé ƥļáçéď íñ íţš ",
+    {
+      "arg": "context",
+      "type": "token",
+      "trust": "internal"
+    },
+    " çóñţéẋţ (ţéɱƥļáţé ļíñé ",
+    {
+      "arg": "line",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "): íţ çóñţáíñš ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". Çħáñğé ţħé ṽáļúé; ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ƥļáçéħóļďéř óççúřřéñçé(š) ŵéřé řéƒúšéď íñ ţóţáļ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "automation.setup_service_vm_reason_intended_stopped": "[!‮íţ ŵáš šţóƥƥéď óñ ƥúřƥóšé; řéƀúíļďíñğ ƀéçáúšé šéţúƥ ŵáš ášķéď ţó ƀříñğ íţ úƥ‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "automation.setup_service_vm_reason_lock_unavailable": "[!‮íţš óƥéřáţíóñ ļóçķ çóúļď ñóţ ƀé ţáķéñ‬ ~~~~~~~~~~~~~~~]",
   "automation.setup_service_vm_reason_operation_busy": "[!‮áñóţħéř šţářţ óř šţóƥ óƒ ţħíš šéřṽíçé íš šţíļļ řúññíñğ‬ ~~~~~~~~~~~~~~~~~~~~~~]",
@@ -5391,6 +5490,7 @@ const DataqpsPlocmautomation = `{
       "trust": "internal"
     },
     " šéçóñďš; ţħé ļíšţíñğ áƀóṽé ɱáý ƀé íñçóɱƥļéţé (ÚŢⱮ ɱáý ñóţ ƀé áñšŵéříñğ Áƥƥļé Éṽéñţš).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
-  ]
+  ],
+  "automation.top_processes_private_bytes": "[!‮Ţóƥ 10 ƀý ƥříṽáţé ƀýţéš (çóɱɱíţ çħářğé)‬ ~~~~~~~~~~~~~~~~]"
 }
 `

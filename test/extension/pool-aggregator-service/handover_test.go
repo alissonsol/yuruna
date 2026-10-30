@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -415,7 +416,16 @@ func TestHandoverDeploymentIncludesStateAndSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(boot), "for f in main.go handover.go mcp.go") {
+	// The build fetches its sources by name; the order of the list is free.
+	fetched := false
+	for _, line := range strings.Split(string(boot), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "for f in main.go ") {
+			fetched = slices.Contains(strings.Fields(trimmed), "handover.go")
+			break
+		}
+	}
+	if !fetched {
 		t.Fatal("the proxy boot build omits handover.go")
 	}
 }

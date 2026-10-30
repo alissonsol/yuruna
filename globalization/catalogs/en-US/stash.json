@@ -794,16 +794,8 @@
       "lifecycle": "active"
     },
     "stash.api_search_detail": {
-      "message": "search: {detail}",
       "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
-      "lifecycle": "active",
-      "placeholders": {
-        "detail": {
-          "type": "detail",
-          "trust": "external",
-          "example": "detail"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "stash.api_invalid_stash_path": {
       "message": "invalid stash path",
@@ -811,16 +803,8 @@
       "lifecycle": "active"
     },
     "stash.api_detail": {
-      "message": "{detail}",
       "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
-      "lifecycle": "active",
-      "placeholders": {
-        "detail": {
-          "type": "detail",
-          "trust": "external",
-          "example": "detail"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "stash.api_stash_not_found": {
       "message": "stash not found",
@@ -833,16 +817,8 @@
       "lifecycle": "active"
     },
     "stash.api_open_archive_detail": {
-      "message": "open archive: {detail}",
       "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
-      "lifecycle": "active",
-      "placeholders": {
-        "detail": {
-          "type": "detail",
-          "trust": "external",
-          "example": "detail"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "stash.api_invalid_json_body": {
       "message": "invalid JSON body",
@@ -890,16 +866,8 @@
       "lifecycle": "active"
     },
     "stash.api_create_detail": {
-      "message": "create: {detail}",
       "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
-      "lifecycle": "active",
-      "placeholders": {
-        "detail": {
-          "type": "detail",
-          "trust": "external",
-          "example": "detail"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "stash.api_open_artifact": {
       "message": "open artifact",
@@ -942,6 +910,31 @@
     },
     "stash.api_large_text_busy": {
       "message": "another large text is being stored; try again shortly",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_search_failed": {
+      "message": "the stash index could not be searched; the service log has the cause",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_resolve_failed": {
+      "message": "the stash could not be looked up; the service log has the cause",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_open_archive_failed": {
+      "message": "the archive could not be opened; the service log has the cause",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_create_failed": {
+      "message": "the stash could not be stored; the service log has the cause",
+      "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
+      "lifecycle": "active"
+    },
+    "stash.api_delete_failed": {
+      "message": "the stash could not be deleted; the service log has the cause",
       "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
       "lifecycle": "active"
     }

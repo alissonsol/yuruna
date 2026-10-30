@@ -103,8 +103,9 @@ func TestPushPresence(t *testing.T) {
 	loki, bodies, mu := captureLoki()
 	defer loki.Close()
 	client := &http.Client{}
+	s := newPoolState("default", 8080)
 
-	pushPresence(client, loki.URL, "default", "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "http://192.168.7.13:8080", time.Now().UTC())
+	s.pushPresence(client, loki.URL, "default", "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "http://192.168.7.13:8080", time.Now().UTC())
 	mu.Lock()
 	got := append([]string{}, *bodies...)
 	mu.Unlock()
@@ -120,8 +121,8 @@ func TestPushPresence(t *testing.T) {
 	}
 
 	// Disabled (no Loki URL) / incomplete args -> no push, no panic.
-	pushPresence(client, "", "default", "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "http://x:8080", time.Now().UTC())
-	pushPresence(client, loki.URL, "default", "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "", time.Now().UTC())
+	s.pushPresence(client, "", "default", "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "http://x:8080", time.Now().UTC())
+	s.pushPresence(client, loki.URL, "default", "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "", time.Now().UTC())
 	mu.Lock()
 	n := len(*bodies)
 	mu.Unlock()

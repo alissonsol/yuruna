@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f363d0-c7d5-4dcc-941a-c4422523b7e4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -429,5 +429,157 @@ Describe 'coordinate names are one contract across seeds and both resolvers' {
             $pair.Code | Should -Match '/api/v1/host-address'
             $pair.Code | Should -Match '/api/v1/pool-status'
         }
+    }
+}
+
+Describe 'a guest accepts only its own host (guest-channel key)' -Skip:($IsWindows -or -not (Get-Command openssl -ErrorAction SilentlyContinue)) {
+    # A directory answer, or a stale seeded address now held by someone else,
+    # must not re-home a guest onto another responder. A guest seeded with its
+    # host's guest-channel key accepts a status service only when it answers a
+    # fresh nonce with the key's HMAC, bound to the host id.
+    BeforeAll {
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+        Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+        $script:GuestKey = 'a1' * 32
+        $script:OtherKey = 'b2' * 32
+        $script:ChannelHostId = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        # A status service emulated in the shell: it answers the nonce in the URL
+        # with an HMAC under SERVER_KEY for SERVER_HOST_ID, or with no proof.
+        $script:ServerStub = @'
+__yhl_http_get() {
+  case "$1" in
+    *"/livecheck?nonce="*)
+      n="${1##*nonce=}"
+      if [ "$SERVER_MODE" = noproof ]; then printf '{"ok":true,"service":"yuruna-status-service"}'; return 0; fi
+      p="$(printf 'yuruna-livecheck/1\n%s\n%s' "$SERVER_HOST_ID" "$n" | openssl dgst -sha256 -hmac "$SERVER_KEY" | awk '{ print $NF }')"
+      printf '{"ok":true,"service":"yuruna-status-service","time":"t","hostId":"%s","proof":"%s"}' "$SERVER_HOST_ID" "$p" ;;
+    *"/livecheck") printf '{"ok":true}' ;;
+    *) return 1 ;;
+  esac
+}
+'@
+        function Invoke-ChannelProbe {
+            param([string]$ServerKey, [string]$ServerHostId, [string]$Mode = 'proof', [switch]$NoGuestKey)
+            $fx = New-LocateFixture -HostId $script:ChannelHostId
+            if (-not $NoGuestKey) { Set-Content -LiteralPath (Join-Path $fx 'guest-channel.key') -Value $script:GuestKey }
+            try {
+                $body = @(
+                    $script:ServerStub,
+                    "export SERVER_KEY='$ServerKey' SERVER_HOST_ID='$ServerHostId' SERVER_MODE='$Mode'",
+                    '. "$YURUNA_HOST_ENV_FILE" 2>/dev/null || true',
+                    '__yhl_livecheck "http://10.99.99.99:8080"; echo "rc=$?"'
+                ) -join "`n"
+                return Invoke-LocateShell -Fixture $fx -Body $body -Env @{ YURUNA_GUEST_CHANNEL_KEY_FILE = (Join-Path $fx 'guest-channel.key') }
+            } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+
+    It 'accepts the host that proves the key for this guest''s host id' {
+        Invoke-ChannelProbe -ServerKey $script:GuestKey -ServerHostId $script:ChannelHostId | Should -Match 'rc=0'
+    }
+
+    It 'refuses a responder that does not hold the key' {
+        $out = Invoke-ChannelProbe -ServerKey $script:OtherKey -ServerHostId $script:ChannelHostId
+        $out | Should -Match 'rc=1'
+        $out | Should -Match 'did not prove this host''s guest-channel key'
+    }
+
+    It 'refuses a status service that answers without a proof' {
+        $out = Invoke-ChannelProbe -ServerKey $script:GuestKey -ServerHostId $script:ChannelHostId -Mode noproof
+        $out | Should -Match 'rc=1'
+        $out | Should -Match 'answered without proving'
+    }
+
+    It 'refuses a proof for another host id' {
+        $out = Invoke-ChannelProbe -ServerKey $script:GuestKey -ServerHostId '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+        $out | Should -Match 'rc=1'
+        $out | Should -Match 'speaks for host'
+    }
+
+    It 'keeps the plain probe for a guest built before the key existed' {
+        Invoke-ChannelProbe -ServerKey $script:OtherKey -ServerHostId 'x' -Mode noproof -NoGuestKey | Should -Match 'rc=0'
+    }
+
+    It 'computes the same proof on the host, in the shell resolver and in the Windows resolver' {
+        $nonce = '0123456789abcdef0123456789abcdef'
+        $hostProof = Get-YurunaGuestChannelProof -Key $script:GuestKey -HostId $script:ChannelHostId -Nonce $nonce
+        $hostProof | Should -Match '^[0-9a-f]{64}$'
+        $shellProof = (Invoke-LocateShell -Fixture ([IO.Path]::GetTempPath()) -Body "__yhl_channel_proof '$($script:GuestKey)' '$($script:ChannelHostId)' '$nonce'").Trim()
+        $shellProof | Should -BeExactly $hostProof
+        . $script:LocatePs
+        Get-YhlChannelProof -Key $script:GuestKey -HostId $script:ChannelHostId -Nonce $nonce | Should -BeExactly $hostProof
+        Get-YurunaGuestChannelProof -Key $script:GuestKey -HostId $script:ChannelHostId -Nonce $nonce -Scope 'archive-digest' | Should -Not -Be $hostProof
+    }
+
+    It 'has the Windows resolver accept only the proving host' {
+        . $script:LocatePs
+        $keyFile = Join-Path $TestDrive 'guest-channel.key'
+        Set-Content -LiteralPath $keyFile -Value $script:GuestKey
+        foreach ($case in @(
+                @{ Key = $script:GuestKey; HostId = $script:ChannelHostId; Expect = $true }
+                @{ Key = $script:OtherKey; HostId = $script:ChannelHostId; Expect = $false }
+                @{ Key = $script:GuestKey; HostId = '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; Expect = $false })) {
+            $script:Server = $case
+            function Get-YhlHttpString {
+                param([string]$Uri, [int]$TimeoutSec)
+                [void]$TimeoutSec
+                $nonce = ($Uri -split 'nonce=')[1]
+                $proof = Get-YurunaGuestChannelProof -Key $script:Server.Key -HostId $script:Server.HostId -Nonce $nonce
+                return (@{ ok = $true; hostId = $script:Server.HostId; proof = $proof } | ConvertTo-Json -Compress)
+            }
+            Test-YhlLivecheck -BaseUrl 'http://10.99.99.99:8080' -KeyPath $keyFile -HostId $script:ChannelHostId | Should -Be $case.Expect
+        }
+    }
+
+    It 'has fetch-and-execute refuse an unverified host when the key is present and the resolver is not' {
+        $fae = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'automation/fetch-and-execute.sh') -Raw
+        $fn = Get-YurunaTestShellFunction -Text $fae -Name 'fae_host_answers'
+        $keyFile = Join-Path $TestDrive 'fae-guest-channel.key'
+        Set-Content -LiteralPath $keyFile -Value $script:GuestKey
+        $run = Invoke-YurunaTestShell -Body (@("wget() { return 0; }", $fn, "YURUNA_GUEST_CHANNEL_KEY_FILE='$keyFile' fae_host_answers http://10.99.99.99:8080; echo rc=`$?") -join "`n")
+        $run.Output | Should -Match 'rc=1'
+        $fae | Should -Match 'if fae_host_answers "http://\$\{YURUNA_STATUS_SERVICE_IP\}:\$\{YURUNA_STATUS_SERVICE_PORT\}"; then'
+    }
+}
+
+Describe 'the host side of the guest channel' {
+    BeforeAll {
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    }
+
+    It 'creates one owner-only key on first use and returns it unchanged after' {
+        $home1 = Join-Path $TestDrive 'home-key'
+        $null = New-Item -ItemType Directory -Path $home1
+        Get-YurunaGuestChannelKey -HomePath $home1 | Should -BeExactly '' -Because 'without -Create nothing is generated'
+        $key = Get-YurunaGuestChannelKey -Create -HomePath $home1 -Confirm:$false
+        $key | Should -Match '^[0-9a-f]{64}$'
+        Get-YurunaGuestChannelKey -HomePath $home1 | Should -BeExactly $key
+        Get-YurunaGuestChannelKey -Create -HomePath $home1 -Confirm:$false | Should -BeExactly $key
+        if (-not $IsWindows) {
+            $file = Get-ChildItem -LiteralPath $home1 -Recurse -Filter 'guest-channel.key' -Force | Select-Object -First 1
+            ([int][IO.File]::GetUnixFileMode($file.FullName) -band 0x3F) | Should -Be 0
+        }
+    }
+
+    It 'answers /livecheck?nonce= with the proof, and a probe without a nonce as before' {
+        $runtime = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'test/service/Invoke-StatusServiceRuntime.ps1') -Raw
+        $route = $runtime.Substring($runtime.IndexOf('# --- REGION: /livecheck'))
+        $route = $route.Substring(0, $route.IndexOf('# --- REGION: /ca.crt'))
+        $route | Should -Match ([regex]::Escape("`$nonce = [string]`$req.QueryString['nonce']"))
+        $route | Should -Match ([regex]::Escape("`$livecheck.proof = Get-YurunaGuestChannelProof -Key `$channelKey -HostId `$livecheckHostId -Nonce `$nonce"))
+        $route | Should -Match ([regex]::Escape("`$livecheckHostId = Get-ArchiveHostId"))
+    }
+
+    It 'seeds the key into every guest that runs the resolver' {
+        foreach ($name in @('ubuntu.server', 'amazon.linux.2023', 'stash-service', 'pool-control-service', 'download-agent-service', 'caching-proxy-service')) {
+            $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot "host/vmconfig/$name.base.user-data") -Raw
+            $text | Should -Match 'guest-channel\.key' -Because "$name runs host-locate or fetch-and-execute"
+            $text | Should -Match 'YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER'
+        }
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
+        $seed = New-WindowsGuestBootstrap -RepoRoot $script:RepoRoot -GuestChannelKey ('c3' * 32)
+        $seed.Files['yuruna-bootstrap.ps1'] | Should -Match ([regex]::Escape("-Value '$('c3' * 32)'"))
+        $bad = New-WindowsGuestBootstrap -RepoRoot $script:RepoRoot -GuestChannelKey "x'; Remove-Item C:\ -Recurse #"
+        $bad.Files['yuruna-bootstrap.ps1'] | Should -Not -Match 'Remove-Item C:'
     }
 }

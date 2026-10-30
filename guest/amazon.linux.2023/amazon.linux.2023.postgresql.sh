@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42bbd81c-7ea8-4395-8e7e-9e370e9d35b2
@@ -37,7 +37,6 @@ export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 # See https://yuruna.link/42e220c4-0005
 echo ""
 echo -e "\e[1;36m==== PostgreSQL ====\e[0m"
-# See https://yuruna.link/42e220c4-0005
 # AL2023 uses PostgreSQL 17; PGDG does not support Amazon Linux.
 dnf_retry sudo dnf install -y postgresql17-server postgresql17-contrib
 

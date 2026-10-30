@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42305b75-dbdd-448e-8c59-ffaf93235629
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -181,8 +181,8 @@ Describe 'Get-OuterCycleSummaryLine (per-cycle console line + shareable transcri
     BeforeAll {
         $script:SummaryDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ol-sum-" + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:SummaryDir -Force | Out-Null
-        $script:SavedSummaryRuntime = $env:YURUNA_RUNTIME_DIR
-        $script:SavedPublicUrl      = $env:YURUNA_STATUS_PUBLIC_URL
+        $script:SavedSummaryRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $script:SavedPublicUrl = Save-YurunaTestEnvironment -Name 'YURUNA_STATUS_PUBLIC_URL'
         $env:YURUNA_RUNTIME_DIR = $script:SummaryDir
         # Pinning the published base keeps the assertions off this machine's
         # live interface list; the address-discovery branch is covered below.
@@ -190,10 +190,8 @@ Describe 'Get-OuterCycleSummaryLine (per-cycle console line + shareable transcri
         $script:SummaryCfg = New-TempConfig "statusService:`n  port: 8080`n"
     }
     AfterAll {
-        if ($null -eq $script:SavedSummaryRuntime) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_RUNTIME_DIR = $script:SavedSummaryRuntime }
-        if ($null -eq $script:SavedPublicUrl) { Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_STATUS_PUBLIC_URL = $script:SavedPublicUrl }
+        Restore-YurunaTestEnvironment -Saved $script:SavedSummaryRuntime
+        Restore-YurunaTestEnvironment -Saved $script:SavedPublicUrl
         Remove-Item -LiteralPath $script:SummaryCfg -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $script:SummaryDir -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -306,16 +304,14 @@ Describe 'Invoke-RunnerOuterLoop failure pause (auto-remediation trigger is reac
         # Both are joined unguarded on the pause path: the restart-flag probe reads
         # the runtime dir, Get-OuterLastFailureClass reads the log dir. Sandboxed so
         # the suite never touches the operator's live runtime.
-        $script:SavedRuntimeDir = $env:YURUNA_RUNTIME_DIR
-        $script:SavedLogDir     = $env:YURUNA_LOG_DIR
+        $script:SavedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $script:SavedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:PauseTempDir
         $env:YURUNA_LOG_DIR     = $script:PauseTempDir
     }
     AfterAll {
-        if ($null -eq $script:SavedRuntimeDir) { Remove-Item Env:\YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntimeDir }
-        if ($null -eq $script:SavedLogDir) { Remove-Item Env:\YURUNA_LOG_DIR -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_LOG_DIR = $script:SavedLogDir }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeDir
+        Restore-YurunaTestEnvironment -Saved $script:SavedLogDir
         Remove-Item -LiteralPath $script:CfgAutoRem -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $script:PauseTempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -389,7 +385,7 @@ Describe 'Typed configuration failures and network recovery holds' {
         }
     }
     BeforeEach {
-        $script:NetworkPriorRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:NetworkPriorRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'network-pause'
         $null = New-Item -ItemType Directory -Force $env:YURUNA_RUNTIME_DIR
         Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
@@ -437,7 +433,7 @@ Describe 'Typed configuration failures and network recovery holds' {
             }
         }
     }
-    AfterEach { $env:YURUNA_RUNTIME_DIR = $script:NetworkPriorRuntime }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:NetworkPriorRuntime }
 
     It 'classifies failures after importing only the outer module in a fresh process' {
         $modulePath = (Join-Path $PSScriptRoot 'Test.RunnerOuterLoop.psm1').Replace("'", "''")
@@ -564,7 +560,7 @@ Describe 'Refresh gate at the cycle dispatch (mocked spawn)' {
     BeforeEach {
         $script:DispatchDir = Join-Path ([System.IO.Path]::GetTempPath()) ('ol-dispatch-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:DispatchDir -Force | Out-Null
-        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:DispatchDir
         $script:CycleScriptPath = Join-Path $script:DispatchDir 'cycle.ps1'
         Set-Content -LiteralPath $script:CycleScriptPath -Value '# fixture' -Encoding utf8
@@ -579,7 +575,7 @@ Describe 'Refresh gate at the cycle dispatch (mocked spawn)' {
         Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
     }
     AfterEach {
-        if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Remove-Item -LiteralPath $script:DispatchDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
@@ -664,7 +660,7 @@ Describe 'Invoke-RunnerOuterCycle at its refresh sites (in-process, stand-in inn
         $script:EnvInner = "[ordered]@{ preflight = `$env:YURUNA_REFRESH_PREFLIGHT; token = `$env:YURUNA_REFRESH_HANDOFF_TOKEN; generation = `$env:YURUNA_CYCLE_GENERATION; barrier = `$env:YURUNA_REFRESH_BARRIER } | ConvertTo-Json | Set-Content -LiteralPath 'ENVFILE'; exit 0"
     }
     BeforeEach {
-        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR; $script:SavedLog = $env:YURUNA_LOG_DIR
+        $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR'
         Mock -ModuleName Test.RunnerOuterLoop Start-Watchdog { [pscustomobject]@{ State = 'Running' } }
         Mock -ModuleName Test.RunnerOuterLoop Stop-Watchdog { }
         Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterGitPull { $true }
@@ -673,8 +669,7 @@ Describe 'Invoke-RunnerOuterCycle at its refresh sites (in-process, stand-in inn
         Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
     }
     AfterEach {
-        if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
-        if ($null -eq $script:SavedLog) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $script:SavedLog }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
     }
 
     It 'runs a preflight cycle: no pull, failure record and break marker kept, inner records wiped, token and generation handed to the inner' {
@@ -771,7 +766,7 @@ Describe 'Invoke-RunnerOuterLoop refresh outcomes and automatic-refresh call sit
     BeforeEach {
         $script:LoopDir = Join-Path ([System.IO.Path]::GetTempPath()) ('ol-loop-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:LoopDir -Force | Out-Null
-        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR; $script:SavedLog = $env:YURUNA_LOG_DIR
+        $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:LoopDir; $env:YURUNA_LOG_DIR = $script:LoopDir
         $script:Logged = [System.Collections.Generic.List[string]]::new()
         $script:Dispatches = [System.Collections.Generic.List[hashtable]]::new()
@@ -793,8 +788,7 @@ Describe 'Invoke-RunnerOuterLoop refresh outcomes and automatic-refresh call sit
         function global:Set-RunnerState { [CmdletBinding(SupportsShouldProcess)] param($To, $Reason) if ($PSCmdlet.ShouldProcess("$To ($Reason)")) { $global:__loopStates.Add($To) } }
     }
     AfterEach {
-        if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
-        if ($null -eq $script:SavedLog) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $script:SavedLog }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Remove-Item -LiteralPath $script:LoopDir -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item function:Set-RunnerState, function:global:Update-HostRefreshAutoEvidence, function:global:Invoke-HostRefreshAutoDecision, `
             function:global:Stop-HostRefreshAutoQueuedRequest, function:global:Set-HostRefreshCallerAck, function:global:Resolve-StatusServiceStart -ErrorAction SilentlyContinue
@@ -1069,5 +1063,50 @@ Describe 'Notifier job isolation' {
             Assert-False $result.ran
             Assert-Equal 0 $result.delivered
         } finally { Remove-Job -Job $job -Force }
+    }
+}
+
+Describe 'Invoke-OuterPoolStorageMove times the move on the monotonic clock' {
+    BeforeAll {
+        # Commands the move resolves at call time from other modules: a mock
+        # needs one, with the real parameter names, to exist before it can
+        # replace it. Every call is mocked, so they are declarations built from
+        # text rather than functions whose parameters go unused.
+        if (-not (Get-Command Invoke-PoolStorageDrain -ErrorAction SilentlyContinue)) {
+            . ([scriptblock]::Create('function global:Invoke-PoolStorageDrain { [CmdletBinding(SupportsShouldProcess)] param($HostId, $LogDir, $RuntimeDir, [switch]$MoveLogs, [switch]$SpaceCheck) }'))
+            $script:DrainShim = $true
+        }
+        if (-not (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue)) {
+            . ([scriptblock]::Create('function global:Get-YurunaHostId { param([string]$RuntimeDir) }'))
+            $script:HostIdShim = $true
+        }
+    }
+    AfterAll {
+        if ($script:DrainShim) { Remove-Item Function:\Invoke-PoolStorageDrain -Force -ErrorAction SilentlyContinue }
+        if ($script:HostIdShim) { Remove-Item Function:\Get-YurunaHostId -Force -ErrorAction SilentlyContinue }
+    }
+    It 'reports the elapsed time even when the wall clock jumps during the move' {
+        $script:MoveClock = @{ Monotonic = 1000.0; Wall = [datetime]'2026-10-26T01:00:00Z'; Lines = [System.Collections.Generic.List[string]]::new() }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterPoolStorageModuleSet { $true }
+        Mock -ModuleName Test.RunnerOuterLoop Get-YurunaHostId { 'host-a' }
+        Mock -ModuleName Test.RunnerOuterLoop Get-OuterMonotonicTime { $script:MoveClock.Monotonic }
+        Mock -ModuleName Test.RunnerOuterLoop Get-Date { $script:MoveClock.Wall }
+        Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { $script:MoveClock.Lines.Add([string]$Message) }
+        Mock -ModuleName Test.RunnerOuterLoop Invoke-PoolStorageDrain {
+            # 42 s pass while the clock is corrected back by an hour.
+            $script:MoveClock.Monotonic += 42
+            $script:MoveClock.Wall = $script:MoveClock.Wall.AddHours(-1)
+            @{ moved = 1; deleted = 1; pending = 0; spaceShort = $false; lockBusy = $false; error = '' }
+        }
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR', 'YURUNA_RUNTIME_DIR'
+        try {
+            $env:YURUNA_LOG_DIR = Join-Path $TestDrive 'log'
+            $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'runtime'
+            $summary = Invoke-OuterPoolStorageMove -Cycle 7 -InformationAction SilentlyContinue
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+        Assert-NotNull $summary
+        $line = @($script:MoveClock.Lines | Where-Object { $_ -like '*poolStorage move:*' })
+        Assert-Equal 1 $line.Count 'one move line'
+        Assert-True ($line[0].EndsWith('in 42s')) "the line reports the elapsed move time: $($line[0])"
     }
 }

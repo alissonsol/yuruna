@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a7417f-269d-7411-6f6f-5a366471b90c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,30 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'remediation.kernel_stall_action_evidence' = 'קראו את ⁦causeDetail.guestKernelFault⁩ ואת ⁦causeDetail.guestLivelock.processorWindow⁩ ב-⁦last_failure.json⁩, ואת דיווחי הקרנל ב-⁦serial-console.log⁩ שבתיקיית האורח'
+    'remediation.kernel_stall_action_family' = 'במארח ⁦ARM64 Hyper-V⁩, קראו את הסעיף על תקיעות קרנל של האורח ב-⁦docs/host-hyperv.md⁩ (⁦https://yuruna.link/42dc5bb9-0014⁩) כדי לתארך את התקיעה ולזהות את צורתה'
+    'remediation.kernel_stall_action_rerun' = 'הריצו את הרצף ב-VM חדשה; אורח שהקרנל שלו נתקע אינו מתאושש'
+    'remediation.kernel_stall_rationale' = @(
+        'wait_timeout אצל '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': הקרנל של האורח הפסיק להתקדם (דיווחי הקרנל: '
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; מעבדים וירטואליים שלא טיפלו באף פסיקה: '
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), ולכן הסקריפט לא יכול היה להסתיים. אין זה שרת מראה איטי לחבילות, והרצה חוזרת של השלב באותו אורח לא תעזור.'
     )
     'remediation.operator_00fd2209b1a993b2' = 'בדקו את ⁦last_failure.json⁩ ידנית'
     'remediation.operator_01b3c9512f168859' = @(

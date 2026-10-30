@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e62d38-20d8-4171-9157-427b737d6f11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,7 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:CauseRepoRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
     $script:CauseRepoRoot = Split-Path -Parent $script:CauseRepoRoot
     Import-Module (Join-Path $PSScriptRoot 'Test.GitOutageFixture.psm1') -Force
@@ -29,6 +30,9 @@ BeforeAll {
     $files = & git -C $script:CauseRepoRoot ls-files --cached --others --exclude-standard -- automation globalization global host/modules test/modules test/extension test/schemas test/Test-Config.ps1 test/test.config.yml.template
     if ($LASTEXITCODE -ne 0) { throw 'Cannot enumerate validator fixture sources.' }
     foreach ($relative in $files) {
+        # A tracked file deleted in the working tree is still listed until the
+        # deletion is staged; the checkout as it stands does not have it.
+        if (-not [IO.File]::Exists((Join-Path $script:CauseRepoRoot $relative))) { continue }
         $destination = Join-Path $script:CauseRoot $relative
         $null = [IO.Directory]::CreateDirectory((Split-Path -Parent $destination))
         [IO.File]::Copy((Join-Path $script:CauseRepoRoot $relative), $destination, $true)
@@ -42,12 +46,12 @@ BeforeAll {
         $config.pool.enabled = $false
         [IO.File]::WriteAllText($configPath, (ConvertTo-Yaml $config))
         $sidecar = Join-Path $script:CauseRoot 'failure-sidecar.json'
-        $previous = $env:YURUNA_FAILURE_SIDECAR
+        $previous = Save-YurunaTestEnvironment -Name 'YURUNA_FAILURE_SIDECAR'
         try {
             $env:YURUNA_FAILURE_SIDECAR = $sidecar
             $output = & ([Environment]::ProcessPath) -NoProfile -NonInteractive -File (Join-Path $script:CauseRoot 'test/Test-Config.ps1') -ConfigPath $configPath -SkipSend 2>&1
             $exitCode = $LASTEXITCODE
-        } finally { $env:YURUNA_FAILURE_SIDECAR = $previous }
+        } finally { Restore-YurunaTestEnvironment -Saved $previous }
         if (-not (Test-Path -LiteralPath $sidecar)) { throw ("Gate wrote no sidecar (exit {0}): {1}" -f $exitCode, ($output -join "`n")) }
         return Get-Content -LiteralPath $sidecar -Raw | ConvertFrom-Json -AsHashtable
     }

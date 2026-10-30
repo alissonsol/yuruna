@@ -13,6 +13,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"pool-control-service/internal/catalog"
+	"yuruna.com/test/extension/extension-sdk/i18n"
 )
 
 func TestAcceptsGzipHonorsHTTPQualityValues(t *testing.T) {
@@ -167,6 +170,43 @@ func TestRepeatedBodiesReuseTheirExactGzipCopy(t *testing.T) {
 	for attempt := 1; attempt <= 2; attempt++ {
 		if prepared := newAsset(noisy, "application/octet-stream"); prepared.gzipBody != nil || prepared.gzipETag != "" {
 			t.Fatalf("attempt %d gave an incompressible body a gzip copy", attempt)
+		}
+	}
+}
+
+// Every delivered non-default locale is served at a content-addressed catalog
+// URL whose bytes are the embedded web/assets file: the binary carries that
+// one copy of the table, and a locale missing its file would leave its pages
+// without a catalog.
+func TestEveryDeliveredLocaleHasItsCatalogAsset(t *testing.T) {
+	var store assetStore
+	defaultTag := i18n.DefaultManifest().Default
+	for tag := range catalog.Catalogs {
+		name, ok := store.catalogName(tag)
+		if tag == defaultTag {
+			if ok {
+				t.Errorf("the default locale has catalog URL %s; its tables travel in the runtime", name)
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("delivered locale %s has no catalog URL", tag)
+			continue
+		}
+		served, ok := store.asset(name)
+		if !ok {
+			t.Errorf("catalog URL %s for %s serves nothing", name, tag)
+			continue
+		}
+		want, err := webFS.ReadFile("web/assets/" + tag + ".pool.js")
+		if err != nil {
+			t.Fatalf("delivered locale %s has no embedded asset: %v", tag, err)
+		}
+		if !bytes.Equal(served.body, want) {
+			t.Errorf("catalog URL %s does not serve the embedded web/assets/%s.pool.js bytes", name, tag)
+		}
+		if !strings.HasPrefix(name, tag+".") || !strings.HasSuffix(name, ".pool.js") || !served.immutable {
+			t.Errorf("catalog URL %s for %s is not the immutable content-addressed name", name, tag)
 		}
 	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42e19a4c-5b73-4c81-9f26-3d0a8b7e6c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,6 +145,26 @@ Describe 'the embed check tells a copy that would change from one it cannot embe
         Assert-Equal -Expected 0 -Actual $LASTEXITCODE $output
     }
 
+    It 'reports a per-locale Go copy as drift and removes it, keeping a hand-written file' {
+        $package = Join-Path $script:EmbedTree 'test/extension/stash-service/server/internal/catalog'
+        $retired = Join-Path $package 'enUS_status.go'
+        Copy-Item -LiteralPath (Join-Path $script:EmbedTree 'globalization/generated/go/catalog/enUS_status.go') -Destination $retired
+        $handWritten = Join-Path $package 'notes_kept.go'
+        [IO.File]::WriteAllText($handWritten, "package catalog`n")
+        $output = & pwsh -NoProfile -File $script:TreeEmbed -Check 2>&1 | Out-String
+        Assert-Equal -Expected 3 -Actual $LASTEXITCODE $output
+        Assert-Match -Pattern 'internal/catalog/enUS_status\.go: no longer generated' -Actual $output 'the retired copy is named'
+        Assert-True (Test-Path -LiteralPath $retired) 'a check removed a file'
+        $output = & pwsh -NoProfile -File $script:TreeEmbed 2>&1 | Out-String
+        Assert-Equal -Expected 0 -Actual $LASTEXITCODE $output
+        Assert-Match -Pattern 'internal/catalog/enUS_status\.go: removed' -Actual $output 'the removal is reported'
+        Assert-False (Test-Path -LiteralPath $retired) 'the retired copy survived the embed'
+        Assert-True (Test-Path -LiteralPath $handWritten) 'the embed removed a file the compiler did not write'
+        Remove-Item -LiteralPath $handWritten
+        $output = & pwsh -NoProfile -File $script:TreeEmbed -Check 2>&1 | Out-String
+        Assert-Equal -Expected 0 -Actual $LASTEXITCODE $output
+    }
+
     It 'exits 3 for a runtime that would change, and 1 once one is missing' {
         $runtime = Join-Path $script:EmbedTree 'test/status/yuruna.common.js'
         $text = [IO.File]::ReadAllText($runtime)
@@ -158,6 +178,57 @@ Describe 'the embed check tells a copy that would change from one it cannot embe
         $output = & pwsh -NoProfile -File $script:TreeEmbed -Check 2>&1 | Out-String
         Assert-Equal -Expected 1 -Actual $LASTEXITCODE $output
         Assert-Match -Pattern 'yuruna\.common\.js: no such runtime' -Actual $output 'the defect is named'
+    }
+}
+
+Describe 'each Go module carries one copy of each table' {
+    BeforeAll {
+        $script:GoModules = [ordered]@{
+            'test/extension/extension-sdk'                  = @{ Browser = $false; Kernel = $false; Domain = '' }
+            'test/extension/pool-control-service/server'    = @{ Browser = $false; Kernel = $false; Domain = 'pool' }
+            'test/extension/stash-service/server'           = @{ Browser = $false; Kernel = $true; Domain = 'stash' }
+            'test/extension/download-agent-service/server'  = @{ Browser = $false; Kernel = $true; Domain = 'download' }
+            'test/extension/caching-proxy-service'          = @{ Browser = $true; Kernel = $true; Domain = '' }
+            'test/extension/caching-proxy-parser-service'   = @{ Browser = $true; Kernel = $true; Domain = '' }
+            'test/extension/pool-aggregator-service'        = @{ Browser = $true; Kernel = $true; Domain = '' }
+        }
+        $manifest = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText((Join-Path $script:RepoRoot 'globalization/locale-manifest.json')))
+        $script:DefaultLocale = [string]$manifest.default
+        $script:NonDefaultLocales = @($manifest.locales.PSObject.Properties |
+            Where-Object { $_.Value.status -in @('supported', 'pseudo') -and $_.Name -cne $script:DefaultLocale } | ForEach-Object Name)
+    }
+
+    It 'gives every module its registry.go and nothing else' {
+        foreach ($module in $script:GoModules.Keys) {
+            $package = Join-Path $script:RepoRoot "$module/internal/catalog"
+            $files = @(Get-ChildItem -LiteralPath $package -File -Filter '*.go' | Where-Object { $_.Name -notlike '*_test.go' } | ForEach-Object Name)
+            Assert-Equal -Expected 'registry.go' -Actual ($files -join ', ') "$module carries a second copy of tables its registry already inlines"
+        }
+    }
+
+    It 'carries browser tables and the kernel only where the module serves them from its registry' {
+        foreach ($module in $script:GoModules.Keys) {
+            $expected = $script:GoModules[$module]
+            $text = [IO.File]::ReadAllText((Join-Path $script:RepoRoot "$module/internal/catalog/registry.go"))
+            Assert-Equal -Expected $expected.Browser -Actual ($text -match '(?m)^var BrowserCatalogs = ') "$module BrowserCatalogs"
+            Assert-Equal -Expected $expected.Kernel -Actual ($text -match '(?m)^const BrowserKernel = ') "$module BrowserKernel"
+            if ($expected.Browser) {
+                $browser = $text.Substring($text.IndexOf('var BrowserCatalogs = '))
+                $browser = $browser.Substring(0, $browser.IndexOf("`n}") + 2)
+                Assert-False ($browser -match ('(?m)^\t"' + [regex]::Escape($script:DefaultLocale) + '":')) `
+                    "$module repeats the default locale's tables, which BrowserKernel already holds"
+                foreach ($locale in $script:NonDefaultLocales) {
+                    Assert-True ($browser -match ('(?m)^\t"' + [regex]::Escape($locale) + '":')) "$module has no browser tables for $locale"
+                }
+            }
+            if ($expected.Domain) {
+                # The service reads these instead; one per delivered locale.
+                foreach ($locale in $script:NonDefaultLocales) {
+                    $asset = Join-Path $script:RepoRoot "$module/internal/httpsrv/web/assets/$locale.$($expected.Domain).js"
+                    Assert-True (Test-Path -LiteralPath $asset -PathType Leaf) "$module has no embedded catalog asset for $locale"
+                }
+            }
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 425d0d82-ebe2-4d28-90df-3b22ff1c2915
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,7 @@
     repository.
 
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-0073.
 .PARAMETER Name
     Lab name. Same charset as a pool id, so the two cannot disagree.
 .PARAMETER Root
@@ -178,7 +178,7 @@ foreach ($p in @($Root, $poolPath, $stashPath)) {
 }
 
 # --- REGION: Pool-configuration repository
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-0072
 $configurationPath = Join-Path $poolPath 'pool-configuration.git'
 # Adopt a store created under the older lab-name-derived name rather than
 # leaving its seeded history orphaned beside a fresh empty repo.

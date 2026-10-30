@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42357e45-1be3-4923-bebd-60e195c757a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -206,8 +206,7 @@ Describe 'who owns the fix for a drifted manifest' {
 
         function Invoke-FixtureGit {
             param([string]$Root, [Parameter(ValueFromRemainingArguments)][string[]]$GitArgument)
-            $output = & git -C $Root -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false @GitArgument 2>&1
-            if ($LASTEXITCODE -ne 0) { throw "git $($GitArgument -join ' ') failed: $output" }
+            $null = Invoke-YurunaTestGit -Path $Root -Argument $GitArgument
         }
 
         function Write-FixtureFile {
@@ -246,7 +245,7 @@ Describe 'who owns the fix for a drifted manifest' {
             $root = Join-Path $TestDrive ('install-manifest-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
             New-Item -ItemType Directory -Path (Join-Path $root 'install/keys') -Force | Out-Null
             Write-FixtureFile -Root $root -Relative 'install/keys/yuruna-release-signing.pub.pem' -Text $script:publicPem
-            Invoke-FixtureGit $root init -q
+            $null = New-YurunaTestGitRepository -Path $root
             return $root
         }
     }
@@ -294,9 +293,9 @@ Describe 'who owns the fix for a drifted manifest' {
         Write-SignedFixtureManifest -Root $root -ForText "echo v1`n"
         Save-FixtureCommit -Root $root -At 1700000000
         Assert-False (Test-ManifestMustVerify -Root $root) 'a private tree between releases keeps the pending re-sign as the operator step'
-        Invoke-FixtureGit -Root $root -GitArgument @('tag', '2026.10.26')
+        Invoke-FixtureGit -Root $root -GitArgument @('tag', '2026.10.30')
         Assert-True (Test-ManifestMustVerify -Root $root) 'a commit carrying a release tag is what users verify'
-        Invoke-FixtureGit -Root $root -GitArgument @('tag', '--delete', '2026.10.26')
+        Invoke-FixtureGit -Root $root -GitArgument @('tag', '--delete', '2026.10.30')
         Invoke-FixtureGit -Root $root -GitArgument @('tag', 'rollback-before-something')
         Assert-False (Test-ManifestMustVerify -Root $root) 'a tag that is not a release does not count'
         Remove-Item -LiteralPath (Join-Path $root 'dev-only') -Recurse -Force

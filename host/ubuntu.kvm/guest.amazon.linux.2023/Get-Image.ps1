@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c371c0-e0ee-4286-a715-488384b98c2a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,11 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
+# --- REGION: Failure records
+# A failure this script can name is recorded for the runner before it exits:
+# https://yuruna.link/42820e91-000a
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.HostProvision.psm1') -DisableNameChecking
+
 # --- REGION: Platform guard
 if (-not $IsLinux) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_904b146bbf0e6cc9')
@@ -48,7 +53,12 @@ $hostArch = (& uname -m).Trim()
 switch ($hostArch) {
     'x86_64'  { $platformDir = 'kvm' }
     'aarch64' { $platformDir = 'kvm-arm64' }
-    default   { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_0f55317f348115fc' -Arguments @{ hostArch = "$hostArch" }); exit 1 }
+    default   {
+        $message = Format-YurunaOperatorMessage -Key 'host.operator_0f55317f348115fc' -Arguments @{ hostArch = "$hostArch" }
+        Write-YurunaProvisionResult -Kind unsupported -Message $message
+        Write-Error $message
+        exit 1
+    }
 }
 
 # --- REGION: Configuration
@@ -151,7 +161,9 @@ $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
 try {
     $keptPrevious = Publish-YurunaBaseImage -DownloadFile $downloadFile -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $downloadedSize -Confirm:$false
 } catch {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+    $message = Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" }
+    Write-YurunaProvisionResult -Kind tool -Message $message
+    Write-Error $message
     exit 1
 }
 if ($keptPrevious) {

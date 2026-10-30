@@ -373,6 +373,41 @@ The floor covers **anonymous** callers only -- an authenticated request is
 unstorable by a shared cache regardless (see
 [Keeping tag resolution off a metered upstream](#keeping-tag-resolution-off-a-metered-upstream)).
 
+<a id="42f6b05f-005c"></a>
+
+### PowerShell Gallery packages
+
+`Install-Module` downloads a package from
+`www.powershellgallery.com/api/v2/package/<id>/<version>`, and the gallery
+answers with a 302 to `cdn.powershellgallery.com/packages/<id>.<version>.nupkg`.
+Squid stores the CDN object, but it cannot store the redirect: a 302 is kept
+only with an explicit `Expires`, and the gallery sends `Cache-Control: private`
+and none, which no `refresh_pattern` can override. Every install therefore
+asked the gallery first, and while the gallery answered that URL with 404,
+every guest's update script failed, although the package sat in the cache.
+
+A [Store ID](https://wiki.squid-cache.org/Features/StoreID) closes that gap.
+`store_id_access` sends only versioned package URLs to squid's stock
+`storeid_file_rewrite` helper, and `/etc/squid/yuruna-store-id.rules` maps each
+one to the CDN URL it redirects to, keeping the request's scheme. A stored
+package is then served for the gallery URL directly (`TCP_MEM_HIT/200` or
+`TCP_HIT/200` on the `www.powershellgallery.com` line of the access log),
+without asking the gallery. A miss still goes to the gallery, follows the
+redirect, and stores the CDN object for the next request. Versioned packages
+never change after publication, so the CDN objects get a year-long
+`refresh_pattern` like the other release artifacts.
+
+The helper copies the id as the request spells it, while the CDN names the
+file in lower case, so a package whose id has upper-case letters misses this
+mapping and keeps the redirect behavior. The rules file holds one tab-separated
+rule and no comments, because the helper reports a comment line as a parse
+error. Squid appends request details after the URL it sends the helper, so the
+rule's regex ends at whitespace or at the end of the line.
+
+A running cache adopts its existing configuration, so the rule reaches it
+when the VM is rebuilt from the seed (`Start-CachingProxyServiceVM.ps1
+-ForceRebuild`).
+
 <a id="42f6b05f-0015"></a>
 
 ### offline_mode
@@ -986,7 +1021,7 @@ contract; the dynamic guest versions are resolved instead of pinned here:
 |---|---|
 | Workload support | fixed cache route `mirror.gcr.io/library/registry:2`; direct requests are required because that upstream has no catalog |
 | Kubernetes control plane | `YURUNA_K8S_MINOR` fetched from `automation/yuruna-versions.sh` -> `dl.k8s.io/release/stable-<minor>.txt` -> `kubeadm config images list` run from the matching release binary |
-| CNI (flannel) | the `releases/latest` redirect, then the `image:` names in the `kube-flannel.yml` that tag publishes |
+| CNI (flannel) | `YURUNA_FLANNEL_VERSION` fetched from `automation/yuruna-versions.sh` (the `releases/latest` redirect only for a versions file without that pin), then the `image:` names in the `kube-flannel.yml` that tag publishes |
 
 Resolving through `kubeadm` itself is not indirection for its own sake:
 `coredns`, `pause` and `etcd` carry tags of their own, baked into the binary and
@@ -1997,13 +2032,28 @@ guest install.
 ### Rebuild, adopt-if-healthy, and the bring-up lock
 
 `Start-CachingProxyServiceVM.ps1` **adopts a healthy proxy by default** instead of
-rebuilding it. Each run probes the existing `yuruna-caching-proxy-service` VM
-(running + squid `:3128` + ssl-bump `:3129` + a valid CA cert); a healthy one
-skips the ~15-min destroy / image / New-VM / discovery and only
-re-asserts the host-side services and port maps. Pass **`-ForceRebuild`** for a
-full destroy+rebuild -- do this after a base-image or config change,
-since adopt is health-only and does not re-check the image. A half-wedged proxy
-(any probe failure) rebuilds automatically.
+rebuilding it. Each run probes the existing `yuruna-caching-proxy-service` VM at
+the address the host driver resolves now (running + squid `:3128` + ssl-bump
+`:3129` + Grafana `:3000` + a valid CA cert); a healthy one skips the ~15-min destroy / image /
+New-VM / discovery and only re-asserts the host-side services and port maps. The
+recorded address never decides on its own: DHCP can hand it to another machine,
+and a recorded address that differs from the live one is reported and replaced in
+the state file. Pass **`-ForceRebuild`** for a full destroy+rebuild -- do this
+after a base-image or config change, since adopt is health-only and does not
+re-check the image. A half-wedged proxy (any probe failure) rebuilds
+automatically.
+
+A rebuild first runs the builder with `-PlanOnly`, which checks the SSH key, the
+vault password, the seed templates and the guest network without changing
+anything; a refused plan stops the run before Step 1 tears the working proxy
+down. The builder then runs as a child under the same wall-clock bound as the
+other service builders (`YURUNA_SERVICE_VM_BUILD_TIMEOUT_SECONDS`, 90 minutes
+by default): a build that outlives it has its process tree killed and the
+start exits 124, so a wedged hypervisor call or download cannot hold the
+bring-up lock indefinitely. A seed value the builder had to bake empty is
+reported as a degraded bring-up once the proxy is ready. A stop requested
+while the rebuild runs wins: the new CA is not pushed to the pool and the start
+is not confirmed.
 
 Bring-up is serialized by a drain-style **PID+StartTime lock**
 (`caching-proxy-service.lock` plus a `.start` sidecar in the runtime dir) so the
@@ -2068,9 +2118,10 @@ Two hold profiles share the one lock, distinguished only by their timeout:
 | `portmap` (runner `Add-PortMap`) | ~1 s | Try-once (`TimeoutSeconds 0`). If a rebuild holds the lock, the runner skips this cycle's port-map -- the rebuild owns the maps and the cache is down mid-rebuild anyway -- and re-applies on the next cycle. |
 
 The adopt-or-rebuild decision itself is a pure function over the proxy VM's
-state plus a health probe, wrapped by a thin I/O layer that resolves
-`Get-VMState` / `Read-CachingProxyServiceState` / `Invoke-CachingProxyServiceProbe` at call
-time behind `Get-Command` guards, so the decision stays testable without a VM.
+state, its live address and a health probe at that address, wrapped by a thin
+I/O layer that resolves `Get-VMState` / `Get-VMIp` / `Read-CachingProxyServiceState` /
+`Invoke-CachingProxyServiceProbe` at call time behind `Get-Command` guards, so the
+decision stays testable without a VM.
 
 <a id="42f6b05f-003f"></a>
 
@@ -2446,7 +2497,7 @@ Per-port platform divergence in branch 3:
 
 | Concern | Windows | macOS |
 |---------|---------|-------|
-| Port-map atomicity | `netsh portproxy` clears all ports at once (`Clear-AllCachingProxyServicePortMapping`), so every port the host should expose must appear in every caller's list. | Per-port pidfile; callers manage subsets independently. |
+| Port-map atomicity | `Add-PortMap` replaces the forwarders the cache owns with the list it is given, so every port the host should expose for the cache must appear in every caller's list. | Per-port pidfile; callers manage subsets independently. |
 | Port 80 (Apache + CA cert) | Included in the runner's list. | Included with Grafana `:3000` -- `:80` (<1024) needs root, so a root-owned forwarder from `Start-CachingProxyServiceVM.ps1`, the only caller that pre-caches sudo, is left running and a missing one is spawned with `sudo -n`. |
 | HTTP / HTTPS forwarder shape | `host:HTTP -> VM:HTTP` / `host:HTTPS -> VM:HTTPS` via plain `netsh portproxy`. | `host:HTTP -> VM:3138` / `host:HTTPS -> VM:3139` via userspace pwsh forwarder + PROXY v1 header -- squid logs real client IPs. |
 
@@ -2466,8 +2517,9 @@ On Windows, an unevaluable uplink verdict must **fail open toward
 `$true`** -- an External vSwitch whose uplink cannot be evaluated is
 treated as bridged. The asymmetry is not stylistic. A false `$false`
 sends a bridged, healthy cache down branch 3, and `Add-PortMap` on
-Windows is clear-all-first: it tears down every Yuruna netsh mapping,
-firewall rule and forwarder before installing its own list, then
+Windows replaces the cache's forwarders: it tears down every netsh
+mapping, firewall rule and forwarder the cache owns before installing
+its own list, then
 publishes a redundant NAT path in front of a cache that already has a
 real LAN IP -- losing the real client IP branch 2 exists to preserve, so
 squid logs the host address for every LAN client. A false `$true` costs
@@ -3002,6 +3054,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

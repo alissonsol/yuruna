@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c2d0d8-c106-b59d-ed6c-999acd933ce0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,30 @@
             'trust' = 'external'
         }
         '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'remediation.kernel_stall_action_evidence' = '[!‮Řéáď causeDetail.guestKernelFault áñď causeDetail.guestLivelock.processorWindow íñ last_failure.json, áñď ţħé ķéřñéļ''š řéƥóřţš íñ ţħé ğúéšţ ƒóļďéř''š serial-console.log‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'remediation.kernel_stall_action_family' = '[!‮Óñ ţħé ÁŘⱮ64 Ħýƥéř-Ṽ ħóšţ, řéáď ţħé ğúéšţ ķéřñéļ ŵéďğéš šéçţíóñ óƒ ďóçš/host-hyperv.md (https://yuruna.link/42dc5bb9-0014) ţó ďáţé ţħé ŵéďğé áñď ţéļļ íţš šħáƥé‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'remediation.kernel_stall_action_rerun' = '[!‮Řúñ ţħé šéʠúéñçé óñ á ñéŵ ṼⱮ; á ğúéšţ ŵħóšé ķéřñéļ ŵéďğéď ďóéš ñóţ řéçóṽéř‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'remediation.kernel_stall_rationale' = @(
+        '[!‮ŵáíţ_ţíɱéóúţ óñ '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': ţħé ğúéšţ ķéřñéļ šţóƥƥéď ɱáķíñğ ƥřóğřéšš (ķéřñéļ řéƥóřţš: '
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; ṽířţúáļ ƥřóçéššóřš ţħáţ šéřṽíçéď ñó íñţéřřúƥţ: '
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), šó ţħé šçříƥţ çóúļď ñóţ ƒíñíšħ. Ţħíš íš ñóţ á šļóŵ ƥáçķáğé ɱířřóř, áñď řé-řúññíñğ ţħé šţéƥ óñ ţħé šáɱé ğúéšţ çáññóţ ħéļƥ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'remediation.operator_00fd2209b1a993b2' = '[!‮íñšƥéçţ last_failure.json ɱáñúáļļý‬ ~~~~~~~~~~~~~~]'
     'remediation.operator_01b3c9512f168859' = @(

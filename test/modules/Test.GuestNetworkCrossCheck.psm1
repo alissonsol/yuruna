@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4267ee73-f58a-4dfa-94f2-3b782d20040d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -109,7 +109,10 @@ function Test-GuestNetworkCrossCheckHttp {
         $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -NoProxy -TimeoutSec $TimeoutSec -ErrorAction Stop
         $result.status = [int]$response.StatusCode
         $result.ok = $true
-        $content = [string]$response.Content
+        # A response without a text Content-Type, such as the proxy's
+        # cache-health page, arrives as bytes, and a [string] cast of a byte
+        # array lists the byte values.
+        $content = if ($response.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($response.Content) } else { [string]$response.Content }
         if ($content) {
             $first = (($content -split "`r?`n")[0]).Trim()
             if ($first.Length -gt 200) { $first = $first.Substring(0, 200) }

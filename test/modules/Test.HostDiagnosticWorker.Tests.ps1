@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 426b2ade-32fc-41ee-bab9-d00d395635bd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,8 +77,7 @@ function Invoke-DiagnosticWorker {
     )
     $workDir = if ($WorkDirectory) { $WorkDirectory } else { $Scratch.WorkDirectory }
     $script = if ($DiagnosticScriptPath) { $DiagnosticScriptPath } else { $Scratch.Diagnostic }
-    $saved = @{}
-    foreach ($name in @('HOME', 'USERPROFILE', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR', 'YURUNA_DIAGNOSTIC_WORKER_PATH')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+    $saved = Save-YurunaTestEnvironment -Name @('HOME', 'USERPROFILE', 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR', 'YURUNA_DIAGNOSTIC_WORKER_PATH')
     try {
         # Windows derives the home directory from USERPROFILE, not HOME.
         $env:HOME = $Scratch.Home
@@ -109,10 +108,7 @@ exit $LASTEXITCODE
             -WorkDirectory $workDir -WorkingDirectory $Scratch.Root -TimeoutSeconds $TimeoutSeconds -MaxReportChars 65536 -MaxReportBytes $MaxReportBytes 2>&1 | Out-String
         $code = $LASTEXITCODE
     } finally {
-        foreach ($name in $saved.Keys) {
-            if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
-            else { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
-        }
+        Restore-YurunaTestEnvironment -Saved $saved
     }
     $state = $null
     $statePath = Join-Path $Scratch.WorkDirectory 'state.json'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b98737-f5a4-45fd-a853-c26c9d97ec84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ $script:HOSTB = '42512149e3dc437ca677a40828382528'
 $KvmModule    = Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
 $script:UtmModule    = Join-Path $repoRoot 'host/macos.utm/modules/Yuruna.Host.psm1'
 $script:HyperVModule = Join-Path $repoRoot 'host/windows.hyper-v/modules/Yuruna.Host.psm1'
-$KvmText      = Get-Content -Raw -LiteralPath $KvmModule
+$KvmText      = Get-YurunaTestSourceText -Path $KvmModule
 
 # Define the KVM rewriter and its reader from their own source so the behavior
 # asserted below is the shipped one, without importing a module that expects a
@@ -105,7 +105,7 @@ function Get-BuilderSourceText {
     $module = Join-Path $hostRoot 'modules/Yuruna.Host.psm1'
     foreach ($name in @('New-UtmServiceBundleConfiguration', 'New-HyperVServiceGuest', 'New-KvmServiceDomain')) {
         if ($text -notmatch [regex]::Escape($name) -or -not (Test-Path -LiteralPath $module)) { continue }
-        $ast = [Management.Automation.Language.Parser]::ParseFile($module, [ref]$null, [ref]$null)
+        $ast = Get-YurunaTestFileAst -Path $module
         $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
         if ($definition) { $text += "`n" + $definition.Extent.Text }
     }
@@ -225,7 +225,7 @@ Describe 'Get-YurunaHostMacSeed -- what the host half is keyed on' {
         # exact behavior this mechanism exists to remove -- and it would do so
         # silently, on precisely the hosts that have not finished a cycle yet.
         Mock Test-Path -ModuleName Yuruna.Common { $false } -ParameterFilter { $LiteralPath -like '*host.uuid' }
-        $saved = $env:YURUNA_RUNTIME_DIR
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = (Join-Path ([System.IO.Path]::GetTempPath()) ('mac-' + [guid]::NewGuid().ToString('N').Substring(0, 8)))
             $first = Get-YurunaHostMacSeed
@@ -233,10 +233,10 @@ Describe 'Get-YurunaHostMacSeed -- what the host half is keyed on' {
             foreach ($i in 1..5) {
                 Assert-Equal -Expected $first -Actual (Get-YurunaHostMacSeed) -Because 'fallback seed is stable across calls'
             }
-        } finally { $env:YURUNA_RUNTIME_DIR = $saved }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
     It 'reads the host id from runtime/host.uuid when one is present' {
-        $saved = $env:YURUNA_RUNTIME_DIR
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('mac-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
         try {
             New-Item -ItemType Directory -Force -Path $tmp | Out-Null
@@ -246,7 +246,7 @@ Describe 'Get-YurunaHostMacSeed -- what the host half is keyed on' {
             Assert-Equal -Expected (Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTB) `
                          -Actual  (Get-YurunaGuestMacAddress -VMName $script:VM1) -Because 'resolved seed matches an explicit one'
         } finally {
-            $env:YURUNA_RUNTIME_DIR = $saved
+            Restore-YurunaTestEnvironment -Saved $saved
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -370,7 +370,7 @@ Describe 'a rename releases the name it vacates, and nothing else' {
         # UTM reads config.plist when it loads a VM and holds that copy for the
         # life of the app, so a write while it holds the VM changes the file and
         # not the running configuration.
-        $body = [regex]::Match((Get-Content -Raw -LiteralPath $script:UtmModule), '(?ms)^function Rename-VM\b.*?\n\}').Value
+        $body = [regex]::Match((Get-YurunaTestSourceText -Path $script:UtmModule), '(?ms)^function Rename-VM\b.*?\n\}').Value
         Assert-True ($body -match 'Set-GuestMacInBundle') 'the rename re-pins the NIC'
         # The quit and the relaunch are the UTM stop and start primitives.
         $quitAt   = $body.IndexOf('Stop-UtmApplication')
@@ -380,7 +380,7 @@ Describe 'a rename releases the name it vacates, and nothing else' {
         Assert-True ($reopenAt -gt $macAt) 'and relaunched after, so it loads the new value'
     }
     It 'is applied by the Hyper-V rename, after the VM answers to the new name' {
-        $body = [regex]::Match((Get-Content -Raw -LiteralPath $script:HyperVModule), '(?ms)^function Rename-VM\b.*?\n\}').Value
+        $body = [regex]::Match((Get-YurunaTestSourceText -Path $script:HyperVModule), '(?ms)^function Rename-VM\b.*?\n\}').Value
         Assert-True ($body -match 'StaticMacAddress') 'the rename re-pins the NIC'
         $renameAt = $body.IndexOf('Hyper-V\Rename-VM -Name')
         $macAt    = $body.IndexOf('StaticMacAddress')
@@ -390,7 +390,7 @@ Describe 'a rename releases the name it vacates, and nothing else' {
         # Deriving from $VMName would re-pin the address the guest already has:
         # a no-op that reads like a fix.
         foreach ($m in @($KvmModule, $script:UtmModule, $script:HyperVModule)) {
-            $ast = [Management.Automation.Language.Parser]::ParseFile($m, [ref]$null, [ref]$null)
+            $ast = Get-YurunaTestFileAst -Path $m
             $renameName = if ($m -eq $KvmModule) { 'Complete-KvmDomainRename' } else { 'Rename-VM' }
             $rename = $ast.Find({ param($node)
                     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $renameName
@@ -401,12 +401,23 @@ Describe 'a rename releases the name it vacates, and nothing else' {
                 }, $true))
             Assert-Equal -Expected 1 -Actual $commands.Count -Because 'the rename writes one primary NIC address'
             $line = $commands[0].Extent.Text
-            $destinationReferences = @($commands[0].FindAll({ param($node)
-                    $node -is [Management.Automation.Language.VariableExpressionAst] -and
-                    $node.VariablePath.UserPath -ceq 'NewName'
+            $where = Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $m))
+            # The address written is the one resolved for the destination name.
+            $resolved = @($rename.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+                    $node.Left.Extent.Text -ceq '$renameMac' -and $node.Right.Extent.Text -match 'Resolve-YurunaRenameMac\b.*-NewName\s+\$NewName\b'
                 }, $true))
-            Assert-True ($destinationReferences.Count -gt 0) "in $(Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $m))): '$line' must key on the destination name"
+            Assert-Equal -Expected 1 -Actual $resolved.Count -Because "in ${where}: the address comes from Resolve-YurunaRenameMac for the destination name"
+            $written = @($commands[0].FindAll({ param($node)
+                    $node -is [Management.Automation.Language.VariableExpressionAst] -and
+                    $node.VariablePath.UserPath -ceq 'renameMac'
+                }, $true))
+            Assert-True ($written.Count -gt 0) "in ${where}: '$line' must write the address resolved for the destination name"
         }
+        # And the resolution itself derives a moved address from the destination.
+        $common = Get-YurunaTestFileAst -Path (Join-Path $repoRoot 'automation/Yuruna.Common.psm1')
+        $resolveFn = $common.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Resolve-YurunaRenameMac' }, $true)
+        Assert-True ($resolveFn.Extent.Text -match 'Get-YurunaGuestMacAddress -VMName \$NewName') 'a moved address is the one the destination name derives'
     }
     It 'reads the same first NIC the rewrite would replace' {
         Assert-Equal -Expected '52:54:00:aa:bb:cc' `
@@ -423,17 +434,79 @@ Describe 'a rename releases the name it vacates, and nothing else' {
         foreach ($m in @($KvmModule, $script:UtmModule, $script:HyperVModule)) {
             $where = Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $m))
             $renameName = if ($m -eq $KvmModule) { 'Complete-KvmDomainRename' } else { 'Rename-VM' }
-            $body  = [regex]::Match((Get-Content -Raw -LiteralPath $m), "(?ms)^function $renameName\b.*?\n\}").Value
-            $guardAt = $body.IndexOf('Test-YurunaGuestMacMatchesName')
+            $body  = [regex]::Match((Get-YurunaTestSourceText -Path $m), "(?ms)^function $renameName\b.*?\n\}").Value
+            $guardAt = $body.IndexOf('Resolve-YurunaRenameMac')
             Assert-True ($guardAt -ge 0) "in ${where}: the rename must ask before it rewrites"
-            $guardLine = @($body -split "`n" | Where-Object { $_ -match 'Test-YurunaGuestMacMatchesName' })[0]
+            $guardLine = @($body -split "`n" | Where-Object { $_ -match 'Resolve-YurunaRenameMac' })[0]
             Assert-True ($guardLine -match '-VMName\s+\$VMName') `
                 "in ${where}: the guard must key on the OUTGOING name -- that is the address being vacated"
             $setterAt = @(@($body.IndexOf('Set-GuestMacInDomainXml -DomainXml $newXmlText'),
                             $body.IndexOf('Set-GuestMacInBundle -VMName'),
                             $body.IndexOf('-StaticMacAddress')) | Where-Object { $_ -ge 0 })[0]
             Assert-True ($setterAt -gt $guardAt) "in ${where}: the rewrite must come after the question, not before it"
+            $recordAt = $body.IndexOf('Register-YurunaRenameMac')
+            Assert-True ($recordAt -gt $setterAt) "in ${where}: what the rename left on the NIC is recorded after it is written, for the rename that undoes it"
         }
+        # The question is still the one about the outgoing name.
+        $common = Get-YurunaTestFileAst -Path (Join-Path $repoRoot 'automation/Yuruna.Common.psm1')
+        $resolveFn = $common.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Resolve-YurunaRenameMac' }, $true)
+        Assert-True ($resolveFn.Extent.Text -match 'Test-YurunaGuestMacMatchesName -MacAddress \$MacAddress -VMName \$VMName') `
+            'Resolve-YurunaRenameMac asks whose address the NIC is on by the OUTGOING name'
+    }
+}
+
+Describe 'a rename back restores the address the VM carried under that name' {
+    # A snapshot save renames its guest to the snapshot id and renames it back
+    # when the snapshot fails. The rename rule is not its own inverse: a guest
+    # pinned to an identity equal to the name it was promoted to keeps its
+    # address on the way in, and on the way back carries exactly the address the
+    # name being left derives.
+    BeforeEach {
+        $ledger = Get-Variable -Name 'YurunaRenameMacLedger' -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+        if ($ledger) { $ledger.Clear() }
+        $script:Promoted = 'amisad-build'
+    }
+
+    It 'keeps a guest pinned to its promoted identity on its own address, there and back' {
+        $own = Get-YurunaGuestMacAddress -VMName $script:Promoted -HostId $script:HOSTA
+        Assert-True (Test-YurunaGuestMacMatchesName -MacAddress $own -VMName $script:Promoted -HostId $script:HOSTA) `
+            'precondition: on the way back the rule alone would move this address'
+        Assert-Equal -Expected '' -Actual (Resolve-YurunaRenameMac -MacAddress $own -VMName $script:VM1 -NewName $script:Promoted -HostId $script:HOSTA) -Because 'promotion leaves an identity-pinned address alone'
+        Register-YurunaRenameMac -VMName $script:VM1 -NewName $script:Promoted -Before $own -After $own
+        Assert-Equal -Expected '' -Actual (Resolve-YurunaRenameMac -MacAddress $own -VMName $script:Promoted -NewName $script:VM1 -HostId $script:HOSTA) -Because 'undoing it must not move the address either'
+    }
+    It 'returns a slot-pinned guest to the slot address when its promotion is undone' {
+        $slot = Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA
+        $promoted = Resolve-YurunaRenameMac -MacAddress $slot -VMName $script:VM1 -NewName $script:Promoted -HostId $script:HOSTA
+        Assert-Equal -Expected (Get-YurunaGuestMacAddress -VMName $script:Promoted -HostId $script:HOSTA) -Actual $promoted -Because 'the slot address follows the slot'
+        Register-YurunaRenameMac -VMName $script:VM1 -NewName $script:Promoted -Before $slot -After $promoted
+        Assert-Equal -Expected $slot -Actual (Resolve-YurunaRenameMac -MacAddress $promoted -VMName $script:Promoted -NewName $script:VM1 -HostId $script:HOSTA)
+    }
+    It 'restores an address it did not derive, in canonical form and without a warning' {
+        Register-YurunaRenameMac -VMName $script:VM1 -NewName $script:Promoted -Before '00155d0a0b0c' -After '42:A1:B2:C3:D4:E5'
+        $restored = Resolve-YurunaRenameMac -MacAddress '42a1b2c3d4e5' -VMName $script:Promoted -NewName $script:VM1 -HostId $script:HOSTA -WarningAction Stop
+        Assert-Equal -Expected '00:15:5D:0A:0B:0C' -Actual $restored
+    }
+    It 'falls back to the rule when the NIC changed since the rename it would undo' {
+        $slot = Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA
+        Register-YurunaRenameMac -VMName $script:VM1 -NewName $script:Promoted -Before $slot -After '42:A1:B2:C3:D4:E5'
+        $own = Get-YurunaGuestMacAddress -VMName $script:Promoted -HostId $script:HOSTA
+        Assert-Equal -Expected $slot -Actual (Resolve-YurunaRenameMac -MacAddress $own -VMName $script:Promoted -NewName $script:VM1 -HostId $script:HOSTA) `
+            -Because 'the record no longer describes this NIC, so the address the outgoing name derives follows the name'
+    }
+    It 'spends a record once it has been undone' {
+        $own = Get-YurunaGuestMacAddress -VMName $script:Promoted -HostId $script:HOSTA
+        Register-YurunaRenameMac -VMName $script:VM1 -NewName $script:Promoted -Before $own -After $own
+        Register-YurunaRenameMac -VMName $script:Promoted -NewName $script:VM1 -Before $own -After $own
+        $ledger = Get-Variable -Name 'YurunaRenameMacLedger' -Scope Global -ValueOnly
+        Assert-True (-not $ledger.ContainsKey("$($script:VM1)|$($script:Promoted)")) 'the forward record is spent by the rename back'
+        Assert-True ($ledger.ContainsKey("$($script:Promoted)|$($script:VM1)")) 'and the rename back is now the one a later undo would reverse'
+    }
+    It 'keeps its records across a forced re-import of the module' {
+        $own = Get-YurunaGuestMacAddress -VMName $script:Promoted -HostId $script:HOSTA
+        Register-YurunaRenameMac -VMName $script:VM1 -NewName $script:Promoted -Before $own -After $own
+        Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+        Assert-Equal -Expected '' -Actual (Resolve-YurunaRenameMac -MacAddress $own -VMName $script:Promoted -NewName $script:VM1 -HostId $script:HOSTA)
     }
 }
 

@@ -50,7 +50,7 @@ type Result struct {
 type Detector interface {
 	// DetectFile classifies the artifact at path. originalFilename is the
 	// client-supplied name (its extension is a secondary hint, never
-	// authoritative per section 6.1). A read error yields a best-effort "other"
+	// authoritative, https://yuruna.link/429e934f-0016). A read error yields a best-effort "other"
 	// result rather than failing the caller.
 	DetectFile(path, originalFilename string) Result
 }
@@ -98,7 +98,7 @@ func Classify(head []byte, originalFilename string) Result {
 		mt = strings.TrimSpace(http.DetectContentType(head))
 	}
 	// Strip any "; charset=..." parameter for the stored mimeType + class
-	// decision; the raw endpoint re-adds charset for text (section 7.3).
+	// decision; the raw endpoint re-adds charset for text (https://yuruna.link/429e934f-0017).
 	base := mt
 	if i := strings.IndexByte(base, ';'); i >= 0 {
 		base = strings.TrimSpace(base[:i])
@@ -145,11 +145,11 @@ func mimeFromExtension(name string) string {
 		return "text/csv"
 	case ".svg":
 		// SVG is image/svg+xml but the UI treats it as download-only active
-		// content (section 7.4); ClassFromMime maps it to "other" deliberately.
+		// content (https://yuruna.link/429e934f-0017); ClassFromMime maps it to "other" deliberately.
 		return "image/svg+xml"
 	case ".html", ".htm":
 		// Pinned (not registry-dependent) so HTML is reliably classed
-		// "other" / download-only on every platform (section 7.4).
+		// "other" / download-only on every platform (https://yuruna.link/429e934f-0017).
 		return "text/html"
 	case ".xhtml":
 		return "application/xhtml+xml"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421fc09f-36ed-4d1d-872e-0167bfb4583f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1530,6 +1530,7 @@ The document is round-tripped rather than templated, because test.config.yml is 
 function Set-LocalLabStorageConfigValue {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Read inside the block handed to Use-TestConfigLock, which the rule does not follow.')]
     param(
         [Parameter(Mandatory)][string]$ConfigPath,
         [Parameter(Mandatory)][object[]]$Tier,
@@ -1543,26 +1544,31 @@ function Set-LocalLabStorageConfigValue {
         return $false
     }
     try {
-        $doc = $null
-        if (Test-Path -LiteralPath $ConfigPath) {
-            $doc = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Yaml -Ordered
-        }
-        if (-not ($doc -is [System.Collections.IDictionary])) { $doc = [ordered]@{} }
-        if (-not ($doc['networkStorage'] -is [System.Collections.IDictionary])) { $doc['networkStorage'] = [ordered]@{} }
-        $ns = $doc['networkStorage']
-        foreach ($t in $Tier) {
-            $ns["$($t.ConfigPrefix)NetworkPath"] = $t.NetworkPath
-            $ns["$($t.ConfigPrefix)NetworkUser"] = $t.Account
-            $ns["$($t.ConfigPrefix)LocalPath"]   = $t.LocalPath
-        }
-        if (@($Tier | Where-Object { $_.ConfigPrefix -eq 'poolStorage' }).Count -gt 0) {
-            $ns['moveLogsToPoolStorage'] = [bool]$MoveLogs
-        }
-        # A leftover deprecated kill switch is dropped as the document is rewritten,
-        # so a host configured here does not keep tripping the config-gate advisory.
-        if ($doc['pool'] -is [System.Collections.IDictionary]) { $doc['pool'].Remove('networkReplicate') }
         Import-Module (Join-Path $PSScriptRoot 'Test.ConfigSync.psm1') -Global -DisableNameChecking
-        if (-not (Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $doc -Confirm:$false)) { return $false }
+        # Read and write under the config's write lock, so another writer's
+        # change cannot land between them and be lost.
+        $written = Use-TestConfigLock -Path $ConfigPath -Action {
+            $doc = $null
+            if (Test-Path -LiteralPath $ConfigPath) {
+                $doc = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Yaml -Ordered
+            }
+            if (-not ($doc -is [System.Collections.IDictionary])) { $doc = [ordered]@{} }
+            if (-not ($doc['networkStorage'] -is [System.Collections.IDictionary])) { $doc['networkStorage'] = [ordered]@{} }
+            $ns = $doc['networkStorage']
+            foreach ($t in $Tier) {
+                $ns["$($t.ConfigPrefix)NetworkPath"] = $t.NetworkPath
+                $ns["$($t.ConfigPrefix)NetworkUser"] = $t.Account
+                $ns["$($t.ConfigPrefix)LocalPath"]   = $t.LocalPath
+            }
+            if (@($Tier | Where-Object { $_.ConfigPrefix -eq 'poolStorage' }).Count -gt 0) {
+                $ns['moveLogsToPoolStorage'] = [bool]$MoveLogs
+            }
+            # A leftover deprecated kill switch is dropped as the document is rewritten,
+            # so a host configured here does not keep tripping the config-gate advisory.
+            if ($doc['pool'] -is [System.Collections.IDictionary]) { $doc['pool'].Remove('networkReplicate') }
+            [bool](Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $doc -Writer 'lab-storage' -Confirm:$false)
+        }
+        if (-not $written) { return $false }
         if (Get-Command Clear-TestConfigCache -ErrorAction SilentlyContinue) { Clear-TestConfigCache }
         return $true
     } catch {

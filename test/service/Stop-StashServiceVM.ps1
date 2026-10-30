@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4234ee0c-21ea-43ed-ad32-56a9835e71aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
+.TAGS yuruna stash service extension service
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -25,7 +25,7 @@
     record so the host clears from the dashboard's Extension hosts table. Then
     tears down the stash-service VM and every file it owns -- the registry/domain
     entry, the copied disk image, the cloud-init seed, and (UTM) the .utm bundle
-    -- so the next Start rebuilds from a clean slate with no leftover VM files.
+    -- so the next Start rebuilds from a clean slate.
 
     The durable stash data is untouched: received files, the per-artifact
     sidecar records, and the persisted SSH host key live on the NAS stash
@@ -37,6 +37,9 @@
     but deleting the disk then discards anything still buffered locally --
     the same caveat as any reimage. Committed (on-share) artifacts and their
     sidecars are durable. See https://yuruna.link/42f5e921.
+
+    The Go service posts an active:false beacon goodbye on SIGTERM/exit, so the
+    aggregator's Extension-hosts row clears from both paths.
 .PARAMETER VMName
     Name of the stash-service VM. Default: yuruna-stash-service.
 .EXAMPLE

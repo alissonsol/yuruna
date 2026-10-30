@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://yuruna.com/schema/yuruna.locale-manifest/v1",
+  "title": "Yuruna locale manifest",
+  "description": "The runtime languages of one version: which locales exist and whether a request may resolve to them, how each one writes numbers and chooses plural forms, the aliases a request tag may arrive as, and the bounds on a tag and an Accept-Language header. The catalog compiler, the embed and the PowerShell resolver read it, so a locale entry carries everything all three need, even while it is only planned.",
+  "type": "object",
+  "required": ["schema", "default", "locales"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "yuruna.locale-manifest/v1" },
+    "default": { "$ref": "#/definitions/tag" },
+    "locales": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/definitions/tag" },
+      "additionalProperties": { "$ref": "#/definitions/locale" }
+    },
+    "aliases": {
+      "description": "A request tag, in any case, mapped to the declared locale it resolves to.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/definitions/tag" },
+      "additionalProperties": { "$ref": "#/definitions/tag" }
+    },
+    "pluralRules": {
+      "description": "Each pinned plural rule by name, with what it selects in words.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/definitions/ruleName" },
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "pluralRuleSources": {
+      "description": "Where a pinned rule was transcribed from.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/definitions/ruleName" },
+      "additionalProperties": { "type": "string", "pattern": "^https://" }
+    },
+    "pluralRulesNote": { "type": "string" },
+    "numberFormatNote": { "type": "string" },
+    "maxTagLength": { "type": "integer", "minimum": 2 },
+    "maxHeaderLength": { "type": "integer", "minimum": 1 }
+  },
+  "definitions": {
+    "tag": {
+      "type": "string",
+      "maxLength": 35,
+      "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+    },
+    "ruleName": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "locale": {
+      "type": "object",
+      "required": ["status", "direction", "pluralCategories", "pluralRule", "numberFormat"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "description": "supported: a request may resolve to it. planned: its data exists for review but no request resolves to it. pseudo: a developer check, selectable only where a deployment allows it.",
+          "enum": ["supported", "planned", "pseudo"]
+        },
+        "direction": { "enum": ["ltr", "rtl"] },
+        "displayName": { "type": "string", "minLength": 1 },
+        "pluralCategories": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["zero", "one", "two", "few", "many", "other"] },
+          "contains": { "const": "other" }
+        },
+        "pluralRule": {
+          "description": "The pinned rule's name, or null while none is pinned; every runtime refuses a locale whose rule is null rather than borrowing another locale's.",
+          "oneOf": [
+            { "$ref": "#/definitions/ruleName" },
+            { "type": "null" }
+          ]
+        },
+        "numberFormat": {
+          "type": "object",
+          "required": ["group", "decimal", "groupSize"],
+          "additionalProperties": false,
+          "properties": {
+            "group": { "type": "string", "maxLength": 4 },
+            "decimal": { "type": "string", "minLength": 1, "maxLength": 4 },
+            "groupSize": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    }
+  }
+}

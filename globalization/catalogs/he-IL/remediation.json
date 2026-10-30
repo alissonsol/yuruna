@@ -353,6 +353,26 @@
       "origin": "machine",
       "message": "אם התהליך נתקע באותה כתובת URL בכל מחזור, התייחסו לכך כהשבתה של שרת מראה במעלה הזרם ולא כתקלה באורח"
     },
+    "remediation.kernel_stall_rationale": {
+      "sourceHash": "e9aa8c942efc7b34d59aeb67acbdfd54bc6ae9645a970508b668db219d9174dc",
+      "origin": "machine",
+      "message": "wait_timeout אצל {vmName}: הקרנל של האורח הפסיק להתקדם (דיווחי הקרנל: {kinds}; מעבדים וירטואליים שלא טיפלו באף פסיקה: {processors}), ולכן הסקריפט לא יכול היה להסתיים. אין זה שרת מראה איטי לחבילות, והרצה חוזרת של השלב באותו אורח לא תעזור."
+    },
+    "remediation.kernel_stall_action_evidence": {
+      "sourceHash": "5fa423c83aadf31eb0f23ca7017c22e9b04a0225bd96e29c182eb5ba32eb3d96",
+      "origin": "machine",
+      "message": "קראו את ⁦causeDetail.guestKernelFault⁩ ואת ⁦causeDetail.guestLivelock.processorWindow⁩ ב-⁦last_failure.json⁩, ואת דיווחי הקרנל ב-⁦serial-console.log⁩ שבתיקיית האורח"
+    },
+    "remediation.kernel_stall_action_rerun": {
+      "sourceHash": "e8d0fcfb6d2b3739e4a5083dd4fd46078ec67e9b8dd074aee86282589b74d5b9",
+      "origin": "machine",
+      "message": "הריצו את הרצף ב-VM חדשה; אורח שהקרנל שלו נתקע אינו מתאושש"
+    },
+    "remediation.kernel_stall_action_family": {
+      "sourceHash": "e2a3feb409c0b4ce6e61bfefcf9400aa63b6d6d38cc23d4a8bf8b024f556e05b",
+      "origin": "machine",
+      "message": "במארח ⁦ARM64 Hyper-V⁩, קראו את הסעיף על תקיעות קרנל של האורח ב-⁦docs/host-hyperv.md⁩ (⁦https://yuruna.link/42dc5bb9-0014⁩) כדי לתארך את התקיעה ולזהות את צורתה"
+    },
     "remediation.operator_14bd8c7afa68b453": {
       "sourceHash": "05dcbb72a698ca93ef9250896aa6ccc3db179dfa9cf9eb897abbb7e8a5175191",
       "origin": "machine",

@@ -326,6 +326,48 @@ These are distinct from `autoinstall.ssh` above (subiquity's
 installer-side SSH config), which leaves `authorized-keys` / `install-server`
 intact.
 
+<a id="429f3d06-009d"></a>
+
+### Recreate lost SSH host keys
+
+*(autoinstall, ubuntu.server.24 and .26)*
+
+```
+[Unit]
+Description=Recreate missing or empty SSH host keys
+ConditionPathIsReadWrite=/etc/ssh
+Before=ssh.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+
+[Install]
+WantedBy=ssh.service
+```
+
+cloud-init's `cc_ssh` deletes the host keys and writes new ones on the
+installed system's first boot. A guest that stalls within seconds of
+that write and is then powered off hard, which is what the cold restart
+that rescues a stalled first boot does, can come back with the new key
+files empty or absent: ext4 can commit the files' metadata, and
+cloud-init's marker that the module ran, before it writes their
+contents. cloud-init never runs the module again for that instance,
+and every later start of sshd fails with
+`sshd: no hostkeys available -- exiting.` Nothing in the guest repairs
+that. openssh-server's own `sshd-keygen.service` (Ubuntu 26.04) runs only
+on a systemd first boot, which the installed system never has because the
+installer writes its machine ID, and Ubuntu 24.04 ships no such unit.
+
+`ssh-keygen -A` creates only the key types that are missing or empty, so
+on a healthy guest the unit changes nothing. `WantedBy=ssh.service` with
+`Before=ssh.service` puts it ahead of every sshd start: at boot, when
+`ssh.socket` takes a connection, and on `systemctl start`. It carries no
+`RemainAfterExit=`, so it goes inactive when it exits and every later
+start of the service runs it again. Regenerated keys have new
+fingerprints, so a host-key pin recorded before the loss reports a
+mismatch instead of connecting.
+
 <a id="429f3d06-0010"></a>
 
 ### LVM sizing policy
@@ -2234,7 +2276,7 @@ Enable the timer that keeps the Yuruna hosts dashboard's per-host panels sized t
 
 ### Install community Zot dashboard
 
-Install the community Zot dashboard (Grafana ID 20501) alongside the hand-crafted Yuruna caching-proxy-service dashboard. The write_files rewriter (see "Grafana dashboard rewriter" above) pins it to yuruna-prometheus with a stable uid and a friendly title, so re-runs are idempotent. The dashboard provisioner under /etc/grafana/provisioning/dashboards/yuruna.yaml picks the file up on its next 30s tick. The `else` branch keeps cycling: a transient grafana.com outage degrades to "missing extra dashboard" rather than failing the whole runcmd phase.
+Install the community Zot dashboard (Grafana ID 20501) alongside the hand-crafted Yuruna caching-proxy-service dashboard. The seed fetches one reviewed revision (2) and checks it against a pinned SHA-256 before the rewriter runs, because the rewriter patches upstream panel ids that a later revision may renumber; adopting a new revision means reviewing the rewriter against it and updating both the revision and the digest. The write_files rewriter (see "Grafana dashboard rewriter" above) pins it to yuruna-prometheus with a stable uid and a friendly title, so re-runs are idempotent. The dashboard provisioner under /etc/grafana/provisioning/dashboards/yuruna.yaml picks the file up on its next 30s tick. The `else` branch keeps cycling: a grafana.com outage or a digest mismatch degrades to "missing extra dashboard" rather than failing the whole runcmd phase, and the dashboard stays missing until the VM is rebuilt (runcmd runs once per instance).
 
 <a id="429f3d06-007d"></a>
 
@@ -2629,6 +2671,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

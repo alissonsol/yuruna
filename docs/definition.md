@@ -244,7 +244,13 @@ dead cycle rather than a degraded one. So `resolve_fetch_source` tries to
 `yuruna-host-locate` probes the coordinate this guest already holds and
 consults the pool directory only once that has gone dead, so the common path
 costs a single LAN round trip -- which is what makes it affordable in front of
-every fetch. It is seeded by cloud-init and never fetched over the network, so
+every fetch. A guest seeded with its host's guest-channel key
+(`/etc/yuruna/guest-channel.key`) sends a fresh nonce and accepts a status
+service only when it answers with the key's HMAC for this guest's host id, so
+neither a stale address nor a directory answer can hand it to another
+responder; the plain probe of the seeded address that follows a failed resolve
+is held to the same check. A guest built before the key existed has no file and
+probes as before. The resolver itself is seeded by cloud-init and never fetched over the network, so
 unlike the retry library it needs no digest of its own; the block is guarded
 on the file being readable, so a guest imaged before the resolver existed
 resolves exactly as it always did.
@@ -536,20 +542,27 @@ scheme so framework + project URLs are NOT duplicated across them:
 `GH_TOKEN` -- that name is a `gh(1)` convention, not a git one. A bare
 `git clone https://github.com/owner/private-repo` therefore prompts for a
 username, which hangs an unattended guest (or fails outright under
-`GIT_TERMINAL_PROMPT=0`). What makes the clone work is `GIT_ASKPASS`: the
-seed installs a shim at `/usr/local/lib/yuruna/git-askpass.sh` (Windows:
-`C:\ProgramData\yuruna\git-askpass.cmd`) that answers git's credential
-prompts with the token, and exports `GH_TOKEN` + `GIT_ASKPASS` +
-`GIT_TERMINAL_PROMPT=0` into the guest's shell environment. Every
-`clone` / `fetch` / `pull` then authenticates with no change at any call
-site. The shim answers only a prompt for `github.com`; any other remote gets
-an empty answer, so a project that clones from another host never receives
-the token. On Linux guests the token lives in
-`~/.config/yuruna/github-token` (mode 0600, owned by the guest user) and
-the login profile reads it from there, rather than in a world-readable
-profile script. The token is never in `~/.gitconfig` or a remote URL, so it
-cannot leak through `git remote -v` or the process list. Leave `repositories.ghToken` empty for public repositories and none of
-this is installed.
+`GIT_TERMINAL_PROMPT=0`). What makes the clone work is a git credential
+helper registered for `https://github.com` alone
+(`[credential "https://github.com"]` in `/etc/gitconfig`, or in the user's
+`.gitconfig` on Windows): git consults it for that host only, and the helper
+(`/usr/local/lib/yuruna/git-credential-github`; Windows:
+`C:\ProgramData\yuruna\git-credential-github.ps1`) still checks the protocol
+and host git hands it before answering with the token. On Windows the section
+first clears the other helpers for that host, so Git Credential Manager never
+opens a dialog. A `GIT_ASKPASS` shim at `/usr/local/lib/yuruna/git-askpass.sh`
+(Windows: `C:\ProgramData\yuruna\git-askpass.cmd`) stays as the fallback for
+a git that reaches the prompt anyway; it too answers only a prompt for
+`github.com`. Every `clone` / `fetch` / `pull` then authenticates with no
+change at any call site, and a project that clones from another host never
+receives the token. The token lives in `~/.config/yuruna/github-token` (Linux:
+mode 0600, owned by the guest user; Windows: in the user's profile folder,
+with an ACL that admits only that user and SYSTEM), and both the helper and
+the shim read it from there; no machine-wide variable or world-readable
+profile script carries it. The token is never in a `.gitconfig` or a remote
+URL, so it cannot leak through `git remote -v` or the process list. Leave
+`repositories.ghToken` empty for public repositories and the token file is
+not written.
 
 **Scope it read-only.** The guests only ever pull, but the token is copied
 onto every test VM and is served on `/control/test-config`, so it should be
@@ -1894,7 +1907,9 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `runner.heartbeat` | `<runtimeDir>` | C# `Yuruna.HeartbeatWriter` timer in [Test.RunnerHeartbeat.psm1](../test/modules/Test.RunnerHeartbeat.psm1), started by [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | overwritten every 30 s | Process-level proof of life. Stays fresh even when the runspace is wedged inside a long SSH/OCR call. |
 | `runner.stepHeartbeat` | `<runtimeDir>` | runspace-side touch at step boundaries and after completed pause polls or lab-health probes; outer pre-wipes + force-touches before each spawn | overwritten on completed progress | Runspace-level proof of life. Deliberate holds remain live; blocked calls still age beyond `testCycle.stepTimeoutSeconds` and trigger the watchdog. |
 | `runner.configGate.json` + `runner-attempts/<attempt>/config-gate.{json,log}` | `<runtimeDir>` | [Test.ConfigPreflight.psm1](../test/modules/Test.ConfigPreflight.psm1) after a gate verdict | latest pointer replaced; 20 attempt folders retained | Structured configuration findings and transcript with attempt generation, timestamps and framework commit. Separate from completed cycle artifacts. |
-| `recovery.health.json` | `<runtimeDir>` | `Set-RecoveryLedgerHealth` in [Test.RecoveryLedger.psm1](../test/modules/Test.RecoveryLedger.psm1) when the recovery ledger cannot be read or written | removed once a ledger line is written again | Why automatic recovery is disabled (`ledger-unreadable` or `ledger-unwritable`); `/control/runner-status` reports it as `recoveryDisabled` and the status page shows it. |
+| `recovery.health.json` | `<runtimeDir>` | `Set-RecoveryLedgerHealth` in [Test.RecoveryLedger.psm1](../test/modules/Test.RecoveryLedger.psm1) when the recovery ledger cannot be read or written | removed once a ledger line is written again | Why automatic recovery is disabled (`ledger-unreadable` or `ledger-unwritable`); `/control/runner-status` reports it as `recoveryDisabled`, the status page shows it, and the pool notifier queues one `pool.alert` notice per episode. |
+| `server.lease.json` | `<runtimeDir>` | the status service's listener loop (`Update-StatusServiceLease` in [Test.StatusControlRoute.psm1](../test/modules/Test.StatusControlRoute.psm1)), renewed while idle and stamped with each request | replaced by the next listener; a lease naming another process is ignored | The listener's liveness: `idle` or `busy`, the route being served and since when. A start whose probe times out leaves a listener the lease shows serving, and the host-address beacon replaces one whose lease reads wedged (`Get-StatusServiceLeaseVerdict`). Not served. |
+| `status-replace.out`, `status-replace.err` | `<runtimeDir>` | the host-address beacon, from the `Start-StatusService.ps1 -RefreshSafe -ReplaceWedged` run that replaced a wedged listener | replaced by the next replacement | That start's console output, for the operator who wants to know why a listener was replaced. Not served. |
 | `runner.watchdog-kill.json` | `<runtimeDir>` | [Test.RunnerWatchdog.psm1](../test/modules/Test.RunnerWatchdog.psm1) before terminating a matching stale inner; `Write-OuterStopRecord` in [Test.RunnerOuterLoop.psm1](../test/modules/Test.RunnerOuterLoop.psm1), in the same shape, for a cycle the resident stopped | cleared before the next spawn | Attempt-bound evidence that termination was initiated by the watchdog; a nonzero gate exit alone is not a stall. |
 | `.test.config.snapshot.json` | `<runtimeDir>` | `Publish-TestConfigSnapshot` in [Test.Config.psm1](../test/modules/Test.Config.psm1), auto-fired by every `Read-TestConfig` parse | overwritten on next parse | Cross-process parsed-config snapshot (envelope: sourcePath, sourceMtime, sourceHash, publishedAt, publisherPid, config). `Read-TestConfigOrSnapshot` validates the envelope's mtime+hash against the live YAML and uses the snapshot when both still match, avoiding a redundant YAML parse in the inner. |
 | `.caching-proxy-service.env.json` | `<runtimeDir>` | no longer written | removed by [test/service/Start-CachingProxyServiceVM.ps1](../test/service/Start-CachingProxyServiceVM.ps1) | Older versions kept the cleared `*_proxy` values here for a restore that was never built. A proxy URL can carry credentials, so the cleared names are logged and the values are not kept. |
@@ -2503,6 +2518,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

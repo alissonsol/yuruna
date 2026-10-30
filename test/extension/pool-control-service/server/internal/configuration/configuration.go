@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,23 @@ const stateReadTimeout = 2 * time.Minute
 
 // maxConcurrentCLI caps the pwsh processes the CLIs run at once.
 const maxConcurrentCLI = 4
+
+// mutationTimeout bounds a configuration change. A change runs detached from the
+// request that asked for it: the CLI commits, pushes and rebases in the admin
+// clone, and killing pwsh because a browser tab closed would leave that clone
+// mid-rebase for the next caller to trip over.
+const mutationTimeout = 5 * time.Minute
+
+// credentialInURL matches the userinfo of a URL (scheme://user:secret@), which a
+// configuration git URL may carry and which CLI output can echo.
+var credentialInURL = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s@'"]+@`)
+
+// redactCredentials replaces the userinfo of every URL in s, so a credential in
+// the configuration git URL is not repeated by a reply, the diagnostics page or
+// the audit log. The CLI itself still receives the URL as configured.
+func redactCredentials(s string) string {
+	return credentialInURL.ReplaceAllString(s, "${1}***@")
+}
 
 // stateFlight is one configuration read in progress; every caller that
 // arrives while it runs receives its result.
@@ -196,6 +214,9 @@ func (r *Runner) exec(ctx context.Context, script string, args ...string) Result
 		// Invalidated whatever the outcome: a CLI that failed after its commit
 		// still changed the store.
 		defer r.invalidateState()
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), mutationTimeout)
+		defer cancel()
 	}
 	full := append([]string{"-NoProfile", "-NonInteractive", "-File", r.RepoDir + "/test/" + script}, args...)
 	// Resolved per invocation, not captured at construction: the operator fix for
@@ -215,10 +236,16 @@ func (r *Runner) exec(ctx context.Context, script string, args ...string) Result
 	cmd.Stderr = &errb
 	started := time.Now()
 	err := cmd.Run()
+	argv := make([]string, 0, len(full)+1)
+	for _, a := range append([]string{r.Pwsh}, full...) {
+		argv = append(argv, redactCredentials(a))
+	}
+	// Stdout is not redacted: it is the CLI's document, relayed and parsed as
+	// data (the configuration read, which a page edits and saves back).
 	res := Result{
 		Stdout:   out.String(),
-		Stderr:   errb.String(),
-		Argv:     append([]string{r.Pwsh}, full...),
+		Stderr:   redactCredentials(errb.String()),
+		Argv:     argv,
 		Duration: time.Since(started).Round(time.Millisecond).String(),
 	}
 	if err == nil {
@@ -240,7 +267,7 @@ func (r *Runner) exec(ctx context.Context, script string, args ...string) Result
 	if msg == "" {
 		msg = err.Error()
 	}
-	res.Error = msg
+	res.Error = redactCredentials(msg)
 	return res
 }
 

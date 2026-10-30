@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d1c86a-7fb3-4e59-90a2-63b4e0d7185f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,20 +47,10 @@ Import-Module (Join-Path $here 'Test.Catalog.psm1') -Force -Global -DisableNameC
 Import-Module (Join-Path $here 'Test.Locale.psm1') -Force -Global -DisableNameChecking
 
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
-$script:ServicePath = Join-Path $script:RepoRoot 'test/service/Start-StatusService.ps1'
+$script:RuntimePath = Join-Path $script:RepoRoot 'test/service/Invoke-StatusServiceRuntime.ps1'
 
-# The generated server, produced the way the launcher produces it. The
-# here-string interpolates whatever the launcher had in scope; none of that
-# matters to the function under test, so the surrounding names are bound to
-# harmless values and the expansion is what is inspected.
-function Get-GeneratedServerText {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    return Get-YurunaTestGeneratedServerText -Path $script:ServicePath -Expand { param($Raw) $ExecutionContext.InvokeCommand.ExpandString($Raw) }
-}
-
-$script:ServerText = Get-GeneratedServerText
+# The status service runtime the launcher runs.
+$script:ServerText = [IO.File]::ReadAllText($script:RuntimePath)
 
 function Get-FunctionFromServer {
     <#
@@ -415,7 +405,7 @@ Describe 'the served page says which language it is in' {
     It 'lets the config lock beat HTTP and treats AUTO as the unlocked sentinel' {
         $resolve = [scriptblock]::Create((Get-FunctionFromServer -Name 'Resolve-PageLocale') +
             "`nResolve-PageLocale -AcceptLanguage `$args[0] -ConfigLanguage ([string]`$args[1])")
-        $prior = $env:YURUNA_ALLOW_PSEUDO_LOCALE
+        $prior = Save-YurunaTestEnvironment -Name 'YURUNA_ALLOW_PSEUDO_LOCALE'
         try {
             $env:YURUNA_ALLOW_PSEUDO_LOCALE = '1'
             $locked = & $resolve 'qps-Ploc' 'en-US'
@@ -430,7 +420,7 @@ Describe 'the served page says which language it is in' {
             Assert-StringEqual -Expected 'http' -Actual $automatic.Source `
                 'the unlocked request did not retain HTTP provenance'
         } finally {
-            $env:YURUNA_ALLOW_PSEUDO_LOCALE = $prior
+            Restore-YurunaTestEnvironment -Saved $prior
         }
     }
 
@@ -442,7 +432,7 @@ Describe 'the served page says which language it is in' {
         Assert-StringEqual -Expected 'en-US' -Actual $closed.Tag `
             'a release run served a pseudo locale, which a reader would take for a broken page'
 
-        $prior = $env:YURUNA_ALLOW_PSEUDO_LOCALE
+        $prior = Save-YurunaTestEnvironment -Name 'YURUNA_ALLOW_PSEUDO_LOCALE'
         try {
             $env:YURUNA_ALLOW_PSEUDO_LOCALE = 'false'
             $explicitFalse = & $resolve 'qps-Plocm'
@@ -455,14 +445,14 @@ Describe 'the served page says which language it is in' {
             Assert-StringEqual -Expected 'rtl' -Actual $open.Direction `
                 'the mirrored locale did not report right-to-left, so a hard-coded direction would go unnoticed'
         } finally {
-            $env:YURUNA_ALLOW_PSEUDO_LOCALE = $prior
+            Restore-YurunaTestEnvironment -Saved $prior
         }
     }
 
     It 'rejects malformed q candidates and breaks equal weights by ordinal tag' {
         $resolve = [scriptblock]::Create((Get-FunctionFromServer -Name 'Resolve-PageLocale') +
             "`nResolve-PageLocale -AcceptLanguage `$args[0] -ConfigLanguage ([string]`$args[1])")
-        $prior = $env:YURUNA_ALLOW_PSEUDO_LOCALE
+        $prior = Save-YurunaTestEnvironment -Name 'YURUNA_ALLOW_PSEUDO_LOCALE'
         try {
             $env:YURUNA_ALLOW_PSEUDO_LOCALE = '1'
             $competitive = & $resolve 'qps-Plocm;q=banana, qps-Ploc;q=0.2'
@@ -486,7 +476,7 @@ Describe 'the served page says which language it is in' {
             Assert-StringEqual -Expected 'qps-Ploc' -Actual $equal.Tag `
                 'equal weights retained header/hashtable order instead of the shared ordinal tie-break'
         } finally {
-            $env:YURUNA_ALLOW_PSEUDO_LOCALE = $prior
+            Restore-YurunaTestEnvironment -Saved $prior
         }
     }
 
@@ -1173,7 +1163,7 @@ Send-JsonError -Request $request -Response $response -StatusCode 405 -Key 'statu
 '@)
         $manifest = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText(
             (Join-Path $script:RepoRoot 'globalization/locale-manifest.json'))) -AsHashtable
-        $previousPseudo = $env:YURUNA_ALLOW_PSEUDO_LOCALE
+        $previousPseudo = Save-YurunaTestEnvironment -Name 'YURUNA_ALLOW_PSEUDO_LOCALE'
         try {
             $env:YURUNA_ALLOW_PSEUDO_LOCALE = 'true'
             foreach ($tag in @($manifest.locales.Keys | Where-Object { $manifest.locales[$_].status -in @('supported', 'pseudo') })) {
@@ -1189,6 +1179,6 @@ Send-JsonError -Request $request -Response $response -StatusCode 405 -Key 'statu
                 Assert-StringEqual 'no-store' $got.Response.Headers['Cache-Control'] 'the live refusal became cacheable'
                 Assert-Equal $got.Bytes.Length $got.Response.ContentLength64 'translated byte length was not used'
             }
-        } finally { $env:YURUNA_ALLOW_PSEUDO_LOCALE = $previousPseudo }
+        } finally { Restore-YurunaTestEnvironment -Saved $previousPseudo }
     }
 }

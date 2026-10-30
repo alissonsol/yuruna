@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4219b525-eda6-4092-a1ab-0224926173fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,7 +53,7 @@ function Get-FunctionBody {
     [CmdletBinding()]
     [OutputType([string])]
     param([string]$Path, [string]$Name)
-    $text = Get-Content -Raw -LiteralPath $Path
+    $text = Get-YurunaTestSourceText -Path $Path
     $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
     $fn = @($ast.FindAll({ param($n)
         $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -112,7 +112,7 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         # resume, both in the finally of the one try that begins after the
         # quit, cover every exit after the quit and none before it; the
         # resume sits behind a confirmed relaunch.
-        $text = Get-Content -Raw -LiteralPath $script:SuspendHostModule
+        $text = Get-YurunaTestSourceText -Path $script:SuspendHostModule
         $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
         $fn = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Rename-VM' }, $true))[0]
         $calls = {

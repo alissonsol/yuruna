@@ -40,11 +40,11 @@ vazio, mantendo válidas a chamada retida e as outras leituras desse escopo.
 
 <a id="42e5cdfd-0003"></a>
 
-## host/macos.utm/modules/Yuruna.Host.psm1: Start-UtmVM
+## host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1: Start-UtmVM
 
 Aplica-se a:
 
-- [host/macos.utm/modules/Yuruna.Host.psm1](../../host/macos.utm/modules/Yuruna.Host.psm1)
+- [host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1](../../host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1)
 
 Distinga as duas formas de ausência do pacote usando a consulta estruturada,
 em vez do invólucro booleano que lança uma exceção: ainda estar registrado
@@ -84,11 +84,11 @@ identifica esta VM nem este motivo.
 
 <a id="42e5cdfd-0004"></a>
 
-## host/macos.utm/modules/Yuruna.Host.psm1: Assert-NoConcurrentUtmVm
+## host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1: Assert-NoConcurrentUtmVm
 
 Aplica-se a:
 
-- [host/macos.utm/modules/Yuruna.Host.psm1](../../host/macos.utm/modules/Yuruna.Host.psm1)
+- [host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1](../../host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1)
 
 Distinga "ausência de VM concorrente confirmada" de "não foi possível
 verificar". Se UTM.app não responde (pressão de memória no hospedeiro -> tempo
@@ -102,11 +102,11 @@ a consulta de encerramento por convidado é a outra proteção de reserva.
 
 <a id="42e5cdfd-0005"></a>
 
-## host/macos.utm/modules/Yuruna.Host.psm1: Get-VncScreenshot
+## host/macos.utm/modules/Yuruna.Host.Screenshot.ps1: Get-VncScreenshot
 
 Aplica-se a:
 
-- [host/macos.utm/modules/Yuruna.Host.psm1](../../host/macos.utm/modules/Yuruna.Host.psm1)
+- [host/macos.utm/modules/Yuruna.Host.Screenshot.ps1](../../host/macos.utm/modules/Yuruna.Host.Screenshot.ps1)
 
 Retângulo de quadro completo (o caso comum para uma
 FramebufferUpdateRequest inicial após uma nova negociação): leia
@@ -496,11 +496,11 @@ mas inativo, é ignorado com uma indicação da correção necessária.
 
 <a id="hostubuntukvmmodulesyurunahostpsm1-external-network-helpers"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: Auxiliares de rede externa
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: Auxiliares de rede externa
 
 Aplica-se a:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 Interno. O motivo pelo qual $Iface não pode servir como porta de uplink de
 uma bridge, ou '' quando pode. Somente Ethernet cabeada simples funciona:
@@ -532,11 +532,11 @@ omitido, ele consulta `nmcli -t -f DEVICE,STATE device status` ao vivo.
 
 <a id="42e5cdfd-0018"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: Clear-YurunaExternalBridgeResidue
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: Clear-YurunaExternalBridgeResidue
 
 Aplica-se a:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 Proteções de segurança, além dos comentários: nunca remova algo que possa
 estar sustentando a conectividade do hospedeiro.
@@ -566,11 +566,11 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="42e5cdfd-0019"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaExternalNetwork
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: New-YurunaExternalNetwork
 
 Aplica-se a:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 Se o operador (ou uma execução anterior) já colocou a NIC WAN numa
 bridge, reutilize-a. Isso mantém em zero as alterações na rede do
@@ -585,11 +585,11 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="42e5cdfd-001a"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaExternalNetwork
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: Etapa 4: criar a ponte
 
 Aplica-se a:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 Escolha o backend da bridge conforme NetworkManager realmente GERENCIA
 a NIC -- além de verificar se o daemon NM está em execução. No Ubuntu
@@ -608,11 +608,11 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="42e5cdfd-001b"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaBridgeViaNmcli
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: New-YurunaBridgeViaNmcli
 
 Aplica-se a:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 Registre qual perfil mantém $Nic atualmente -- isso é necessário duas
 vezes: o encerramento do caminho de sucesso desabilita sua conexão
@@ -650,11 +650,11 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="42e5cdfd-001c"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaBridgeViaNetplan
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: New-YurunaBridgeViaNetplan
 
 Aplica-se a:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 Se NetworkManager gerencia a NIC atualmente (este caminho também serve
 como fallback após uma construção nmcli com falha num hospedeiro NM),
@@ -721,11 +721,11 @@ dentro de New-VM.ps1 com a linha literal "Permission denied" de libvirt-sock.
 
 <a id="hostubuntukvmmodulesyurunahostpsm1-dhcp-evidence-capture"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: Captura de evidências de DHCP
+## host/ubuntu.kvm/modules/Yuruna.Host.Capture.ps1: Captura de evidências de DHCP
 
 Aplica-se a:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.Capture.ps1](../../host/ubuntu.kvm/modules/Yuruna.Host.Capture.ps1)
 
 Informe por que a evidência de DHCP está ausente. A captura é ativada em
 cada inicialização de VM e copiada apenas no caminho de falha; portanto,
@@ -743,7 +743,7 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="hostubuntukvmenable-testautomationps1-libvirt-services-and-default-network"></a>
 
-## host/ubuntu.kvm/Enable-TestAutomation.ps1: Serviços libvirt e rede padrão
+## host/ubuntu.kvm/Enable-TestAutomation.ps1: Serviços libvirt + rede padrão
 
 Aplica-se a:
 
@@ -766,7 +766,7 @@ cuja saída está sendo capturada.
 
 <a id="hostubuntukvmenable-testautomationps1-status-service-lan-reachability"></a>
 
-## host/ubuntu.kvm/Enable-TestAutomation.ps1: Acesso de Status-service pela LAN
+## host/ubuntu.kvm/Enable-TestAutomation.ps1: Acesso de Status-service pela LAN (firewall do hospedeiro)
 
 Aplica-se a:
 
@@ -811,7 +811,7 @@ este hospedeiro não tem um equivalente, então a mesma chamada fica aqui.
 
 <a id="hostubuntukvmenable-testautomationps1-pool-storage-mount-point"></a>
 
-## host/ubuntu.kvm/Enable-TestAutomation.ps1: Ponto de montagem do armazenamento do grupo
+## host/ubuntu.kvm/Enable-TestAutomation.ps1: Ponto de montagem SMB do armazenamento do pool em networkStorage (destino opcional de replicação para NAS)
 
 Aplica-se a:
 
@@ -911,11 +911,11 @@ plataforma para a qual esse caminho existe.
 
 <a id="42e5cdfd-0028"></a>
 
-## host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-CacheVmCandidateIp
+## host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1: Descoberta do IP do serviço caching-proxy
 
 Aplica-se a:
 
-- [host/windows.hyper-v/modules/Yuruna.Host.psm1](../../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+- [host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1](../../host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1)
 
 O KVP pode emitir IPv4 e IPv6. O v4 roteável pela rede permanece primeiro porque
 os encaminhadores de portas usados adiante aqui são netsh portproxy v4tov4; as entradas
@@ -932,11 +932,11 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="42e5cdfd-0029"></a>
 
-## host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-OrCreateYurunaExternalSwitch
+## host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1: Get-OrCreateYurunaExternalSwitch
 
 Aplica-se a:
 
-- [host/windows.hyper-v/modules/Yuruna.Host.psm1](../../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+- [host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1](../../host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1)
 
 2. QUALQUER vSwitch existente do tipo External: reutilize-o em vez de
 criar um segundo External redundante na mesma NIC. O Hyper-V
@@ -951,11 +951,11 @@ invariante explica por que um switch External cuja bridge está degradada
 
 <a id="42e5cdfd-002a"></a>
 
-## host/windows.hyper-v/modules/Yuruna.Host.psm1: Start-WindowsCachingProxyServiceForwarder
+## host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1: Start-WindowsCachingProxyServiceForwarder
 
 Aplica-se a:
 
-- [host/windows.hyper-v/modules/Yuruna.Host.psm1](../../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+- [host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1](../../host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1)
 
 -RedirectStandardInput com um arquivo vazio: sem um redirecionamento explícito
 de stdin, o encaminhador desacoplado herda o identificador de stdin do console
@@ -969,11 +969,11 @@ sentinela vazio persistente no diretório de estado do encaminhador.
 
 <a id="42e5cdfd-002b"></a>
 
-## host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-HyperVScreenshot
+## host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1: Get-HyperVScreenshot
 
 Aplica-se a:
 
-- [host/windows.hyper-v/modules/Yuruna.Host.psm1](../../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+- [host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1](../../host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1)
 
 Detecta o sintoma de "headless host": o WMI retorna uma
 miniatura válida, mas todos os pixels estão pretos porque o
@@ -1009,11 +1009,11 @@ hexadecimal puro, sem separadores.
 
 <a id="hostwindowshyper-vmodulesyurunahostpsm1-dhcp-evidence-capture"></a>
 
-## host/windows.hyper-v/modules/Yuruna.Host.psm1: Captura de evidências DHCP
+## host/windows.hyper-v/modules/Yuruna.Host.Capture.ps1: Captura de evidências DHCP
 
 Aplica-se a:
 
-- [host/windows.hyper-v/modules/Yuruna.Host.psm1](../../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+- [host/windows.hyper-v/modules/Yuruna.Host.Capture.ps1](../../host/windows.hyper-v/modules/Yuruna.Host.Capture.ps1)
 
 O diagnóstico de rede do lado do convidado só consegue dizer "no lease". Se o
 DISCOVER chegou a sair do convidado, desapareceu ao atravessar o vSwitch ou o uplink, ou
@@ -1158,7 +1158,7 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="testservicestart-cachingproxyservicevmps1-host-status-service-bootstrap"></a>
 
-## test/service/Start-CachingProxyServiceVM.ps1: Inicialização de status-service do hospedeiro
+## test/service/Start-CachingProxyServiceVM.ps1: Iniciar o status service do hospedeiro
 
 Aplica-se a:
 
@@ -1177,7 +1177,7 @@ mas os painéis Grafana incorporados ainda são implantados).
 
 <a id="testservicestart-cachingproxyservicevmps1-start-the-host-status-service"></a>
 
-## test/service/Start-CachingProxyServiceVM.ps1: Iniciar o status service do hospedeiro
+## test/service/Start-CachingProxyServiceVM.ps1: Iniciar o serviço de configuração do hospedeiro
 
 Aplica-se a:
 
@@ -1280,7 +1280,7 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="testservicestart-cachingproxyservicevmps1-configure-shared-nat-forwarding"></a>
 
-## test/service/Start-CachingProxyServiceVM.ps1: Configurar o encaminhamento de NAT compartilhado
+## test/service/Start-CachingProxyServiceVM.ps1: Etapa 5: macOS em ponte -- aguardar o DHCP da VM de cache e o squid escutar
 
 Aplica-se a:
 
@@ -1397,7 +1397,7 @@ de todo convidado Hyper-V nesse switch), portanto este portproxy acrescenta expo
 à LAN sem alterar o caminho dos convidados locais -- eles continuam apontando
 para o IP privado da VM. A lista de portas corresponde à chamada
 Add-PortMap de Invoke-TestRunnerInnerLoop.ps1; listas diferentes entram em conflito porque
-a função executa Clear-AllCachingProxyServicePortMapping primeiro. Exige
+o Add-PortMap substitui os encaminhadores do cache pela lista recebida. Exige
 elevação; caso contrário, Add-PortMap avisa e não faz nada.
 
 Se a VM de cache estiver em um vSwitch External, ela terá seu próprio IP
@@ -1439,7 +1439,7 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="testservicestart-statusserviceps1-module-setup"></a>
 
-## test/service/Start-StatusService.ps1: Configuração do módulo
+## test/service/Start-StatusService.ps1: Serialização da inicialização e resultado seguro para atualização
 
 Aplica-se a:
 
@@ -1467,14 +1467,15 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="testservicestart-statusserviceps1-startup-serialization-and-the-refresh-safe-outcome"></a>
 
-## test/service/Start-StatusService.ps1: Serialização da inicialização e resultado seguro para atualização
+## test/service/Start-StatusService.ps1: Verificar se já existe um servidor
 
 Aplica-se a:
 
 - [test/service/Start-StatusService.ps1](../../test/service/Start-StatusService.ps1)
 
-O servidor desacoplado incorpora a here-string de ~3.5 KLOC (e os módulos
-que importa na inicialização) em seu estado em memória. Os arquivos em test/status/
+O servidor desacoplado carrega seu runtime, Invoke-StatusServiceRuntime.ps1
+(e os módulos que importa na inicialização), em seu estado em memória ao
+iniciar. Os arquivos em test/status/
 são servidos do disco a cada solicitação, portanto alterações no frontend NÃO exigem
 reinicialização; apenas uma mudança no código da infraestrutura exige. Persistimos o
 SHA do HEAD da infraestrutura em server.sha na inicialização e o comparamos aqui, para que
@@ -1482,6 +1483,21 @@ o ciclo sem mudanças do executor interno (o caso comum) não faça nada
 em vez de executar um encerramento de 1 s + uma reinicialização de vários segundos. A indisponibilidade no início do ciclo
 cai de "a cada ciclo" para "somente quando `git pull` realmente obtém
 algo que afeta o servidor".
+
+O listener atende uma solicitação por vez, portanto uma solicitação longa (um
+arquivo de ciclo sendo empacotado, um diagnóstico transmitido de volta) o deixa
+incapaz de responder à sondagem de 3 s que esta inicialização envia a um servidor
+existente. Sua concessão de atividade, `server.lease.json`, distingue isso de um
+travamento: o loop a renova enquanto está ocioso (ele acorda pelo menos a cada
+15 s) e a marca a cada solicitação que inicia. Uma sondagem que expira contra um
+listener cuja concessão indica ocioso nos últimos 90 s ou ocupado nos últimos
+600 s o mantém em execução, e qualquer reinicialização para novo código da
+infraestrutura aguarda a próxima inicialização (`runner.status_listener_busy`);
+uma concessão travada ou ausente o substitui como antes, informando o veredito.
+No meio de um ciclo, o anunciador do endereço do hospedeiro acompanha a mesma
+concessão e, após duas passagens travadas e uma sondagem que falha, executa
+`Start-StatusService.ps1 -RefreshSafe -ReplaceWedged`, que encerra esse listener
+e inicia um novo sem as varreduras da inicialização completa.
 
 <a id="42e5cdfd-003f"></a>
 
@@ -1524,7 +1540,7 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="testservicestart-statusserviceps1-ensure-repourl-is-set-in-statusjson"></a>
 
-## test/service/Start-StatusService.ps1: Garantir que repoUrl esteja definido em status.json
+## test/service/Start-StatusService.ps1: Limpar resíduos de disposições anteriores
 
 Aplica-se a:
 
@@ -1548,7 +1564,7 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="testservicestart-statusserviceps1-clean-up-leftovers-from-older-layouts"></a>
 
-## test/service/Start-StatusService.ps1: Limpar resíduos de disposições anteriores
+## test/service/Start-StatusService.ps1: Enumerar os IPs do hospedeiro -> $env:YURUNA_RUNTIME_DIR/ipaddresses.txt
 
 Aplica-se a:
 
@@ -1571,14 +1587,14 @@ entradas desatualizadas de um hospedeiro ou uma rede anterior não sejam preserv
 
 <a id="testservicestart-statusserviceps1-detect-host-type"></a>
 
-## test/service/Start-StatusService.ps1: Detectar o tipo de hospedeiro
+## test/service/Start-StatusService.ps1: Anunciar o sudo da remoção dos encaminhadores
 
 Aplica-se a:
 
 - [test/service/Start-StatusService.ps1](../../test/service/Start-StatusService.ps1)
 
-macOS: as chamadas Remove-PortMap na região de mapeamento de portas abaixo limpam TUDO,
-portanto encerram todo encaminhador do lado do hospedeiro -- e encerrar o encaminhador :80 de propriedade
+macOS: as chamadas Remove-PortMap na região de mapeamento de portas abaixo encerram todo
+encaminhador do lado do hospedeiro que pertence ao cache -- e encerrar o encaminhador :80 de propriedade
 de root que Start-CachingProxyServiceVM criou no caminho Shared-NAT
 exige sudo. Sem tratamento, isso dispara uma solicitação simples "[sudo] password for ..." em um ponto avançado
 da execução, inclusive no caminho sem intervenção a cada ciclo. Detecte a condição
@@ -1646,7 +1662,7 @@ o mesmo caching-proxy-service.txt para que banner e console permaneçam
 sincronizados.
 
 Windows: as listas de portas dos chamadores DEVEM corresponder -- Add-PortMap
-executa Clear-AllCachingProxyServicePortMapping primeiro (netsh limpa tudo), portanto
+substitui os mapeamentos netsh do cache pela lista recebida, portanto
 qualquer porta omitida aqui seria removida. macOS: os pidfiles por porta
 permitem que cada chamador gerencie seu próprio subconjunto de forma independente; nenhuma correspondência
 é necessária. A alternativa do macOS inclui a porta 80 e o Grafana em 3000; o
@@ -1673,8 +1689,8 @@ Remove-PortMap / Get-BestHostIp agora podem ser resolvidos por Yuruna.Host.
 
 Serialize todo o bloco de classificação e gravação em relação à
 atualização por ciclo do executor e à ativação de um
-caching-proxy-service. Add-PortMap limpa tudo primeiro, portanto dois gravadores cujas
-listas de portas sejam diferentes removem os mapeamentos netsh, as regras de firewall
+caching-proxy-service. Add-PortMap substitui os encaminhadores do cache pela sua
+lista, portanto dois gravadores cujas listas de portas sejam diferentes removem os mapeamentos netsh, as regras de firewall
 e os encaminhadores um do outro; e um encaminhador instalado à frente de
 um cache conectado por BRIDGE substitui o caminho direto da LAN por NAT do kernel,
 perdendo o IP de origem do cliente registrado pelo squid. Tente uma vez com a
@@ -1700,8 +1716,9 @@ remapeamentos configurados dos proxies HTTP e HTTPS. Cada porta tem seu próprio
 portanto atualizar uma não remove as outras. O caminho normal de cache conectado por bridge
 remove os encaminhadores do hospedeiro e usa o endereço LAN da VM de cache.
 No Windows, todos os mapeamentos de portas do caching-proxy-service são repetidos na lista de cada
-chamador porque Add-PortMap limpa primeiro o estado netsh e de firewall do Yuruna;
-omitir qualquer um aqui o removeria a cada reinicialização de status-service.
+chamador porque Add-PortMap substitui o estado netsh e de firewall do cache pela
+lista recebida; omitir qualquer um aqui o removeria a cada reinicialização de
+status-service.
 
 Caminho rápido External-vSwitch do Windows: quando a VM de cache
 está conectada por bridge à LAN (com seu próprio IP roteável), os clientes
@@ -1729,8 +1746,8 @@ Os valores das portas vêm das variáveis de ambiente YURUNA_CACHING_PROXY_SERVI
 O conjunto de portas expostas (incluindo a saída contínua de 9302 do caching-proxy-parser-service)
 vem de Get-CachingProxyServiceExposedPort para que
 não possa divergir da lista de instalação de Start-CachingProxyServiceVM;
-Add-PortMap limpa tudo primeiro, portanto uma porta removida fica
-indisponível na reinstalação. O macOS remapeia apenas as duas portas que o
+Add-PortMap substitui os encaminhadores do cache por esse conjunto, portanto uma
+porta removida fica indisponível na reinstalação. O macOS remapeia apenas as duas portas que o
 operador abre manualmente: Grafana e 80 -- onde
 fica a página inicial da VM de proxy de cache e, portanto,
 para onde aponta o link Dashboards abaixo.
@@ -1767,30 +1784,27 @@ Aplica-se a:
 
 - [test/service/Start-StatusService.ps1](../../test/service/Start-StatusService.ps1)
 
-Grave o script do servidor em um arquivo e inicie-o com -File em vez de
-codificá-lo em base64 na linha de comando. O script do servidor ultrapassou
-~23 KB de código-fonte, que se tornam ~61 KB quando codificados em base64(UTF-16LE) --
-isso, somado ao caminho de pwsh.exe (nas instalações pela Windows Store, pwsh é resolvido
-para um caminho Microsoft.PowerShell_*_8wekyb3d8bbwe\pwsh.exe de 100+ caracteres),
-faz a linha de comando ultrapassar o limite de 32,767 caracteres do CreateProcess do Windows.
-A falha aparece como um erro de Start-Process com a mensagem
-"The filename or extension is too long", que é pouco clara e fácil de
-interpretar como um problema de caminho. -File evita inteiramente o limite de tamanho:
-pwsh lê o script do disco em vez da linha de comando.
+O runtime fica em test/service/Invoke-StatusServiceRuntime.ps1, um
+script com um bloco de parâmetros. A inicialização grava um lançador de uma linha,
+`.status-service.ps1` no diretório do runtime, que chama o runtime com a porta e
+os diretórios desta inicialização, e inicia o lançador com -File. O caminho do
+lançador na linha de comando do servidor é o que a verificação de propriedade, a
+recuperação pelo executor e os instaladores comparam, portanto ele permanece,
+embora não carregue mais o runtime. O runtime é um script e não um módulo
+porque seus manipuladores de rota e auxiliares compartilham o estado de escopo de
+script do loop de solicitações, que um módulo dividiria em estados de sessão
+separados.
 Remova o script de servidor gerado anteriormente (.status-service.ps1) e seu
 log stdout (server.out) para que uma atualização não deixe uma cópia desatualizada e enganosa
 no diretório do runtime, que alguém inspecionando poderia confundir com o servidor ativo.
 Isso é executado antes de o script atual ser gravado abaixo.
 
-O corpo do servidor acima é uma here-string: ESTE processo só o analisa como
-texto, e o filho desacoplado é o primeiro a analisá-lo como código. Portanto, um
-erro de sintaxe que sobreviva aos escapes -- "$var:" (dois-pontos imediatamente após um
-nome de variável são interpretados como um qualificador de escopo), um `" que se transforme em uma simples
-aspa -- não causa nada durante a gravação e encerra o filho na primeira linha.
-Sem esta verificação, o operador não vê nada disso: a inicialização "tem sucesso", a
-sondagem de prontidão abaixo consome todo o seu orçamento, e o relato indica a PORTA,
-direcionando a investigação à propriedade da porta quando o defeito real é um erro de digitação no
-arquivo gerado. Analise-o aqui, onde o erro é preciso e imediato.
+Tanto o lançador quanto o runtime são analisados antes da inicialização. Caso
+contrário, um erro de sintaxe encerraria o filho desacoplado na primeira linha
+enquanto a inicialização "tem sucesso": a sondagem de prontidão abaixo consome todo
+o seu orçamento, e o relato indica a PORTA, direcionando a investigação à
+propriedade da porta quando o defeito real está no script. Analise-os aqui, onde
+o erro é preciso e imediato.
 
 O redirecionamento explícito de stdio no Windows é OBRIGATÓRIO para a continuidade
 do executor externo. Sem -RedirectStandardOutput / -RedirectStandardError,
@@ -1836,7 +1850,7 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="testservicestart-statusserviceps1-verify-server-started"></a>
 
-## test/service/Start-StatusService.ps1: Verificar se o servidor iniciou
+## test/service/Start-StatusService.ps1: Beacon de endereço do hospedeiro
 
 Aplica-se a:
 
@@ -1894,7 +1908,7 @@ não deve impedir o próximo anunciador.
 
 <a id="testservicestart-statusserviceps1-display-connection-info"></a>
 
-## test/service/Start-StatusService.ps1: Exibir informações de conexão
+## test/service/Start-StatusService.ps1: Publicar onde este serviço pode ser acessado
 
 Aplica-se a:
 
@@ -1914,7 +1928,7 @@ extensão. Reutilizar esse mecanismo significaria declará-lo como uma extensão
 
 <a id="testservicestart-statusserviceps1-publish-where-this-service-can-be-reached"></a>
 
-## test/service/Start-StatusService.ps1: Publicar onde este serviço pode ser acessado
+## test/service/Start-StatusService.ps1: Autocorreção do acesso pela LAN (todos os tipos de hospedeiro)
 
 Aplica-se a:
 
@@ -1937,7 +1951,7 @@ do hospedeiro, e o listener que ela restaura era acessível antes.
 
 <a id="testservicestop-cachingproxyservicevmps1-clear-an-abandoned-bring-up-lock"></a>
 
-## test/service/Stop-CachingProxyServiceVM.ps1: Limpar um bloqueio de ativação abandonado
+## test/service/Stop-CachingProxyServiceVM.ps1: Limpar um bloqueio abandonado de ativação do caching-proxy-service
 
 Aplica-se a:
 
@@ -1962,7 +1976,7 @@ um conjunto parcial de módulos retorne ao comportamento anterior (nenhuma açã
 
 <a id="testservicestop-cachingproxyservicevmps1-clear-an-abandoned-caching-proxy-service-bring-up-lock"></a>
 
-## test/service/Stop-CachingProxyServiceVM.ps1: Limpar um bloqueio abandonado de ativação do caching-proxy-service
+## test/service/Stop-CachingProxyServiceVM.ps1: Limpar o proxy do hospedeiro
 
 Aplica-se a:
 

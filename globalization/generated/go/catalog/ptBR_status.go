@@ -136,6 +136,7 @@ const DataptBRstatus = `{
   "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": "proibido: faltando o cabeçalho de solicitação X-Yuruna (guarda de requisição entre locais)",
   "status.api_forbidden_not_served": "Proibido (não é um arquivo servido)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "proibido: o alvo da sonda deve ser um endereço privado (loopback/RFC1918/link-local) ou o IP de cache configurado",
+  "status.api_guest_channel_key_absent": "este host ainda não possui chave do canal de convidados; ela é criada quando o host gera a primeira seed de convidado",
   "status.api_host_refresh_authorization_refused": [
     "autorização de atualização recusada (",
     {
@@ -224,6 +225,20 @@ const DataptBRstatus = `{
   "status.api_project_repo_not_present_on_host_885e6338": "projeto repo não presente na máquina",
   "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b": "prova de incompatibilidade (chave de autenticação interna incorreta ou antiga)",
   "status.api_put_or_post_required_1f919659": "PUT ou POST requerido",
+  "status.api_query_invalid": [
+    "consulta inválida: ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
   "status.api_request_body_invalid": [
     "corpo da solicitação inválido: ",
     {
@@ -651,6 +666,7 @@ const DataptBRstatus = `{
   "status.error_file_too_large": "Arquivo muito grande",
   "status.error_not_found": "Não encontrado",
   "status.every_guest_folder_under_this_host_is_already_in_the_list": "Cada pasta de convidados sob esta máquina já está na lista",
+  "status.explain_details": "Detalhes",
   "status.external_detail": [
     "A ferramenta reportada: ",
     {
@@ -1374,6 +1390,7 @@ const DataptBRstatus = `{
   "status.perf_yuruna": "Perf — Yuruna",
   "status.performance": "Desempenho",
   "status.performance_fit": "Mostrar tudo",
+  "status.performance_select_bar": "Selecione uma duração ou uma barra para ler os detalhes aqui.",
   "status.performance_zoom": "Zoom do tempo",
   "status.pill_new_vm_resource": "Nova VM",
   "status.pill_start_guestos": "Iniciar o SO",

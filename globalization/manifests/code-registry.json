@@ -1,7 +1,12 @@
 {
   "schema": "yuruna.code-registry/v1",
   "codeSchemaVersion": "yuruna.code/v1",
-  "retiredCodes": [],
+  "retiredCodes": [
+    "stash.api_search_detail",
+    "stash.api_detail",
+    "stash.api_open_archive_detail",
+    "stash.api_create_detail"
+  ],
   "description": "Every stable code a surface may branch on. A code is what crosses a boundary; the sentence a reader sees is rendered from it at the last moment, in their language. This file exists because the codes were bare literals repeated across PowerShell, Go and JavaScript with nothing naming them: a code added on one side and forgotten on another stops being recognized, and the surface that missed it reports the state as unknown rather than as an error anyone chases.",
   "rules": [
     "A code is lower-case, underscore-separated, and never contains a word a translator would touch.",
@@ -24,7 +29,7 @@
       ],
       "consumedBy": [
         "test/status/yuruna.common.js",
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/hostpoll/hostpoll.go"
       ],
       "rendersAs": "status.cycle_paused"
     },
@@ -87,7 +92,7 @@
         "test/modules/Test.HostGit.psm1"
       ],
       "consumedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "rendersAs": ""
     },
@@ -153,18 +158,74 @@
       "rendersAs": ""
     },
     {
-      "code": "stash.api_search_detail",
-      "wireCode": "stash.api_search_detail",
+      "code": "stash.api_search_failed",
+      "wireCode": "stash.api_search_failed",
       "namespace": "stash",
       "owner": "stash_service",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The request failed with this classified service condition: search: {detail}",
+      "means": "The request failed with this classified service condition: the stash index could not be searched; the service log has the cause",
       "producedBy": [
         "test/extension/stash-service/server/internal/httpsrv/handlers.go"
       ],
       "consumedBy": [],
-      "rendersAs": "stash.api_search_detail"
+      "rendersAs": "stash.api_search_failed"
+    },
+    {
+      "code": "stash.api_resolve_failed",
+      "wireCode": "stash.api_resolve_failed",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: the stash could not be looked up; the service log has the cause",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_resolve_failed"
+    },
+    {
+      "code": "stash.api_open_archive_failed",
+      "wireCode": "stash.api_open_archive_failed",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: the archive could not be opened; the service log has the cause",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_open_archive_failed"
+    },
+    {
+      "code": "stash.api_create_failed",
+      "wireCode": "stash.api_create_failed",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: the stash could not be stored; the service log has the cause",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_create_failed"
+    },
+    {
+      "code": "stash.api_delete_failed",
+      "wireCode": "stash.api_delete_failed",
+      "namespace": "stash",
+      "owner": "stash_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: the stash could not be deleted; the service log has the cause",
+      "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/delete.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "stash.api_delete_failed"
     },
     {
       "code": "stash.api_invalid_stash_path",
@@ -181,20 +242,6 @@
       "rendersAs": "stash.api_invalid_stash_path"
     },
     {
-      "code": "stash.api_detail",
-      "wireCode": "stash.api_detail",
-      "namespace": "stash",
-      "owner": "stash_service",
-      "schemaVersion": "yuruna.code/v1",
-      "lifecycle": "active",
-      "means": "The request failed with this classified service condition: {detail}",
-      "producedBy": [
-        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
-      ],
-      "consumedBy": [],
-      "rendersAs": "stash.api_detail"
-    },
-    {
       "code": "stash.api_stash_not_found",
       "wireCode": "stash.api_stash_not_found",
       "namespace": "stash",
@@ -203,6 +250,7 @@
       "lifecycle": "active",
       "means": "The request failed with this classified service condition: stash not found",
       "producedBy": [
+        "test/extension/stash-service/server/internal/httpsrv/delete.go",
         "test/extension/stash-service/server/internal/httpsrv/handlers.go"
       ],
       "consumedBy": [],
@@ -221,20 +269,6 @@
       ],
       "consumedBy": [],
       "rendersAs": "stash.api_not_an_archive"
-    },
-    {
-      "code": "stash.api_open_archive_detail",
-      "wireCode": "stash.api_open_archive_detail",
-      "namespace": "stash",
-      "owner": "stash_service",
-      "schemaVersion": "yuruna.code/v1",
-      "lifecycle": "active",
-      "means": "The request failed with this classified service condition: open archive: {detail}",
-      "producedBy": [
-        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
-      ],
-      "consumedBy": [],
-      "rendersAs": "stash.api_open_archive_detail"
     },
     {
       "code": "stash.api_invalid_json_body",
@@ -361,20 +395,6 @@
       ],
       "consumedBy": [],
       "rendersAs": "stash.api_invalid_host"
-    },
-    {
-      "code": "stash.api_create_detail",
-      "wireCode": "stash.api_create_detail",
-      "namespace": "stash",
-      "owner": "stash_service",
-      "schemaVersion": "yuruna.code/v1",
-      "lifecycle": "active",
-      "means": "The request failed with this classified service condition: create: {detail}",
-      "producedBy": [
-        "test/extension/stash-service/server/internal/httpsrv/handlers.go"
-      ],
-      "consumedBy": [],
-      "rendersAs": "stash.api_create_detail"
     },
     {
       "code": "stash.api_open_artifact",
@@ -515,6 +535,34 @@
       ],
       "consumedBy": [],
       "rendersAs": "download.api_refresh_refused_reason"
+    },
+    {
+      "code": "download.api_delete_refused_reason",
+      "wireCode": "download.api_delete_refused_reason",
+      "namespace": "download",
+      "owner": "download_agent_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: delete refused: {reason}",
+      "producedBy": [
+        "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "download.api_delete_refused_reason"
+    },
+    {
+      "code": "download.api_prune_refused_reason",
+      "wireCode": "download.api_prune_refused_reason",
+      "namespace": "download",
+      "owner": "download_agent_service",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The request failed with this classified service condition: prune refused: {reason}",
+      "producedBy": [
+        "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": "download.api_prune_refused_reason"
     },
     {
       "code": "download.api_pool_refresh_refused_reason",
@@ -1449,7 +1497,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_authentication_extension_unavailable_2ece9896"
@@ -1463,7 +1511,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_body_must_be_a_json_object_831ab327"
@@ -1477,7 +1525,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_could_not_read_body_aa31dc00"
@@ -1491,7 +1539,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_expected_diagnostics_folder_filename_5f581c78"
@@ -1505,7 +1553,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e"
@@ -1519,7 +1567,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_filename_must_match_system_diagnostic_id_txt_ec048334"
@@ -1533,7 +1581,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5"
@@ -1547,7 +1595,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5"
@@ -1561,7 +1609,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac"
@@ -1575,7 +1623,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0"
@@ -1589,7 +1637,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c"
@@ -1603,7 +1651,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_method_not_allowed_be4fb6a2"
@@ -1617,7 +1665,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf"
@@ -1631,7 +1679,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_method_not_allowed_post_the_dump_body_fa73866b"
@@ -1645,7 +1693,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_no_break_active_bc29bdab"
@@ -1659,7 +1707,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_no_lab_hold_is_active_49dd8185"
@@ -1673,7 +1721,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b"
@@ -1687,7 +1735,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_path_escapes_log_dir_355b2034"
@@ -1701,7 +1749,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_path_escapes_log_root_13754cf8"
@@ -1715,7 +1763,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_payload_too_large_1_mb_350b49df"
@@ -1729,7 +1777,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_payload_too_large_256_kb_ad49d5cd"
@@ -1743,7 +1791,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_payload_too_large_4_mb_3455f869"
@@ -1757,7 +1805,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_payload_too_large_5_mb_ab90ca52"
@@ -1771,7 +1819,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_post_required_663cc07c"
@@ -1785,7 +1833,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b"
@@ -1799,7 +1847,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_put_or_post_required_1f919659"
@@ -1813,7 +1861,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_sidecar_write_failed_0ce361a9"
@@ -1827,7 +1875,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_test_config_yml_not_found_3b38d785"
@@ -1841,7 +1889,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c"
@@ -1855,7 +1903,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9"
@@ -1869,7 +1917,7 @@
       "lifecycle": "active",
       "means": "The host rejected this request with the identified condition.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3"
@@ -1883,7 +1931,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_could_not_pack_folder_detail_268ee848"
@@ -1897,7 +1945,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_detail_caf3c2c2"
@@ -1911,7 +1959,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1"
@@ -1925,7 +1973,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_forbidden_78342a09"
@@ -1939,7 +1987,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_forbidden_deny_list_1c7d1cfa"
@@ -1953,7 +2001,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_forbidden_directory_listing_disabled_5d107f5b"
@@ -1967,7 +2015,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_invalid_json_detail_c907dfc3"
@@ -1981,7 +2029,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_no_caching_proxy_service_ca_resolvable_f924b0aa"
@@ -1995,7 +2043,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2"
@@ -2009,7 +2057,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_no_cycle_results_folder_folder_on_this_host_51798923"
@@ -2023,7 +2071,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_not_a_cycle_results_archive_name_395b9777"
@@ -2037,7 +2085,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_project_repo_not_present_on_host_885e6338"
@@ -2051,7 +2099,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c"
@@ -2065,7 +2113,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_write_failed_detail_c07681e1"
@@ -2079,7 +2127,7 @@
       "lifecycle": "active",
       "means": "The status service returned this classified HTTP failure.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_yaml_parse_failed_detail_363d5cf4"
@@ -2093,7 +2141,7 @@
       "lifecycle": "active",
       "means": "The host diagnostic request failed before a report could be returned.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_diagnostic_failed"
@@ -2126,7 +2174,7 @@
       "producedBy": [
         "test/modules/Test.HostRefresh.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [
         "test/extension/extension-sdk/pool/pool.go",
@@ -2145,7 +2193,7 @@
       "producedBy": [
         "test/modules/Test.HostRefresh.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [
         "test/extension/extension-sdk/pool/pool.go"
@@ -2163,7 +2211,7 @@
       "producedBy": [
         "test/modules/Test.HostRefresh.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": ""
@@ -2207,7 +2255,7 @@
       "means": "The listener does not know its host type, so it cannot name a rung ladder to advertise.",
       "producedBy": [
         "test/modules/Test.HostRefresh.psm1",
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": ""
@@ -2223,7 +2271,7 @@
       "producedBy": [
         "test/modules/Test.HostRefresh.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": ""
@@ -2238,7 +2286,7 @@
       "means": "A command a worker-backed listener route calls does not resolve in the listener runspace; the route refuses (503) and the capability reads unavailable. Machine-facing reason; the reply sentence comes from its key.",
       "producedBy": [
         "test/modules/Test.StatusControlRoute.psm1",
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_listener_dependency_missing"
@@ -2305,7 +2353,7 @@
       "producedBy": [
         "test/modules/Test.HostRefreshAuth.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [
         "test/extension/extension-sdk/pool/pool.go"
@@ -2375,7 +2423,7 @@
       "producedBy": [
         "test/modules/Test.HostRefresh.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [
         "test/extension/extension-sdk/pool/pool.go"
@@ -2951,7 +2999,7 @@
       "means": "The listener could not launch the detached worker; a host-refresh request stays queued and can be retried, a start-cycle reservation is removed.",
       "producedBy": [
         "test/modules/Test.StatusControlRoute.psm1",
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
@@ -2967,7 +3015,7 @@
       "lifecycle": "active",
       "means": "Four request bodies are already being read; the caller retries after Retry-After.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_listener_busy"
@@ -2995,7 +3043,7 @@
       "lifecycle": "active",
       "means": "The host advertises no refresh it can run; nothing was admitted.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_host_refresh_unavailable"
@@ -3009,7 +3057,7 @@
       "lifecycle": "active",
       "means": "The private state root or a worker directory under it could not be secured; the route fails closed.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_private_state_unavailable"
@@ -3023,7 +3071,7 @@
       "lifecycle": "active",
       "means": "A host-refresh body exceeded 4096 bytes, declared or counted.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_payload_too_large_4_kb"
@@ -3037,7 +3085,7 @@
       "lifecycle": "active",
       "means": "A host-refresh body did not complete within two seconds of the request.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_request_body_timeout"
@@ -3110,7 +3158,7 @@
       "lifecycle": "active",
       "means": "A host-refresh request did not declare application/json.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.api_unsupported_media_type"
@@ -3127,7 +3175,7 @@
         "test/modules/Invoke-HostDiagnosticWorker.ps1",
         "test/modules/Invoke-StartCycleWorker.ps1",
         "test/modules/Test.StatusControlRoute.psm1",
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
@@ -3143,7 +3191,7 @@
       "lifecycle": "active",
       "means": "The listener could not load the refresh-proof verifier for a non-loopback caller; it refuses.",
       "producedBy": [
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.host_refresh_authorization_refused"
@@ -3206,7 +3254,7 @@
       "means": "The host diagnostic is still running; ask again after Retry-After.",
       "producedBy": [
         "test/modules/Test.StatusControlRoute.psm1",
-        "test/service/Start-StatusService.ps1"
+        "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
       "rendersAs": "status.host_diagnostic_pending"

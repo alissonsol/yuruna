@@ -142,6 +142,39 @@ write_files:
               else echo ""; fi ;;
           *) echo "" ;;
       esac
+  # The URL-scoped helper is git's own way to keep a credential to one host:
+  # git consults it for https://github.com remotes only. The askpass shim above
+  # stays for a git that reaches the prompt anyway.
+  - path: /usr/local/lib/yuruna/git-credential-github
+    permissions: '0755'
+    content: |
+      #!/bin/sh
+      # git credential helper. /etc/gitconfig registers it for https://github.com
+      # alone, so git never asks it about another host, and it still checks the
+      # protocol and host git hands it. It answers "get" and ignores store and erase.
+      [ "${1:-}" = get ] || exit 0
+      protocol=""
+      host=""
+      while IFS= read -r line; do
+          [ -n "$line" ] || break
+          case "$line" in
+              protocol=*) protocol="${line#protocol=}" ;;
+              host=*) host="${line#host=}" ;;
+          esac
+      done
+      [ "$protocol" = https ] && [ "$host" = github.com ] || exit 0
+      token="${GH_TOKEN:-}"
+      if [ -z "$token" ] && [ -r "$HOME/.config/yuruna/github-token" ]; then
+          token="$(cat "$HOME/.config/yuruna/github-token")"
+      fi
+      [ -n "$token" ] || exit 0
+      printf 'username=x-access-token\npassword=%s\n' "$token"
+  - path: /etc/gitconfig
+    permissions: '0644'
+    append: true
+    content: |
+      [credential "https://github.com"]
+          helper = /usr/local/lib/yuruna/git-credential-github
   # --- REGION: https://yuruna.link/4220a755-000b
   # See https://yuruna.link/4220a755-000c
   - path: /etc/systemd/network/98-yuruna-fallback-dhcp.network
@@ -236,6 +269,11 @@ runcmd:
     YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER
     YURUNA_CA_SHA256=YURUNA_CA_SHA256_PLACEHOLDER
     EOF
+  # The host's guest-channel key: host-locate and fetch-and-execute accept a
+  # status service only when it proves this key; empty leaves them unverified.
+  - |
+    printf '%s\n' 'YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER' > /etc/yuruna/guest-channel.key
+    chmod 0644 /etc/yuruna/guest-channel.key
   - bash -c 'grep -q yuruna-host /etc/hosts || echo "YURUNA_STATUS_SERVICE_IP_PLACEHOLDER yuruna-host" >> /etc/hosts'
   # --- REGION: https://yuruna.link/429f3d06-002a
   - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true

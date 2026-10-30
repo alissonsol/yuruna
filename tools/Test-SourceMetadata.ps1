@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 423c6a1c-f359-436b-9533-31e9a82bfb68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,11 @@
                        below the copyright line (blank lines and bare comment
                        markers between them do not count), except that a
                        sequence YAML is named by its top-level sequenceGuid
-                       alone. A generated file carries none.
+                       alone. A guest sequence (a top-level resource: or
+                       keystrokeMechanism: key) must use sequenceGuid; an
+                       orchestration or host-action sequence, whose schema
+                       has no sequenceGuid, takes the GUID line. A generated
+                       file carries none.
       generated-banner A file under a generated path that has no header names
                        its generator in its first 12 lines.
 
@@ -128,6 +132,9 @@ $ErrorActionPreference = 'Stop'
 $ToolRoot = $PSScriptRoot
 $FrameworkRoot = Split-Path -Parent $ToolRoot
 Import-Module (Join-Path $FrameworkRoot 'test/modules/Test.Prelude.psm1') -Global -Force
+# The identity a file declares is read in one place, shared with the suites
+# that census and compare identities.
+Import-Module (Join-Path $ToolRoot 'Source.Identity.psm1') -Force
 $ExitOk        = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure   = Get-EntryPointExitCode -Outcome Failure
 $ExitCannotRun = Get-EntryPointExitCode -Outcome CannotRun
@@ -138,14 +145,10 @@ $HeaderWindow = 40
 $BannerWindow = 12
 $ReadBytes    = 16384
 
-$CopyrightPattern = '\(c\)\s*\d{4}(?:\s*-\s*\d{4})?\s+by\s+Alisson Sol et al\.'
-$PointerPattern   = 'LICENSEURI\s+https://yuruna\.link/license(?![\w./-])'
-$GuidPattern      = '^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'
-# A GUID line is optional comment markers, "GUID:", the value and an optional
-# closing marker. Inside a block comment that already holds the copyright line
-# it has no markers of its own, so nesting never closes the block early.
-$GuidLinePattern  = '^\s*(?:@?REM\s+)?[^\sA-Za-z0-9]*\s*GUID:\s*(?<value>[^\s*]+?)\s*(?:\*/|-->|\*@)?\s*$'
-$SequenceGuidPattern = '^sequenceGuid:\s*[''"]?(?<value>[^''"\s#]+)'
+$headerPattern    = Get-SourceHeaderPattern
+$CopyrightPattern = $headerPattern.Copyright
+$PointerPattern   = $headerPattern.Pointer
+$GuidPattern      = $headerPattern.Guid
 $ExemptionsName   = 'tools/source-metadata.exemptions.json'
 $DeclareHint      = "A generated or vendored file is declared in $ExemptionsName instead (CONTRIBUTING.md, Source metadata)."
 
@@ -359,14 +362,6 @@ function Resolve-Exemption {
 }
 
 # --- REGION: rules
-function Get-FreshGuid {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    $n = [guid]::NewGuid().ToString('N')
-    return '42' + $n.Substring(2, 6) + '-' + $n.Substring(8, 4) + '-' + $n.Substring(12, 4) + '-' + $n.Substring(16, 4) + '-' + $n.Substring(20, 12)
-}
-
 # Whether the name could belong to a covered format, so that a file of any other
 # kind is never opened. An extensionless file might start with a #! line.
 function Test-CoveredName {
@@ -390,51 +385,6 @@ function Get-FileStyle {
     return $null
 }
 
-function Get-HeaderFact {
-    [CmdletBinding()]
-    [OutputType([pscustomobject])]
-    param([Parameter(Mandatory)][string]$Style, [Parameter(Mandatory)][AllowEmptyString()][string[]]$Line)
-    # Guid is the identity the file declares; outside PowerShell it is the
-    # sequenceGuid of a sequence and the GUID line of anything else.
-    $fact = [pscustomobject]@{ Block = $false; Copyright = $false; Pointer = $false; Guid = $null
-        CopyrightLine = $null; LineGuid = $null; SequenceGuid = $null; StrayGuidLine = 0 }
-    if ($Style -eq 'psinfo') {
-        $inside = $false
-        foreach ($text in $Line) {
-            if (-not $inside) {
-                if ($text -match '^\s*<#PSScriptInfo\b') { $inside = $true; $fact.Block = $true }
-                continue
-            }
-            if ($text -match '#>') { break }
-            if ($text -match "^\s*\.COPYRIGHT\s+$CopyrightPattern") { $fact.Copyright = $true }
-            elseif ($text -match '^\s*\.LICENSEURI\s+https://yuruna\.link/license(?![\w./-])') { $fact.Pointer = $true }
-            elseif ($text -match '^\s*\.GUID\s+(\S+)') { $fact.Guid = $Matches[1] }
-        }
-        return $fact
-    }
-    $guidAt = -1
-    for ($i = 0; $i -lt $Line.Count; $i++) {
-        if ($Line[$i] -notmatch "Copyright\s*$CopyrightPattern") { continue }
-        $fact.Copyright = $true
-        $fact.CopyrightLine = $Line[$i]
-        for ($j = $i - 1; $j -ge 0; $j--) {
-            if ($Line[$j] -match '[A-Za-z0-9]') { $fact.Pointer = $Line[$j] -match $PointerPattern; break }
-        }
-        for ($j = $i + 1; $j -lt $Line.Count; $j++) {
-            if ($Line[$j] -notmatch '[A-Za-z0-9]') { continue }
-            if ($Line[$j] -match $GuidLinePattern) { $fact.LineGuid = $Matches['value']; $guidAt = $j }
-            break
-        }
-        break
-    }
-    for ($i = 0; $i -lt $Line.Count; $i++) {
-        if ($Style -eq 'hash' -and -not $fact.SequenceGuid -and $Line[$i] -match $SequenceGuidPattern) { $fact.SequenceGuid = $Matches['value'] }
-        elseif ($i -ne $guidAt -and -not $fact.StrayGuidLine -and $Line[$i] -match $GuidLinePattern) { $fact.StrayGuidLine = $i + 1 }
-    }
-    $fact.Guid = if ($fact.SequenceGuid) { $fact.SequenceGuid } else { $fact.LineGuid }
-    return $fact
-}
-
 function ConvertTo-Problem {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -454,7 +404,7 @@ function Get-HeaderGap {
         if (-not $Fact.Block) {
             $fix = @('Start the file with the PSScriptInfo block its neighbors use (copy one from a sibling file) holding',
                 ".COPYRIGHT (c) 2019-$year by Alisson Sol et al., .LICENSEURI https://yuruna.link/license and a fresh .GUID,",
-                "for example $(Get-FreshGuid).", $DeclareHint)
+                "for example $(New-SourceGuid).", $DeclareHint)
             $problems.Add((ConvertTo-Problem -Rule 'psscriptinfo' -Fix $fix `
                         -Message "no <#PSScriptInfo block in the first $HeaderWindow lines, so no copyright, license pointer or GUID"))
             return @($problems)
@@ -500,7 +450,7 @@ function Get-GuidProblem {
     [OutputType([object[]])]
     param([Parameter(Mandatory)][string]$Style, [Parameter(Mandatory)][pscustomobject]$Fact)
     if ($Style -eq 'psinfo' -and -not $Fact.Block) { return @() }
-    $fresh = Get-FreshGuid
+    $fresh = New-SourceGuid
     if ($Style -eq 'psinfo') {
         if (-not $Fact.Guid) {
             return @(ConvertTo-Problem -Rule 'guid' -Message 'the PSScriptInfo block has no .GUID line' -Fix @(".GUID $fresh"))
@@ -510,6 +460,16 @@ function Get-GuidProblem {
             return @(ConvertTo-Problem -Rule 'guid' -Final -Message 'declares both a GUID line and a sequenceGuid; a sequence is named by its sequenceGuid alone' `
                     -Fix @('Remove the GUID line below the copyright line.'))
         }
+    } elseif ($Fact.GuestSequence) {
+        # Perf rows join on sequenceGuid, so a guest sequence named only by a
+        # GUID line has no identity there; the value moves, not the line.
+        if ($Fact.LineGuid) {
+            return @(ConvertTo-Problem -Rule 'guid' -Final `
+                    -Message 'is a guest sequence (a top-level resource: or keystrokeMechanism: key), which is named by a top-level sequenceGuid, not a GUID line' `
+                    -Fix @('Replace the GUID line with this top-level key, keeping its value:', "sequenceGuid: $($Fact.LineGuid)"))
+        }
+        return @(ConvertTo-Problem -Rule 'guid' -Message 'is a guest sequence with no top-level sequenceGuid' `
+                -Fix @('Add this top-level key:', "sequenceGuid: $fresh"))
     } elseif (-not $Fact.LineGuid) {
         $fix = if ($Fact.StrayGuidLine) { @("Move the GUID line at line $($Fact.StrayGuidLine) directly below the copyright line.") }
         else { @('Put this line directly below the copyright line:', (Get-GuidLineText -Style $Style -CopyrightLine $Fact.CopyrightLine -Guid $fresh)) }
@@ -572,7 +532,7 @@ function ConvertTo-ClashProblem {
     $shown = ($Other | Select-Object -First 3) -join ', '
     if ($Other.Count -gt 3) { $shown += " and $($Other.Count - 3) more" }
     return ConvertTo-Problem -Rule 'guid' -Final -Message "GUID $Guid is also declared by $shown" `
-        -Fix @("A GUID names one file across renames: use a fresh one, for example $(Get-FreshGuid).",
+        -Fix @("A GUID names one file across renames: use a fresh one, for example $(New-SourceGuid).",
             "Byte-identical copies kept in step by a tool or a check are declared under synchronizedCopies in $ExemptionsName.")
 }
 
@@ -729,7 +689,7 @@ try {
     # that only covers files which already comply can be called out.
     $exempted = @{}
     $checked = foreach ($file in $candidate) {
-        $fact = Get-HeaderFact -Style $file.Style -Line $file.Line
+        $fact = Get-SourceHeaderFact -Style $file.Style -Line $file.Line -RelativePath $file.Path
         $exempt = Resolve-Exemption -Repo $file.Repo -RelativePath $file.Path
         if ($exempt) {
             if (-not $exempted.ContainsKey($exempt.Label)) { $exempted[$exempt.Label] = [pscustomobject]@{ Matched = 0; Compliant = 0 } }
@@ -775,9 +735,9 @@ try {
                 $path = $Matches['path']
                 $declared = $Matches['text']
                 if (-not (Test-CoveredName -RelativePath $path)) { continue }
-                if ($declared -notmatch '^\s*\.GUID\s+(?<value>[0-9a-fA-F-]{36})\s*$' -and $declared -notmatch $SequenceGuidPattern -and
-                    $declared -notmatch $GuidLinePattern) { continue }
-                $key = $Matches['value'].ToLowerInvariant()
+                $value = Get-SourceIdentityLineValue -Text $declared
+                if (-not $value) { continue }
+                $key = $value.ToLowerInvariant()
                 if ($key -cnotin $searched) { continue }
                 if (-not $holder.ContainsKey($key)) { $holder[$key] = [Collections.Generic.List[string]]::new() }
                 $holder[$key].Add($path)
@@ -792,7 +752,7 @@ try {
             $holder[$key] = @($holder[$key] | Where-Object {
                     $line = $candidateHead[':' + $_]
                     $style = if ($null -ne $line) { Get-FileStyle -RelativePath $_ -FirstLine $line[0] }
-                    $style -and "$((Get-HeaderFact -Style $style -Line $line).Guid)".ToLowerInvariant() -eq $key
+                    $style -and "$((Get-SourceHeaderFact -Style $style -Line $line -RelativePath $_).Guid)".ToLowerInvariant() -eq $key
                 })
         }
         foreach ($one in ($guidFile | Where-Object { -not (Test-GuidShareAllowed -Repo $_.Repo -RelativePath $_.Path) })) {
@@ -811,7 +771,7 @@ try {
         foreach ($file in $touched) {
             $old = $previous['HEAD:' + $file.Before]
             if ($null -eq $old) { continue }
-            $oldFact = Get-HeaderFact -Style $file.Style -Line $old
+            $oldFact = Get-SourceHeaderFact -Style $file.Style -Line $old -RelativePath $file.Before
             $oldRule = @(Get-FileProblem -Style $file.Style -Fact $oldFact -Line $old -Exempt $file.Exempt | ForEach-Object { $_.Rule })
             foreach ($problem in $file.Problem) { $problem.Existing = -not $problem.Final -and $problem.Rule -in $oldRule }
         }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -414,7 +414,7 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
         # failurePattern must take the ordinary retry path without a power cut.
         $runtimeFixture = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-retry-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $runtimeFixture -Force | Out-Null
-        $savedRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $savedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $savedFailVariable = Get-Variable -Name Fail -Scope Script -ErrorAction SilentlyContinue
         $savedFailValue = if ($savedFailVariable) { $savedFailVariable.Value } else { $null }
         $env:YURUNA_RUNTIME_DIR = $runtimeFixture
@@ -510,7 +510,7 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
                 'Get-SequenceAction', 'Get-PollDelay', 'Format-YurunaOperatorMessage', 'Send-CycleEventSafely') {
                 Remove-Item -LiteralPath "Function:\$functionName" -ErrorAction SilentlyContinue
             }
-            $env:YURUNA_RUNTIME_DIR = $savedRuntimeDir
+            Restore-YurunaTestEnvironment -Saved $savedRuntimeDir
             Remove-Item -LiteralPath $runtimeFixture -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Variable -Name retryCall, failWithPattern, failOcrTail, recoverySteps -Scope Script -ErrorAction SilentlyContinue
             if ($savedFailVariable) { $script:Fail = $savedFailValue }
@@ -678,7 +678,7 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
         }
     }
     BeforeEach {
-        $script:bootSavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:bootSavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $TestDrive
         $script:bootStub = & $script:bootHandlerModule {
             $script:BootStub = @{
@@ -708,7 +708,7 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
             VMName = 'test-vm'; HostType = 'host.windows.hyper-v'
         }
     }
-    AfterEach { $env:YURUNA_RUNTIME_DIR = $script:bootSavedRuntime }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:bootSavedRuntime }
     AfterAll { Remove-Module Test.SequenceHandler -Force }
 
     It 'saves evidence before one cold restart, then succeeds' {
@@ -1189,6 +1189,63 @@ Describe 'stopVm requests the shutdown through the host and observes it' {
     }
 }
 
+Describe 'saveDiskSnapshot carries the guest''s SSH host key pin to its new name' {
+    # The save renames the working VM to the snapshot id. The guest keeps its
+    # host keys, so its pin has to follow it: the pin left under the id by a
+    # guest of an earlier cycle refuses the renamed guest at the next SSH step.
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking -Global
+        $script:saveStub = @{ Ok = $true; Moves = [Collections.Generic.List[string]]::new() }
+        . (Get-Module Test.SequenceHandler) {
+            function Save-VMDiskSnapshot {
+                [CmdletBinding(SupportsShouldProcess)]
+                [OutputType([bool])]
+                param([string]$VMName, [string]$Id)
+                if (-not $PSCmdlet.ShouldProcess("$VMName/$Id", 'stub snapshot save')) { return $false }
+                return $script:SaveStub.Ok
+            }
+            function Move-GuestHostKeyPin {
+                [CmdletBinding(SupportsShouldProcess)]
+                param([string]$VMName, [string]$NewVMName)
+                if ($PSCmdlet.ShouldProcess($NewVMName, 'stub pin move')) { $script:SaveStub.Moves.Add("$VMName>$NewVMName") }
+            }
+            function Write-SnapshotManifest {
+                [CmdletBinding(SupportsShouldProcess)]
+                [OutputType([string])]
+                param([string]$VMName, [string]$SnapshotId, [string]$HostType, [hashtable]$Extra)
+                $null = $HostType, $Extra
+                if (-not $PSCmdlet.ShouldProcess("$VMName/$SnapshotId", 'stub manifest write')) { return '' }
+                return 'manifest.json'
+            }
+        }
+        & (Get-Module Test.SequenceHandler) { $script:SaveStub = $args[0] } $script:saveStub
+        $script:saveHandler = (Get-SequenceAction -Name saveDiskSnapshot).Handler
+    }
+    BeforeEach {
+        $script:saveStub.Ok = $true; $script:saveStub.Moves.Clear()
+        $script:saveContext = @{
+            Step = @{ id = 'amisad-build' }; VMName = 'test-guest.ubuntu.server.24-01'; HostType = 'host.ubuntu.kvm'
+            ExpandVariable = { param($v) $v }; Vars = @{}
+        }
+    }
+    AfterAll { Remove-Module Test.SequenceHandler -Force }
+
+    It 'moves the pin from the build name to the snapshot id when the save renames the VM' {
+        (& $script:saveHandler $script:saveContext 6>$null) | Should -BeTrue
+        $script:saveContext.NewVMName | Should -BeExactly 'amisad-build'
+        @($script:saveStub.Moves) | Should -BeExactly @('test-guest.ubuntu.server.24-01>amisad-build')
+    }
+
+    It 'leaves the pins alone when the save fails or keeps the name' {
+        $script:saveStub.Ok = $false
+        (& $script:saveHandler $script:saveContext 6>$null) | Should -BeFalse
+        $script:saveContext.VMName = 'amisad-build'
+        $script:saveStub.Ok = $true
+        (& $script:saveHandler $script:saveContext 6>$null) | Should -BeTrue
+        $script:saveStub.Moves.Count | Should -Be 0
+    }
+}
+
 Describe 'startVm and inputTextAndEnter leave evidence when the guest goes quiet' {
     It 'startVm observes the stopped boundary through the shared wait and records a timeout as not stopped' {
         $h = Get-HandlerScriptBlockAst -Path $script:modulePath -Name 'startVm'
@@ -1311,5 +1368,79 @@ Describe 'A typed command is acknowledged by what the console says' {
     It 'falls back to the raw frame for a console the OCR could not read' {
         Test-GuestConsoleFrameChanged -Before @{ Text = ''; Hash = 'A' } -After @{ Text = ''; Hash = 'B' } | Should -BeTrue
         Test-GuestConsoleFrameChanged -Before @{ Text = ''; Hash = 'A' } -After @{ Text = ''; Hash = 'A' } | Should -BeFalse
+    }
+}
+
+Describe 'retry stops on a send the host can never make' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.SequenceFailureState.psm1') -Force -DisableNameChecking -Global
+        $script:InputRetryHandler = (Get-HandlerScriptBlockAst -Path $script:modulePath -Name 'retry').ScriptBlock.GetScriptBlock()
+    }
+    BeforeEach {
+        $script:InputRuntime = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-retry-input-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:InputRuntime -Force | Out-Null
+        $script:SavedInputRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $env:YURUNA_RUNTIME_DIR = $script:InputRuntime
+        $script:InputAttempts = 0
+        $script:InputEvents = [Collections.Generic.List[object]]::new()
+        $script:InputFaultKind = 'deterministic'
+        $script:Fail = [ordered]@{
+            LastFailureLabel = $null; LastFailureDescription = $null; LastFailedAction = $null; LastFailedStepNumber = 0
+            LastFailedStepInvocationId = ''; StepHandlerError = $null; StepHostInputFault = $null
+            WaitForTextMatchedFailurePattern = $null; WaitForTextConsoleFlood = $null
+        }
+        Set-Item -LiteralPath Function:\Test-Arm64HyperVColdPowerCycleMode -Value { return $false }
+        Set-Item -LiteralPath Function:\Get-SequenceAction -Value {
+            param([string]$Name)
+            $null = $Name
+            return [ordered]@{ FailureClass = 'host_io_blocked'; Severity = 'soft'; SuggestedRecoveries = @('retry_immediately') }
+        }
+        Set-Item -LiteralPath Function:\Get-PollDelay -Value { param([int]$Attempt) $null = $Attempt; return 0 }
+        Set-Item -LiteralPath Function:\Format-YurunaOperatorMessage -Value {
+            param($Key, $FormatValues, $FormatBindings, $Arguments)
+            $null = $FormatValues, $FormatBindings, $Arguments
+            return [string]$Key
+        }
+        Set-Item -LiteralPath Function:\Send-CycleEventSafely -Value { param($EventRecord) $script:InputEvents.Add($EventRecord) }
+        $script:InputContext = @{
+            Step = [ordered]@{ maxAttempts = 3; steps = @([ordered]@{ action = 'inputText' }) }
+            InvokeStepBlock = {
+                param($Steps, $ParentOrdinal, $ParentAction, $ParentAttempt)
+                $null = $Steps, $ParentOrdinal, $ParentAction, $ParentAttempt
+                $script:InputAttempts++
+                $script:Fail.LastFailedAction = 'inputText'
+                $script:Fail.LastFailureLabel = 'inputText'
+                $script:Fail.LastFailedStepInvocationId = "leaf-$($script:InputAttempts)"
+                $script:Fail.StepHostInputFault = [ordered]@{ action = 'Send-Text'; stepInvocationId = "leaf-$($script:InputAttempts)"
+                    kind = $script:InputFaultKind; reason = 'unmappable-character'; transport = 'VNC'; detail = 'U+00E9 at 0'; delivered = 0; total = 1 }
+                return $false
+            }
+            StepNum = 4; StepCount = 9; Description = 'type the password'; VMName = 'test-vm'; HostType = 'host.macos.utm'
+        }
+    }
+    AfterEach {
+        foreach ($functionName in 'Test-Arm64HyperVColdPowerCycleMode', 'Get-SequenceAction', 'Get-PollDelay',
+            'Format-YurunaOperatorMessage', 'Send-CycleEventSafely') {
+            Remove-Item -LiteralPath "Function:\$functionName" -ErrorAction SilentlyContinue
+        }
+        Restore-YurunaTestEnvironment -Saved $script:SavedInputRuntimeDir
+        Remove-Item -LiteralPath $script:InputRuntime -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'makes one attempt and files the inner cause as plan_invalid' {
+        Assert-False (& $script:InputRetryHandler $script:InputContext) 'the retry must fail'
+        Assert-Equal -Expected 1 -Actual $script:InputAttempts -Because 'the next attempt would fail the same way'
+        Assert-Equal -Expected 'plan_invalid' -Actual $script:Fail.LastInnerFailureClass
+        Assert-Equal -Expected 'pause_and_inspect' -Actual @($script:Fail.LastInnerSuggestedRecoveries)[0]
+        $exhausted = @($script:InputEvents | Where-Object { $_.event -eq 'retry_exhausted' })
+        Assert-Equal -Expected 'deterministic-input-fault' -Actual $exhausted[0].retrySuppressionReason
+        Assert-True ($script:Fail.LastFailureLabel -match 'deterministic-input-fault') "the label says why: $($script:Fail.LastFailureLabel)"
+    }
+
+    It 'keeps retrying a transient fault with the verb''s class' {
+        $script:InputFaultKind = 'transient'
+        Assert-False (& $script:InputRetryHandler $script:InputContext) 'the retry must fail'
+        Assert-Equal -Expected 3 -Actual $script:InputAttempts
+        Assert-Equal -Expected 'host_io_blocked' -Actual $script:Fail.LastInnerFailureClass
     }
 }

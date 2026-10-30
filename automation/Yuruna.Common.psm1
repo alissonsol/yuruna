@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1091,6 +1091,109 @@ function Test-YurunaGuestMacMatchesName {
     if ($bare -notmatch '^[0-9A-F]{12}$') { return $false }
     $derived = (Get-YurunaGuestMacAddress -VMName $VMName -HostId $HostId) -replace ':', ''
     return ($bare -eq $derived)
+}
+
+# --- REGION: Rename address ledger
+# What each rename left on a VM's primary NIC, for the rename that undoes it.
+# Global, so the defensive -Force re-imports of this module between a rename
+# and the rename back keep it; process memory, built even under -WhatIf.
+if (-not (Get-Variable -Name 'YurunaRenameMacLedger' -Scope Global -ErrorAction SilentlyContinue)) {
+    Set-Variable -Name 'YurunaRenameMacLedger' -Scope Global -Value @{} -WhatIf:$false -Confirm:$false
+}
+$script:RenameMacLedger = Get-Variable -Name 'YurunaRenameMacLedger' -Scope Global -ValueOnly
+
+function ConvertTo-YurunaBareMac {
+    # Twelve uppercase hex digits, or '' for an address that cannot be read.
+    param([AllowEmptyString()][string]$MacAddress)
+    if ([string]::IsNullOrWhiteSpace($MacAddress)) { return '' }
+    $bare = ($MacAddress.Trim() -replace '[:-]', '').ToUpperInvariant()
+    if ($bare -notmatch '^[0-9A-F]{12}$') { return '' }
+    return $bare
+}
+
+function Resolve-YurunaRenameMac {
+<#
+.SYNOPSIS
+    The address a VM's primary NIC should carry after a rename, or '' to leave
+    the address it has.
+.DESCRIPTION
+    Test-YurunaGuestMacMatchesName decides which addresses move with a rename:
+    one derived from the name being left belongs to that name, and takes the
+    address the new name derives. Applied again in the other direction, that
+    rule does not undo itself. A guest pinned at build time to an identity equal
+    to the name it is promoted to -- a guest whose hostname is its snapshot id --
+    keeps its address on the way in, and on the way back carries exactly the
+    address the name being left derives, so the rule would move it.
+
+    So a rename that returns a VM to the name it had before restores the address
+    it carried under that name, as recorded by Register-YurunaRenameMac, while
+    the NIC still carries what that earlier rename left on it. Every other
+    rename follows the rule.
+.PARAMETER MacAddress
+    The address the NIC carries now, in any notation ConvertTo-YurunaMacAddress
+    accepts.
+.PARAMETER VMName
+    The name being left.
+.PARAMETER NewName
+    The name the VM is renamed to.
+.PARAMETER HostId
+    Override the host seed. Omitted, it is resolved from runtime/host.uuid.
+.OUTPUTS
+    [string] the canonical uppercase address to write, or ''.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$MacAddress,
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$NewName,
+        [Parameter()][AllowEmptyString()][string]$HostId = ''
+    )
+    $current = ConvertTo-YurunaBareMac -MacAddress $MacAddress
+    $earlier = $script:RenameMacLedger["$($NewName.Trim().ToLowerInvariant())|$($VMName.Trim().ToLowerInvariant())"]
+    if ($current -and $earlier -and $earlier.After -eq $current) {
+        if ($earlier.Before -eq $current) { return '' }
+        # Formatted here rather than through ConvertTo-YurunaMacAddress: the
+        # address being restored is the one the NIC had, and that validator
+        # warns about an address it did not derive.
+        return (($earlier.Before -split '(..)' | Where-Object { $_ }) -join ':')
+    }
+    if (Test-YurunaGuestMacMatchesName -MacAddress $MacAddress -VMName $VMName -HostId $HostId) {
+        return Get-YurunaGuestMacAddress -VMName $NewName -HostId $HostId
+    }
+    return ''
+}
+
+function Register-YurunaRenameMac {
+<#
+.SYNOPSIS
+    Record the address a completed rename left on a VM's primary NIC, so the
+    rename that undoes it can restore the one before (Resolve-YurunaRenameMac).
+.PARAMETER VMName
+    The name the rename left.
+.PARAMETER NewName
+    The name the VM carries now.
+.PARAMETER Before
+    The address the NIC carried before the rename.
+.PARAMETER After
+    The address it carries now.
+#>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$NewName,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Before,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$After
+    )
+    $from = $VMName.Trim().ToLowerInvariant()
+    $to = $NewName.Trim().ToLowerInvariant()
+    # The rename this one undid is spent; a later rename back is a new decision.
+    $null = $script:RenameMacLedger.Remove("$to|$from")
+    $beforeBare = ConvertTo-YurunaBareMac -MacAddress $Before
+    $afterBare = ConvertTo-YurunaBareMac -MacAddress $After
+    if ($beforeBare -and $afterBare) { $script:RenameMacLedger["$from|$to"] = @{ Before = $beforeBare; After = $afterBare } }
+    else { $null = $script:RenameMacLedger.Remove("$from|$to") }
 }
 
 function ConvertTo-Ipv4UInt32 {
@@ -4153,6 +4256,92 @@ function Get-YurunaPrivateStatePath {
     return [pscustomobject]$record
 }
 
+function Get-YurunaGuestChannelKey {
+<#
+.SYNOPSIS
+    This host's guest-channel key, 64 lowercase hex characters, or '' when there
+    is none and -Create was not given.
+.DESCRIPTION
+    The key lets a guest tell its own host's status service from any other
+    responder at an address it was handed: every seed this host renders carries
+    it, and /livecheck?nonce= answers with an HMAC under it
+    (Get-YurunaGuestChannelProof). Generated once from a CSPRNG and kept in the
+    private state root (guest-channel/guest-channel.key, owner-only), so the key
+    outlives checkouts and rebuilds; losing it means guests built before must be
+    rebuilt before they trust this host again.
+.PARAMETER Create
+    Generate the key when it does not exist yet.
+.PARAMETER HomePath
+    Test seam: the home directory, as for Get-YurunaPrivateStatePath.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param([switch]$Create, [Parameter(DontShow)][string]$HomePath)
+    $stateArguments = @{ Name = 'guest-channel.key'; Subdirectory = 'guest-channel'; NoCreate = (-not $Create) }
+    if ($HomePath) { $stateArguments.HomePath = $HomePath }
+    $info = Get-YurunaPrivateStatePath @stateArguments
+    if (-not $info.Path) { return '' }
+    for ($attempt = 0; $attempt -lt 2; $attempt++) {
+        if (Test-Path -LiteralPath $info.Path -PathType Leaf) {
+            $text = ([IO.File]::ReadAllText($info.Path)).Trim()
+            if ($text -cmatch '^[0-9a-f]{64}$') { return $text }
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.guest_channel_key_unreadable' -Arguments @{ path = "$($info.Path)" })
+            return ''
+        }
+        if (-not $Create -or -not $PSCmdlet.ShouldProcess($info.Path, 'Create the guest-channel key')) { return '' }
+        $bytes = [byte[]]::new(32)
+        [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+        $key = [Convert]::ToHexString($bytes).ToLowerInvariant()
+        $temp = $info.Path + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+        $options = [IO.FileStreamOptions]::new()
+        $options.Mode = [IO.FileMode]::CreateNew
+        $options.Access = [IO.FileAccess]::Write
+        $options.Share = [IO.FileShare]::None
+        if (-not $IsWindows) { $options.UnixCreateMode = [IO.UnixFileMode]'UserRead, UserWrite' }
+        try {
+            $stream = [IO.FileStream]::new($temp, $options)
+            try {
+                $payload = [Text.Encoding]::ASCII.GetBytes($key + "`n")
+                $stream.Write($payload, 0, $payload.Length)
+                $stream.Flush($true)
+            } finally { $stream.Dispose() }
+            # No overwrite: when two processes create at once, the first key wins
+            # and the loser reads it on the next pass.
+            try { [IO.File]::Move($temp, $info.Path, $false); return $key } catch [IO.IOException] { Write-Verbose 'guest-channel key created concurrently' }
+        } finally {
+            if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) }
+        }
+    }
+    return ''
+}
+
+function Get-YurunaGuestChannelProof {
+<#
+.SYNOPSIS
+    The HMAC a host answers with on its guest channel: hex(HMAC-SHA256) under the
+    guest-channel key of "yuruna-<scope>/1", the host id, the guest's nonce and
+    any further values, one per line.
+.DESCRIPTION
+    Bound to an audience (the host id) and a scope (livecheck, archive-digest), so
+    a proof for one question or one host never answers another. The key is used
+    as the ASCII bytes of its hex form, which is what `openssl dgst -sha256 -hmac`
+    takes on a guest.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Key,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$HostId,
+        [Parameter(Mandatory)][string]$Nonce,
+        [string]$Scope = 'livecheck',
+        [string[]]$Value = @()
+    )
+    $message = "yuruna-$Scope/1`n$HostId`n$Nonce" + (($Value | ForEach-Object { "`n$_" }) -join '')
+    $hmac = [Security.Cryptography.HMACSHA256]::new([Text.Encoding]::ASCII.GetBytes($Key))
+    try { return [Convert]::ToHexString($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($message))).ToLowerInvariant() }
+    finally { $hmac.Dispose() }
+}
+
 function Get-BoundedNativeOutputLine {
 <#
 .SYNOPSIS
@@ -5138,4 +5327,4 @@ function New-YurunaVirtualizationProbeRecord {
     }
 }
 
-Export-ModuleMember -Function New-YurunaVirtualizationProbeRecord, Save-YurunaHostProxyBackup, Read-YurunaHostProxyBackup, Remove-YurunaHostProxyBackup, ConvertFrom-YurunaPemCertificate, Test-Utf8TextByte, Test-YurunaServiceHealth, Invoke-YurunaTcpProbeSet, Get-YurunaProcessIdentityLiveness, Get-YurunaProcessStartUtc, Test-YurunaPidFileLockLive, Enter-YurunaPidFileLock, Exit-YurunaPidFileLock, Get-YurunaPlatformName, Format-YurunaVirtualizationProbeDiagnostic, New-YurunaVirtualizationStartAction, New-YurunaVirtualizationStartResult, New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName, Invoke-BoundedNativeCommand, Get-BoundedNativeOutputLine, Test-BoundedNativeResultComplete, New-YurunaDeadline, New-YurunaDeadlineFromExpiry, Get-YurunaDeadlineRemainingMs, Test-YurunaDeadlineExpired, Get-YurunaDeadlineBoundedSeconds, Wait-YurunaDeadlineInterval, Get-YurunaIoFailureKind, Get-YurunaTempRoot, Get-YurunaRuntimeIpcEntry, Get-YurunaRuntimeIpcOwnerState, Test-YurunaProcessNameMatch, Remove-YurunaOrphanedRuntimeIpc, Test-YurunaPowerShellTranscriptFile, Remove-YurunaStaleTempEntry, Get-YurunaStaleTempPattern, Resolve-YurunaCanonicalPath, Get-YurunaPathDriveInfo, Get-YurunaPathOwnerId, Get-YurunaCurrentOwnerId, Get-YurunaPrivateStateRoot, Get-YurunaPrivateStatePath
+Export-ModuleMember -Function New-YurunaVirtualizationProbeRecord, Save-YurunaHostProxyBackup, Read-YurunaHostProxyBackup, Remove-YurunaHostProxyBackup, ConvertFrom-YurunaPemCertificate, Test-Utf8TextByte, Test-YurunaServiceHealth, Invoke-YurunaTcpProbeSet, Get-YurunaProcessIdentityLiveness, Get-YurunaProcessStartUtc, Test-YurunaPidFileLockLive, Enter-YurunaPidFileLock, Exit-YurunaPidFileLock, Get-YurunaPlatformName, Format-YurunaVirtualizationProbeDiagnostic, New-YurunaVirtualizationStartAction, New-YurunaVirtualizationStartResult, New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, Resolve-YurunaRenameMac, Register-YurunaRenameMac, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName, Invoke-BoundedNativeCommand, Get-BoundedNativeOutputLine, Test-BoundedNativeResultComplete, New-YurunaDeadline, New-YurunaDeadlineFromExpiry, Get-YurunaDeadlineRemainingMs, Test-YurunaDeadlineExpired, Get-YurunaDeadlineBoundedSeconds, Wait-YurunaDeadlineInterval, Get-YurunaIoFailureKind, Get-YurunaTempRoot, Get-YurunaRuntimeIpcEntry, Get-YurunaRuntimeIpcOwnerState, Test-YurunaProcessNameMatch, Remove-YurunaOrphanedRuntimeIpc, Test-YurunaPowerShellTranscriptFile, Remove-YurunaStaleTempEntry, Get-YurunaStaleTempPattern, Resolve-YurunaCanonicalPath, Get-YurunaPathDriveInfo, Get-YurunaPathOwnerId, Get-YurunaCurrentOwnerId, Get-YurunaPrivateStateRoot, Get-YurunaPrivateStatePath, Get-YurunaGuestChannelKey, Get-YurunaGuestChannelProof

@@ -40,7 +40,13 @@ internals, not invoked directly). The repo-wide encoding gate lives at
 `Invoke-TestRunnerInnerLoop`, `Debug-TestSequence`, and `Invoke-TestProject`
 can never drift apart on it, and a future entry point does not have to
 copy-paste the `$PSScriptRoot`/`Split-Path`/`Join-Path` boilerplate to
-compute it. **Exit-code contract:** `0` means success; preflight failures
+compute it. With no `-ConfigPath`, `$ConfigPath` is the path the entry point
+that started this one published in `YURUNA_CONFIG_PATH`, else
+`<TestRoot>/test.config.yml`, so a child (the status service, a service-VM
+start, the config gate) reads the file its parent was given.
+`Initialize-YurunaEntryPointModuleSet` refuses to start an entry point whose
+module set is incomplete (`runner.entry_point_module_missing`) and imports
+nothing in that case. **Exit-code contract:** `0` means success; preflight failures
 use `1`; `2` means a gate could not produce a verdict (VM admission that
 cannot tell whether other guests are running), and `Invoke-TestProject`
 reports the exit code of the cycle it dispatched, or `2` when the cycle did not
@@ -197,6 +203,7 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.RunnerInnerLoop` | Per-cycle helpers threaded through one cycle by the inner runner |
 | `Test.RunnerWatchdog`  | Out-of-process step-heartbeat watchdog; kills a wedged inner |
 | `Test.RunnerHeartbeat` | Threadpool-timer process heartbeat, which keeps ticking while the runspace blocks |
+| `Test.FaultInjection` | Named fault points chaos tests fire inside the composed loop, armed only by `YURUNA_FAULT_POINTS` plus a marker in the runtime folder |
 | `Test.RunnerState`     | Explicit outer-runner state machine with persisted state + NDJSON transition events |
 | `Test.RunnerAttemptHistory` | Per-attempt evidence directories under `runner-attempts/`, outer-loop fault artifacts, and the bounded history index rebuilt from retained evidence (`Update-RunnerAttemptHistory`) |
 | `Test.RunnerElevation` | Launch-time elevation contract: resolve it once while an operator is present, or refuse to start |
@@ -233,7 +240,7 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.Message`         | The versioned message envelope that crosses a process, persistence or network boundary: one namespaced code, typed JSON-safe arguments and a bounded, redacted detail (`New-MessageEnvelope`, `Test-MessageEnvelope`), plus the one converter for legacy fields |
 | `Test.Locale`          | Locale decisions: the supported-locale manifest, canonical tags, `Accept-Language` selection and the immutable context for one cycle, command or request (`New-LocaleContext`) |
 | `Test.Catalog`         | Renders a message key from the compiled catalogs in a resolved locale, with plural categories and locale number formatting (`Format-CatalogMessage`) |
-| `Test.Perf`            | One JSONL perf row per step execution, one file per cycle |
+| `Test.Perf`            | One JSONL perf row per step execution, one file per cycle; phase rows (preamble phases, teardown, delays, failure pause, whole cycles) per UTC day, and the learned cycle-time budget |
 | `Test.PerfAggregate`   | Groups perf rows by sequence invocation, counting enclosing work once, and matches a checkpoint to its execution (`ConvertTo-PerfSequenceAggregate`, `Find-PerfCheckpoint`) |
 | `Test.Provenance`      | Reads the base-image provenance sidecar `Get-Image.ps1` writes |
 | `Test.FrameworkSource` | Which framework snapshot a service VM was built from, and whether the guest fell back to the public mirror |
@@ -611,6 +618,28 @@ them is printed as a warning, the five largest first, and listed under
 there so a feedback loop that grows slower is noticed before a suite reaches its
 kill cap.
 
+A suite that fails in the parallel run runs once more, alone, after it (up to
+ten suites; not under `-FailFast` or a throttle of 1). Its row records `alone`
+as `passed` or `failed`, its problem line says which, and a suite that passed
+alone is listed under `loadSensitive`: its timing margins do not hold under the
+load of a parallel run. The verdict is the first run's either way, and the alone
+run's result is kept beside it as `nunit-<suite>.alone.xml`.
+
+A process a suite left running after its own process exited is stopped, printed
+as a warning and listed under `leftovers` in `suite-results.json` (and on the
+suite's row); the suite's verdict is unchanged. Leftovers are found by the
+suite's own temp folder in their environment, on Linux and macOS. A worker that
+fails reports its suite as incomplete (rc 126) and the run finishes the other
+suites, instead of stopping them mid-run with their processes still running.
+The single-suite shim (`tools/_InvokeOneSuite.ps1`) leaves a suite only its
+`$PesterPreference`; its own variables are private, so a mock that reads an
+unbound name finds the same nothing whether the shim runs alone or under the
+runner.
+
+The pre-commit hook runs the baseline gate with `-Staged`: it compares the
+suites and the baseline in the commit's index, so a suite or a baseline edit left
+unstaged neither fails nor passes the commit.
+
 `test/modules/suite-baseline.json` is that reference and is tracked. Re-record
 all rows with `-UpdateBaseline` only from a passing full run, as a deliberate,
 reviewed change. The refresh rejects lost suites, lower test counts, and new
@@ -659,6 +688,35 @@ Null/NotNull/Match/Throw/NoFinding`, plus `Get-YurunaTestRepoRoot`,
 fails a suite that redeclares any of them; without that guard the count grew from
 234 to 296 hand-rolled definitions, in three mutually incompatible meanings for
 `Assert-Equal`.
+
+A fixture git repository comes from `New-YurunaTestGitRepository` (and a clone
+gets `Set-YurunaTestGitIdentity`): a fixed identity, commit and tag signing off,
+no line-ending conversion and hooks pointed at an empty directory, all in the
+repository's own config, with an optional seeded first commit (`-File`, or
+`-AddExisting` for what the directory already holds), an optional `origin`
+(`-Remote`) and git's failures thrown instead of discarded. Fixture git calls go
+through `Invoke-YurunaTestGit`, which throws with git's output on a failure and
+returns its lines; a suite may keep its own `Invoke-*Git` name as a wrapper. The
+`$global:__Yuruna*` channels the entry points publish (host id, run id, cycle
+folder, log file, cycle start) change only through `Save-YurunaTestGlobal`,
+`Set-YurunaTestGlobal` and `Restore-YurunaTestGlobal`, which tell an absent
+channel from one holding `$null`. A process environment entry a test changes is
+saved with `Save-YurunaTestEnvironment` and put back with
+`Restore-YurunaTestEnvironment`, which removes an entry that was absent and keeps
+an empty one empty; the hand copies cleared the entry or dropped the outer value,
+so seven suites left `YURUNA_RUNTIME_DIR`, and one `YURUNA_LOG_DIR`, pointing at a
+fixture folder or unset for whatever ran next in the process. The same guard
+fails a suite that sets a `user.email` by hand, keeps a git runner that runs git
+itself, writes one of those globals by hand outside a runspace of its own, or
+puts `YURUNA_RUNTIME_DIR` or `YURUNA_LOG_DIR` back by hand in a teardown.
+
+Host driver source is read the same way. `Get-YurunaTestFileAst` and
+`Get-YurunaTestSourceText` read `host/<driver>/modules/Yuruna.Host.psm1` as the
+whole driver, each part file inlined where the root loads it, and
+[`Test.DriverSource.psm1`](../test/modules/Test.DriverSource.psm1) lists a
+driver's files, lifts one function from whichever file defines it and reads any
+path the same way. A suite never opens the root file alone, so code can move
+between the root and its parts without breaking the suites that read it.
 
 `Assert-Equal` compares **by value**; `Assert-StringEqual` compares string
 renderings. They are separate exports because they genuinely differ -- on leading
@@ -932,11 +990,12 @@ one `Register-HostConditionProvider` call. Callers keep
 
 | Function | Used by |
 |---|---|
-| `Register-HostConditionProvider -HostType -Assert -AssertMinimum [-RequiresElevation] [-Display] [-DisplayTeardown] [-ClockSync] [-NetworkHealth] [-MetricsExporter]` | Facade loader; external host plugins |
+| `Register-HostConditionProvider -HostType -Assert -AssertMinimum [-RequiresElevation] [-Display] [-DisplayTeardown] [-ClockSync] [-NetworkHealth] [-MetricsExporter] [-Failure]` | Facade loader; external host plugins |
 | `Get-HostConditionProvider -HostType` | Dispatchers; introspection |
 | `Get-HostConditionProviderMatrix` | Startup capability matrix |
 | `Clear-HostConditionProvider` | Tests only |
-| `Assert-HostConditionSet -HostType` | Outer runner per-cycle gate |
+| `Get-HostConditionVerdict -HostType` | Inner runner preamble and per-cycle gate: `Passed`, the refused `Condition` and `Detail`, the `FailureClass` and the failure record's `Message` |
+| `Assert-HostConditionSet -HostType` | The verdict's `Passed` alone (`Debug-TestSequence`) |
 | `Get-HostClockSkew` / `Get-HostClockSkewLimit` | Host-clock measurement (direct NTP over UDP) |
 | `Write-HostClockDriftWarning -HostType` | Every platform's `Assert` -- measures once per process and warns |
 | `Reset-HostClockReport` | Tests only (re-arms the once-per-process latch) |
@@ -948,7 +1007,7 @@ one `Register-HostConditionProvider` call. Callers keep
 
 ### Provider record shape
 
-Each registration carries a nine-field ordered dict:
+Each registration carries a ten-field ordered dict:
 
 ```
 @{
@@ -961,11 +1020,16 @@ Each registration carries a nine-field ordered dict:
     ClockSync         = { param() ... @{ Succeeded; Message } }   # optional: put this host's clock back under NTP discipline. Invoked by Sync-HostClock from the operator-facing paths only -- it needs privileges an unattended cycle cannot obtain.
     NetworkHealth     = { param([string]$HostType) ... }   # optional: can this host still put a guest on a working network? $null for a host with no way to answer. Invoked by Test-HostGuestNetworkHealth.
     MetricsExporter   = { param() ... @{ Status; Reason } }   # optional: per-cycle convergence of this host's metrics exporter; $null for a host where that repair would have to ask for its privilege. Invoked by Initialize-HostMetricsExporter.
+    Failure           = { param() ... @{ Condition; Detail } }   # optional: the condition the last Assert refused on, $null after a pass. Read by Get-HostConditionVerdict; a refusal it cannot attribute is filed as 'unnamed'.
 }
 ```
 
 `Assert` takes `-HostType` and may be called multiple times per
-cycle. `AssertMinimum` is lighter than
+cycle. Its probes are bounded, and a probe that could not answer is a
+refusal naming the probe, never a pass: a refused cycle's failure
+record carries the condition (`elevation` is filed as
+`elevation_required`, every other condition as `unknown`, since none
+is fixed by an unattended retry). `AssertMinimum` is lighter than
 `Assert` (no display-timeout / screen-lock / TCC-grant checks), for
 cleanup helpers that legitimately run during interactive maintenance.
 
@@ -1420,6 +1484,24 @@ of a generous value is how long a genuinely wedged step takes to be noticed,
 and preambleTimeoutSeconds below still bounds the phase where a stall is
 never legitimate.
 
+<a id="42d38664-0025"></a>
+
+### Fault points for chaos tests
+
+`Test.FaultInjection.psm1` names places where a test can fire a fault inside
+the composed loop: `cycle-import` (the per-cycle process, modules loaded),
+`inner-import` and `before-inner-pid` (the inner), `step-heartbeat`,
+`capture` (before each screen capture of `Wait-ForText`), `ocr`,
+`ledger-read` and `status-write`. A point fires only when
+`YURUNA_FAULT_POINTS` names it (`name[:throw|exit|hang|kill]`, comma
+separated) AND the runtime folder holds the test-only marker
+`fault-injection.enabled`, which a runner's own runtime never has; each fired
+point appends to `fault-injection.log` first. Every call site tests the
+variable before anything else, so a cycle without it pays one environment
+read. The chaos cases in `Test.RunnerThreeProcess.Tests.ps1` fire points
+inside the real resident, cycle process and inner and assert the end state:
+a scored non-pass and a resident still running.
+
 <a id="42d38664-0024"></a>
 
 ## Exit codes
@@ -1436,6 +1518,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

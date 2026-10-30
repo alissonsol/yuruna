@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1477,6 +1477,326 @@ function Get-GuestRecorderClockAnalysis {
     return $analysis
 }
 
+# --- REGION: ConvertFrom-GuestKernelFaultText
+# The reports a wedged or failing kernel prints, each matched against the text
+# of one kernel record from its first character and case-sensitively. The set
+# covers what the guest recorder's first-stall trigger in fetch-and-execute.sh
+# looks for, plus hung tasks, oopses and panics.
+$script:GuestKernelFaultPatterns = [ordered]@{
+    'soft-lockup'             = [regex]'^(?:watchdog: )?BUG: soft lockup - CPU#(?<cpu>\d+) stuck for (?<seconds>\d+)s!(?: \[(?<task>.+):(?<pid>\d+)\])?'
+    'hard-lockup'             = [regex]'^(?:NMI )?(?:watchdog: )?(?:CPU\d+: )?Watchdog detected hard LOCKUP on cpu (?<cpu>\d+)'
+    'rcu-stall'               = [regex]'^rcu: INFO: \S+ (?:self-detected stall on CPU|detected (?:expedited )?stalls on CPUs/tasks)'
+    'rcu-kthread-starved'     = [regex]'^rcu: \S+ kthread starved for (?<jiffies>\d+) jiffies!'
+    'rcu-timer-wakeup-missed' = [regex]"^rcu: \S+ kthread timer wakeup didn't happen for (?<jiffies>\d+) jiffies!"
+    'hung-task'               = [regex]'^INFO: task (?<task>.+):(?<pid>\d+) blocked for more than (?<seconds>\d+) seconds\.'
+    'oops'                    = [regex]'^(?:Internal error: )?Oops\b'
+    'panic'                   = [regex]'^Kernel panic - not syncing\b'
+}
+# A record opening with none of these cannot match a pattern above, so the
+# patterns run only on the few records that do.
+$script:GuestKernelFaultHint = [regex]'^(?:watchdog: |NMI watchdog: |BUG: |rcu: |INFO: task |Internal error: |Oops|Kernel panic|CPU\d+: Watchdog|Watchdog detected)'
+# Lines inside a stall report: the jiffies the report measured and each CPU
+# it names as stalled.
+$script:GuestKernelRcuReportJiffies = [regex]'^rcu:\s+\((?:detected by \d+, )?t=(?<jiffies>\d+) jiffies'
+$script:GuestKernelRcuStalledCpu = [regex]'^rcu:\s+(?<cpu>\d+)-\S*: \('
+$script:GuestKernelRecordStamp = [regex]'\[\s*(?<seconds>\d+)\.(?<micros>\d{6})\]'
+$script:GuestKernelJournalPrefix = [regex]'^\S+ kernel: '
+$script:GuestKernelForwardedRecord = [regex]'^[^\s\[\]:]+\[\d+\]: '
+# The last records of a boot that ends on purpose or in a panic: whatever
+# follows with an earlier timestamp is the next boot, however short this one.
+$script:GuestKernelBootEnd = [regex]'^(?:reboot: |Kernel panic - not syncing\b)'
+# How far past the uptime limit a timestamp has to run to be a clock jump. It
+# absorbs a host clock step between the limit's two readings. A jump no larger
+# than this, plus the VM's age when the boot began and the console's quiet time
+# before the read, goes unnamed.
+$script:GuestClockJumpMarginSeconds = 60
+
+function ConvertFrom-GuestKernelFaultText {
+    <#
+    .SYNOPSIS
+        Read the lockup, stall, hung-task, oops and panic reports out of a
+        guest's serial console or kernel journal text.
+    .DESCRIPTION
+        A Hyper-V guest's serial log carries the kernel's console output and
+        every journal line journald forwards there, PowerShell script-block
+        text included, so a keyword anywhere on a line proves nothing: 'loops'
+        contains 'oops', and a forwarded script can quote any kernel message.
+        Each physical line is split at its printk timestamps (two records can
+        share a line), a record whose text opens with 'ident[pid]: ' is a
+        forwarded journal line, and only kernel records are matched. Quoted
+        kernel text is skipped unless it carries a printk timestamp of its
+        own, which console text cannot tell apart from a kernel record that
+        landed in the middle of a journal line. journalctl -o short-monotonic
+        output carries '<host> kernel: ' after the timestamp: in recorder text
+        that prefix is removed first, and in serial text, where journald never
+        forwards kernel records, a record carrying it is quoted output. A
+        record repeated with the same timestamp and text is read once, because
+        the guest recorder's journal samples overlap.
+
+        journald stamps a forwarded line with the guest's CLOCK_MONOTONIC as
+        it forwards it, while a kernel record carries printk's clock, and a
+        clock jump can move one and leave the other alone. So in serial text a
+        new boot starts where a record falls back, within its own kind, by more
+        than 30 seconds to an early timestamp; where the first record of its
+        kind in the boot falls back to one under two minutes; or at any
+        timestamp earlier than a 'reboot: ' or panic record before it. Every
+        fault names its boot. A boot cut off without such a record can still
+        merge with the next one when it ended within 30 seconds. Journal text
+        is read as one boot: the recorder samples only the current one.
+
+        The kernel can hold console output while its CPUs are wedged and
+        flush it much later, so the newest record does not date the moment the
+        guest stopped, and a lockup's stuck seconds are the kernel's own counts
+        at the reports that reached the text, never the length of a hang.
+
+        A guest clock can jump forward by days and keep running from there,
+        sometimes leaving no kernel report at all. largestForwardLeap is the
+        newest boot's largest step forward within one record kind, from the
+        largest timestamp of that kind before a record to that record's (the
+        first record of its kind steps from the other kind's largest earlier
+        timestamp not above it), so a record the console flushed late, behind
+        newer ones, starts none. Kernel records printed by different
+        processors can carry different clocks, and without a reboot or panic
+        record a boundary is inferred, so a jump on one processor can still
+        split a boot, and a reset can leave the next boot's first records of a
+        kind with the previous boot until that kind falls back. Given
+        UptimeLimitSeconds, a timestamp of either kind more than a minute past
+        it names the kind clock-jump, and clockJump holds that record and how
+        far past the limit it ran: the least the clock jumped. When the jump
+        happened inside the newest boot of the text, the leap that spans it is
+        the most it jumped and dates it; a leap shorter than that least, or in
+        another boot, is not the jump.
+    .PARAMETER Text
+        The console or journal text.
+    .PARAMETER Source
+        serial (a console log that may span boots) or recorder (journal
+        samples from one boot).
+    .PARAMETER UptimeLimitSeconds
+        The longest any boot in the text can have run, in real seconds: for a
+        step's console, the time since the VM was created, which every boot of
+        it followed. Without a limit, or with one that is not positive, the
+        guest's clock is not judged.
+    .OUTPUTS
+        [ordered] source, boots, records, kernelRecords, faultRecords, kinds,
+        firstFault, lastFault, lastNormalRecordUptimeSeconds,
+        newestRecordUptimeSeconds, softLockups, rcuStalledCpus,
+        largestStallJiffies, largestForwardLeap, uptimeLimitSeconds and
+        clockJump; $null when the text holds no timestamped record, which is
+        not the same reading as records without a fault.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [AllowEmptyString()][AllowNull()][string]$Text,
+        [ValidateSet('serial', 'recorder')][string]$Source = 'serial',
+        [Nullable[double]]$UptimeLimitSeconds
+    )
+    if ([string]::IsNullOrEmpty($Text)) { return $null }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $records = [Collections.Generic.List[object]]::new()
+    $boot = 1
+    $bootNewest = -1.0
+    $kindNewest = @{ $true = -1.0; $false = -1.0 }
+    $bootEnd = $null
+    $kernelCount = 0
+    foreach ($line in $Text.Split("`n")) {
+        $stamps = $script:GuestKernelRecordStamp.Matches($line)
+        for ($i = 0; $i -lt $stamps.Count; $i++) {
+            $stamp = $stamps[$i]
+            $start = $stamp.Index + $stamp.Length
+            $end = if ($i + 1 -lt $stamps.Count) { $stamps[$i + 1].Index } else { $line.Length }
+            $body = $line.Substring($start, $end - $start).TrimStart(' ').TrimEnd("`r", ' ')
+            if (-not $seen.Add("$($stamp.Value)$body")) { continue }
+            $uptime = [double]$stamp.Groups['seconds'].Value + [double]$stamp.Groups['micros'].Value / 1000000
+            $journal = $script:GuestKernelJournalPrefix.Match($body)
+            $kernel = $true
+            if ($journal.Success) {
+                if ($Source -eq 'recorder') { $body = $body.Substring($journal.Length) } else { $kernel = $false }
+            } elseif ($script:GuestKernelForwardedRecord.IsMatch($body)) { $kernel = $false }
+            if ($Source -eq 'serial' -and $bootNewest -ge 0) {
+                $own = $kindNewest[$kernel]
+                $fellBack = if ($own -ge 0) { $uptime -lt $own - 30 -and ($uptime -lt 120 -or $uptime -lt $own / 2) }
+                    else { $uptime -lt 120 -and $uptime -lt $bootNewest - 30 }
+                if ($fellBack -or ($null -ne $bootEnd -and $uptime -lt $bootEnd)) {
+                    $boot++
+                    $bootNewest = -1.0
+                    $kindNewest = @{ $true = -1.0; $false = -1.0 }
+                    $bootEnd = $null
+                }
+            }
+            if ($uptime -gt $bootNewest) { $bootNewest = $uptime }
+            if ($uptime -gt $kindNewest[$kernel]) { $kindNewest[$kernel] = $uptime }
+            if ($kernel) {
+                $kernelCount++
+                if ($script:GuestKernelBootEnd.IsMatch($body) -and ($null -eq $bootEnd -or $uptime -gt $bootEnd)) { $bootEnd = $uptime }
+            }
+            $records.Add([pscustomobject]@{ Boot = $boot; Uptime = $uptime; Kernel = $kernel; Body = $body; Kind = $null; Match = $null })
+        }
+    }
+    if ($records.Count -eq 0) { return $null }
+
+    $kinds = [Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)
+    $stalledCpus = [Collections.Generic.SortedSet[int]]::new()
+    $lockups = [ordered]@{}
+    $largestJiffies = $null
+    $faults = [Collections.Generic.List[object]]::new()
+    foreach ($record in $records) {
+        if (-not $record.Kernel -or -not $script:GuestKernelFaultHint.IsMatch($record.Body)) { continue }
+        foreach ($kind in $script:GuestKernelFaultPatterns.Keys) {
+            $match = $script:GuestKernelFaultPatterns[$kind].Match($record.Body)
+            if ($match.Success) { $record.Kind = $kind; $record.Match = $match; break }
+        }
+        $jiffiesMatch = if ($record.Match -and $record.Match.Groups['jiffies'].Success) { $record.Match } else { $script:GuestKernelRcuReportJiffies.Match($record.Body) }
+        if ($jiffiesMatch.Success -and $jiffiesMatch.Groups['jiffies'].Success) {
+            $jiffies = [long]$jiffiesMatch.Groups['jiffies'].Value
+            if ($null -eq $largestJiffies -or $jiffies -gt $largestJiffies) { $largestJiffies = $jiffies }
+        }
+        $cpuMatch = $script:GuestKernelRcuStalledCpu.Match($record.Body)
+        if ($cpuMatch.Success) { [void]$stalledCpus.Add([int]$cpuMatch.Groups['cpu'].Value) }
+        if (-not $record.Kind) { continue }
+        [void]$kinds.Add($record.Kind)
+        $faults.Add($record)
+        if ($record.Kind -ceq 'soft-lockup') {
+            $key = "$($record.Boot)|$($record.Match.Groups['cpu'].Value)"
+            # One CPU can lock up more than once in a boot: the longest count
+            # is the largest any report printed, and the task, pid, uptime and
+            # count named last all come from the newest report.
+            if (-not $lockups.Contains($key)) {
+                $lockups[$key] = [ordered]@{ boot = $record.Boot; cpu = [int]$record.Match.Groups['cpu'].Value; task = ''; pid = $null
+                    reports = 0; longestStuckSeconds = 0; lastStuckSeconds = 0; firstUptimeSeconds = $null; lastUptimeSeconds = $null }
+            }
+            $entry = $lockups[$key]
+            $entry.reports++
+            # A clock that steps back under the watchdog prints a wrapped
+            # count past any 32-bit integer; read as a double it cannot throw.
+            $stuck = [double]$record.Match.Groups['seconds'].Value
+            if ($stuck -gt $entry.longestStuckSeconds) { $entry.longestStuckSeconds = $stuck }
+            if ($null -eq $entry.firstUptimeSeconds -or $record.Uptime -lt $entry.firstUptimeSeconds) { $entry.firstUptimeSeconds = [math]::Round($record.Uptime, 3) }
+            if ($null -eq $entry.lastUptimeSeconds -or $record.Uptime -ge $entry.lastUptimeSeconds) {
+                $entry.lastUptimeSeconds = [math]::Round($record.Uptime, 3)
+                $entry.lastStuckSeconds = $stuck
+                if ($record.Match.Groups['task'].Success) {
+                    $entry.task = $record.Match.Groups['task'].Value
+                    $entry.pid = [int]$record.Match.Groups['pid'].Value
+                }
+            }
+        }
+    }
+
+    # Earliest and newest by boot, then uptime: overlapping journal samples
+    # are not in time order.
+    $ordered = @($faults | Sort-Object -Property Boot, Uptime)
+    $describe = {
+        param($fault)
+        if (-not $fault) { return $null }
+        $text = if ($fault.Body.Length -gt 240) { $fault.Body.Substring(0, 240) } else { $fault.Body }
+        [ordered]@{ boot = $fault.Boot; uptimeSeconds = [math]::Round($fault.Uptime, 3); kind = $fault.Kind; text = $text }
+    }
+    $first = if ($ordered.Count) { $ordered[0] } else { $null }
+    $lastNormal = $null
+    if ($first) {
+        foreach ($record in $records) {
+            if ($record.Boot -ne $first.Boot -or $record.Kind -or $record.Uptime -ge $first.Uptime) { continue }
+            if ($null -eq $lastNormal -or $record.Uptime -gt $lastNormal) { $lastNormal = $record.Uptime }
+        }
+    }
+    $newest = $null
+    $leap = $null
+    $largest = $null
+    $kindLargest = @{ $true = $null; $false = $null }
+    $kindStamps = @{ $true = [Collections.Generic.List[double]]::new(); $false = [Collections.Generic.List[double]]::new() }
+    foreach ($record in $records) {
+        if ($null -eq $largest -or $record.Uptime -gt $largest.Uptime) { $largest = $record }
+        if ($record.Boot -ne $boot) { continue }
+        if ($null -eq $newest -or $record.Uptime -gt $newest) { $newest = $record.Uptime }
+        $before = $kindLargest[$record.Kernel]
+        # The first record of its kind in the boot has nothing of its kind to
+        # step from, and on a console that carries errors only, a kernel
+        # record is often the first report after a jump: it steps from the
+        # other kind's largest earlier timestamp that is not above it.
+        if ($null -eq $before) {
+            foreach ($earlier in $kindStamps[-not $record.Kernel]) {
+                if ($earlier -le $record.Uptime -and ($null -eq $before -or $earlier -gt $before)) { $before = $earlier }
+            }
+        }
+        if ($null -ne $before -and $record.Uptime -gt $before -and ($null -eq $leap -or $record.Uptime - $before -gt $leap.seconds)) {
+            $leap = [ordered]@{ boot = $boot; recordKind = $(if ($record.Kernel) { 'kernel' } else { 'forwarded' })
+                fromUptimeSeconds = $before; toUptimeSeconds = $record.Uptime; seconds = $record.Uptime - $before }
+        }
+        if ($null -eq $kindLargest[$record.Kernel] -or $record.Uptime -gt $kindLargest[$record.Kernel]) { $kindLargest[$record.Kernel] = $record.Uptime }
+        $kindStamps[$record.Kernel].Add($record.Uptime)
+    }
+    if ($leap) { foreach ($key in 'fromUptimeSeconds', 'toUptimeSeconds', 'seconds') { $leap[$key] = [math]::Round($leap[$key], 3) } }
+    $limit = if ($null -ne $UptimeLimitSeconds -and $UptimeLimitSeconds -gt 0) { [double]$UptimeLimitSeconds } else { $null }
+    $clockJump = $null
+    if ($null -ne $limit -and $largest.Uptime -gt $limit + $script:GuestClockJumpMarginSeconds) {
+        [void]$kinds.Add('clock-jump')
+        $clockJump = [ordered]@{ boot = $largest.Boot; uptimeSeconds = [math]::Round($largest.Uptime, 3)
+            minimumJumpSeconds = [math]::Round($largest.Uptime - $limit, 3) }
+    }
+    $softLockups = @($lockups.Values | Select-Object -First 16)
+    [ordered]@{
+        source                        = $Source
+        boots                         = $boot
+        records                       = $records.Count
+        kernelRecords                 = $kernelCount
+        faultRecords                  = $faults.Count
+        kinds                         = [string[]]@($kinds)
+        firstFault                    = & $describe $first
+        lastFault                     = & $describe $(if ($ordered.Count) { $ordered[-1] } else { $null })
+        lastNormalRecordUptimeSeconds = if ($null -ne $lastNormal) { [math]::Round($lastNormal, 3) } else { $null }
+        newestRecordUptimeSeconds     = if ($null -ne $newest) { [math]::Round($newest, 3) } else { $null }
+        softLockups                   = $softLockups
+        rcuStalledCpus                = [int[]]@($stalledCpus)
+        largestStallJiffies           = $largestJiffies
+        largestForwardLeap            = $leap
+        uptimeLimitSeconds            = if ($null -ne $limit) { [math]::Round($limit, 3) } else { $null }
+        clockJump                     = $clockJump
+    }
+}
+
+# --- REGION: Get-GuestRecorderKernelStall
+function Get-GuestRecorderKernelStall {
+    <#
+    .SYNOPSIS
+        Read the first kernel stall a retained flight-recorder upload froze.
+    .DESCRIPTION
+        The guest recorder keeps the first journal sample that carried a stall
+        report under '--- first observed kernel stall ---', apart from its
+        rotating kernel ring. Each sample is the newest 256 kernel records of
+        the boot, so the recorder's first sample (index 0) can hold reports from
+        before the step began, while a stall first seen in a later sample was
+        not in the first one's window and so came during the step. The reading
+        names the sample and says mayPredateStep when it is the first or
+        unnamed. Advisory only, like the guest's own section.
+    .OUTPUTS
+        The kernel fault reading of that section (ConvertFrom-GuestKernelFaultText)
+        plus firstStallSampleIndex and mayPredateStep, or $null when the upload
+        holds no such section or cannot be read.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([Parameter(Mandatory)][string]$Path, [ValidateRange(65536, 4194304)][int]$MaxChars = 1600000)
+    try {
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+        $reader = [IO.StreamReader]::new($Path)
+        try { $buffer = [char[]]::new($MaxChars); $length = $reader.ReadBlock($buffer, 0, $buffer.Length); $text = [string]::new($buffer, 0, $length) }
+        finally { $reader.Dispose() }
+        $marker = $text.LastIndexOf("`n--- first observed kernel stall ---", [StringComparison]::Ordinal)
+        if ($marker -lt 0) { return $null }
+        $section = $text.Substring($marker)
+        $reading = ConvertFrom-GuestKernelFaultText -Text $section -Source recorder
+        if (-not $reading) { return $null }
+        $index = [regex]::Match($section, '(?m)^kernelFirstStallSampleIndex=(\d+)\r?$')
+        $reading.firstStallSampleIndex = if ($index.Success) { [int]$index.Groups[1].Value } else { $null }
+        $reading.mayPredateStep = (-not $index.Success -or [int]$index.Groups[1].Value -eq 0)
+        return $reading
+    } catch {
+        Write-Verbose "Recorder kernel stall unreadable: $($_.Exception.Message)"
+        return $null
+    }
+}
+
 # --- REGION: Save-GuestCpuRestartEvidence
 function Save-GuestCpuRestartEvidence {
     <#
@@ -2558,6 +2878,8 @@ Export-ModuleMember -Function `
     Get-GuestTransportVerdict, `
     Test-GuestSshPortProbe, `
     Get-GuestRecorderClockAnalysis, `
+    Get-GuestRecorderKernelStall, `
+    ConvertFrom-GuestKernelFaultText, `
     Protect-GuestEvidenceText, `
     Get-DiagnosticsFileName, `
     Resolve-StatusServiceEndpoint, `

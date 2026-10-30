@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42adb3a3-d392-473c-9950-ce00a1d52620
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -10,6 +10,7 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
     $script:Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Import-Module (Join-Path $script:Root 'automation/Yuruna.Globalization.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.SourceSelection.psm1') -Force -Global -DisableNameChecking
@@ -58,13 +59,7 @@ Describe 'The cycle refreshes the project from the pin its gate selected' {
         Remove-Item $script:RecordPath, $script:InstalledPath -Force -ErrorAction SilentlyContinue
         $null = New-Item -ItemType Directory -Path (Join-Path $script:FixtureRepo 'test'), $script:Origin -Force
         foreach ($path in $script:FixtureRepo, $script:Origin) {
-            & git init -q $path
-            & git -C $path config user.name Fixture
-            & git -C $path config user.email fixture@example.invalid
-            [IO.File]::WriteAllText((Join-Path $path 'VERSION'), "selected`n")
-            & git -C $path add .
-            & git -C $path commit -qm selected
-            if ($LASTEXITCODE -ne 0) { throw 'Could not initialize project fixture.' }
+            $null = New-YurunaTestGitRepository -Path $path -File @{ VERSION = "selected`n" } -CommitMessage 'selected'
         }
         & git -C $script:FixtureRepo remote add origin https://github.com/fixture/framework.git
         $script:Pin = ([string](& git -C $script:Origin rev-parse HEAD)).Trim()
@@ -72,14 +67,12 @@ Describe 'The cycle refreshes the project from the pin its gate selected' {
         $script:Context = @{ mode='off'; url=''; verificationPublicKeys=@(); mirrorOnlyMaxAgeSeconds=604800 }
         @{ repositories=@{projectUrl=$script:ProjectUrl; mirror=@{mode='off'}} } | ConvertTo-Yaml |
             Set-Content (Join-Path $script:FixtureRepo 'test/test.config.yml')
-        $script:PriorGeneration = $env:YURUNA_CYCLE_GENERATION
+        $script:PriorGeneration = Save-YurunaTestEnvironment -Name 'YURUNA_CYCLE_GENERATION'
         $env:YURUNA_CYCLE_GENERATION = ('f' * 32) + ':99'
-        $script:OriginalConfigCount = $env:GIT_CONFIG_COUNT
         $script:ConfigIndex = if ($env:GIT_CONFIG_COUNT) { [int]$env:GIT_CONFIG_COUNT } else { 0 }
         $script:ConfigKey = "GIT_CONFIG_KEY_$($script:ConfigIndex)"
         $script:ConfigValue = "GIT_CONFIG_VALUE_$($script:ConfigIndex)"
-        $script:OriginalKey = [Environment]::GetEnvironmentVariable($script:ConfigKey)
-        $script:OriginalValue = [Environment]::GetEnvironmentVariable($script:ConfigValue)
+        $script:SavedGitConfig = Save-YurunaTestEnvironment -Name 'GIT_CONFIG_COUNT', $script:ConfigKey, $script:ConfigValue
         [Environment]::SetEnvironmentVariable($script:ConfigKey, "url.$($script:Origin.Replace('\','/')).insteadOf")
         [Environment]::SetEnvironmentVariable($script:ConfigValue, $script:ProjectUrl)
         $env:GIT_CONFIG_COUNT = [string]($script:ConfigIndex + 1)
@@ -102,10 +95,8 @@ Describe 'The cycle refreshes the project from the pin its gate selected' {
         Mock Format-YurunaOperatorMessage { '' }
     }
     AfterEach {
-        $env:YURUNA_CYCLE_GENERATION = $script:PriorGeneration
-        $env:GIT_CONFIG_COUNT = $script:OriginalConfigCount
-        [Environment]::SetEnvironmentVariable($script:ConfigKey, $script:OriginalKey)
-        [Environment]::SetEnvironmentVariable($script:ConfigValue, $script:OriginalValue)
+        Restore-YurunaTestEnvironment -Saved $script:PriorGeneration
+        Restore-YurunaTestEnvironment -Saved $script:SavedGitConfig
     }
     It 'clones the gate''s pin after the tip moved and records the actual provenance' {
         $handoff = Initialize-CycleSourceFixture -Gate $true
@@ -144,6 +135,32 @@ Describe 'The cycle refreshes the project from the pin its gate selected' {
         $step.Ok | Should -BeFalse
         $step.ErrorMessage | Should -Be 'fixture failed'
         Test-Path $script:InstalledPath | Should -BeFalse
+    }
+}
+
+Describe 'Invoke-TestProject -WhatIf' {
+    It 'imports its modules and reports the replacement without an error, changing nothing' {
+        $config = Join-Path $TestDrive 'whatif.test.config.yml'
+        [IO.File]::WriteAllText($config, "repositories:`n  projectUrl: file:///nonexistent/yuruna-project`n")
+        $before = [IO.File]::ReadAllText($config)
+        $stderrPath = Join-Path $TestDrive 'whatif.err'
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR'
+        $runtime = Join-Path $TestDrive 'runtime'
+        try {
+            $env:YURUNA_RUNTIME_DIR = $runtime
+            $env:YURUNA_LOG_DIR = Join-Path $TestDrive 'log'
+            $out = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $script:Root 'test/Invoke-TestProject.ps1') -WhatIf -ConfigPath $config 2> $stderrPath
+            $exit = $LASTEXITCODE
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+        [IO.File]::ReadAllText($stderrPath) | Should -BeNullOrEmpty -Because 'the preview raises no error while its modules import'
+        [IO.File]::ReadAllText($config) | Should -Be $before
+        Test-Path -LiteralPath $runtime | Should -BeFalse -Because 'the preview stops before it claims the runtime'
+        # A non-elevated Windows shell stops at the elevation check, before the
+        # replacement is described; every other host reaches it.
+        if (-not $IsWindows) {
+            $exit | Should -Be 0
+            (@($out) -join "`n") | Should -Match 'file:///nonexistent/yuruna-project'
+        }
     }
 }
 

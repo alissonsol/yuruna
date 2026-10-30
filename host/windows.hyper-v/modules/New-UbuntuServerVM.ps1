@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42aeab54-8f84-4752-b632-c84283524072
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,18 @@ param(
 )
 
 Import-Module (Join-Path $GuestScriptRoot '../../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Stop on failed VM configuration; the child process exit is the caller's failure signal.
+$ErrorActionPreference = 'Stop'
+
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
+$_logLevelMod = Join-Path $GuestScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
@@ -57,18 +69,6 @@ if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
 $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 
 $ProgressPreference = 'SilentlyContinue'
-# --- REGION: https://yuruna.link/42e220c4-0004
-# Stop on failed VM configuration; the child process exit is the caller's failure signal.
-$ErrorActionPreference = 'Stop'
-
-# --- REGION: Log level from environment
-# See https://yuruna.link/42e220c4-0003
-# Reuse the caller's log module; a forced reload discards its state.
-$_logLevelMod = Join-Path $GuestScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
-    Import-Module $_logLevelMod -Global
-}
-if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 # --- REGION: Import host modules
 # Loaded before the environment checks: Assert-HyperVEnabled comes from this driver.
@@ -98,7 +98,7 @@ if (-not (Assert-HyperVEnabled)) {
     exit 1
 }
 
-$downloadDir = (Get-VMHost).VirtualHardDiskPath
+$downloadDir = (Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VMHost').VirtualHardDiskPath
 if (!(Test-Path -Path $downloadDir)) {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_84177e952e2487af' -Arguments @{ downloadDir = "$downloadDir" })
     exit 1
@@ -173,7 +173,7 @@ if (Test-Path -Path $vhdxFile) {
 # cap across hosts; sizing-policy: all in host/vmconfig/ubuntu.server.base.user-data
 # lets the root LV consume the whole PV.
 Write-Verbose "Creating 64GB dynamically expanding VHDX..."
-New-VHD -Path $vhdxFile -SizeBytes 64GB -Dynamic | Out-Null
+$null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\New-VHD' -Parameter @{ Path = $vhdxFile; SizeBytes = 64GB; Dynamic = $true }
 if (-not (Test-Path -LiteralPath $vhdxFile)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_d95598955978034f' -Arguments @{ vhdxFile = "$vhdxFile" })
     exit 1
@@ -231,7 +231,7 @@ try {
         }
     } else {
     $CachingProxyServiceUrl = ""
-    $cacheVM = Get-VM -Name "yuruna-caching-proxy-service" -ErrorAction SilentlyContinue
+    $cacheVM = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VM' -Parameter @{ Name = 'yuruna-caching-proxy-service' } -Optional
     if (-not $cacheVM) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ebeb445282eb5c15')
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d3a388ccdbaaa347')
@@ -372,34 +372,31 @@ To intentionally skip the cache:
     if ($vmMemoryBytes -le 0) { $vmMemoryBytes = 12288MB }
     Write-Verbose "VM memory: $([math]::Round($vmMemoryBytes / 1GB, 2)) GB ($vmMemoryBytes bytes)."
     Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
-    Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $vmMemoryBytes -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\New-VM' -Parameter @{ Name = $VMName; Generation = 2; MemoryStartupBytes = $vmMemoryBytes; SwitchName = $switchName; VHDPath = $vhdxFile }
 
     # --- REGION: https://yuruna.link/4220a755-000a
     # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
     $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
     # Hyper-V takes bare hex, no separators.
-    Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMNetworkAdapter' -Parameter @{ VMName = $VMName; StaticMacAddress = ($YurunaGuestMac -replace ':','') }
     Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
-    if (-not (Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue)) {
+    if (-not (Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VM' -Parameter @{ Name = $VMName } -Optional)) {
         Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_b99bf50072be5d3d' -Arguments @{ vMName = "$VMName" })
         exit 1
     }
     # Static (min=max=startup, dynamic disabled) so a hung swap/paging never
     # distorts a cycle -- see https://yuruna.link/429f3d06-001b.
-    Set-VM -Name $VMName -MemoryStartupBytes $vmMemoryBytes -MemoryMinimumBytes $vmMemoryBytes -MemoryMaximumBytes $vmMemoryBytes -AutomaticCheckpointsEnabled $false | Out-Null
-    Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
-    Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VM' -Parameter @{ Name = $VMName; MemoryStartupBytes = $vmMemoryBytes; MemoryMinimumBytes = $vmMemoryBytes; MemoryMaximumBytes = $vmMemoryBytes; AutomaticCheckpointsEnabled = $false }
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMMemory' -Parameter @{ VMName = $VMName; DynamicMemoryEnabled = $false }
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMFirmware' -Parameter @{ VMName = $VMName; EnableSecureBoot = 'Off' }
     # --- REGION: Serial console pipe
     # See https://yuruna.link/42dc5bb9-0004
     # COM1 to a named pipe the host reads during the cycle: the one guest-side
     # record that survives a guest whose VMBus devices stop answering. Harmless
     # when the guest never opens the port.
-    try {
-        Hyper-V\Set-VMComPort -VMName $VMName -Number 1 -Path "\\.\pipe\yuruna-serial-$VMName" -ErrorAction Stop
-    } catch {
-        Write-Verbose "Serial console pipe not configured for '$VMName': $($_.Exception.Message)"
-    }
+    # Optional: a refusal is reported Verbose and the build continues.
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMComPort' -Parameter @{ VMName = $VMName; Number = 1; Path = "\\.\pipe\yuruna-serial-$VMName" } -Optional
 
     # --- REGION: https://yuruna.link/42dc5bb9-0005
     # No-op on AMD64. Disabling Heartbeat helped affected ARM64 boots pass early
@@ -410,7 +407,7 @@ To intentionally skip the cache:
     # --- REGION: https://yuruna.link/42e220c4-0004
     # Ubuntu 26.04 needs MAC spoofing to avoid installer stalls from early link-change events.
     if ($Release -eq '26') {
-        Set-VMNetworkAdapter -VMName $VMName -MacAddressSpoofing On | Out-Null
+        $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMNetworkAdapter' -Parameter @{ VMName = $VMName; MacAddressSpoofing = 'On' }
     }
 
     # --- REGION: https://yuruna.link/429f3d06-0093
@@ -419,12 +416,12 @@ To intentionally skip the cache:
     # across runs and the attach fails with 0x8007053C.
     $prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
     if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
-    Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
-    Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-    Grant-SeedMediaVmRead -Path $SeedIso -VMId (Hyper-V\Get-VM -Name $VMName -ErrorAction Stop).Id -Confirm:$false
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Add-VMDvdDrive' -Parameter @{ VMName = $VMName; Path = $baseImageFile }
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Add-VMDvdDrive' -Parameter @{ VMName = $VMName; Path = $SeedIso }
+    Grant-SeedMediaVmRead -Path $SeedIso -VMId (Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VM' -Parameter @{ Name = $VMName }).Id -Confirm:$false
 
-    $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
-    Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
+    $dvdDrive = @(Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VMDvdDrive' -Parameter @{ VMName = $VMName }) | Where-Object { $_.Path -eq $baseImageFile }
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMFirmware' -Parameter @{ VMName = $VMName; FirstBootDevice = $dvdDrive }
 
     # --- REGION: https://yuruna.link/42fa6f45-0015
     $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -454,12 +451,12 @@ To intentionally skip the cache:
     # guests that run no hypervisor of their own.
     $vmProcessorArgs = @{ VMName = $VMName; Count = $vmCores }
     if ($exposeVirt) { $vmProcessorArgs.ExposeVirtualizationExtensions = $true }
-    Set-VMProcessor @vmProcessorArgs | Out-Null
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMProcessor' -Parameter $vmProcessorArgs
 
     # WARNING: The test harness OCR is calibrated for 1920x1080.
     # Changing this resolution may break automated screen-text detection
     # in waitForText sequence steps.
-    Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMVideo' -Parameter @{ VMName = $VMName; HorizontalResolution = 1920; VerticalResolution = 1080; ResolutionType = 'Single' }
 
 } finally {
     # --- REGION: Clean up temporary files

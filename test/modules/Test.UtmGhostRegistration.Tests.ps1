@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42caf871-b327-4fe1-9fdb-2ee70289ee2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -318,9 +318,8 @@ Describe 'The removal path never trusts a utmctl delete exit code' {
     BeforeAll {
         $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
         $script:ModuleFile = Join-Path $repoRoot 'host/macos.utm/modules/Yuruna.Host.psm1'
-        $script:ModuleText = Get-Content -Raw -LiteralPath $script:ModuleFile
-        $script:ModuleAst  = [System.Management.Automation.Language.Parser]::ParseFile(
-            $script:ModuleFile, [ref]$null, [ref]$null)
+        $script:ModuleText = Get-YurunaTestSourceText -Path $script:ModuleFile
+        $script:ModuleAst  = Get-YurunaTestFileAst -Path $script:ModuleFile
         function Get-FunctionBody {
             param([Parameter(Mandatory)][string]$Name)
             return [regex]::Match($script:ModuleText, "(?ms)^function $Name\b.*?\n\}").Value

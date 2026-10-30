@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -152,7 +152,7 @@ function Save-SequenceRecoveryResult {
 }
 
 # --- REGION: Canonical module set for the Sequence entry-point
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0019
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
 Initialize-YurunaEntryPointModuleSet -For Sequence -ModulesDir $ModulesDir
@@ -173,7 +173,7 @@ Import-Module (Join-Path $ModulesDir 'Test.Orchestrator.psm1') -Global -Force
 $global:VerbosePreference = $savedVerbose
 
 # --- REGION: Nested-cycle detection
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0018
 $cycleCtx = Get-CycleContext
 $isNested = [bool]$cycleCtx
 if ($isNested) {
@@ -198,7 +198,7 @@ $null = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $script:CmdLineLogLevel -Co
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # --- REGION: Elevation check
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0017
 if (-not (Assert-Elevation -HostType (Get-HostType))) { exit $ExitFailure }
 
 # --- REGION: Read config
@@ -206,7 +206,7 @@ $Config = Read-TestConfig -Path $ConfigPath
 if (-not $Config) { Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_f62563beddeea65d' -Arguments @{ configPath = "$ConfigPath" }); exit $ExitFailure }
 
 # --- REGION: Pre-cycle config gate
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0016
 $gateSkip   = [bool]($NoConfigGate -or $isNested)
 $gateReason = if ($NoConfigGate) { '-NoConfigGate' } else { "nested run -- the owner cycle already gated $ConfigPath" }
 $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$gateSkip -SkipReason $gateReason -CallerName 'Debug-TestSequence'
@@ -277,7 +277,7 @@ try {
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_82bcd42076e94095' -Arguments @{ hostType = "$HostType" })
 
     # --- REGION: Resolve sequence file
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0015
     $SequencePathOverride = $null
     try {
         $resolved = Resolve-Path -LiteralPath $SequenceName -ErrorAction Stop
@@ -288,7 +288,7 @@ try {
         }
     } catch { $null = $_ }
 
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0014
     if (-not $SequencePathOverride -and $SequenceName -match '\.ya?ml$') {
         $SequenceName = $SequenceName -replace '\.ya?ml$', ''
     }
@@ -348,10 +348,10 @@ try {
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d86eb14c32191314' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })
 
     # --- REGION: Ctrl+C handler
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0012
     $script:CancelState = Register-EntryPointCancelHandler
 
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0011
     if (-not $isNested -and (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue)) {
         $ctl = Clear-StaleControlState -Scope Startup -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
         if ($ctl.cycleRestartCleared) { Write-Verbose "Cleared stale control.cycle-restart flag." }
@@ -364,14 +364,14 @@ try {
     if (-not (Assert-TesseractInstalled)) { exit $ExitFailure }
 
     # --- REGION: Orchestration sequence dispatch (InvokeTestSequence steps)
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0010
     $topLevelDoc = $null
     try { $topLevelDoc = Read-SequenceFile -Path $SequencePath } catch {
         Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_0eb9acf2273e09fd' -Arguments @{ sequencePath = "$SequencePath"; message = "$($_.Exception.Message)" })
         exit $ExitFailure
     }
     if (Test-IsOrchestrationSequence -Sequence $topLevelDoc) {
-        # See https://yuruna.link/42010605-0002
+        # See https://yuruna.link/42010605-000f
         $admissionStep = Invoke-CycleAdmissionStep -HostType $HostType
         [void]$script:RecoverySteps.Add($admissionStep)
         if (-not $admissionStep.Ok) {
@@ -389,7 +389,7 @@ try {
     }
 
     # --- REGION: Derive GuestKey from the sequence's baseline map
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-000e
     if ($GuestKey) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_79690a75cc829126' -Arguments @{ guestKey = "$GuestKey" })
     } else {
@@ -435,7 +435,7 @@ try {
     }
 
     # --- REGION: Build chain plan
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-000d
     $osKey = $GuestKey -replace '^guest\.',''
     $plan = Resolve-TestSequencePlan `
         -RepoRoot $RepoRoot `
@@ -488,7 +488,7 @@ try {
     $stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 
     # --- REGION: Concurrent-VM admission
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-000c
     $admissionStep = Invoke-CycleAdmissionStep -HostType $HostType -ExceptVmName $VMName
     [void]$script:RecoverySteps.Add($admissionStep)
     if (-not $admissionStep.Ok) {
@@ -497,7 +497,7 @@ try {
     }
 
     # --- REGION: SSH-user override
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-000b
     if (-not (Get-Command Set-GuestSshUserOverride -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Force -Global -ErrorAction SilentlyContinue
     }
@@ -509,7 +509,7 @@ try {
     }
 
     # --- REGION: Resolve the caching-proxy-service endpoint from config + env
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-000a
     $envCacheIp    = if ($env:YURUNA_CACHING_PROXY_SERVICE_IP) { $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() } else { '' }
     $configCacheIp = ''
     if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIp')) {
@@ -535,7 +535,7 @@ try {
     }
 
     # --- REGION: Resolve caching-proxy service URL
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0309
     $cachingProxyUrl = Test-CachingProxyServiceAvailable
     $newVmProxy = if ($cachingProxyUrl) { $cachingProxyUrl } else { "" }
     if ($newVmProxy) {
@@ -547,7 +547,7 @@ try {
     # --- REGION: Ensure VM exists (reuse or create)
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a1b32a2ad4857b3d' -Arguments @{ vMName = "$VMName" })
-        # See https://yuruna.link/42010605-0002
+        # See https://yuruna.link/42010605-0308
         if ((Get-Command Get-VMNetworkAdapter -ErrorAction SilentlyContinue) -and
             (Get-Command Test-YurunaExternalSwitchUplink -ErrorAction SilentlyContinue)) {
             $reuseSwitchName = ''
@@ -571,7 +571,7 @@ try {
         }
     } else {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_ad8be36c987288c8' -Arguments @{ vMName = "$VMName" })
-        # See https://yuruna.link/42010605-0002
+        # See https://yuruna.link/42010605-0307
         $newVmArgs = @{ GuestKey = $GuestKey; RepoRoot = $RepoRoot; VMName = $VMName; CachingProxyServiceUrl = $newVmProxy }
         if ($effectiveUser) {
             Write-Verbose "Forwarding -Username '$effectiveUser' from $($SequenceName).variables.username."
@@ -596,6 +596,8 @@ try {
             Write-Verbose "Forwarding -ExposeVirtualizationExtensions '$effectiveExposeVirt' from $($SequenceName).variables.exposeVirtualizationExtensions."
             $newVmArgs.ExposeVirtualizationExtensions = $effectiveExposeVirt
         }
+        # A guest built under this name has new SSH host keys; forget the pinned one.
+        if (Get-Command Reset-GuestHostKeyPin -ErrorAction SilentlyContinue) { Reset-GuestHostKeyPin -VMName $newVmArgs.VMName -Confirm:$false }
         $r = New-VM @newVmArgs -Confirm:$false
         if (-not $r.success) {
             Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_7fbc520be847a724' -Arguments @{ errorMessage = "$($r.errorMessage)" })
@@ -605,7 +607,7 @@ try {
     }
 
     # --- REGION: Ensure VM is running
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0306
     $VmStartTimeoutSeconds = $Config.vmStart.startTimeoutSeconds ? [int]$Config.vmStart.startTimeoutSeconds : 120
     $VmBootDelaySeconds    = $Config.vmStart.bootDelaySeconds    ? [int]$Config.vmStart.bootDelaySeconds    : 15
 
@@ -635,7 +637,7 @@ try {
     }
 
     # --- REGION: Register this run as a cycle in status.json
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0305
     $nestedNodeId = $null
     $StatusFile   = Join-Path $env:YURUNA_RUNTIME_DIR 'status.json'
     if ($isNested) {
@@ -715,7 +717,7 @@ try {
     Write-Output ""
 
     # --- REGION: Run each chain entry that overlaps the requested step range
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0304
     $regWait = 900
     if ($Config -and $Config.vmStart -is [System.Collections.IDictionary] -and
         $Config.vmStart.Contains('cachingProxyRegistryWaitSeconds')) {
@@ -736,7 +738,7 @@ try {
     $script:TestSequenceOutcome = 'unknown'
     $script:TestSequenceReason  = ''
     try {
-        # See https://yuruna.link/42010605-0002
+        # See https://yuruna.link/42010605-0303
         $result = Invoke-TestSequenceChain `
             -ChainEntries $ChainEntries `
             -ChainPlan $ChainPlan `

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42fceff5-e96e-4072-9219-6ca416d6489c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
     $script:repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $script:wrapper = Get-Content (Join-Path $script:repo 'automation/fetch-and-execute.sh') -Raw
     $script:snapshot = Join-Path $script:repo 'automation/guest-performance-snapshot.sh'
@@ -93,8 +94,7 @@ Describe 'Guest archive and clone provenance' {
     It 'records clone HEAD without mistaking a parent checkout for a project checkout' -Skip:(-not $IsLinux) {
         $fixtureHome = Get-GuestFixtureHome
         $frameworkRoot = Join-Path $fixtureHome 'yuruna'
-        & git -c init.defaultBranch=main init --quiet $frameworkRoot
-        & git -C $frameworkRoot -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null commit --quiet --allow-empty -m fixture
+        $null = New-YurunaTestGitRepository -Path $frameworkRoot -CommitMessage 'fixture'
         $LASTEXITCODE | Should -Be 0
         $revision = (& git -C $frameworkRoot rev-parse HEAD).Trim()
         foreach ($functions in $script:metadataFunctions) {
@@ -105,8 +105,7 @@ Describe 'Guest archive and clone provenance' {
             $output | Should -Not -Match "guestProvenance.project.revision=$revision"
         }
         $projectRoot = Join-Path $frameworkRoot 'project'
-        & git -c init.defaultBranch=main init --quiet $projectRoot
-        & git -C $projectRoot -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null commit --quiet --allow-empty -m project-fixture
+        $null = New-YurunaTestGitRepository -Path $projectRoot -CommitMessage 'project-fixture'
         $projectRevision = (& git -C $projectRoot rev-parse HEAD).Trim()
         foreach ($functions in $script:metadataFunctions) {
             (Invoke-GuestMetadataFixture -Functions $functions -Fixture 'guest_evidence_provenance' -FixtureHome $fixtureHome) | Should -Match "guestProvenance.project.revision=$projectRevision"
@@ -116,8 +115,7 @@ Describe 'Guest archive and clone provenance' {
     It 'prefers owned Git HEAD over a stale archive marker and supports an owned worktree' -Skip:(-not $IsLinux) {
         $fixtureHome = Get-GuestFixtureHome
         $frameworkRoot = Join-Path $fixtureHome 'yuruna'
-        & git -c init.defaultBranch=main init --quiet $frameworkRoot
-        & git -C $frameworkRoot -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null commit --quiet --allow-empty -m fixture
+        $null = New-YurunaTestGitRepository -Path $frameworkRoot -CommitMessage 'fixture'
         $revision = (& git -C $frameworkRoot rev-parse HEAD).Trim()
         [IO.File]::WriteAllText((Join-Path $frameworkRoot '.yuruna-revision'),('c'*40))
         $projectRoot = Join-Path $frameworkRoot 'project'

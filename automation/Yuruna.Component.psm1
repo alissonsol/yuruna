@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42eaea7b-b54f-495c-bbdc-838c8758fced
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,14 +36,101 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global 
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Component.Registry.psm1') -Global -Force
 # Protect-YurunaSecretText: the one redaction rule every deployment phase logs through.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Global -Force
+# The deploy phase ledger: a retry after the workloads phase failed reuses this
+# phase's pass when its inputs are unchanged and its images are still pushed.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.DeployLedger.psm1') -Global -Force
 Remove-Item Env:DOCKER_BUILDKIT -Force -ErrorAction SilentlyContinue
 
+<#
+.SYNOPSIS
+    The image a successful docker push published, as <repository>@<digest>,
+    read from the push's own output; $null when the output does not name both.
+.DESCRIPTION
+    docker push opens with "The push refers to repository [<repository>]" and
+    ends with "<tag>: digest: sha256:<hex> size: <bytes>". A push through
+    another tool, or output cut before either line, yields $null, and the
+    phase is then never reused: nothing would show that the image is still
+    there.
+#>
+function Get-ComponentPushedImage {
+    [OutputType([string])]
+    param([AllowNull()][AllowEmptyString()][string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return $null }
+    $repository = [regex]::Matches($Text, 'The push refers to repository \[(?<repository>[^\]\s]+)\]')
+    $digest = [regex]::Matches($Text, '(?m)^\S+: digest: (?<digest>sha256:[0-9a-f]{64}) size: \d+')
+    if ($repository.Count -eq 0 -or $digest.Count -eq 0) { return $null }
+    return ($repository[$repository.Count - 1].Groups['repository'].Value + '@' + $digest[$digest.Count - 1].Groups['digest'].Value)
+}
+
+<#
+.SYNOPSIS
+    $true when every image a components pass pushed still answers in its
+    registry, by digest; any doubt -- no image recorded, no docker, a refusal,
+    a call stopped at its bound -- is $false, and the phase runs.
+.DESCRIPTION
+    --insecure lets the probe reach a plain-HTTP registry such as the local
+    one the examples run. It only decides whether a rebuild can be skipped;
+    what the cluster pulls is unaffected.
+#>
+function Test-ComponentImagePresent {
+    [OutputType([bool])]
+    param([AllowNull()][AllowEmptyCollection()][string[]]$Reference)
+    $references = @($Reference | Where-Object { -not [string]::IsNullOrEmpty($_) })
+    if ($references.Count -eq 0) { return $false }
+    $seconds = (Get-YurunaCommandTimeout -Call 'image presence').Seconds
+    foreach ($image in $references) {
+        $outcome = @{}
+        $global:LASTEXITCODE = 0
+        try {
+            $null = Invoke-YurunaToolWithDeadline -Label "docker manifest inspect $image" -TimeoutSeconds $seconds -Outcome $outcome -ScriptBlock { & docker manifest inspect --insecure $image *>&1 } 3>$null
+        } catch {
+            Write-Verbose "image presence probe for ${image}: $($_.Exception.Message)"
+            return $false
+        }
+        if ($outcome['TimedOut'] -or $global:LASTEXITCODE -ne 0) { return $false }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Publish the components of a configuration through the deploy phase ledger.
+.DESCRIPTION
+    The inputs are components.yml, resources.output.yml and the project's
+    components folder; a retry after the workloads phase failed reuses an
+    earlier pass while they are unchanged and every image it pushed still
+    answers in its registry (Yuruna.DeployLedger).
+#>
 function Publish-ComponentList {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param (
         $project_root,
         $config_subfolder
+    )
+    $projectRoot = [string]$project_root
+    $configSubfolder = [string]$config_subfolder
+    $pushedImage = [System.Collections.Generic.List[string]]::new()
+    $inputPath = [ordered]@{
+        'config/components.yml'       = Join-Path -Path $projectRoot -ChildPath "config/$configSubfolder/components.yml"
+        'config/resources.output.yml' = Join-Path -Path $projectRoot -ChildPath "config/$configSubfolder/resources.output.yml"
+        'project/components'          = Join-Path -Path $projectRoot -ChildPath 'components'
+    }
+    return (Invoke-YurunaDeployPhase -ProjectRoot $projectRoot -ConfigSubfolder $configSubfolder -Phase 'components' -InputPath $inputPath `
+        -Operation { Invoke-ComponentListPublish -project_root $project_root -config_subfolder $config_subfolder -PushedImage $pushedImage } `
+        -Evidence { @{ images = [string[]]@(if (-not $pushedImage.Contains('')) { $pushedImage }) } } `
+        -OutputTest { param($Evidence) Test-ComponentImagePresent -Reference @($Evidence['images']) })
+}
+
+function Invoke-ComponentListPublish {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param (
+        $project_root,
+        $config_subfolder,
+        # Receives each component's pushed image, or '' for a push whose image
+        # could not be read from its output.
+        [System.Collections.Generic.List[string]]$PushedImage = [System.Collections.Generic.List[string]]::new()
     )
 
     # Split the inner scriptblock's pipeline: hashtables become the manifest
@@ -53,7 +140,7 @@ function Publish-ComponentList {
     # --- REGION: https://yuruna.link/42d69dfa-003d
     $state = @{ manifest = $null }
     & {
-    param($project_root, $config_subfolder)
+    param($project_root, $config_subfolder, $PushedImage)
 
     $sw = [Diagnostics.Stopwatch]::StartNew()
     if (!(Confirm-ComponentList $project_root $config_subfolder)) { return (New-YurunaResultManifest -Success $false -ErrorMessage "Confirm-ComponentList failed for $project_root / $config_subfolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
@@ -418,11 +505,12 @@ exit $code
             Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_a15f59ef0d1479f4' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$displayCommand" })
             return (New-YurunaResultManifest -Success $false -ErrorMessage "push[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
+        $PushedImage.Add([string](Get-ComponentPushedImage -Text $phaseTail.text))
     }
 
     return (New-YurunaResultManifest -Success $true -DurationMs $sw.ElapsedMilliseconds);
 
-    } $project_root $config_subfolder | ForEach-Object {
+    } $project_root $config_subfolder $PushedImage | ForEach-Object {
         if ($_ -is [System.Collections.IDictionary]) {
             $state.manifest = $_
         }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42074735-e5df-4b56-b216-96e6299e53f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -281,8 +281,9 @@ Describe 'Open-YurunaPoolConfiguration keeps concurrent admin commands out of on
         & git init --quiet --bare --initial-branch=main $script:lockStore 2>&1 | Out-Null
         & git clone --quiet $script:lockStore $seed 2>&1 | Out-Null
         Set-Content -LiteralPath (Join-Path $seed 'pools.yml') -Value 'schemaVersion: 4' -Encoding ascii
+        Set-YurunaTestGitIdentity -Path $seed
         & git -C $seed add -A 2>&1 | Out-Null
-        & git -C $seed -c user.email=t@example.invalid -c user.name=t commit --quiet -m seed 2>&1 | Out-Null
+        & git -C $seed commit --quiet -m seed 2>&1 | Out-Null
         & git -C $seed push --quiet origin HEAD:main 2>&1 | Out-Null
 
         function Start-LockChild {

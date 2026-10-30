@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4225e4e5-9e96-476f-b10c-41d45c8308df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,12 +39,8 @@
     this cannot pass against a guard that has been widened or deleted
     somewhere else in the file.
 
-    Read from Start-StatusService.ps1, which is the tracked GENERATOR, not
-    from test/status/runtime/.status-service.ps1 -- that copy is gitignored
-    runtime output, absent on a fresh clone and overwritten on every service
-    start, so a guard reading it would test a file no commit can change.
-    The generator emits the route inside a here-string, hence the escaped `$
-    in the pattern below.
+    Read from test/service/Invoke-StatusServiceRuntime.ps1, the tracked
+    runtime the service runs.
 
     Throw-based assertions (no Should), so the file runs standalone.
     Run: pwsh -NoProfile -File test/modules/Test.StatusCycleArchive.Tests.ps1
@@ -53,7 +49,7 @@
 BeforeAll {
 $here      = Split-Path -Parent $PSCommandPath
 $repoRoot  = Split-Path -Parent (Split-Path -Parent $here)
-$svcPath   = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
+$svcPath   = Join-Path $repoRoot 'test/service/Invoke-StatusServiceRuntime.ps1'
 $statusDir = Join-Path $repoRoot 'test/status'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
@@ -70,11 +66,9 @@ $script:SharePage  = Get-Content -Raw -LiteralPath (Join-Path $statusDir 'share-
 # unrelated handler is not this page asking for the wrong thing.
 $script:ShareRegion = [regex]::Match($ShareJs, '(?s)// --- REGION: Share-cycle page.*?(?=// Page dispatch keyed)').Value
 
-# The literal the route matches the URL leaf against. In the generator it lives
-# in a here-string, so the end-anchor is written as a backtick-escaped `$;
-# strip that escape to recover the regex the running service uses.
+# The literal the route matches the URL leaf against.
 $ArchiveMatch = [regex]::Match($SvcSource, "\`$leaf\s+-notmatch\s+'(\^[^']+)'")
-$script:ArchiveRegex = if ($ArchiveMatch.Success) { $ArchiveMatch.Groups[1].Value -replace '`\$', '$' } else { $null }
+$script:ArchiveRegex = if ($ArchiveMatch.Success) { $ArchiveMatch.Groups[1].Value } else { $null }
 
 # A real folder name, as Format-CycleFolderBaseName builds it.
 $script:GoodLeaf = '000724.2026-08-05.01-47-56.42e5e36df63d4edf8b664e6cf6fce463'
@@ -248,11 +242,9 @@ Describe 'the cycle archive route grammar' {
         # tarball either, or the route is a way around every name rule at once.
         Assert-True ($SvcSource -match "\`$secretNameShapes\s*=\s*@\(") `
             'the shared secret-name shapes are gone'
-        # Single-quoted: in the generator these variables are backtick-escaped, so
-        # the source text really contains a backtick before each $.
-        Assert-True ($SvcSource -match '(?s)foreach \(`\$shape in `\$secretNameShapes\) \{\s*\r?\n\s*if \(\[System\.IO\.Path\]::GetFileName\(`\$file\) -like `\$shape\)') `
+        Assert-True ($SvcSource -match '(?s)foreach \(\$shape in \$secretNameShapes\) \{\s*\r?\n\s*if \(\[System\.IO\.Path\]::GetFileName\(\$file\) -like \$shape\)') `
             'the archive route must test every packed file name against the secret name shapes'
-        Assert-True ($SvcSource -match 'if \(`\$blocked\) \{ continue \}') `
+        Assert-True ($SvcSource -match 'if \(\$blocked\) \{ continue \}') `
             'the packer must skip the files that matched a shape, not merely note them'
         # One list, three consumers: both deny-lists and the packer. Enumerating
         # the shapes again anywhere is how the copies drift apart.
@@ -302,7 +294,7 @@ Describe 'the cycle archive route grammar' {
         # can still answer 500 rather than a truncated download. Leaving one
         # behind per share would grow the runtime dir without bound.
         Assert-True ($SvcSource -match 'share-cycle\.') 'the temp archive name is gone'
-        Assert-True ($SvcSource -match '(?s)ZipFile\]::Open\(`\$tmpArchive.*?finally \{\s*\r?\n\s*Remove-Item -LiteralPath `\$tmpArchive') `
+        Assert-True ($SvcSource -match '(?s)ZipFile\]::Open\(\$tmpArchive.*?finally \{\s*\r?\n\s*Remove-Item -LiteralPath \$tmpArchive') `
             'the temp archive must be removed in a finally, so a failed pack does not leak it'
     }
 }
@@ -441,13 +433,11 @@ Describe 'the share page and the host agree on one grammar' {
         Assert-True ($script:ShareRegion -match "HTTP ' \+ r\.status") `
             'a refused probe must name the status, so "gone" is distinguishable from "the pack broke"'
 
-        # Single-quoted: in the generator these variables are backtick-escaped, so
-        # the source text really contains a backtick before each $.
-        Assert-True ($SvcSource -match '(?s)if \(`\$req\.HttpMethod -eq ''HEAD''\) \{.*?Content-Disposition.*?\}') `
+        Assert-True ($SvcSource -match '(?s)if \(\$req\.HttpMethod -eq ''HEAD''\) \{.*?Content-Disposition.*?\}') `
             'the archive route no longer short-circuits HEAD: a probe would pack the whole cycle folder'
         # The short-circuit has to sit above the packer, or it is not one.
-        $headAt = $SvcSource.IndexOf('if (`$req.HttpMethod -eq ''HEAD'') {')
-        $packAt = $SvcSource.IndexOf('ZipFile]::Open(`$tmpArchive')
+        $headAt = $SvcSource.IndexOf('if ($req.HttpMethod -eq ''HEAD'') {')
+        $packAt = $SvcSource.IndexOf('ZipFile]::Open($tmpArchive')
         Assert-True ($headAt -gt 0 -and $packAt -gt 0) 'both the HEAD short-circuit and the packer must exist to compare'
         Assert-True ($headAt -lt $packAt) 'the HEAD short-circuit must run before the pack, not after it'
     }

@@ -448,7 +448,9 @@ so the UI and the command line cannot diverge.
   that answer to the monitored list, pool member or not (below).
 - **Diagnostics** (`/diagnostics`) &mdash; every dependency a UI request
   touches, probed in the order a request touches it; a failing check names what
-  to fix in the guest.
+  to fix in the guest. The page is open, so a credential in the configuration
+  URL (`https://user:token@...`) shows as `https://***@...` in the URL, the
+  command line and the CLI's error text, and in the audit log.
 
 Hosts and Pools sort on any column header &mdash; clicking the sorted one
 reverses it, and the columns that hold a control sort on the value that
@@ -1100,7 +1102,7 @@ share". Reads are open on the LAN. Three per-row actions are gated:
 - **Prune previous** -- drop only the previous generation to reclaim space; the
   current one stays servable.
 
-Each action is appended to `<pool root>/download-agent-service/audit.jsonl`. The
+Each action is appended to `<pool root>/download-agent-service/audit.<agent>.jsonl`, one log per agent. The
 same three exist as API routes for automation, which also accept the shared
 internal authentication key as a bearer.
 
@@ -1186,6 +1188,40 @@ These have no dedicated command yet -- author them directly in `pools.yml` (vali
   pool is flagged "degraded"). Advisory: it drives alerting + the dashboard, never gating a
   cycle. Delivery is configured separately on the alert host (see the notifier docs).
 
+<a id="4207d71a-0026"></a>
+
+## Advanced: the framework canary ring
+
+Without it, every member of a pool installs the framework tip at its next cycle
+boundary, so a bad commit reaches the whole pool at once. A `frameworkRing` block
+on the pool, authored in `pools.yml` like the blocks above, lets a few members try
+each tip first:
+
+```yaml
+    frameworkRing:
+      canaryMembers:
+        - 42abcdef0123456789abcdef01234567
+      requiredPasses: 2
+```
+
+- **Canary members**, each also listed in `members`, keep installing the tip.
+- **Every other member** installs the newest framework revision with at least
+  `requiredPasses` valid canary passes: completed cycles on a canary member at that
+  revision that passed and skipped no planned guest. The pool aggregator counts
+  them from the cycle history it already polls (`/api/v1/framework-ring`).
+- A member that cannot reach the aggregator, or for which no revision qualifies
+  yet, **stays on the revision it has** and says why in its cycle output; it never
+  falls back to the tip. It never moves back either: a qualifying revision older
+  than the installed one changes nothing, and neither does one outside the
+  history of the upstream the host tracks.
+- An empty `canaryMembers` list freezes every member at its current revision.
+- A member learns its role from the configuration its previous cycle pulled, so a
+  change takes effect one cycle later; a host that has never pulled the pool
+  configuration runs its first cycle as a standalone host does.
+- `Remove-HostFromPool.ps1`, `Remove-PoolHost.ps1` and `Move-PoolHostIdentity.ps1`
+  keep `canaryMembers` in step with `members`, and `Test-PoolConfiguration.ps1`
+  reports a canary that is not a member.
+
 <a id="4207d71a-001d"></a>
 
 ## Default-off + safety
@@ -1215,6 +1251,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

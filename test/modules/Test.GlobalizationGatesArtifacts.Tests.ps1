@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ee0946-820e-4d0f-9db6-e2edc4b0eea3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,19 @@ BeforeAll {
         }
     }
     . $script:SharedBlock['BeforeAll']
+
+    # One run of the cross-repository gate answers both cases that read it: its
+    # exit code, and the coverage table it prints whatever that code is. Each
+    # run executes every project-crossing gate, so a second run would only
+    # repeat them. The run is kept whatever it returned, so a failing gate
+    # costs one run too.
+    function Get-CrossRepoGateRun {
+        if (-not (Get-Variable -Name CrossRepoGateRun -Scope Script -ErrorAction SilentlyContinue)) {
+            $output = & $script:PowerShell -NoProfile -File (Join-Path $script:RepoRoot 'tools/Invoke-CrossRepoGate.ps1') 2>&1 | Out-String
+            $script:CrossRepoGateRun = @{ Code = $LASTEXITCODE; Output = $output }
+        }
+        return $script:CrossRepoGateRun
+    }
 }
 
 Describe 'the generated artifacts match their sources' {
@@ -101,7 +114,7 @@ Describe 'the generated artifacts match their sources' {
         # not a skip either: the gates are the subject here, and one that did
         # not run has checked nothing.
         Confirm-SiblingCheckout -Name 'yuruna-project', 'yuruna.link'
-        $result = Invoke-Gate -Script 'tools/Invoke-CrossRepoGate.ps1' -Arguments @('-Quiet')
+        $result = Get-CrossRepoGateRun
         Assert-False ($result.Code -eq 2) `
             "a cross-repository gate could not run on this host; its output names the gate and the repair:`n$($result.Output)"
         Assert-Equal -Expected 0 -Actual $result.Code `
@@ -112,13 +125,12 @@ Describe 'the generated artifacts match their sources' {
         # The honest half. A gate that cannot reach the project is not a gate
         # the project passes, and reporting it as N/A with a reason is the
         # difference between coverage and the appearance of it.
-        # An explicit mode keeps this run apart from the cached -Quiet run of the same tool, whose output omits the table when every gate passes.
         #
         # The table is printed whatever the gates in it answer, so only the
         # project checkout is needed here: without one the tool stops before
         # it has a table to print.
         Confirm-SiblingCheckout -Name 'yuruna-project'
-        $result = Invoke-Gate -Script 'tools/Invoke-CrossRepoGate.ps1' -Arguments @('-Mode', 'changed-domain')
+        $result = Get-CrossRepoGateRun
         foreach ($gate in @('catalog-compile', 'perf-baseline', 'go-build')) {
             Assert-True ($result.Output -match [regex]::Escape($gate)) "the report does not mention $gate at all"
         }

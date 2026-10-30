@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42797929-4086-43ea-846a-16a46da5c267
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -209,13 +209,65 @@ Describe 'KVM storage is deleted only when no defined domain uses it' {
     }
 }
 
+Describe 'KVM rename back to the name a domain had restores its address' {
+    # A snapshot save that fails renames its guest back. A domain whose NIC is
+    # pinned to the identity it was promoted to carries, on the way back, the
+    # address the name being left derives.
+    BeforeEach {
+        $script:Vms = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $script:Slot = 'test-guest.ubuntu.server.24-01'
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:Vms $script:Slot) -Force
+        Set-Content -LiteralPath (Join-Path $script:Vms "$($script:Slot)/$($script:Slot).qcow2") -Value 'disk'
+        InModuleScope Yuruna.Host -Parameters @{ Vms = $script:Vms } { param($Vms) $script:VmRootDir = $Vms }
+        $ledger = Get-Variable -Name 'YurunaRenameMacLedger' -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+        if ($ledger) { $ledger.Clear() }
+        $script:Identity = (Get-YurunaGuestMacAddress -VMName 'amisad-build').ToLowerInvariant()
+        # domrename already ran: the definition answers to the promoted name.
+        $script:Domain = @{ 'amisad-build' = "<domain><name>amisad-build</name><devices><disk><source file='$($script:Vms)/$($script:Slot)/$($script:Slot).qcow2'/></disk><interface type='network'><mac address='$($script:Identity)'/></interface></devices></domain>" }
+        Mock -ModuleName Yuruna.Host Invoke-Virsh {
+            $global:LASTEXITCODE = 0
+            if ($VirshArgs[0] -eq 'dumpxml') { return @($script:Domain[$VirshArgs[1]]) }
+            if ($VirshArgs[0] -eq 'define') {
+                $xml = Get-Content -Raw -LiteralPath $VirshArgs[1]
+                $script:Domain[[regex]::Match($xml, '<name>([^<]+)</name>').Groups[1].Value] = $xml
+            }
+            return @()
+        }
+        Mock -ModuleName Yuruna.Host Write-Warning { }
+        Mock -ModuleName Yuruna.Host Write-Information { }
+    }
+
+    It 'keeps a domain pinned to its promoted identity on its own address, there and back' {
+        InModuleScope Yuruna.Host -Parameters @{ Slot = $script:Slot } { param($Slot) Complete-KvmDomainRename -VMName $Slot -NewName 'amisad-build' -Confirm:$false } | Should -BeTrue
+        $script:Domain['amisad-build'] | Should -Match "<mac address='$($script:Identity)'/>"
+        # The rename back: domrename again, then its completion.
+        $back = $script:Domain['amisad-build'] -replace '<name>amisad-build</name>', "<name>$($script:Slot)</name>"
+        $null = $script:Domain.Remove('amisad-build')
+        $script:Domain[$script:Slot] = $back
+        InModuleScope Yuruna.Host -Parameters @{ Slot = $script:Slot } { param($Slot) Complete-KvmDomainRename -VMName 'amisad-build' -NewName $Slot -Confirm:$false } | Should -BeTrue
+        $script:Domain[$script:Slot] | Should -Match "<mac address='$($script:Identity)'/>"
+        $script:Domain[$script:Slot] | Should -Match ([regex]::Escape("$($script:Vms)/$($script:Slot)/$($script:Slot).qcow2"))
+    }
+}
+
 Describe 'Hyper-V storage is deleted only when no registered VM uses it' {
     BeforeAll {
         $hostFile = Join-Path $script:RepoRoot 'host/windows.hyper-v/modules/Yuruna.Host.psm1'
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile($hostFile, [ref]$null, [ref]$null)
+        $ast = Get-YurunaTestFileAst -Path $hostFile
         $script:HyperVHelpers = (@('Get-HyperVDirectoryDiskOwner', 'Repair-HyperVVMStorageLocation', 'Test-HyperVDirectoryFreeToDelete',
-                'Repair-VMStorageLocation', 'Remove-HyperVGuestDefinition', 'Rename-VM') |
+                'Repair-VMStorageLocation', 'Remove-HyperVGuestDefinition', 'Rename-VM', 'Invoke-HyperVLifecycleCmdlet') |
             ForEach-Object { (Get-YurunaTestFunctionAst -Ast $ast -Name $_).Extent.Text }) -join "`n"
+        # A lifecycle cmdlet runs in a thread job on a host; here it runs in
+        # this runspace, where the stand-in Hyper-V module answers it.
+        $script:HyperVHelpers += @'
+
+function Invoke-HyperVBoundedCall {
+    param([scriptblock]$ScriptBlock, [object[]]$ArgumentList = @(), [int]$TimeoutSeconds)
+    $null = $TimeoutSeconds
+    try { @{ TimedOut = $false; Error = $null; Output = @(& $ScriptBlock @ArgumentList) } }
+    catch { @{ TimedOut = $false; Error = $_; Output = @() } }
+}
+'@
         $script:RemoveBody = (Get-YurunaTestFunctionAst -Ast $ast -Name 'Remove-HyperVTestVM').Extent.Text
     }
     BeforeEach {

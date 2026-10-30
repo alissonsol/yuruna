@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,10 +67,7 @@ function Get-GitHubSourceFixture {
     New-Item -ItemType Directory -Force -Path (Join-Path $dir 'test') | Out-Null
     Set-Content -LiteralPath (Join-Path $dir 'test/test.config.yml') -Value "repositories:`n  frameworkUrl: $FrameworkUrl`n  ghToken: `"`"`n"
     Set-Content -LiteralPath (Join-Path $dir 'seed.txt') -Value 'seed'
-    & git -C $dir init --quiet 2>&1 | Out-Null
-    if ($RemoteUrl) { & git -C $dir remote add origin $RemoteUrl 2>&1 | Out-Null }
-    & git -C $dir add -A 2>&1 | Out-Null
-    & git -C $dir -c user.email='t@example.invalid' -c user.name='t' commit -qm 'seed' 2>&1 | Out-Null
+    $null = New-YurunaTestGitRepository -Path $dir -Remote $RemoteUrl -AddExisting -CommitMessage 'seed'
     return $dir
 }
 
@@ -93,21 +90,15 @@ function New-FetchProjectFixture {
         [IO.File]::WriteAllText($path, "printf 'fixture payload\n'`n", [Text.UTF8Encoding]::new($false))
     }
     [IO.File]::WriteAllText((Join-Path $Root '.gitignore'), "project/`n", [Text.UTF8Encoding]::new($false))
-    & git -C $Root init --quiet 2>&1 | Out-Null
-    & git -C $Root remote add origin 'https://github.com/fixture/framework.git' 2>&1 | Out-Null
-    & git -C $Root add -A 2>&1 | Out-Null
-    & git -C $Root -c user.email='fixture@example.invalid' -c user.name='Fixture' -c core.hooksPath=.no-hooks commit -qm framework 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not commit the framework fixture.' }
-    $frameworkRef = [string](& git -C $Root rev-parse HEAD)
+    $null = New-YurunaTestGitRepository -Path $Root -Remote 'https://github.com/fixture/framework.git' -AddExisting -CommitMessage 'framework'
+    $frameworkRef = [string](Invoke-YurunaTestGit -Path $Root -Argument @('rev-parse', 'HEAD'))
     $projectRef = ''
     if (-not $PlainProject) {
-        & git -C $project init --quiet 2>&1 | Out-Null
-        if ($ProjectRemote) { & git -C $project remote add origin $ProjectRemote 2>&1 | Out-Null }
-        if (-not $UnbornProject) {
-            & git -C $project add -A 2>&1 | Out-Null
-            & git -C $project -c user.email='fixture@example.invalid' -c user.name='Fixture' -c core.hooksPath=.no-hooks commit -qm project 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw 'Could not commit the project fixture.' }
-            $projectRef = [string](& git -C $project rev-parse HEAD)
+        if ($UnbornProject) {
+            $null = New-YurunaTestGitRepository -Path $project -Remote $ProjectRemote
+        } else {
+            $null = New-YurunaTestGitRepository -Path $project -Remote $ProjectRemote -AddExisting -CommitMessage 'project'
+            $projectRef = [string](Invoke-YurunaTestGit -Path $project -Argument @('rev-parse', 'HEAD'))
         }
     }
     return @{ Root = $Root; ProjectRoot = $project; RelativePath = $relative; Payload = $payload;
@@ -278,10 +269,7 @@ Describe 'Get-FetchExecutionContext (host-side integrity binding)' {
             }
             $null = New-Item -ItemType Directory -Force -Path (Join-Path $dir 'test')
             Set-Content -LiteralPath (Join-Path $dir 'test/test.config.yml') -Value "repositories:`n  frameworkUrl: https://github.com/example/framework`n  ghToken: `"$token`"`n"
-            & git -C $dir init --quiet 2>&1 | Out-Null
-            & git -C $dir remote add origin 'https://github.com/example/framework' 2>&1 | Out-Null
-            & git -C $dir add -A 2>&1 | Out-Null
-            & git -C $dir -c user.email='t@example.invalid' -c user.name='t' commit -qm 'seed' 2>&1 | Out-Null
+            $null = New-YurunaTestGitRepository -Path $dir -Remote 'https://github.com/example/framework' -AddExisting -CommitMessage 'seed'
             (Get-YurunaGitHubSource -RepoRoot $dir).Token | Should -BeExactly $token -Because 'the fixture must actually configure the token'
             $context = @{ Step = @{}; RepoRoot = $dir; StepInvocationId = 'step-123'; SequenceInvocationId = 'sequence-456' }
             $result = Get-FetchExecutionContext -Context $context -CommandLine "fetch-and-execute.sh $sample" -WarningAction SilentlyContinue
@@ -1116,5 +1104,176 @@ Describe 'guidance when the GitHub fallback cannot work' {
             'the hosts page still renders the Project column the guest banner names'
         Assert-True (Test-Path -LiteralPath (Join-Path $repo 'test/Test-Config.ps1')) `
             'the standalone check the banner names still exists'
+    }
+}
+
+Describe 'host.env is read as data, never sourced' -Skip:($IsWindows -or -not (Get-Command bash -ErrorAction SilentlyContinue)) {
+    # host.env holds KEY=VALUE lines; a value that spells shell must arrive as
+    # text, and a line naming anything but a YURUNA_* variable must not reach
+    # the caller's environment at all.
+    BeforeAll {
+        $script:EnvReaderFiles = @('automation/fetch-and-execute.sh', 'automation/yuruna-host-locate.sh', 'automation/yuruna-retry.sh')
+        $script:EnvReader = Get-YurunaTestShellFunction -Text (Get-Content -LiteralPath (Join-Path $repoRoot 'automation/yuruna-retry.sh') -Raw) -Name 'yuruna_read_env_file'
+    }
+
+    It 'carries one identical reader in each standalone file' {
+        foreach ($file in $script:EnvReaderFiles) {
+            $text = Get-Content -LiteralPath (Join-Path $repoRoot $file) -Raw
+            Get-YurunaTestShellFunction -Text $text -Name 'yuruna_read_env_file' | Should -BeExactly $script:EnvReader -Because "$file must keep the shared copy"
+        }
+    }
+
+    It 'leaves no file that sources host.env' {
+        foreach ($file in $script:EnvReaderFiles) {
+            $text = Get-Content -LiteralPath (Join-Path $repoRoot $file) -Raw
+            $text | Should -Not -Match '(?m)^\s*\.\s+("?\$\{?[A-Za-z_]*(host_env|HOST_ENV)[A-Za-z_]*\}?"?|/etc/yuruna/host\.env)\s*$'
+        }
+    }
+
+    It 'reads a value that spells shell literally and runs nothing' {
+        $marker = Join-Path $TestDrive 'ran'
+        $envFile = Join-Path $TestDrive 'host.env'
+        [IO.File]::WriteAllText($envFile, "YURUNA_STATUS_SERVICE_IP=192.168.1.5`nYURUNA_PROJECT_URL=file:///x`$(touch $marker)`nYURUNA_GITHUB_REPO='owner/repo'`nYURUNA_HOST_ID=`"42abc`"`r`nPATH=/nowhere`n# comment`n")
+        $body = @($script:EnvReader, "yuruna_read_env_file '$envFile'", 'printf "ip=%s\nurl=%s\nrepo=%s\nid=%s\npath=%s\n" "$YURUNA_STATUS_SERVICE_IP" "$YURUNA_PROJECT_URL" "$YURUNA_GITHUB_REPO" "$YURUNA_HOST_ID" "$PATH"') -join "`n"
+        $run = Invoke-YurunaTestShell -Body $body
+        $run.ExitCode | Should -Be 0
+        $lines = $run.Output -split "`n"
+        $lines | Should -Contain 'ip=192.168.1.5'
+        $lines | Should -Contain "url=file:///x`$(touch $marker)"
+        $lines | Should -Contain 'repo=owner/repo'
+        $lines | Should -Contain 'id=42abc'
+        ($lines | Where-Object { $_ -like 'path=*' }) | Should -Not -Be 'path=/nowhere'
+        Test-Path -LiteralPath $marker | Should -BeFalse
+    }
+
+    It 'reports a missing file without failing the caller' {
+        $run = Invoke-YurunaTestShell -Body (@($script:EnvReader, "yuruna_read_env_file '$TestDrive/absent.env'; echo rc=`$?") -join "`n")
+        $run.Output | Should -Match 'rc=1'
+    }
+}
+
+Describe 'the Windows updater verifies host archives through the guest channel' {
+    # The Windows updater runs outside the fetch envelope, so it has no seeded
+    # digest. The host answers /archive-digest with the commit it serves and the
+    # archive's SHA-256 under an HMAC with its guest-channel key; the updater
+    # fetches that commit and keeps the archive only when the bytes match.
+    BeforeAll {
+        Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+        Import-Module (Join-Path $repoRoot 'test/modules/Test.HostGit.psm1') -Force -DisableNameChecking
+        $script:ChannelKey = 'd4' * 32
+        $script:ChannelHost = '42cccccccccccccccccccccccccccccc'
+        $updater = Get-Content -LiteralPath (Join-Path $repoRoot 'guest/windows.11/windows.11.update.ps1') -Raw
+        $script:UpdaterText = $updater
+        $ast = [Management.Automation.Language.Parser]::ParseInput($updater, [ref]$null, [ref]$null)
+        $script:GuestArchiveFn = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-GuestHostArchive' }, $true).Extent.Text
+        $runtime = Get-Content -LiteralPath (Join-Path $repoRoot 'test/service/Invoke-StatusServiceRuntime.ps1') -Raw
+        $rast = [Management.Automation.Language.Parser]::ParseInput($runtime, [ref]$null, [ref]$null)
+        $script:DigestFn = $rast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Send-ArchiveDigest' }, $true).Extent.Text
+    }
+
+    Context 'host route' {
+        BeforeAll {
+            . ([scriptblock]::Create($script:DigestFn))
+            $script:Repo = Join-Path $TestDrive 'framework'
+            $null = New-Item -ItemType Directory -Path (Join-Path $script:Repo 'docs') -Force
+            Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '2026.10.30'
+            Set-Content -LiteralPath (Join-Path $script:Repo 'docs/x.md') -Value 'excluded'
+            $null = New-YurunaTestGitRepository -Path $script:Repo -AddExisting -CommitMessage 'seed'
+            $script:Commit = ([string](Invoke-YurunaTestGit -Path $script:Repo -Argument @('rev-parse', 'HEAD'))).Trim()
+            function Send-JsonReply { param($Response, $Request, $StatusCode, $Body, $MessageKey, $MessageArguments) [void]$Response; [void]$Request; [void]$MessageArguments; $script:Reply = @{ Status = $StatusCode; Body = $Body; Key = $MessageKey } }
+            function Import-RouteModule { param($ModuleRelativePath, $RequiredCommand) [void]$ModuleRelativePath; [void]$RequiredCommand; return $true }
+            function Get-ArchiveHostId { $script:ChannelHost }
+            function Write-ServerErr { param($Message) [void]$Message }
+            function Get-DigestRequest { param([hashtable]$Query) $qs = [Collections.Specialized.NameValueCollection]::new(); foreach ($k in $Query.Keys) { $qs[$k] = $Query[$k] }; [pscustomobject]@{ QueryString = $qs; HttpMethod = 'GET' } }
+        }
+
+        It 'answers the served commit and its archive digest under the key' {
+            # Send-ArchiveDigest reads the runtime's $repoRoot by dynamic scope.
+            Set-Variable -Name repoRoot -Value $script:Repo -Scope Local
+            function Get-YurunaGuestChannelKey { $script:ChannelKey }
+            Send-ArchiveDigest -Response $null -Request (Get-DigestRequest @{ archive = 'framework'; nonce = '00112233445566778899aabbccddeeff' })
+            $script:Reply.Status | Should -Be 200
+            $script:Reply.Body.commit | Should -Be $script:Commit
+            $script:Reply.Body.sha256 | Should -Be (Get-YurunaGitArchiveDigest -RepoDir $script:Repo -Commit $script:Commit -ExcludePath @('dev-only', 'docs'))
+            $script:Reply.Body.proof | Should -Be (Get-YurunaGuestChannelProof -Key $script:ChannelKey -HostId $script:ChannelHost -Nonce '00112233445566778899aabbccddeeff' -Scope 'archive-digest' -Value @('framework', $script:Commit, $script:Reply.Body.sha256))
+        }
+
+        It 'refuses a malformed request and a host with no key' {
+            # Send-ArchiveDigest reads the runtime's $repoRoot by dynamic scope.
+            Set-Variable -Name repoRoot -Value $script:Repo -Scope Local
+            function Get-YurunaGuestChannelKey { $script:ChannelKey }
+            Send-ArchiveDigest -Response $null -Request (Get-DigestRequest @{ archive = 'other'; nonce = '00112233445566778899aabbccddeeff' })
+            $script:Reply.Status | Should -Be 400
+            Send-ArchiveDigest -Response $null -Request (Get-DigestRequest @{ archive = 'framework'; nonce = 'not-hex' })
+            $script:Reply.Status | Should -Be 400
+            function Get-YurunaGuestChannelKey { '' }
+            Send-ArchiveDigest -Response $null -Request (Get-DigestRequest @{ archive = 'framework'; nonce = '00112233445566778899aabbccddeeff' })
+            $script:Reply.Status | Should -Be 404
+            $script:Reply.Key | Should -Be 'status.api_guest_channel_key_absent'
+        }
+    }
+
+    Context 'Windows updater' {
+        BeforeAll {
+            . ([scriptblock]::Create($script:GuestArchiveFn))
+            $script:ArchiveBytes = [Text.Encoding]::UTF8.GetBytes('fixture archive bytes')
+            $script:ArchiveSha = ([Security.Cryptography.SHA256]::HashData($script:ArchiveBytes) | ForEach-Object { $_.ToString('x2') }) -join ''
+            $script:ArchiveCommit = 'ab' * 20
+            $script:KeyFile = Join-Path $TestDrive 'guest-channel.key'
+            Set-Content -LiteralPath $script:KeyFile -Value $script:ChannelKey
+        }
+        BeforeEach {
+            $script:ServerKey = ''; $script:ServeBytes = $null; $script:FetchedUri = ''
+            Mock Invoke-RestMethod {
+                $nonce = ([regex]::Match($Uri, 'nonce=([0-9a-f]+)')).Groups[1].Value
+                $key = if ($script:ServerKey) { $script:ServerKey } else { $script:ChannelKey }
+                $proof = Get-YurunaGuestChannelProof -Key $key -HostId $script:ChannelHost -Nonce $nonce -Scope 'archive-digest' -Value @('framework', $script:ArchiveCommit, $script:ArchiveSha)
+                [pscustomobject]@{ ok = $true; archive = 'framework'; commit = $script:ArchiveCommit; sha256 = $script:ArchiveSha; hostId = $script:ChannelHost; proof = $proof }
+            }
+            Mock Invoke-WebRequest {
+                $script:FetchedUri = $Uri
+                $bytes = if ($script:ServeBytes) { $script:ServeBytes } else { $script:ArchiveBytes }
+                [IO.File]::WriteAllBytes($OutFile, $bytes)
+            }
+        }
+
+        It 'fetches the proved commit and keeps bytes that match its digest' {
+            $out = Join-Path $TestDrive 'ok.tar.gz'
+            Get-GuestHostArchive -Archive framework -BaseUrl 'http://10.0.0.1:8080' -OutFile $out -KeyPath $script:KeyFile -HostId $script:ChannelHost | Out-Null
+            $script:FetchedUri | Should -Be "http://10.0.0.1:8080/yuruna-archive.tar.gz?commit=$($script:ArchiveCommit)"
+            [IO.File]::ReadAllBytes($out) | Should -Be $script:ArchiveBytes
+        }
+
+        It 'refuses an answer that does not prove the key, before fetching anything' {
+            $script:ServerKey = 'e5' * 32
+            { Get-GuestHostArchive -Archive framework -BaseUrl 'http://10.0.0.1:8080' -OutFile (Join-Path $TestDrive 'nokey.tar.gz') -KeyPath $script:KeyFile -HostId $script:ChannelHost } |
+                Should -Throw -ExpectedMessage '*does not prove this host''s guest-channel key*'
+            $script:FetchedUri | Should -BeNullOrEmpty
+        }
+
+        It 'refuses and removes bytes that do not match the proved digest' {
+            $script:ServeBytes = [Text.Encoding]::UTF8.GetBytes('substituted archive')
+            $out = Join-Path $TestDrive 'swapped.tar.gz'
+            { Get-GuestHostArchive -Archive framework -BaseUrl 'http://10.0.0.1:8080' -OutFile $out -KeyPath $script:KeyFile -HostId $script:ChannelHost } |
+                Should -Throw -ExpectedMessage '*not the * the host proved*'
+            Test-Path -LiteralPath $out | Should -BeFalse
+        }
+
+        It 'refuses a proof for another host' {
+            { Get-GuestHostArchive -Archive framework -BaseUrl 'http://10.0.0.1:8080' -OutFile (Join-Path $TestDrive 'other.tar.gz') -KeyPath $script:KeyFile -HostId '42dddddddddddddddddddddddddddddd' } |
+                Should -Throw -ExpectedMessage '*speaks for host*'
+        }
+
+        It 'fetches as served for a guest built before the key existed' {
+            $out = Join-Path $TestDrive 'legacy.tar.gz'
+            Get-GuestHostArchive -Archive project -BaseUrl 'http://10.0.0.1:8080' -OutFile $out -KeyPath (Join-Path $TestDrive 'absent.key')
+            $script:FetchedUri | Should -Be 'http://10.0.0.1:8080/yuruna-project-archive.tar.gz'
+        }
+
+        It 'uses the verified fetch for the early, framework and project archives' {
+            ([regex]::Matches($script:UpdaterText, 'Get-GuestHostArchive -Archive framework -BaseUrl')).Count | Should -Be 2
+            ([regex]::Matches($script:UpdaterText, 'Get-GuestHostArchive -Archive project -BaseUrl')).Count | Should -Be 1
+            $script:UpdaterText | Should -Not -Match 'Invoke-WebRequest -Uri \$(projectT|t)arballUrl'
+        }
     }
 }

@@ -264,6 +264,33 @@ const DataheILrunner = `{
     },
     ")"
   ],
+  "runner.cycle_over_budget": [
+    "מחזור ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " עבר ב-",
+    {
+      "arg": "minutes",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " דקות, מעל התקציב הנלמד של ",
+    {
+      "arg": "budgetMinutes",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " דקות (פי 1.5 מהאחוזון ה-90 של ",
+    {
+      "arg": "samples",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " המחזורים המוצלחים האחרונים). המחזור עדיין נחשב כמוצלח; שורות השלבים תחת test/status/perf/phases מראות איזה חלק גדל."
+  ],
   "runner.cycle_record_clear_action": "הסירו ממנגנון ההרצה את רשומת המחזור שהסתיים",
   "runner.cycle_record_write_action": "כתבו את רשומת המחזור של מנגנון ההרצה",
   "runner.cycle_result_missing": "המחזור חזר ללא פרסום תוצאה. הוא נרשם כמחזור שנכשל (no-cycle-result) במקום כמחזור שהושלם.",
@@ -331,6 +358,27 @@ const DataheILrunner = `{
       "trust": "internal"
     },
     ")."
+  ],
+  "runner.entry_point_module_missing": [
+    "Initialize-YurunaEntryPointModuleSet: ",
+    {
+      "arg": "modName",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " לא נמצא ב-",
+    {
+      "arg": "modPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " (kind=",
+    {
+      "arg": "for",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); נקודת הכניסה אינה מתחילה בלי ערכת המודולים שלה. שחזר את הקובץ בעותק הזה והתחל שוב."
   ],
   "runner.failure_alert_state": {
     "kind": "select",
@@ -465,6 +513,120 @@ const DataheILrunner = `{
       "trust": "external"
     }
   ],
+  "runner.framework_ring_follow": [
+    "המארח הזה עוקב אחרי טבעת הקנרית של המאגר שלו: מתקין את גרסת ה-framework ",
+    {
+      "arg": "revision",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ", שיש לה ",
+    {
+      "arg": "passes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " הצלחות קנרית תקפות (מותקנת: ",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.framework_ring_hold_newer": [
+    "הגרסה המתאימה של הטבעת ",
+    {
+      "arg": "revision",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " אינה חדשה יותר מהגרסה המותקנת ",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; ה-framework נשאר ב-",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.framework_ring_hold_not_in_history": [
+    "הגרסה המתאימה של הטבעת ",
+    {
+      "arg": "revision",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " אינה בהיסטוריה של ה-upstream של ה-framework שהמארח הזה עוקב אחריו; ה-framework נשאר ב-",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.framework_ring_hold_unqualified": [
+    "עדיין אין גרסת framework עם ",
+    {
+      "arg": "passes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " הצלחות קנרית תקפות; ה-framework נשאר ב-",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.framework_ring_hold_unreachable": [
+    "המארח הזה עוקב אחרי טבעת הקנרית של המאגר שלו, אבל צובר המאגר לא ענה (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); ה-framework נשאר ב-",
+    {
+      "arg": "current",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.gallery_package_digest_mismatch": [
+    "מסרב להתקין את ",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ",
+    {
+      "arg": "version",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ה-SHA-512 של החבילה שהורדה (",
+    {
+      "arg": "actual",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") אינו תואם ל-digest המוצמד (",
+    {
+      "arg": "expected",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
   "runner.gate_evidence_save_failed": [
     "לא ניתן לשמור את ראיות בדיקת התצורה: ",
     {
@@ -517,6 +679,15 @@ const DataheILrunner = `{
     },
     "'  (השינויים המקומיים נשארים ב־git stash list)."
   ],
+  "runner.guest_channel_key_unreadable": [
+    "מפתח ערוץ האורחים בנתיב ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " אינו 64 תווים הקסדצימליים קטנים, ולכן האורחים אינם יכולים לאמת מארח זה. שחזר את הקובץ, או הסר אותו ובנה מחדש את האורחים כדי ליצור מפתח חדש."
+  ],
   "runner.guest_folder_missing": [
     "תיקיית האורח לא נמצאה: ",
     {
@@ -544,6 +715,21 @@ const DataheILrunner = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "runner.host_condition_probe_unanswered": [
+    "לא ניתן היה לקרוא את ",
+    {
+      "arg": "probe",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "tool",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " לא השיב, ולכן ההגדרה אינה ידועה ואין ודאות שהיא בטוחה."
   ],
   "runner.host_diagnostic_timeout": "הזמן הקצוב לאבחון המארח תם לאחר 120s; עיינו בדגימת המארח הקודמת.",
   "runner.host_diagnostic_worker_failed": [
@@ -584,6 +770,21 @@ const DataheILrunner = `{
       "trust": "internal"
     },
     " תווים]"
+  ],
+  "runner.host_input_unmappable": [
+    "לנתיב הקלט ⁦",
+    {
+      "arg": "transport",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "⁩ אין מקש עבור התווים האלה בטקסט: ",
+    {
+      "arg": "characters",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". דבר לא הוקלד; לא ניתן להריץ את השלב במארח הזה כפי שהוא כתוב."
   ],
   "runner.host_network_sweep_timed_out": [
     "סריקת המכונות הווירטואליות שננטשו, בנתיב הדחייה בגלל רשת המארח, לא הסתיימה בתוך ",
@@ -1361,6 +1562,42 @@ const DataheILrunner = `{
       "trust": "internal"
     },
     "."
+  ],
+  "runner.host_refresh_oneshot_active": [
+    "⁦Invoke-HostRefresh⁩: הרצה חד-פעמית (⁦PID⁩ ",
+    {
+      "arg": "pid",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", חכירה ",
+    {
+      "arg": "leasePath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ") משתמשת בסביבת הריצה הזו; אף שלב תיקון לא רץ כל עוד היא מחזיקה בחכירה."
+  ],
+  "runner.host_refresh_oneshot_unconfirmed": [
+    "⁦Invoke-HostRefresh⁩: חכירת ההרצה החד-פעמית ",
+    {
+      "arg": "leasePath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " מציינת את ⁦PID⁩ ",
+    {
+      "arg": "pid",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", שזהותו אינה ניתנת לאימות (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); מתקן בכל זאת."
   ],
   "runner.host_refresh_operator_instruction": [
     "  פתרון: ",
@@ -7258,15 +7495,6 @@ const DataheILrunner = `{
     },
     " כדי שגם כל שאר הצרכנים יראו אותם:"
   ],
-  "runner.operator_400de73dc7d7af50": [
-    "אין סמל מקש VNC עבור התו '",
-    {
-      "arg": "ch",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'. התו יידלג."
-  ],
   "runner.operator_40166e264a276e0a": "ההגנות המורחבות של pmset אומתו לאחר החלתן.",
   "runner.operator_40a63b3866ac44bd": [
     "לא ניתן היה לספור את שינויי כתובת המארח במחזור זה (",
@@ -9840,27 +10068,6 @@ const DataheILrunner = `{
     }
   ],
   "runner.operator_5ea26e2a1f29b25e": "הממצא אינו כולל תיקיית יעד לקבלת בעלות עליה.",
-  "runner.operator_5eb94d6047f29167": [
-    "⁦Initialize-YurunaEntryPointModuleSet⁩: המודול ",
-    {
-      "arg": "modName",
-      "type": "detail",
-      "trust": "external"
-    },
-    " לא נמצא ב-",
-    {
-      "arg": "modPath",
-      "type": "detail",
-      "trust": "external"
-    },
-    " (kind=",
-    {
-      "arg": "for",
-      "type": "detail",
-      "trust": "external"
-    },
-    "); מדלגים."
-  ],
   "runner.operator_5ec100a74f28c9e9": "פינות פעילות: לא זוהו שיוכים מסוכנים (שומר מסך / שינה / נעילה).",
   "runner.operator_5ee21a55ab02bc48": [
     "w32tm ⁦/resync⁩ נכשל: ",
@@ -9924,21 +10131,6 @@ const DataheILrunner = `{
       "type": "detail",
       "trust": "external"
     }
-  ],
-  "runner.operator_5f9af4fdfbb52214": [
-    "אין קוד סריקה לתו '",
-    {
-      "arg": "ch",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' (0x",
-    {
-      "arg": "x2",
-      "type": "detail",
-      "trust": "external"
-    },
-    "). מתבצע דילוג."
   ],
   "runner.operator_5fa4b4be805499ca": "לולאת ההמתנה של OCR קוראת את חוצץ התמונה של האורח דרך WMI ואינה מושפעת. שינוי קנה המידה משפיע על OCR דרך חלון vmconnect, ש-tapOn תמיד לוכד ושמסלול לכידת התמונה משתמש בו כחלופה כשקריאת WMI נכשלת.",
   "runner.operator_5fe7035d37195fae": "מחקו באופן רקורסיבי",
@@ -19958,21 +20150,6 @@ const DataheILrunner = `{
   ],
   "runner.operator_dfd19c97aaa9ff6e": "⁦Invoke-HostRefresh⁩: מנהל המכונות הווירטואליות מגיב וקיים מנגנון הרצה -- אומת שאין צורך בפעולה.",
   "runner.operator_dfd80a749d4fee8f": "  הוסיפו את ⁦Get-Image.ps1⁩ + ⁦New-VM.ps1⁩ בנתיב הזה כדי לאפשר את האורח הזה, או",
-  "runner.operator_dfe205f918802162": [
-    "⁦Send-TextKvm⁩: אין קוד מקש לתו '",
-    {
-      "arg": "ch",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' (0x",
-    {
-      "arg": "x2",
-      "type": "detail",
-      "trust": "external"
-    },
-    "). מתבצע דילוג."
-  ],
   "runner.operator_e00026446a75f063": [
     "מופע מקביל של ⁦Start-TestRunner⁩ הקדים את המופע הזה ביצירת קובץ מזהה התהליך. בדקו את ",
     {
@@ -22840,6 +23017,21 @@ const DataheILrunner = `{
     },
     "). עדכנו את ה-checkout לפני שינוי תצורת המאגר."
   ],
+  "runner.pool_framework_ring_canary_not_member": [
+    "  pools.yml: המאגר ",
+    {
+      "arg": "poolId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " מציין את ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ב-frameworkRing.canaryMembers, אבל המארח הזה אינו אחד מהחברים שלו, ולכן ההצלחות שלו לעולם אינן נספרות."
+  ],
   "runner.pool_notifier_busy": "הרצה אחרת של מודיע ה-⁦pool⁩ מחזיקה בנעילה במארח הזה; ההרצה הזו לא מסרה דבר.",
   "runner.pool_notifier_spool_errors": [
     "[מחזור חיצוני ",
@@ -22880,6 +23072,16 @@ const DataheILrunner = `{
     " חייב להיות כתובת URL לא ריקה, ללא רווחים או תווי בקרה, ואסור שתתחיל ב-'-'."
   ],
   "runner.pool_status_repositories_none": "  מאגרי קוד: (אין)",
+  "runner.pool_storage_sudo_rule_stale": " (sudo סירב לעיגון, ולכן לא נוצר קשר עם ה-NAS: ה-drop-in המותקן ב-/etc/sudoers.d אינו מציין את הפקודה המדויקת של עיגון זה, משום שהשיתוף או נקודת העיגון השתנו לאחר שנכתב, או שזו ההרשאה הרחבה של גרסה קודמת -- הרץ את test/Test-Config.ps1 או את Sync-HostConfiguration מהפעלה אינטראקטיבית כדי להתקין את הכלל הנוכחי)",
+  "runner.pool_storage_sudoers_word_unsupported": [
+    "לא ניתן לכתוב את נתיב האחסון '",
+    {
+      "arg": "word",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' במדויק בכלל ה-sudoers (הוא מכיל רווח, מירכאה או תו כללי); בחר שיתוף ונקודת עיגון בלעדיהם."
+  ],
   "runner.preflight_network_diagnostics": [
     "אבחון רשת: ",
     {
@@ -23703,6 +23905,72 @@ const DataheILrunner = `{
       "trust": "external"
     }
   ],
+  "runner.service_adopted": [
+    "שומר על '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' הפועל בכתובת ",
+    {
+      "arg": "address",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); העבירו -ForceRebuild כדי לבנות אותו מחדש."
+  ],
+  "runner.service_advertisement_withdrawn": [
+    "הפרסום של ",
+    {
+      "arg": "area",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " הוסר לפני הבנייה מחדש; מארח זה יוצא מ-Extension hosts עד שה-VM החדש ישרת."
+  ],
+  "runner.service_build_plan_refused": [
+    "תוכנית הבנייה של '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' נדחתה (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "); ה-VM הפעיל והפרסום שלו לא נגעו. הפלט של הבונה למעלה מציין את הקלט החסר."
+  ],
+  "runner.service_build_timeout": [
+    "הבנייה של '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' לא הסתיימה תוך ",
+    {
+      "arg": "seconds",
+      "type": "token",
+      "trust": "internal"
+    },
+    " שניות ונעצרה (ההריגה נכשלה: ",
+    {
+      "arg": "killFailed",
+      "type": "token",
+      "trust": "internal"
+    },
+    "). הגדילו את YURUNA_SERVICE_VM_BUILD_TIMEOUT_SECONDS לקישור איטי, או בדקו את פלט הבונה למעלה."
+  ],
   "runner.service_cachingproxy_utmctl_start_failed": [
     "'utmctl start ",
     {
@@ -23760,6 +24028,36 @@ const DataheILrunner = `{
     "); סקריפטים להפעלה ולעצירה של שירותים מסרבים לפעול עד לתיקונו או להעברתו למיקום אחר. דבר לא השתנה."
   ],
   "runner.service_census_update_should_process": "מזגו את תצפיות השירותים למרשם השירותים",
+  "runner.service_hostproof_exited": [
+    "דמון ה-pool-control במארח יצא מיד (קוד ",
+    {
+      "arg": "code",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); ייתכן שהיציאה ",
+    {
+      "arg": "port",
+      "type": "token",
+      "trust": "internal"
+    },
+    " תפוסה על ידי תהליך אחר. שום דבר לא פורסם."
+  ],
+  "runner.service_hostproof_previous_running": [
+    "לא ניתן היה לעצור את דמון ה-pool-control הקודם במארח (pid ",
+    {
+      "arg": "pid",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "); מסרב להפעיל דמון שני. עצרו אותו והריצו שוב."
+  ],
   "runner.service_lockset_should_process": [
     "תפסו את נעילות הפעולה של השירותים ",
     {
@@ -24092,6 +24390,36 @@ const DataheILrunner = `{
     },
     "); היא לא הופעלה ולא נבנתה מחדש."
   ],
+  "runner.service_start_degraded": [
+    "'",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' נבנה עם ערכי seed פגומים: ",
+    {
+      "arg": "names",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". השירות פועל, אבל לאורח חסרים הערכים עד שייבנה מחדש כשהם נפתרים."
+  ],
+  "runner.service_start_stop_requested": [
+    "התבקשה עצירה של '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' בזמן שההפעלה הזו רצה, ולכן השירות אינו מפורסם. הריצו שוב את ",
+    {
+      "arg": "stopScript",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " כדי להסיר את ה-VM."
+  ],
   "runner.service_stop_final_state_unexpected": [
     "המצב הסופי של המכונה הווירטואלית '",
     {
@@ -24106,6 +24434,39 @@ const DataheILrunner = `{
       "trust": "internal"
     },
     " (המצב הצפוי לאחר ההסרה הוא absent). בדקו אותה בעזרת כלי המארח, ואז הריצו שוב את ⁦Stop-CachingProxyServiceVM.ps1⁩."
+  ],
+  "runner.ssh_host_key_pin_mismatch": [
+    "מפתח המארח של SSH בכתובת ",
+    {
+      "arg": "address",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " אינו המפתח ש-'",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' הציגה במגע הראשון, ולכן הפקודה לא הורצה: ייתכן שמכונה אחרת עונה בכתובת זו. אם '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' נבנתה מחדש מחוץ להרצה, הרץ Reset-GuestHostKeyPin -VMName ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (מפתח מוצמד: ",
+    {
+      "arg": "pin",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ")."
   ],
   "runner.start_cycle_worker_cleanup_failed": [
     "הפעלת מחזור ",
@@ -24293,6 +24654,120 @@ const DataheILrunner = `{
       "trust": "internal"
     },
     "/status/⁩ יחרגו מזמן ההמתנה הקצוב."
+  ],
+  "runner.status_listener_busy": [
+    "שירות המצב (⁦PID⁩ ",
+    {
+      "arg": "processId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") ביציאה ",
+    {
+      "arg": "port",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " לא ענה תוך 3 שניות, אך חכירת החיות שלו מראה שהוא משרת את ",
+    {
+      "arg": "route",
+      "type": "detail",
+      "trust": "external"
+    },
+    " כבר ",
+    {
+      "arg": "seconds",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " שניות; הוא נשאר פועל."
+  ],
+  "runner.status_listener_lease_verdict": [
+    "שירות המצב (⁦PID⁩ ",
+    {
+      "arg": "processId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "): חכירת החיות ",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", ",
+    {
+      "arg": "seconds",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " שניות)."
+  ],
+  "runner.status_listener_replace_in_cycle": [
+    "משדר כתובת המארח: שירות המצב (⁦PID⁩ ",
+    {
+      "arg": "processId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") אינו עונה והחכירה שלו הראתה שהוא תקוע (",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " כבר ",
+    {
+      "arg": "seconds",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " שניות ב-'",
+    {
+      "arg": "route",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'); הפעלת ההחלפה הסתיימה בקוד ",
+    {
+      "arg": "exitCode",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.status_listener_replaced": [
+    "⁦Start-StatusService⁩: עוצר את שירות המצב התקוע (⁦PID⁩ ",
+    {
+      "arg": "processId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " כבר ",
+    {
+      "arg": "seconds",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " שניות ב-'",
+    {
+      "arg": "route",
+      "type": "detail",
+      "trust": "external"
+    },
+    "') ומפעיל שירות חדש."
   ],
   "runner.status_refresh_safe_existing_ready": [
     "Status service עם מזהה תהליך ",
@@ -24552,6 +25027,44 @@ const DataheILrunner = `{
       "trust": "external"
     },
     "). המחזור ממשיך, המחיקות ממשיכות לבדוק הפניות, והמחזור הבא ינסה שוב."
+  ],
+  "runner.wait_ended_on_kernel_stall": [
+    "ההמתנה לטקסט '",
+    {
+      "arg": "patternLabel",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' הסתיימה אחרי ~",
+    {
+      "arg": "waited",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s מתוך ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s: הקרנל של האורח לא טיפל באף פסיקה במעבדים הווירטואליים ",
+    {
+      "arg": "processors",
+      "type": "detail",
+      "trust": "external"
+    },
+    " במשך ",
+    {
+      "arg": "silentSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s, והקונסולה הטורית שלו דיווחה על ",
+    {
+      "arg": "kinds",
+      "type": "detail",
+      "trust": "external"
+    }
   ],
   "runner.warm_resume_declined_unverified": [
     "  WARM-RESUME נדחה: '",

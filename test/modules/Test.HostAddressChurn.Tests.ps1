@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42218fa5-018e-4ea0-a6fe-a80cc7202613
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,6 +171,44 @@ Describe 'Get-HostAddressChangeCount' {
     }
 }
 
+Describe 'Get-HostAddressChangeRow' {
+
+    It 'reports no reading, not an empty list, when there is no record or no readable row' {
+        # The count's -1 rule, carried by the rows: a failure record that reads
+        # these must be able to say "unmeasured" rather than "the host held its
+        # address", which is what an empty list means.
+        $d = New-ChurnTempDir
+        try {
+            $null -eq (Get-HostAddressChangeRow -RuntimeDir $d -StartUtc ([datetime]::UtcNow.AddHours(-1)) -EndUtc ([datetime]::UtcNow)) |
+                Should -BeTrue -Because 'no record was ever written'
+            Set-Content -Path (Join-Path $d 'hostaddress.changes.ndjson') -Value 'not json at all'
+            $null -eq (Get-HostAddressChangeRow -RuntimeDir $d -StartUtc ([datetime]::UtcNow.AddHours(-1)) -EndUtc ([datetime]::UtcNow)) |
+                Should -BeTrue -Because 'a record no row of which can be read is not a quiet network'
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
+    It 'returns the moves inside the window with their instants and addresses, and an empty list for a quiet one' {
+        $d = New-ChurnTempDir
+        try {
+            $now = [datetime]::UtcNow
+            Write-HostAddressBaselineRecord -RuntimeDir $d -Current '192.168.7.1' `
+                -ObservedAtUtc ($now.AddMinutes(-90).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)) -Confirm:$false
+            Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-70) -To '192.168.7.5'
+            Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-20) -To '192.168.7.9'
+            $rows = @(Get-HostAddressChangeRow -RuntimeDir $d -StartUtc $now.AddMinutes(-50) -EndUtc $now)
+            $rows.Count | Should -Be 1 -Because 'the baseline is not a move and the move 70 minutes ago predates the window'
+            $rows[0].previous | Should -Be '192.168.7.1'
+            $rows[0].current | Should -Be '192.168.7.9'
+            $rows[0].changedAtUtc | Should -Match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$'
+            $quiet = Get-HostAddressChangeRow -RuntimeDir $d -StartUtc $now.AddMinutes(-10) -EndUtc $now
+            $null -eq $quiet | Should -BeFalse -Because 'a quiet window on a recorded host is a reading'
+            @($quiet).Count | Should -Be 0
+            Get-HostAddressChangeCount -RuntimeDir $d -StartUtc $now.AddMinutes(-50) -EndUtc $now |
+                Should -Be 1 -Because 'the count is the rows counted'
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+}
+
 Describe 'Write-HostAddressChangeRecord' {
 
     It 'appends one parseable row per change, keeping what it moved from and to' {
@@ -229,7 +267,7 @@ Describe 'The counter is reachable from the session that actually records it' {
         $runtime = Join-Path $TestDrive 'isolated-runtime'
         [void][IO.Directory]::CreateDirectory($cycle)
         [void][IO.Directory]::CreateDirectory($runtime)
-        $savedRuntime = [Environment]::GetEnvironmentVariable('YURUNA_RUNTIME_DIR', 'Process')
+        $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $shell = [PowerShell]::Create()
         try {
             $result = $shell.AddScript({
@@ -252,7 +290,7 @@ Describe 'The counter is reachable from the session that actually records it' {
             Assert-Equal 1 $result[-1].Count 'Stop-LogFile itself loads and uses the counter'
         } finally {
             $shell.Dispose()
-            [Environment]::SetEnvironmentVariable('YURUNA_RUNTIME_DIR', $savedRuntime, 'Process')
+            Restore-YurunaTestEnvironment -Saved $savedRuntime
         }
     }
 

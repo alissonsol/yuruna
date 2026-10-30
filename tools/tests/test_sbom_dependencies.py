@@ -259,6 +259,31 @@ module "dynamic" { source = local.module_source }
         self.assertNotIn('purl', chart)
         self.assertEqual(records['helm-config:' + path]['dependencies'], [key])
 
+    def test_helm_pull_of_a_pinned_archive_keeps_the_chart_and_skips_the_local_install(self):
+        path = 'example/website/config/localhost/workloads.yml'
+        records = collect({path: '''workloads:
+- context: "${env:context}"
+  deployments:
+    - helm: "repo add ingress-nginx https://kubernetes.github.io/ingress-nginx"
+    - helm: "pull ingress-nginx/ingress-nginx --version 4.15.1 --destination ."
+    - helm: >
+        install nginx-ingress ./ingress-nginx-4.15.1.tgz
+        --namespace ingress-ns
+'''})
+        key = 'helm:https://kubernetes.github.io/ingress-nginx#ingress-nginx@4.15.1'
+        chart = records[key]
+        self.assertEqual(chart['version'], '4.15.1')
+        self.assertEqual(chart['completeness'], 'declared')
+        self.assertEqual({entry['line'] for entry in chart['evidence']}, {4, 5})
+        self.assertEqual(records['helm-config:' + path]['dependencies'], [key])
+        self.assertFalse(any('Helm coverage' in note for note in records['helm-config:' + path]['notes']))
+        variable = collect({path: '''workloads:
+  - helm: "repo add ingress-nginx https://kubernetes.github.io/ingress-nginx"
+  - helm: "pull ingress-nginx/ingress-nginx --version ${env:ingressChartVersion} --destination ."
+'''})['helm:https://kubernetes.github.io/ingress-nginx#ingress-nginx']
+        self.assertEqual(variable['versionConstraint'], '${env:ingressChartVersion}')
+        self.assertEqual(variable['completeness'], 'unresolved')
+
     def test_helm_exact_range_and_dynamic_versions_remain_distinct(self):
         records = collect({'example/config/azure/workloads.yml': '''globalVariables:
   certManagerLatest: "v1.21.2"

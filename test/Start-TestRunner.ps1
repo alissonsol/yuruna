@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,7 @@
     inner -- is just another failure that the outer absorbs and retries.
 
 .DESCRIPTION
-    See https://yuruna.link/42010605-0002.
+    See https://yuruna.link/42010605-003a.
 .PARAMETER ConfigPath
     test.config.yml path (forwarded to inner)
 .PARAMETER NoGitPull
@@ -93,30 +93,7 @@ param(
 # question marks; YURUNA_KEEP_CONSOLE_ENCODING=1 keeps the console's own.
 if ($IsWindows -and $env:YURUNA_KEEP_CONSOLE_ENCODING -ne '1') { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) }
 
-# --- REGION: Tunable backoff constants
-# Hardcoded at top-of-file by design -- NOT in test.config.yml -- so an
-# operator can grep + adjust without a config-schema migration. Tune with
-# care: the cap is meant to keep a wedged host from burning git/network
-# while still being short enough that a one-off transient (network blip,
-# mirror hiccup) recovers within an hour without manual intervention.
 Import-Module (Join-Path $PSScriptRoot '../automation/Yuruna.Globalization.psm1') -DisableNameChecking
-$script:FailurePauseMaxSeconds    = 60 * 60   # cap a backoff at 60 min
-$script:OuterNetworkGateRetrySeconds = 120
-$script:OuterNetworkGateRetryMaxSeconds = 15 * 60
-$script:OuterNetworkGateRecoveryPollSeconds = 30
-$script:FailureCommitPollSeconds  = 30        # source checks share one 30-second budget
-$script:OuterPullErrorSleepSeconds    = 30        # short pause if outer's own git pull errors
-$script:InnerSpawnErrorSleepSeconds   = 30        # short pause if Start-Process itself fails
-$script:StepTimeoutSecondsDefault = 2700        # watchdog: kill inner when heartbeat older than this
-# Tighter bound while the inner is still in its preamble (runner.phase present):
-# nothing before the first sequence step is legitimately slow, so a stall there
-# is a wedged runner, not long work. testCycle.preambleTimeoutSeconds overrides;
-# 0 opts out, applying stepTimeoutSeconds everywhere.
-$script:PreambleTimeoutSecondsDefault = 600
-# Absolute per-cycle bound the resident enforces; testCycle.maxCycleSeconds
-# overrides and 0 disables it (see Get-OuterMaxCycleSeconds).
-$script:MaxCycleSecondsDefault = 21600
-$script:WatchdogPollSeconds       = 30        # how often the watchdog re-checks the heartbeat file
 
 # --- REGION: https://yuruna.link/42d69dfa-000d
 $script:ForwardEnvNames = @(
@@ -144,7 +121,7 @@ $TestRoot    = $paths.TestRoot
 $RepoRoot    = $paths.RepoRoot
 $ModulesDir  = $paths.ModulesDir
 $ConfigPath  = $paths.ConfigPath
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0039
 $env:YURUNA_CONFIG_PATH = $ConfigPath
 $InnerScript = Join-Path $ModulesDir 'Invoke-TestRunnerInnerLoop.ps1'
 if (-not (Test-Path -LiteralPath $InnerScript)) {
@@ -157,6 +134,16 @@ if (-not (Test-Path -LiteralPath $InnerScript)) {
 # ConfigGate, Capability, and SingleInstance. See
 # Initialize-YurunaEntryPointModuleSet for the per-kind module lists.
 Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $ModulesDir
+# The runner's timing defaults (failure-pause cap, watchdog bounds, retry
+# sleeps): one table, shared with the per-cycle process. Tune them in
+# Get-RunnerTunableDefault (test/modules/Test.RunnerOuterLoop.psm1).
+$script:RunnerTunable = Get-RunnerTunableDefault
+# -logLevel, else test.config.yml's logLevel, applied to this process and
+# published in YURUNA_LOG_LEVEL before the environment snapshot below, so the
+# jobs, workers and cycle processes this runner starts inherit it.
+$startupConfig = Read-TestConfig -Path $ConfigPath
+$null = Resolve-LogLevel -CmdLineLevel $(if ($PSBoundParameters.ContainsKey('logLevel')) { $logLevel }) `
+    -ConfigLevel $(if ($startupConfig -is [System.Collections.IDictionary]) { [string]$startupConfig['logLevel'] })
 
 # --- REGION: Private startup state
 # sg relaunches pwsh noninteractively. Repair private files while the original
@@ -171,7 +158,7 @@ if (-not $RefreshResume) {
     }
 }
 
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0038
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # Surface the credential a cycle may need BEFORE the operator walks away from a
@@ -205,7 +192,7 @@ $null = Initialize-YurunaLogDir
 $global:__YurunaHostId = Get-YurunaHostId
 
 # --- REGION: Host-refresh gate at startup
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0037
 $refreshToken = $null
 if ($RefreshResume) {
     $refreshToken = Test-YurunaRunnerHandoffToken -TokenId $RefreshHandoffToken -Role outer -RuntimeDir $env:YURUNA_RUNTIME_DIR
@@ -291,6 +278,7 @@ foreach ($n in $script:ForwardEnvNames) {
 # ended cleanly -- unless a live runner owns runner.pid, whose record is that
 # runner's and is left alone. Once this runner has written its own record
 # (the Launch record region), $completeLaunchRecord only completes it.
+# See https://yuruna.link/42f909ad-0008
 # The one definition of the record, written here by a refusing start or at
 # the Launch record region by the runner that owns the runtime.
 $launchScriptPath = $PSCommandPath
@@ -348,7 +336,7 @@ $refuseStart = {
     }
 
     # --- REGION: Elevation check
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0032
     $elevationHostType = Get-HostType
     # A resumed start has nobody at a console, so it never prompts: a missing
     # credential is a refusal the worker reports.
@@ -401,7 +389,7 @@ $runStartupRecovery = {
 }
 if (-not $RefreshResume) { & $runStartupRecovery }
 
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0036
 
 # --- REGION: Single-instance guard
 # Outer owns the runner.pid file across the whole resilient lifetime. Inner
@@ -499,7 +487,7 @@ $completeLaunchRecord = {
 }
 
 # --- REGION: Ctrl+C handler
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0035
 $script:ShutdownState = Register-EntryPointCancelHandler -ExitAfterLabel 'cycle'
 
 # --- REGION: Build inner argument list
@@ -507,12 +495,12 @@ $script:ShutdownState = Register-EntryPointCancelHandler -ExitAfterLabel 'cycle'
 # -NoProfile, and single-quote escaping live in the helper, not here:
 # see test/modules/Test.InnerSpawn.psm1.
 $pwshExe = Get-PwshExePath
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0034
 $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundParameters `
     -ExcludeParameter @('RefreshResume', 'RefreshHandoffToken')
 
 # --- REGION: Helpers
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0033
 
 # --- REGION: Banner
 # First line written to runtime/outer.log on every outer startup. If this line
@@ -525,11 +513,11 @@ Write-Output ""
 Write-Output "========"
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c38026188af9ed4c')
 Write-Output "  Inner:        $InnerScript"
-Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c83f88602397b5a8' -Arguments @{ failurePauseMaxSeconds = "$($script:FailurePauseMaxSeconds / 60)" })
-Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_05d9260581fa8254' -Arguments @{ failureCommitPollSeconds = "$($script:FailureCommitPollSeconds / 60)" })
-Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0f8092ec9d970028' -Arguments @{ stepTimeoutSecondsDefault = "$(Get-OuterStepTimeoutSeconds -ConfigPath $ConfigPath -DefaultSeconds $script:StepTimeoutSecondsDefault)"; stepTimeoutSecondsDefault2 = "$($script:StepTimeoutSecondsDefault)" })
-$script:PreambleBanner = Get-OuterPreambleTimeoutSeconds -ConfigPath $ConfigPath -DefaultSeconds $script:PreambleTimeoutSecondsDefault
-Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_acbe98987ce4b852' -Arguments @{ applies = "$(if ($script:PreambleBanner -gt 0) { "$script:PreambleBanner s" } else { 'off (step timeout applies)' })"; preambleTimeoutSecondsDefault = "$($script:PreambleTimeoutSecondsDefault)" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_c83f88602397b5a8' -Arguments @{ failurePauseMaxSeconds = "$($script:RunnerTunable.FailurePauseMaxSeconds / 60)" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_05d9260581fa8254' -Arguments @{ failureCommitPollSeconds = "$($script:RunnerTunable.FailureCommitPollSeconds / 60)" })
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_0f8092ec9d970028' -Arguments @{ stepTimeoutSecondsDefault = "$(Get-OuterStepTimeoutSeconds -ConfigPath $ConfigPath -DefaultSeconds $script:RunnerTunable.StepTimeoutSecondsDefault)"; stepTimeoutSecondsDefault2 = "$($script:RunnerTunable.StepTimeoutSecondsDefault)" })
+$script:PreambleBanner = Get-OuterPreambleTimeoutSeconds -ConfigPath $ConfigPath -DefaultSeconds $script:RunnerTunable.PreambleTimeoutSecondsDefault
+Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_acbe98987ce4b852' -Arguments @{ applies = "$(if ($script:PreambleBanner -gt 0) { "$script:PreambleBanner s" } else { 'off (step timeout applies)' })"; preambleTimeoutSecondsDefault = "$($script:RunnerTunable.PreambleTimeoutSecondsDefault)" })
 Write-Output "  Stop:         Ctrl+C"
 if ($script:ForwardEnvSnapshot.Count -gt 0) {
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4575b87368f13304')
@@ -548,7 +536,7 @@ Write-Output "========"
 if ($RefreshResume) { . $refuseStart }
 
 # --- REGION: Eternal loop
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0031
 $CycleScript = Join-Path $ModulesDir 'Invoke-TestCycleRunner.ps1'
 if (-not (Test-Path -LiteralPath $CycleScript)) {
     # Not fatal: the loop falls back to running the cycle in-process, which behaves
@@ -558,7 +546,7 @@ if (-not (Test-Path -LiteralPath $CycleScript)) {
 }
 
 # The supervisor re-enters the loop after an escaped exception; see its help.
-Invoke-RunnerOuterSupervisor -State @{
+$supervisorState = @{
     CycleScript               = $CycleScript
     RepoRoot                  = $RepoRoot
     ConfigPath                = $ConfigPath
@@ -576,17 +564,6 @@ Invoke-RunnerOuterSupervisor -State @{
     NoConfigGate              = [bool]$NoConfigGate
     CycleDelaySeconds         = $CycleDelaySeconds
     LogLevel                  = $logLevel
-    FailurePauseMaxSeconds    = $script:FailurePauseMaxSeconds
-    OuterNetworkGateRetrySeconds = $script:OuterNetworkGateRetrySeconds
-    OuterNetworkGateRetryMaxSeconds = $script:OuterNetworkGateRetryMaxSeconds
-    OuterNetworkGateRecoveryPollSeconds = $script:OuterNetworkGateRecoveryPollSeconds
-    FailureCommitPollSeconds  = $script:FailureCommitPollSeconds
-    OuterPullErrorSleepSeconds    = $script:OuterPullErrorSleepSeconds
-    InnerSpawnErrorSleepSeconds   = $script:InnerSpawnErrorSleepSeconds
-    StepTimeoutSecondsDefault = $script:StepTimeoutSecondsDefault
-    PreambleTimeoutSecondsDefault = $script:PreambleTimeoutSecondsDefault
-    MaxCycleSecondsDefault    = $script:MaxCycleSecondsDefault
-    WatchdogPollSeconds       = $script:WatchdogPollSeconds
     # A resumed runner's first dispatch is the preflight chain of its handoff.
     RefreshHandoff            = if ($RefreshResume) {
         @{ TokenId = $RefreshHandoffToken; RequestId = [string]$refreshToken.RequestId; Generation = [string]$refreshToken.Generation; Purpose = 'new-outer' }
@@ -594,6 +571,8 @@ Invoke-RunnerOuterSupervisor -State @{
     RefreshBarrierRequestId   = $null
     RefreshGateHoldSeconds    = 15
 }
+foreach ($key in $script:RunnerTunable.Keys) { $supervisorState[$key] = $script:RunnerTunable[$key] }
+Invoke-RunnerOuterSupervisor -State $supervisorState
 
 # --- REGION: Graceful shutdown
 Write-Output ""

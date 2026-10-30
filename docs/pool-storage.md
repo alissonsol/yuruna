@@ -163,8 +163,8 @@ map a non-empty `vaultKey` and `Set-Password` it.
       .staging/                             # agent-private temp area (PID-suffixed)
       manual/<arch>.<variant>/              # drop a hand-downloaded artifact here
   download-agent-service/
-    audit.jsonl                             # one line per UI/API mutation
-    status.json                             # last-write / heartbeat snapshot
+    audit.<agent>.jsonl                     # one line per UI/API mutation, per agent
+    status.<agent>.json                     # last-write / heartbeat snapshot, per agent
 ```
 
 `images/` and `download-agent-service/` belong to the **download-agent service**
@@ -382,32 +382,48 @@ can never hang the drain.
 
 **Linux precondition -- passwordless sudo for the mount.** `sudo -n` never prompts;
 without a `NOPASSWD` rule it fails fast (recorded in `lastError`, loop unaffected)
-and the share is never archived. Grant the test account passwordless `mount` and
-`umount` (e.g. a `/etc/sudoers.d/` drop-in) on Linux pool hosts that use
-poolStorage. When `localPath` sits under a **root-owned** parent such as `/mnt`,
-also grant `mkdir`: the mount point is created unprivileged when its parent is
-user-writable, but a root-owned parent forces a `sudo -n mkdir -p` fallback
-(`mount` does not create its own target, so a missing mount point otherwise fails
-the mount). Example drop-in (adjust binary paths to your distro):
+and the share is never archived. The `/etc/sudoers.d/yuruna-poolstorage` drop-in
+grants the test account the exact commands the mount runs for each configured
+tier (pool and stash), not the `mkdir`, `mount` and `umount` binaries: a bare
+`mount` grant lets the account mount any filesystem over any directory, which is
+root access. Per tier the rule names `mkdir -p <localPath>` (used when `localPath` sits
+under a **root-owned** parent such as `/mnt`, since `mount` does not create its
+own target), the full `mount -t cifs <share> <localPath> -o credentials=...`
+line, and `umount <localPath>`. The credentials file therefore has a fixed path
+per mount point under the runtime directory; it is created owner-only, holds the
+password only for the `mount()` call and is deleted after it. The rule also
+grants each binary's `--version` and a marker, `true yuruna-poolstorage-<hash>`,
+whose hash covers the whole rule. Example (one line; adjust binary paths to your
+distro):
 
 ```
-test ALL=(root) NOPASSWD: /usr/bin/mkdir, /usr/bin/mount, /usr/bin/umount
+test ALL=(root) NOPASSWD: /usr/bin/mkdir -p /mnt/yuruna.pool, /usr/bin/mount -t cifs //nas/yuruna.pool /mnt/yuruna.pool -o credentials\=/home/test/yuruna/test/status/runtime/poolstorage.0123456789abcdef.cifs.cred\,vers\=3.0\,uid\=1000\,gid\=1000\,iocharset\=utf8\,nofail, /usr/bin/umount /mnt/yuruna.pool, /usr/bin/mkdir --version, /usr/bin/mount --version, /usr/bin/umount --version, /usr/bin/true yuruna-poolstorage-0123456789abcdef
 ```
+
+Because the rule names the share and the mount point, changing either in
+`test.config.yml` needs the rule installed again; until then the mount reports
+that the installed drop-in does not name its command. A path sudoers cannot match
+exactly (whitespace, a quote or a wildcard character) is refused when the rule is
+built. A superseded mount left at an earlier mount point is no longer covered by
+the rule, so its cleanup falls back to an unprivileged `umount`.
 
 **`Sync-HostConfiguration` and guided setup install this for you.** The
 unattended runner cannot self-elevate, but an interactive config sync can obtain
-sudo authorization once. The installer resolves the account and the real
-`mkdir`/`mount`/`umount` paths, writes the rule and validates it with `visudo -cf`,
-removing an invalid rule. The same step is available directly as
-`Set-PoolStorageSudoers`.
+sudo authorization once. The installer resolves the account, the real
+`mkdir`/`mount`/`umount`/`true` paths and the configured tiers, writes the rule
+and validates it with `visudo -cf`, removing an invalid rule. The same step is
+available directly as `Set-PoolStorageSudoers`.
 
-Readiness executes each command's harmless `--version` through `sudo -n -k`.
-This proves `NOPASSWD` works without consulting or clearing the operator's cached
-authorization. `sudo -n -l` only proves the command is permitted and can succeed
-with an ordinary password-protected rule while the cache is warm. The installer
-repeats the uncached probes before reporting success, so an overriding sudoers
-rule is detected. It is a no-op when these permissions already work and applies
-only on Linux; macOS and Windows mounts need no sudo.
+Readiness executes each binary's harmless `--version` and the marker through
+`sudo -n -k`. This proves `NOPASSWD` works without consulting or clearing the
+operator's cached authorization. `sudo -n -l` only proves the command is
+permitted and can succeed with an ordinary password-protected rule while the
+cache is warm. The marker answers only while the installed drop-in is the rule
+for the current configuration, so a rule written for other mount points, or the
+broad grant of an older release, is replaced. The installer repeats the uncached
+probes before reporting success, so an overriding sudoers rule is detected. It
+is a no-op when the current rule already works and applies only on Linux; macOS
+and Windows mounts need no sudo.
 
 Under `-NonInteractive`, an already-authorized sudo cache allows installation
 through bounded `sudo -n` commands. A cold cache returns the manual installation
@@ -806,7 +822,19 @@ credential from the host config service (`GET /v1/nas/stash` or `/v1/nas/pool`)
 over mutual TLS and writes the `0600` credentials file the mount reads. The service
 start pipeline ensures the host config service before it builds the VM, as the
 caching-proxy start already did. A guest that cannot reach it mounts nothing and
-says so in `cloud-init-output.log`, the outcome of an unconfigured share. All twelve
+says so in `cloud-init-output.log`, the same outcome as an unconfigured share. Where the
+share is configured, the seed also starts `yuruna-nas-credential-refresh.timer`,
+which runs the same script with the mount point every 30 minutes: a credential
+that changed on the host replaces the file, and a share that is mounted is
+remounted in place (`mount -o remount`) when the credential changed or when the
+share stops answering a bounded `stat -f`. The kernel keeps the password a share
+was mounted with, so every reconnect after a rotation would otherwise fail; it
+takes the current one on a remount while the session needs to reconnect, which
+is the state a rotation leaves it in. The refresh never unmounts a share and never
+mounts one the bring-up left unmounted: the services decided at boot whether to
+use it, and anything written to the bare mount point would be shadowed by a later
+mount. A failed remount keeps the old mount and is logged in the unit's journal.
+All twelve
 service builders, and the nine test-guest builders, also stage every seed in a private
 workspace beside the disk (`Yuruna.SeedMedia.psm1`: owner-only directory, owner-only
 image, VM-only read on Hyper-V) and remove it on every exit, a failed build included,
@@ -843,6 +871,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

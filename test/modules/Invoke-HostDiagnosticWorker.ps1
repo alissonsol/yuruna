@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427e5cfa-1fd6-4fde-89f5-c7a1f409aa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,6 +87,9 @@ $callerWhatIf = $WhatIfPreference
 $WhatIfPreference = $false
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+# The level the process that started this one resolved (YURUNA_LOG_LEVEL).
+Import-Module (Join-Path $PSScriptRoot 'Test.LogLevel.psm1') -DisableNameChecking
+Use-LogLevelFromEnv
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -Global -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.SingleFlightLock.psm1') -Global -Force -DisableNameChecking

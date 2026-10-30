@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c69585-1569-4e82-88e0-b6b74d6c4310
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,7 @@
 
 # --- REGION: Test setup
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
     $script:diagnosticPath = Join-Path $PSScriptRoot '../../automation/Get-SystemDiagnostic.ps1'
     $script:ast = [Management.Automation.Language.Parser]::ParseFile($script:diagnosticPath, [ref]$null, [ref]$null)
     foreach ($name in @('Get-DiagnosticSourceFile', 'Get-DiagnosticSourceProvenance', 'Invoke-DiagnosticBoundedCommand')) {
@@ -57,8 +58,7 @@ Describe 'Standalone source provenance' {
     }
 
     It 'reports absent revisions rather than inheriting a parent Git repository' -Skip:(-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
-        & git -C $script:checkout init --quiet
-        & git -C $script:checkout -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty --quiet -m fixture
+        $null = New-YurunaTestGitRepository -Path $script:checkout -CommitMessage 'fixture'
         $LASTEXITCODE | Should -Be 0
         $result = Get-DiagnosticSourceProvenance -CheckoutRoot $script:checkout
         $result.framework.state | Should -Be 'present'
@@ -70,8 +70,7 @@ Describe 'Standalone source provenance' {
 
     It 'uses actual Git HEAD over a stale archive marker' -Skip:(-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
         [IO.File]::WriteAllText((Join-Path $script:checkout '.yuruna-revision'), 'a' * 40)
-        & git -C $script:checkout init --quiet
-        & git -C $script:checkout -c user.name=Fixture -c user.email=fixture@example.invalid commit --allow-empty --quiet -m fixture
+        $null = New-YurunaTestGitRepository -Path $script:checkout -CommitMessage 'fixture'
         $LASTEXITCODE | Should -Be 0
         $result = Get-DiagnosticSourceProvenance -CheckoutRoot $script:checkout
         $result.framework.source | Should -Be 'git'

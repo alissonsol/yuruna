@@ -60,12 +60,16 @@ class ProvisioningTests(unittest.TestCase):
         result = self.collect(**{"automation/yuruna-versions.sh": '''export YURUNA_K8S_MINOR=1.37
 export YURUNA_OPENTOFU_VERSION=1.13.1
 export YURUNA_HELM_VERSION=4.3.0
+export YURUNA_HELM_SHA256_AMD64=0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b
+export YURUNA_FLANNEL_VERSION=0.28.10
+export YURUNA_MKCERT_VERSION=1.4.4
 export YURUNA_NVM_VERSION=0.40.8
 export YURUNA_NODE_MAJOR=24
 ''', "guest/shared/install.sh": 'nvm install "$YURUNA_NODE_MAJOR"\n'})
         rows = {row["name"]: row for row in result["guests"]}
-        self.assertEqual(set(rows), {"Kubernetes", "OpenTofu", "Helm", "nvm-sh/nvm", "node"})
-        for name, version in (("OpenTofu", "1.13.1"), ("Helm", "4.3.0"), ("nvm-sh/nvm", "0.40.8")):
+        self.assertEqual(set(rows), {"Kubernetes", "OpenTofu", "Helm", "flannel-io/flannel", "FiloSottile/mkcert", "nvm-sh/nvm", "node"})
+        for name, version in (("OpenTofu", "1.13.1"), ("Helm", "4.3.0"), ("flannel-io/flannel", "0.28.10"),
+                              ("FiloSottile/mkcert", "1.4.4"), ("nvm-sh/nvm", "0.40.8")):
             self.assertEqual(rows[name]["version"], version)
         for name, channel in (("Kubernetes", "1.37"), ("node", "24")):
             self.assertNotIn("version", rows[name])

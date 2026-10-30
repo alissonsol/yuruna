@@ -18,16 +18,20 @@ import (
 // appends the script it was asked to run to the log file and answers like the
 // CLI, before the testing flags (which the CLI argv would fail) are parsed.
 const (
-	fakePwshEnv   = "POOLCONTROL_FAKE_PWSH_LOG"
-	fakePwshDelay = "POOLCONTROL_FAKE_PWSH_DELAY_MS"
+	fakePwshEnv    = "POOLCONTROL_FAKE_PWSH_LOG"
+	fakePwshDelay  = "POOLCONTROL_FAKE_PWSH_DELAY_MS"
+	fakePwshStderr = "POOLCONTROL_FAKE_PWSH_STDERR"
 )
 
 func TestMain(m *testing.M) {
 	if log := os.Getenv(fakePwshEnv); log != "" {
-		script := ""
+		script, url := "", ""
 		for i, arg := range os.Args {
 			if arg == "-File" && i+1 < len(os.Args) {
 				script = os.Args[i+1]
+			}
+			if arg == "-ConfigurationGitUrl" && i+1 < len(os.Args) {
+				url = os.Args[i+1]
 			}
 		}
 		if delay := os.Getenv(fakePwshDelay); delay != "" {
@@ -38,7 +42,14 @@ func TestMain(m *testing.M) {
 		f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err == nil {
 			fmt.Fprintln(f, script)
+			if url != "" {
+				fmt.Fprintln(f, "url="+url)
+			}
 			f.Close()
+		}
+		if text := os.Getenv(fakePwshStderr); text != "" {
+			fmt.Fprintln(os.Stderr, text)
+			os.Exit(1)
 		}
 		fmt.Println(`{"ok":true,"pools":[],"autoEnrollment":{"enabled":false,"targetPoolId":"","excluded":[]}}`)
 		os.Exit(0)

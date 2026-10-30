@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4274f795-11a9-4183-b8be-e0da0ebdbc52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,7 +66,7 @@ Import-Module $hostFile -Force -DisableNameChecking -ErrorAction SilentlyContinu
 
 # Parse once so the call-shape guards read the real AST rather than text
 # that a comment or a string could satisfy.
-$ast = [System.Management.Automation.Language.Parser]::ParseFile($hostFile, [ref]$null, [ref]$null)
+$ast = Get-YurunaTestFileAst -Path $hostFile
 
 # The closed vocabulary every consumer switches on. 'healthy' and 'unknown'
 # are the usable pair; the rest are degraded.
@@ -643,7 +643,7 @@ Describe 'hyper-v-uplink-classifier: cache-reachability discriminator' {
 Describe 'hyper-v-uplink-classifier: it stays driver-private' {
 
     It 'is exported from the driver module' {
-        $src = Get-Content -Raw -LiteralPath $hostFile
+        $src = Get-YurunaTestSourceText -Path $hostFile
         Assert-True ($src -match 'Export-ModuleMember[\s\S]*Test-YurunaExternalSwitchUplink') 'consumers resolve it by name behind a Get-Command probe'
     }
 
@@ -655,7 +655,7 @@ Describe 'hyper-v-uplink-classifier: it stays driver-private' {
     }
 
     It 'keeps its private helpers unexported' {
-        $src = Get-Content -Raw -LiteralPath $hostFile
+        $src = Get-YurunaTestSourceText -Path $hostFile
         $exportBlock = [regex]::Match($src, '(?ms)^Export-ModuleMember -Function.*?(?=\r?\n\r?\n)').Value
         Assert-True ($exportBlock.Length -gt 0) 'the export block must be findable'
         foreach ($private in @('Get-YurunaSwitchUplinkDescription', 'Test-YurunaAdapterOnSwitchSegment',

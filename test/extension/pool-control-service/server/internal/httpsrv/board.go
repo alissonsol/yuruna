@@ -485,6 +485,9 @@ func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "hostId is required")
 		return
 	}
+	if !cliValues(w, cliField{"hostId", body.HostID, false}, cliField{"poolId", body.PoolID, false}) {
+		return
+	}
 	doc, err := s.readConfigurationDoc(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -542,6 +545,9 @@ func (s *Server) handleAdoptRekey(w http.ResponseWriter, r *http.Request) {
 	}
 	if oldID == newID {
 		writeErr(w, http.StatusBadRequest, "oldHostId and newHostId are the same host")
+		return
+	}
+	if !cliValues(w, cliField{"oldHostId", oldID, false}, cliField{"newHostId", newID, false}) {
 		return
 	}
 	if s.opts.AuthToken == "" {

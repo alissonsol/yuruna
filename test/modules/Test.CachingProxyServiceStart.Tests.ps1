@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4264d5c7-e082-4c67-a5f9-915f2f84141e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -184,7 +184,8 @@ Describe 'proxy CA preparation and recovery entry points' {
         $begin = $source.IndexOf('# --- REGION: Confirm caching proxy readiness')
         $end = $source.IndexOf("`$serviceOpResult = 'confirmed'", $begin)
         $complete = [scriptblock]::Create('param([bool]$RepairPoolCaTrust)' + "`n" +
-            '$cacheIp = "192.0.2.42"; $ModulesDir = "fixture"; $poolRepairArgs = @{}' + "`n" + $source.Substring($begin, $end - $begin))
+            '$cacheIp = "192.0.2.42"; $ModulesDir = "fixture"; $poolRepairArgs = @{}; $serviceOp = $null' + "`n" +
+            'function Test-YurunaServiceOperationCurrent { param($Context) $null = $Context; $true }' + "`n" + $source.Substring($begin, $end - $begin))
         function Repair-CachingProxyPoolCaTrust {
             [CmdletBinding(SupportsShouldProcess)]
             [OutputType([hashtable])]
@@ -211,7 +212,8 @@ Describe 'proxy CA preparation and recovery entry points' {
         $begin = $source.IndexOf('# --- REGION: Confirm caching proxy readiness')
         $end = $source.IndexOf("`$serviceOpResult = 'confirmed'", $begin)
         $complete = [scriptblock]::Create('param([switch]$RepairPoolCaTrust = $true)' + "`n" +
-            '$cacheIp = "192.0.2.42"; $ModulesDir = "fixture"; $poolRepairArgs = @{}' + "`n" + $source.Substring($begin, $end - $begin))
+            '$cacheIp = "192.0.2.42"; $ModulesDir = "fixture"; $poolRepairArgs = @{}; $serviceOp = $null' + "`n" +
+            'function Test-YurunaServiceOperationCurrent { param($Context) $null = $Context; $true }' + "`n" + $source.Substring($begin, $end - $begin))
         function Repair-CachingProxyPoolCaTrust {
             [CmdletBinding(SupportsShouldProcess)]
             [OutputType([hashtable])]
@@ -227,6 +229,23 @@ Describe 'proxy CA preparation and recovery entry points' {
         Should -Invoke Write-Warning -Times $Warnings -Exactly
     }
 
+    It 'rechecks its start intent before it pushes the CA to the pool or confirms' {
+        $source = Get-Content -LiteralPath $script:startCp -Raw
+        $begin = $source.IndexOf('# --- REGION: Confirm caching proxy readiness')
+        $region = $source.Substring($begin, $source.IndexOf("`$serviceOpResult = 'confirmed'", $begin) - $begin)
+        $recheck = $region.IndexOf('Test-YurunaServiceOperationCurrent -Context $serviceOp')
+        $recheck | Should -BeGreaterThan 0
+        $recheck | Should -BeLessThan $region.IndexOf('Repair-CachingProxyPoolCaTrust')
+    }
+    It 'checks the builder plan before its own teardown' {
+        $ast = Get-Ast $script:startCp
+        $plan = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Test-YurunaServiceVmBuildPlan'}, $true))
+        $teardown = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in @('Remove-VM', 'Remove-HostProxy')}, $true))
+        $plan.Count | Should -Be 1
+        $plan[0].Extent.Text | Should -Match '-BuilderPath \$NewVMScript'
+        $teardown.Count | Should -BeGreaterThan 0
+        foreach ($call in $teardown) { $plan[0].Extent.EndOffset | Should -BeLessThan $call.Extent.StartOffset }
+    }
     It 'persists the existing CA before any entry-point VM deletion' {
         $ast = Get-Ast $script:startCp
         $ca = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Get-YurunaBumpCa'}, $true))
@@ -241,7 +260,7 @@ Describe 'proxy CA preparation and recovery entry points' {
         (Get-ScriptParameterName $ast) | Should -Contain 'RepairPoolCaTrust'
         $repairs = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Repair-CachingProxyPoolCaTrust'}, $true))
         $repairs.Count | Should -Be 1
-        $build = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.CommandElements[0].Extent.Text -eq '$NewVMScript'}, $true))
+        $build = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Invoke-YurunaServiceVmBuilderRun'}, $true))
         $build.Count | Should -Be 1
         $repairs[0].Extent.StartOffset | Should -BeGreaterThan $build[0].Extent.StartOffset
     }
@@ -320,7 +339,7 @@ Describe 'Start-CachingProxyServiceVM.ps1 clears the inherited proxy environment
         $leftover = Join-Path $runtime '.caching-proxy-service.env.json'
         Set-Content -LiteralPath $leftover -Value '{"HTTP_PROXY":"http://operator:fixture-secret@192.0.2.9:3128"}'
         $priorProxy = $env:HTTP_PROXY
-        $priorRuntime = $env:YURUNA_RUNTIME_DIR
+        $priorRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:HTTP_PROXY = 'http://operator:fixture-secret@192.0.2.9:3128'
             $env:YURUNA_RUNTIME_DIR = $runtime
@@ -334,7 +353,7 @@ Describe 'Start-CachingProxyServiceVM.ps1 clears the inherited proxy environment
             $verbose | Should -Not -Match 'fixture-secret'
         } finally {
             if ($null -eq $priorProxy) { Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue } else { $env:HTTP_PROXY = $priorProxy }
-            if ($null -eq $priorRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $priorRuntime }
+            Restore-YurunaTestEnvironment -Saved $priorRuntime
         }
     }
 }
@@ -354,11 +373,13 @@ Describe 'Start-CachingProxyServiceVM.ps1 bounds the UTM waits by wall-clock' {
 }
 
 Describe 'Start-CachingProxyServiceVM.ps1 gates child scripts on a reset $LASTEXITCODE' {
-    It 'resets $global:LASTEXITCODE to $null before the child call and tests it null-safely' {
+    It 'resets $global:LASTEXITCODE to $null before the in-process child call and tests it null-safely' {
+        # Get-Image runs in this process; New-VM.ps1 runs as a bounded child whose
+        # exit code the shared builder run classifies (covered below).
         $ast = Get-Ast $script:startCp
-        Assert-True ((Get-LastExitResetCount -Ast $ast) -ge 2) 'both & $GetImageScript / & $NewVMScript are preceded by $global:LASTEXITCODE = $null'
+        Assert-True ((Get-LastExitResetCount -Ast $ast) -ge 1) '& $GetImageScript is preceded by $global:LASTEXITCODE = $null'
         $nullSafe = @(Get-IfConditionText -Ast $ast | Where-Object { $_ -match '\$null -ne \$LASTEXITCODE' })
-        Assert-True ($nullSafe.Count -ge 2) "both child-script gates use a null-safe `$null -ne `$LASTEXITCODE test; found $($nullSafe.Count)"
+        Assert-True ($nullSafe.Count -ge 1) "the Get-Image gate uses a null-safe `$null -ne `$LASTEXITCODE test; found $($nullSafe.Count)"
     }
     It 'has no bare $LASTEXITCODE assignment (script-scope shadow of the engine global)' {
         $ast = Get-Ast $script:startCp
@@ -384,59 +405,64 @@ Describe 'Every platform New-VM.ps1 accepts -MacAddress (cross-host param contra
         Assert-True ($names -contains 'MacAddress') "$Path declares -MacAddress; found: $($names -join ', ')"
         Assert-True ($names -contains 'VMName') "$Path declares -VMName; found: $($names -join ', ')"
     }
-    It '<Platform> New-VM.ps1 binds the harness call shape against its real param block (live splat)' -TestCases $newVmScriptCases {
+    It '<Platform> New-VM.ps1 binds the Start''s child command line against its real param block' -TestCases $newVmScriptCases {
         # Extract the script's ACTUAL param block into a stub that echoes what
-        # bound, then invoke it exactly the way Start-CachingProxyServiceVM.ps1 does.
-        # This exercises real parameter binding for every platform on any dev host
-        # -- no hypervisor needed -- and fails if a platform's param block drifts
+        # bound, then start it the way Start-CachingProxyServiceVM.ps1 starts the
+        # builder: a child pwsh -File with each parameter as a separate argument
+        # after its name, the squid size (which holds a space) included. This
+        # exercises real parameter binding for every platform on any dev host --
+        # no hypervisor needed -- and fails if a platform's param block drifts
         # away from the harness's call shape.
         $ast = Get-Ast $Path
         Assert-True ($null -ne $ast.ParamBlock) "$Path has a param() block"
         $stubPath = Join-Path $TestDrive ($Platform + '.New-VM.stub.ps1')
-        Set-Content -LiteralPath $stubPath -Value ($ast.ParamBlock.Extent.Text + "`nWrite-Output `"BOUND:`$VMName|`$MacAddress`"")
-        # Mirror of the Step 3 call shape in Start-CachingProxyServiceVM.ps1.
-        $newVmParams = @{ VMName = 'stub-vm' }
-        $newVmParams.MacAddress = '02:42:42:42:42:42'
-        $out = & $stubPath @newVmParams
-        $invokeOk = $?
-        Assert-True $invokeOk "& stub for $Path binds without error"
-        Assert-True (@($out) -contains 'BOUND:stub-vm|02:42:42:42:42:42') "stub for $Path bound both values; got: $out"
+        Set-Content -LiteralPath $stubPath -Value ($ast.ParamBlock.Extent.Text + "`nWrite-Output `"BOUND:`$VMName|`$MacAddress|`$MemoryMb|`$SquidCacheMem`"")
+        $out = & ([Environment]::ProcessPath) -NoProfile -NonInteractive -File $stubPath -VMName 'stub-vm' -MacAddress '02:42:42:42:42:42' -MemoryMb '4096' -SquidCacheMem '2 GB'
+        Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because "the child for $Path binds without error"
+        Assert-True (@($out) -contains 'BOUND:stub-vm|02:42:42:42:42:42|4096|2 GB') "stub for $Path bound every value; got: $out"
     }
 }
 
 Describe 'Start-CachingProxyServiceVM.ps1 forwards -MacAddress by name and fails fast when a child never runs' {
-    It 'splats the New-VM call from a hashtable, with no literal ''-MacAddress'' argument string' {
+    It 'runs New-VM.ps1 only as the bounded child, each parameter a separate argument after its name' {
         $ast = Get-Ast $script:startCp
-        # The broken shape is an array element '-MacAddress': array splatting
-        # binds it positionally, never as a parameter name.
-        $dashLiterals = @($ast.FindAll({ param($n)
-            $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
-            $n.Value -eq '-MacAddress'
-        }, $true))
-        Assert-True ($dashLiterals.Count -eq 0) "no '-MacAddress' string literal (array-splat shape binds it positionally); found $($dashLiterals.Count)"
-        # The New-VM invocation must splat a variable that is assigned a hashtable.
-        $newVmCalls = @($ast.FindAll({ param($n)
+        # Run in this process, the builder would hold the service lock for as long
+        # as a wedged call lasted; the bounded child is the only way it runs.
+        $inProcess = @($ast.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
             $n.CommandElements[0].Extent.Text -eq '$NewVMScript'
         }, $true))
-        Assert-True ($newVmCalls.Count -ge 1) 'found the & $NewVMScript invocation'
-        $splatted = @($newVmCalls[0].CommandElements | Where-Object { $_.Splatted })
-        Assert-True ($splatted.Count -eq 1) 'the & $NewVMScript invocation splats exactly one variable'
-        $splatName = $splatted[0].VariablePath.UserPath
-        $htAssigned = @($ast.FindAll({ param($n)
-            $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-            $n.Left.Extent.Text -eq ('$' + $splatName) -and
-            $n.Right.Find({ param($m) $m -is [System.Management.Automation.Language.HashtableAst] }, $true)
+        Assert-True ($inProcess.Count -eq 0) "New-VM.ps1 is not invoked in this process; found $($inProcess.Count)"
+        $runs = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+            $n.GetCommandName() -eq 'Invoke-YurunaServiceVmBuilderRun'
         }, $true))
-        Assert-True ($htAssigned.Count -ge 1) "splatted variable `$$splatName is assigned a hashtable (by-name binding)"
+        Assert-True ($runs.Count -eq 1) "one bounded builder run; found $($runs.Count)"
+        Assert-True ($runs[0].Extent.Text -match '-BuilderPath \$NewVMScript\b') 'the run starts the resolved New-VM.ps1'
+        Assert-True ($runs[0].Extent.Text -match '-BuilderArgument \$newVmArgs\.ToArray\(\)') 'the run passes the collected builder arguments'
+        # On the child's command line a parameter binds by name only when its
+        # value follows it as the next argument.
+        $macPair = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.ArrayLiteralAst] -and
+            $n.Elements.Count -eq 2 -and
+            $n.Elements[0] -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+            $n.Elements[0].Value -eq '-MacAddress' -and $n.Elements[1].Extent.Text -eq '$MacAddress'
+        }, $true))
+        Assert-True ($macPair.Count -eq 1) "-MacAddress is followed by its value; found $($macPair.Count)"
     }
-    It 'captures $? on the statement immediately after each child call and gates on it' {
+    It 'captures $? right after the in-process Get-Image call, and stops on a failed builder run with its exit code' {
         $ast = Get-Ast $script:startCp
         $hooks = @(Get-HookCapture -Ast $ast)
-        $childHooks = @($hooks | Where-Object { $_.Previous -match '^&\s+\$(GetImageScript|NewVMScript)\b' })
-        Assert-True ($childHooks.Count -ge 2) "both & `$GetImageScript / & `$NewVMScript are immediately followed by a `$? capture; found $($childHooks.Count) (any statement in between overwrites `$?)"
-        $gated = @(Get-IfConditionText -Ast $ast | Where-Object { $_ -match '-not \$(getImageInvokeOk|newVmInvokeOk)\b' })
-        Assert-True ($gated.Count -ge 2) "both invocation-ok flags are tested with -not (child that never RAN leaves `$LASTEXITCODE null); found $($gated.Count)"
+        $childHooks = @($hooks | Where-Object { $_.Previous -match '^&\s+\$GetImageScript\b' })
+        Assert-True ($childHooks.Count -ge 1) "& `$GetImageScript is immediately followed by a `$? capture; found $($childHooks.Count) (any statement in between overwrites `$?)"
+        $gated = @(Get-IfConditionText -Ast $ast | Where-Object { $_ -match '-not \$getImageInvokeOk\b' })
+        Assert-True ($gated.Count -ge 1) "the Get-Image invocation-ok flag is tested with -not; found $($gated.Count)"
+        $failed = @($ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.IfStatementAst] -and
+            $n.Clauses[0].Item1.Extent.Text -eq '-not $cpBuild.Ok'
+        }, $true))
+        Assert-True ($failed.Count -eq 1) 'a failed builder run is tested'
+        Assert-True ($failed[0].Clauses[0].Item2.Extent.Text -match 'exit \$cpBuild\.ExitCode') 'it exits with the run''s exit code (124 for a build stopped at its bound)'
     }
 }
 

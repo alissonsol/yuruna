@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b8c3e5-1f7a-4d96-a2c8-6e0b9d4f1a37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -353,7 +353,8 @@ Describe 'The harness temp-name table' {
             $entry = $table[$row]
             $source = Join-Path $script:RepoRoot $entry.Source
             Assert-True (Test-Path -LiteralPath $source) "$row names $($entry.Source), which exists"
-            Assert-True ([IO.File]::ReadAllText($source).Contains($entry.Literal)) "$($entry.Source) still contains '$($entry.Literal)' for $row"
+            # A driver root names the whole driver, part files included.
+            Assert-True ((Get-YurunaTestSourceText -Path $source).Contains($entry.Literal)) "$($entry.Source) still contains '$($entry.Literal)' for $row"
             Assert-True ($entry.Pattern.StartsWith('^') -and $entry.Pattern.EndsWith('$')) "$row matches whole names only"
         }
     }

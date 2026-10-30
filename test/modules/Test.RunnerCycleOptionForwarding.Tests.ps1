@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421c8f6e-9b0a-4c1d-8e2f-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     # $script: prefix throughout, not a bare local: Pester 5 runs each It in
     # a scope that cannot see a plain variable assigned in BeforeAll.
     $script:Here     = Split-Path -Parent $PSCommandPath
@@ -45,7 +46,7 @@ AfterAll {
 Describe 'Invoke-OuterCycleDispatch -- forwards every operator option to the child argv (mocked spawn)' {
     BeforeEach {
         $script:CapturedArgs = $null
-        $script:PriorRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $script:PriorRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:TmpDir
         Mock -CommandName Start-Process -ModuleName Test.RunnerOuterLoop -MockWith {
             $script:CapturedArgs = $ArgumentList
@@ -53,7 +54,7 @@ Describe 'Invoke-OuterCycleDispatch -- forwards every operator option to the chi
         }
     }
     AfterEach {
-        $env:YURUNA_RUNTIME_DIR = $script:PriorRuntimeDir
+        Restore-YurunaTestEnvironment -Saved $script:PriorRuntimeDir
     }
 
     It 'forwards -ConfigPath, -NoGitPull, -NoStatusService, -NoConfigGate, -CycleDelaySeconds and -logLevel' {
@@ -107,7 +108,7 @@ Describe 'Invoke-OuterCycleDispatch -- forwards every operator option to the chi
 Describe 'Invoke-OuterCycleDispatch -- forwards the cycle generation' {
     BeforeEach {
         $script:CapturedArgs = $null
-        $script:PriorRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $script:PriorRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:TmpDir
         Mock -CommandName Start-Process -ModuleName Test.RunnerOuterLoop -MockWith {
             $script:CapturedArgs = $ArgumentList
@@ -115,7 +116,7 @@ Describe 'Invoke-OuterCycleDispatch -- forwards the cycle generation' {
         }
     }
     AfterEach {
-        $env:YURUNA_RUNTIME_DIR = $script:PriorRuntimeDir
+        Restore-YurunaTestEnvironment -Saved $script:PriorRuntimeDir
     }
 
     It 'appends -CycleGeneration after the operator options when the loop issued one' {
@@ -143,7 +144,7 @@ Describe 'Real three-process option propagation: outer dispatch -> cycle script 
         # (Invoke-OuterCycleDispatch's argv -> the child's own $PSBoundParameters
         # -> New-InnerRunnerArgList's forwarding) rather than any one link
         # in isolation.
-        $priorRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $priorRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:TmpDir
         $captureFile = Join-Path $script:TmpDir 'inner-argv-capture.txt'
         Remove-Item -LiteralPath $captureFile -ErrorAction SilentlyContinue
@@ -189,6 +190,6 @@ exit 0
         $capturedArgv | Should -Match '-CycleDelaySeconds'
         # The value is its own token; the exit trailer follows it with ';'.
         $capturedArgv | Should -Match '(?m)(?:^|\s)-CycleDelaySeconds(?:\r?\n|\s+)9(?:\r?\n|\s|;|$)'
-        $env:YURUNA_RUNTIME_DIR = $priorRuntimeDir
+        Restore-YurunaTestEnvironment -Saved $priorRuntimeDir
     }
 }

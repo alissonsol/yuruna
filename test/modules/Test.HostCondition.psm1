@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421a49fd-aa32-431c-979f-99704a673b48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,7 +29,8 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableName
 # $global:YurunaHostConditionProviders so the registrations survive
 # -Force re-imports of this facade. Each entry is an [ordered]@{
 #   HostType; Set; Assert; AssertMinimum; RequiresElevation;
-#   Display; DisplayTeardown; ClockSync; NetworkHealth; MetricsExporter
+#   Display; DisplayTeardown; ClockSync; NetworkHealth; MetricsExporter;
+#   Failure
 # } record; everything after RequiresElevation is optional and $null on a
 # platform that does not offer it.
 $script:HostConditionRegistry = New-YurunaRegistry `
@@ -95,7 +96,12 @@ function Register-HostConditionProvider {
         # $null for a host with no way to answer the question.
         [scriptblock]$NetworkHealth = $null,
         # See https://yuruna.link/4213a0b3-0073
-        [scriptblock]$MetricsExporter = $null
+        [scriptblock]$MetricsExporter = $null,
+        # Optional "which condition did the last Assert refuse on". Signature:
+        # `param()`, returns { Condition; Detail } or $null after a pass.
+        # Read by Get-HostConditionVerdict, so a refused cycle's failure
+        # record names the condition instead of pointing at the warnings.
+        [scriptblock]$Failure = $null
     )
     & $script:HostConditionRegistry.Register $HostType ([ordered]@{
         HostType          = $HostType
@@ -107,6 +113,7 @@ function Register-HostConditionProvider {
         ClockSync         = $ClockSync
         NetworkHealth     = $NetworkHealth
         MetricsExporter   = $MetricsExporter
+        Failure           = $Failure
     })
 }
 
@@ -440,7 +447,11 @@ function script:Register-IfAvailable {
         # convergence. Optional-only for the same reason as the probe above --
         # an unresolvable MANDATORY name skips the whole registration, and a
         # platform must never lose its Assert over a telemetry capability.
-        [string]$MetricsExporterFn
+        [string]$MetricsExporterFn,
+        # Optional: name of this platform's "which condition failed" reader.
+        # Optional for the same reason: a host without it still gates, and
+        # its refusals are filed as an unnamed condition.
+        [string]$FailureFn
     )
     $missing = @()
     foreach ($fn in @($AssertFn, $MinimumFn)) {
@@ -463,6 +474,7 @@ function script:Register-IfAvailable {
         ClockSync       = @($ClockSyncFn,       'clock sync')
         NetworkHealth   = @($NetworkHealthFn,   'guest-network probe')
         MetricsExporter = @($MetricsExporterFn, 'metrics-exporter convergence')
+        Failure         = @($FailureFn,         'failure reader')
     }
     $resolved = @{}
     foreach ($slot in $optional.Keys) {
@@ -483,7 +495,8 @@ function script:Register-IfAvailable {
         -DisplayTeardown $resolved.DisplayTeardown `
         -ClockSync       $resolved.ClockSync `
         -NetworkHealth   $resolved.NetworkHealth `
-        -MetricsExporter $resolved.MetricsExporter
+        -MetricsExporter $resolved.MetricsExporter `
+        -Failure         $resolved.Failure
 }
 Register-IfAvailable -HostType 'host.windows.hyper-v' `
     -AssertFn 'Assert-WindowsHostConditionSet' -MinimumFn 'Test-WindowsHostMinimum' `
@@ -491,33 +504,75 @@ Register-IfAvailable -HostType 'host.windows.hyper-v' `
     -ClockSyncFn 'Sync-WindowsHostClock' `
     -NetworkHealthFn 'Test-WindowsGuestNetworkHealth' `
     -MetricsExporterFn 'Initialize-WindowsHostMetricsExporter' `
+    -FailureFn 'Get-WindowsHostConditionFailure' `
     -RequiresElevation $true
 Register-IfAvailable -HostType 'host.macos.utm' `
     -AssertFn 'Assert-MacHostConditionSet' -MinimumFn 'Test-MacHostMinimum' `
     -ClockSyncFn 'Sync-MacHostClock' `
+    -FailureFn 'Get-MacHostConditionFailure' `
     -RequiresElevation $false
 Register-IfAvailable -HostType 'host.ubuntu.kvm' `
     -AssertFn 'Assert-LinuxHostConditionSet' -MinimumFn 'Test-LinuxHostMinimum' `
     -ClockSyncFn 'Sync-LinuxHostClock' `
+    -FailureFn 'Get-LinuxHostConditionFailure' `
     -RequiresElevation $false
 
-function Assert-HostConditionSet {
+function Get-HostConditionVerdict {
     <#
     .SYNOPSIS
-        Platform dispatcher: looks up the registered Assert callback
-        for $HostType and invokes it. Returns $true when no provider
-        is registered (operator can run on an unknown host without a
-        hard failure; the runner's per-step gates still apply).
+        Platform dispatcher: looks up the registered Assert callback for
+        $HostType, invokes it, and returns the verdict with the condition it
+        refused on. Passes when no provider is registered (operator can run
+        on an unknown host without a hard failure; the runner's per-step
+        gates still apply).
+    .DESCRIPTION
+        A bare bool left the cycle's failure record saying only that "the
+        failing condition is in the warnings above", which no consumer of
+        the record can read. The provider's Failure reader names it; a
+        provider without one, or one that refused without naming a
+        condition, is filed as 'unnamed'.
+    .OUTPUTS
+        [pscustomobject] Passed, Condition, Detail, FailureClass
+        ('elevation_required' for the elevation condition, 'unknown'
+        otherwise: every other condition is fixed at the host console, and
+        none of them is a class the outer loop may retry unattended) and
+        Message (the failure record's sentence; empty on a pass).
     #>
     [CmdletBinding()]
-    [OutputType([bool])]
+    [OutputType([pscustomobject])]
     param([string]$HostType)
     $provider = Get-HostConditionProvider -HostType $HostType
     if (-not $provider) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_8e0ac14bdd8e4f82' -Arguments @{ hostType = "$HostType" })
-        return $true
+        return [pscustomobject]@{ Passed = $true; Condition = ''; Detail = ''; FailureClass = ''; Message = '' }
     }
-    return [bool](& $provider.Assert -HostType $HostType)
+    if ([bool](& $provider.Assert -HostType $HostType)) {
+        return [pscustomobject]@{ Passed = $true; Condition = ''; Detail = ''; FailureClass = ''; Message = '' }
+    }
+    $failure = $null
+    if ($provider.Failure) {
+        try { $failure = & $provider.Failure } catch { Write-Verbose "host-condition failure reader: $($_.Exception.Message)" }
+    }
+    $condition = if ($failure -and $failure.Condition) { [string]$failure.Condition } else { 'unnamed' }
+    $detail = if ($failure -and $failure.Detail) { [string]$failure.Detail } else { '' }
+    $message = "Host condition '$condition' failed$(if ($detail) { ": $detail" }); the warnings above give the remedy, which is applied at the host console."
+    return [pscustomobject]@{
+        Passed = $false; Condition = $condition; Detail = $detail
+        FailureClass = $(if ($condition -ceq 'elevation') { 'elevation_required' } else { 'unknown' })
+        Message = $message
+    }
+}
+
+function Assert-HostConditionSet {
+    <#
+    .SYNOPSIS
+        Platform dispatcher returning only Get-HostConditionVerdict's
+        Passed, for callers that need nothing more.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$HostType)
+    return [bool](Get-HostConditionVerdict -HostType $HostType).Passed
 }
 
 function Test-HostGuestNetworkHealth {
@@ -739,7 +794,7 @@ function Remove-HostDisplay {
 
 Export-ModuleMember -Function `
     Register-HostConditionProvider, Get-HostConditionProvider, Get-HostConditionProviderMatrix, Clear-HostConditionProvider, `
-    Assert-HostConditionSet, Test-HostGuestNetworkHealth, Initialize-HostDisplay, Remove-HostDisplay, Initialize-HostMetricsExporter, `
+    Assert-HostConditionSet, Get-HostConditionVerdict, Test-HostGuestNetworkHealth, Initialize-HostDisplay, Remove-HostDisplay, Initialize-HostMetricsExporter, `
     Get-HostClockSkew, Get-HostClockSkewLimit, Write-HostClockDriftWarning, Reset-HostClockReport, Sync-HostClock, `
     Assert-ScreenLock, Get-MacScreenLockIssue, Assert-MacUtmLifetime, Get-MacUtmLifetimeIssue, Assert-MacUtmAppData, Test-MacUtmAppDataGrant, Get-MacUtmContainerPreferencePath, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Initialize-SudoCache, `
     Get-MacPmsetGuardList, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, `

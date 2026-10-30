@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42623d37-5542-4fd6-8bd7-fcd92f20175d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -262,6 +262,22 @@ function Test-OCRMatchCore {
     # --- REGION: Strategy 3: Segment match (handles OCR word reordering)
     # See https://yuruna.link/4213a0b3-00b3
     if ($NoSegmentMatch) { return $false }
+    return (Test-OCRSegmentMatch -Text $Text -Pattern $Pattern)
+}
+
+function Test-OCRSegmentMatch {
+    <#
+    .SYNOPSIS
+        The one matching strategy that reads across lines: every word of the
+        pattern somewhere in the normalized text.
+    .DESCRIPTION
+        The other strategies test one line at a time, so a line that matches
+        in a joined text matched in the text it came from. A caller that
+        already tested each part on its own needs only this one for the join.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$Text, [string]$Pattern)
     $normFull = Get-OCRNormalized $Text
     $splitPattern = [regex]::Split($Pattern, '[\s@\-\[\]$~"''`]+') | Where-Object { $_.Length -gt 0 }
     if ($splitPattern.Count -gt 1) {
@@ -280,7 +296,6 @@ function Test-OCRMatchCore {
         }
         if ($allFound) { return $true }
     }
-
     return $false
 }
 
@@ -303,6 +318,23 @@ function Get-OcrCombineMode {
     }
     if ($envVal -eq 'And') { return 'And' }
     return 'Or'   # <- default
+}
+
+function New-OcrFallbackReuseState {
+    <#
+    .SYNOPSIS
+        The per-wait state Test-CombinedOcrMatch -FallbackReuse keeps.
+    .PARAMETER MaxReuse
+        Frames in a row a later engine's previous read may stand in for a new
+        one, so a static screen is still read by every engine at least once
+        every MaxReuse + 1 frames.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Returns a new in-memory hashtable; it changes no system state.')]
+    param([int]$MaxReuse = 2)
+    return @{ PrimaryText = $null; Texts = @{}; Reused = 0; MaxReuse = $MaxReuse }
 }
 
 <#
@@ -336,10 +368,20 @@ function Get-OcrCombineMode {
     Require a bounded match within one OCR line, retaining character-confusion
     and dropped-character tolerance. Do not assemble a match from scattered words.
 
+.PARAMETER FallbackReuse
+    State a wait keeps across its polls (New-OcrFallbackReuseState). In Or mode
+    an engine after the first is not run again while the first engine reads
+    exactly the text it read on the previous frame and the later engine read
+    that frame without a match: its previous text is used for the frame
+    instead, for at most MaxReuse frames in a row. The first engine costs
+    milliseconds where a fallback such as tesseract costs seconds of CPU, and
+    a console parked on a screen the wait is not looking for was read by the
+    fallback on every poll. A reused entry carries Reused = $true.
+
 .OUTPUTS
     A hashtable with:
       Match        -- [bool] combined result
-      EngineResults -- [ordered] engine-name -> @{ Text; Matched; MatchedPattern }
+      EngineResults -- [ordered] engine-name -> @{ Text; Matched; MatchedPattern; Reused }
       AnyText      -- [string] concatenation of all engine texts (for accumulation)
 #>
 function Test-CombinedOcrMatch {
@@ -347,7 +389,8 @@ function Test-CombinedOcrMatch {
         [Parameter(Mandatory)] [string]$ImagePath,
         [Parameter(Mandatory)] [string[]]$Pattern,
         [int]$FreshMatchTailLines = 0,
-        [switch]$NoSegmentMatch
+        [switch]$NoSegmentMatch,
+        [hashtable]$FallbackReuse
     )
 
     # No Import-Module here: Wait-ForText (the only caller in the hot path)
@@ -367,14 +410,26 @@ function Test-CombinedOcrMatch {
     # short-circuit by design -- running both engines in parallel and
     # then discarding the slower one would waste work in the common
     # (Or-mode, first-engine-hits) case.
+    $primaryText = $null
+    $anyReused = $false
     foreach ($engineName in $enabledProviders) {
-        try {
-            $engineText = (Invoke-OcrProvider -Name $engineName -ImagePath $ImagePath) ?? ''
-            $engineText = $engineText.Trim()
-        } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_da873a65a08c6d04' -Arguments @{ engineName = "$engineName"; value = "$_" })
-            $engineText = ''
+        $reused = $FallbackReuse -and $combineMode -eq 'Or' -and $primaryText -and
+            $FallbackReuse.PrimaryText -ceq $primaryText -and $FallbackReuse.Texts.ContainsKey($engineName) -and
+            [int]$FallbackReuse.Reused -lt [int]$FallbackReuse.MaxReuse
+        if ($reused) {
+            $engineText = [string]$FallbackReuse.Texts[$engineName]
+            $anyReused = $true
+        } else {
+            try {
+                $engineText = (Invoke-OcrProvider -Name $engineName -ImagePath $ImagePath) ?? ''
+                $engineText = $engineText.Trim()
+            } catch {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_da873a65a08c6d04' -Arguments @{ engineName = "$engineName"; value = "$_" })
+                $engineText = ''
+            }
         }
+        $isPrimary = $null -eq $primaryText
+        if ($isPrimary) { $primaryText = $engineText }
 
         $textForMatch = if ($FreshMatchTailLines -gt 0 -and $engineText) {
             $lines = $engineText -split "`n"
@@ -399,8 +454,14 @@ function Test-CombinedOcrMatch {
             Text           = $engineText
             Matched        = $matched
             MatchedPattern = $matchedPattern
+            Reused         = [bool]$reused
         }
         if ($engineText) { $allTexts += $engineText }
+        # A later engine's read that matched nothing can stand in for the next
+        # frame; a read that matched ends the wait and is never needed again.
+        if ($FallbackReuse -and -not $isPrimary -and -not $reused -and -not $matched) {
+            $FallbackReuse.Texts[$engineName] = $engineText
+        }
 
         # Log each engine's result as it runs (before possible short-circuit)
         $snippet = $engineText.Length -le 120 ? $engineText : ("..." + $engineText.Substring($engineText.Length - 120))
@@ -423,6 +484,12 @@ function Test-CombinedOcrMatch {
     }
 
     if ($enabledProviders.Count -eq 0) { $combinedMatch = $false }
+    if ($FallbackReuse) {
+        $FallbackReuse.Reused = if ($anyReused) { [int]$FallbackReuse.Reused + 1 } else { 0 }
+        # A frame the first engine read as blank is not evidence of an unchanged
+        # screen, so the next frame runs every engine.
+        $FallbackReuse.PrimaryText = $primaryText
+    }
 
     # Concatenate all engine texts for accumulation in non-FreshMatch mode
     $allEngineText = ($allTexts | Where-Object { $_ }) -join "`n"
@@ -661,4 +728,4 @@ function Get-OcrClosestOnScreen {
     return [string[]]$found.ToArray()
 }
 
-Export-ModuleMember -Function Get-OCRNormalized, Test-OCRMatch, Get-OcrCombineMode, Test-CombinedOcrMatch, Get-OcrFreshWindowNearMiss, Get-OCRSimilarityScore, Get-OcrClosestOnScreen
+Export-ModuleMember -Function Get-OCRNormalized, Test-OCRMatch, Get-OcrCombineMode, Test-CombinedOcrMatch, Get-OcrFreshWindowNearMiss, Get-OCRSimilarityScore, Get-OcrClosestOnScreen, New-OcrFallbackReuseState, Test-OCRSegmentMatch

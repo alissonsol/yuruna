@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 423aae05-8d83-44cc-b4aa-068ce46e8c35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,6 +85,13 @@ $script:Sequence = $null
 # boundaries. Mirrors YURUNA_CYCLE_CONTEXT (Test.Status.psm1), which threads
 # the status-doc cycle to the same child processes.
 $script:PerfContextEnvVar = 'YURUNA_PERF_CONTEXT'
+
+# Phase rows (Write-PerfPhaseRow) have their own schema and folder: every
+# reader of perf/cycles expects step rows.
+$script:PhaseSchema = 1
+# The poll loop of the current step's waits, folded into the step's row by
+# Write-PerfStepRow and reset there (Add-PerfWaitPoll).
+$script:WaitPoll = $null
 
 # --- REGION: Helpers
 function Test-PerfLogEnabled {
@@ -587,6 +594,12 @@ function Write-PerfStepRow {
         attempts            = $Attempts
         retryCount          = $RetryCount
     }
+    if ($script:WaitPoll) {
+        $row.waitPolls = [int]$script:WaitPoll.Polls
+        $row.waitWorkMs = [long]$script:WaitPoll.WorkMs
+        $row.waitPollMaxMs = [long]$script:WaitPoll.MaxMs
+        $script:WaitPoll = $null
+    }
     if ($DiagnosticOutcome) { $row.diagnosticOutcome = $DiagnosticOutcome }
     if ($CheckpointSourceStepInvocationId) { $row.checkpointSourceStepInvocationId = $CheckpointSourceStepInvocationId }
     if ($EvidenceCaptureDurationMs -gt 0) { $row.evidenceCaptureDurationMs = $EvidenceCaptureDurationMs }
@@ -596,6 +609,183 @@ function Write-PerfStepRow {
     } catch {
         Write-Verbose "Write-PerfStepRow: append failed (non-fatal): $($_.Exception.Message)"
     }
+}
+
+function Add-PerfWaitPoll {
+<#
+.SYNOPSIS
+    Count one pass of a wait's poll loop, and time the pass before it.
+.DESCRIPTION
+    Called at the top of every pass of Wait-ForText's loop, the hottest loop
+    of a cycle. The time since the previous pass, less the poll sleep, is
+    that pass's work (capture, OCR, matching); the next step row carries the
+    count, the summed work and the slowest pass (waitPolls, waitWorkMs,
+    waitPollMaxMs), so a capture or OCR slowdown shows in the perf log
+    instead of only as a longer step. A new WaitStartUtc starts a new wait;
+    several waits in one step add up. The pass that ends a wait is counted
+    but not timed: nothing follows it to close it.
+.PARAMETER WaitStartUtc
+    When the current wait started.
+.PARAMETER PollSeconds
+    The sleep each pass ends with.
+#>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Accumulates in-memory telemetry only.')]
+    param([Parameter(Mandatory)][DateTime]$WaitStartUtc, [double]$PollSeconds = 0)
+    $now = [DateTime]::UtcNow
+    if (-not $script:WaitPoll) { $script:WaitPoll = @{ WaitStartUtc = $null; LastUtc = $null; Polls = 0; WorkMs = [long]0; MaxMs = [long]0 } }
+    $wait = $script:WaitPoll
+    if ($wait.WaitStartUtc -ne $WaitStartUtc) {
+        $wait.WaitStartUtc = $WaitStartUtc
+        $wait.LastUtc = $null
+    }
+    if ($wait.LastUtc) {
+        $passMs = [long][math]::Max(0, ($now - $wait.LastUtc).TotalMilliseconds - ($PollSeconds * 1000))
+        $wait.WorkMs += $passMs
+        if ($passMs -gt $wait.MaxMs) { $wait.MaxMs = $passMs }
+    }
+    $wait.Polls++
+    $wait.LastUtc = $now
+}
+
+function Get-PerfPhaseRootDir {
+<#
+.SYNOPSIS
+    The perf folder beside this process's runtime folder (<runtime>/../perf),
+    where phase rows go.
+.DESCRIPTION
+    Phase rows are written by any process that has a runtime folder, before a
+    perf cycle exists, so they follow YURUNA_RUNTIME_DIR the way the runner's
+    other state does: test/status/perf for a runner on the default layout, and
+    a runner (or a test) with its own runtime folder writes its own rows.
+    Falls back to Get-PerfRootDir without a runtime folder.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if ($env:YURUNA_RUNTIME_DIR) {
+        $parent = Split-Path -Parent ([IO.Path]::GetFullPath($env:YURUNA_RUNTIME_DIR))
+        if ($parent) { return (Join-Path $parent 'perf') }
+    }
+    return (Get-PerfRootDir)
+}
+
+function Get-PerfPhaseFile {
+<#
+.SYNOPSIS
+    The phase-row file for a UTC day (perf/phases/<yyyy-MM-dd>.jsonl), or
+    $null when no perf folder can be resolved.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([DateTime]$AtUtc = [DateTime]::UtcNow)
+    $root = Get-PerfPhaseRootDir
+    if (-not $root) { return $null }
+    $dir = Join-Path $root 'phases'
+    $null = New-Item -ItemType Directory -Path $dir -Force -ErrorAction SilentlyContinue
+    return (Join-Path $dir ($AtUtc.ToUniversalTime().ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) + '.jsonl'))
+}
+
+function Write-PerfPhaseRow {
+<#
+.SYNOPSIS
+    Append one duration row for a stretch of a cycle that is not a sequence
+    step: a preamble phase, the cycle-end teardown, the inter-cycle delay,
+    the failure pause, or a whole cycle as the resident runner timed it.
+.DESCRIPTION
+    Step rows covered sequence steps only, so a cycle that grew slower in
+    its preamble, its teardown or its waits showed no row that moved. Phase
+    rows go to perf/phases/<UTC day>.jsonl, not to the cycle's step file:
+    they are written before a perf cycle exists (the preamble) and outside
+    the cycle process (the resident), and every reader of perf/cycles
+    expects step rows. The row names the cycle by YURUNA_CYCLE_GENERATION.
+    Same contract as the step rows: honors testCycle.perfLog.enabled, and a
+    row that cannot be written is dropped, never a failure.
+.PARAMETER Scope
+    preamble (the inner before its first step), cycle (the inner after it)
+    or resident (the runner process).
+.PARAMETER Extra
+    Fields added to the row (a budget verdict).
+#>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Phase,
+        [Parameter(Mandatory)][DateTime]$StartedAtUtc,
+        [Parameter(Mandatory)][DateTime]$EndedAtUtc,
+        [string]$Outcome = 'completed',
+        [ValidateSet('preamble', 'cycle', 'resident')][string]$Scope = 'cycle',
+        [System.Collections.IDictionary]$Extra
+    )
+    try {
+        if (-not (Test-PerfLogEnabled)) { return }
+        $file = Get-PerfPhaseFile -AtUtc $EndedAtUtc
+        if (-not $file) { return }
+        $row = [ordered]@{
+            schema          = $script:PhaseSchema
+            recordKind      = 'phase'
+            phase           = $Phase
+            scope           = $Scope
+            outcome         = $Outcome
+            cycleGeneration = [string]$env:YURUNA_CYCLE_GENERATION
+            hostUuid        = Get-PerfHostUuid
+            hostname        = [Environment]::MachineName
+            processId       = $PID
+            startedAtUtc    = $StartedAtUtc.ToUniversalTime().ToString('o')
+            endedAtUtc      = $EndedAtUtc.ToUniversalTime().ToString('o')
+            durationMs      = [long][math]::Max(0, ($EndedAtUtc - $StartedAtUtc).TotalMilliseconds)
+        }
+        if ($Extra) { foreach ($key in $Extra.Keys) { $row[$key] = $Extra[$key] } }
+        [System.IO.File]::AppendAllText($file, (ConvertTo-Json -InputObject $row -Compress -Depth 5) + "`n")
+    } catch {
+        Write-Verbose "Write-PerfPhaseRow: append failed (non-fatal): $($_.Exception.Message)"
+    }
+}
+
+function Get-PerfCycleBudget {
+<#
+.SYNOPSIS
+    The cycle-time budget learned from this host's recent passing cycles.
+.DESCRIPTION
+    Reads the resident's 'cycle' phase rows of the last Days UTC days and
+    takes the last Window passing ones. The budget is 1.5 times their 90th
+    percentile: wide enough that ordinary variance (a base-image refresh, a
+    cold cache) stays inside it, narrow enough that a cycle running half
+    again slower than its slow tail is named. With fewer than MinSamples
+    rows there is no budget yet.
+.OUTPUTS
+    [pscustomobject] Samples, P90Ms, BudgetMs ($null without enough samples).
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [ValidateRange(1, 60)][int]$Days = 14,
+        [ValidateRange(1, 1000)][int]$Window = 20,
+        [ValidateRange(1, 1000)][int]$MinSamples = 5,
+        [DateTime]$NowUtc = [DateTime]::UtcNow
+    )
+    $durations = [System.Collections.Generic.List[long]]::new()
+    $root = Get-PerfPhaseRootDir
+    $dir = if ($root) { Join-Path $root 'phases' } else { $null }
+    if ($dir -and (Test-Path -LiteralPath $dir)) {
+        $rows = [System.Collections.Generic.List[object]]::new()
+        for ($d = $Days - 1; $d -ge 0; $d--) {
+            $file = Join-Path $dir ($NowUtc.AddDays(-$d).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) + '.jsonl')
+            if (-not (Test-Path -LiteralPath $file)) { continue }
+            foreach ($line in [System.IO.File]::ReadAllLines($file)) {
+                if (-not $line) { continue }
+                try { $row = $line | ConvertFrom-Json } catch { continue }
+                if ($row.phase -ceq 'cycle' -and $row.scope -ceq 'resident' -and $row.outcome -ceq 'pass') { $rows.Add($row) }
+            }
+        }
+        foreach ($row in @($rows | Select-Object -Last $Window)) { $durations.Add([long]$row.durationMs) }
+    }
+    if ($durations.Count -lt $MinSamples) {
+        return [pscustomobject]@{ Samples = $durations.Count; P90Ms = $null; BudgetMs = $null }
+    }
+    $sorted = @($durations | Sort-Object)
+    $p90 = [long]$sorted[[int][math]::Ceiling(0.9 * $sorted.Count) - 1]
+    return [pscustomobject]@{ Samples = $durations.Count; P90Ms = $p90; BudgetMs = [long][math]::Ceiling(1.5 * $p90) }
 }
 
 function Get-PerfCycleFile {
@@ -631,6 +821,6 @@ Export-ModuleMember -Function `
     Resume-PerfCycle, Publish-PerfCycleContext, Clear-PerfCycleContext, `
     Set-PerfGuestContext, Clear-PerfGuestContext, `
     Set-PerfSequenceContext, Clear-PerfSequenceContext, `
-    Write-PerfStepRow, `
+    Write-PerfStepRow, Add-PerfWaitPoll, Write-PerfPhaseRow, Get-PerfPhaseRootDir, Get-PerfPhaseFile, Get-PerfCycleBudget, `
     Get-PerfCycleFile, Get-PerfSchemaVersion, `
     Get-PerfContentHash, Get-PerfHostUuid, Get-PerfRootDir, Get-RuntimeRootDir

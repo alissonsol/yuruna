@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 428d485e-047b-4cc1-8ed5-93ab18e050f7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -109,7 +109,10 @@ function New-WindowsGuestBootstrap {
         [Parameter()][AllowEmptyString()][string]$CachingProxyIp = '',
         [Parameter()][AllowEmptyString()][string]$FrameworkUrl = '',
         [Parameter()][AllowEmptyString()][string]$ProjectUrl = '',
-        [Parameter()][AllowEmptyString()][string]$GhToken = ''
+        [Parameter()][AllowEmptyString()][string]$GhToken = '',
+        # This host's guest-channel key; resolved (and created on first use) when
+        # not given, so the guest accepts only a status service that proves it.
+        [Parameter()][AllowEmptyString()][string]$GuestChannelKey = ''
     )
 
     # --- REGION: https://yuruna.link/4220a755-002d
@@ -144,11 +147,21 @@ function New-WindowsGuestBootstrap {
     }
     $script = Get-Content -LiteralPath $templatePath -Raw
     $source = Get-YurunaGitHubSource -RepoRoot $RepoRoot
+    if (-not $GuestChannelKey) {
+        try {
+            if (-not (Get-Command Get-YurunaGuestChannelKey -ErrorAction SilentlyContinue)) {
+                Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -DisableNameChecking -Verbose:$false
+            }
+            $GuestChannelKey = Get-YurunaGuestChannelKey -Create -Confirm:$false
+        } catch { Write-Verbose "guest-channel key: $($_.Exception.Message)" }
+    }
+    # Only the key's own shape reaches the bootstrap text.
+    if ($GuestChannelKey -cnotmatch '^[0-9a-f]{64}$') { $GuestChannelKey = '' }
 
-    # __TOKEN__ and __ASKPASS__ inside the nested $profileText here-string are
-    # replaced by the GUEST at run time -- they must survive into the profile
-    # as the literal text that script substitutes. So the token is filled in by
-    # matching its assignment line specifically, never globally.
+    # __ASKPASS__ inside the nested $profileText here-string is replaced by the
+    # GUEST at run time -- it must survive into the profile as the literal text
+    # that script substitutes. So the token is filled in by matching its
+    # assignment line specifically, never globally.
     $script = $script.Replace('__STATUS_IP__',   $StatusServiceIp).
                       Replace('__STATUS_PORT__', $StatusServicePort).
                       Replace('__HOST_ID__',     $HostId).
@@ -157,6 +170,7 @@ function New-WindowsGuestBootstrap {
                       Replace('__GITHUB_REF__',  $source.Ref).
                       Replace('__FRAMEWORK_URL__', $FrameworkUrl).
                       Replace('__PROJECT_URL__', $ProjectUrl).
+                      Replace('__GUEST_CHANNEL_KEY__', $GuestChannelKey).
                       Replace("`$token = '__TOKEN__'", "`$token = '$GhToken'")
 
     # Setup's command-line field is small. Keep only CD discovery here; the

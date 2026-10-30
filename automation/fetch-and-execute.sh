@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 4293fe9e-c743-4e9d-b6c1-586585bfa3d1
@@ -39,11 +39,47 @@ fae_has_ipv4() {
     fi
 }
 
-resolve_fetch_source() {
-    if [ -r /etc/yuruna/host.env ]; then
-        # shellcheck disable=SC1091
-        . /etc/yuruna/host.env
+# --- REGION: yuruna_read_env_file
+# host.env is data, not a script: KEY=VALUE lines the seed and the host-locate
+# refresh write. Sourcing it would run whatever a value spells as shell, so
+# only YURUNA_* names are taken, each value literally, with one level of
+# matching quotes removed. The same function is in fetch-and-execute.sh,
+# yuruna-host-locate.sh and yuruna-retry.sh, each of which is deployed alone.
+yuruna_read_env_file() {
+    local file="$1" line key value
+    [ -r "$file" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        key="${line%%=*}"
+        [ "$key" != "$line" ] || continue
+        [[ "$key" =~ ^YURUNA_[A-Z0-9_]+$ ]] || continue
+        value="${line#*=}"
+        value="${value%$'\r'}"
+        case "$value" in
+            \'*\'|\"*\") value="${value:1:${#value}-2}" ;;
+        esac
+        printf -v "$key" '%s' "$value"
+    done < "$file"
+    return 0
+}
+
+# Does the seeded host answer at this base URL? A guest seeded with its host's
+# guest-channel key accepts only an answer that proves the key, which the
+# resolver's __yhl_livecheck checks; without that resolver such a guest refuses
+# rather than trusting whatever answers. A guest without the key keeps the
+# plain reachability probe.
+fae_host_answers() {
+    if command -v __yhl_livecheck >/dev/null 2>&1; then
+        __yhl_livecheck "$1"
+        return
     fi
+    if [ -s "${YURUNA_GUEST_CHANNEL_KEY_FILE:-/etc/yuruna/guest-channel.key}" ]; then
+        return 1
+    fi
+    wget -q --no-proxy --timeout=2 --tries=1 -O /dev/null "${1%/}/livecheck" 2>/dev/null
+}
+
+resolve_fetch_source() {
+    yuruna_read_env_file /etc/yuruna/host.env || true
     # Typed values win: they describe the commit the host is serving right now,
     # while host.env holds whatever was current when this VM was provisioned.
     GH_REPO="${E_FB_REPO:-${EXEC_FALLBACK_REPO:-${YURUNA_GITHUB_REPO:-}}}"
@@ -97,7 +133,7 @@ resolve_fetch_source() {
         _livecheck_url="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
         _probe_round=1
         while [ "$_probe_round" -le "$_probe_rounds" ]; do
-            if wget -q --no-proxy --timeout=2 --tries=1 -O /dev/null "$_livecheck_url" 2>/dev/null; then
+            if fae_host_answers "http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}"; then
                 if [ "$_probe_round" -gt 1 ]; then
                     # See https://yuruna.link/42fa6f45-0004
                     # Report late host answers so recovered transport delay remains visible.

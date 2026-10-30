@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 424625c3-3298-4700-bc3c-2c6431031514
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -125,5 +125,38 @@ Describe 'product globalization acceptance' {
     It 'globalization acceptance: capability off keyboard IME and hostile bidi' {
         Invoke-ProductGlobalizationCheck -Kind Node -Path 'test/status/yuruna.common.test.js'
         Invoke-ProductGlobalizationCheck -Kind Node -Path 'test/extension/ui-pages.test.js'
+    }
+}
+
+Describe 'a product check that passed is not run again in the same process' {
+    BeforeAll {
+        # A check script that records every run, so the count is the evidence.
+        $script:CountScript = Join-Path $TestDrive 'count-run.js'
+        [IO.File]::WriteAllText($script:CountScript, @'
+const fs = require('fs');
+fs.appendFileSync(process.argv[2], 'run\n');
+process.exit(Number(process.argv[3] || 0));
+'@)
+        $script:CountPath = [IO.Path]::GetRelativePath($script:RepoRoot, $script:CountScript)
+        function Get-RunCount { param([string]$Log) if (Test-Path -LiteralPath $Log) { @(Get-Content -LiteralPath $Log).Count } else { 0 } }
+    }
+
+    It 'runs a passing check once for the same arguments, and again for different ones' {
+        $log = Join-Path $TestDrive 'passing.log'
+        Invoke-ProductGlobalizationCheck -Kind Node -Path $script:CountPath -Argument @($log, '0')
+        Invoke-ProductGlobalizationCheck -Kind Node -Path $script:CountPath -Argument @($log, '0')
+        Assert-Equal 1 (Get-RunCount $log) 'an identical passing check ran twice in one process'
+        $other = Join-Path $TestDrive 'other.log'
+        Invoke-ProductGlobalizationCheck -Kind Node -Path $script:CountPath -Argument @($other, '0')
+        Assert-Equal 1 (Get-RunCount $other) 'a check with other arguments was answered from a different run'
+    }
+
+    It 'runs a failing check every time and reports each failure' {
+        $log = Join-Path $TestDrive 'failing.log'
+        foreach ($attempt in 1..2) {
+            { Invoke-ProductGlobalizationCheck -Kind Node -Path $script:CountPath -Argument @($log, '3') } |
+                Should -Throw '*Node product check failed*'
+        }
+        Assert-Equal 2 (Get-RunCount $log) 'a failed check was not run again'
     }
 }

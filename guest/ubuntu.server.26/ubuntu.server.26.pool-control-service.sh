@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 426b4671-5d78-44e6-b6d7-77924967ec88
@@ -78,7 +78,7 @@ SCAN_PORT="${POOL_CONTROL_SCAN_PORT:-8080}"
 SCAN_INTERVAL="${POOL_CONTROL_SCAN_INTERVAL-15m}"
 [ -n "$SCAN_INTERVAL" ] || SCAN_INTERVAL=0
 
-# Aggregator URL + host id + host ip from the shared env files (same as stash).
+# Aggregator URL + host id from the shared env files (same as download-agent).
 AGGREGATOR_URL="$(sed -n 's/^YURUNA_AGGREGATOR_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 HOST_ID="$(sed -n 's/^YURUNA_HOST_ID=//p' /etc/yuruna/host.env 2>/dev/null | head -1 || true)"
 CONFIGURATION_GIT_URL="$(sed -n 's/^YURUNA_POOL_CONFIGURATION_GIT_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
@@ -103,7 +103,8 @@ if [[ "$CONFIGURATION_GIT_URL" == "$MOUNT/pool-intent.git" ]]; then
   CONFIGURATION_GIT_URL="$CONFIGURATION_STORE"
 fi
 
-# Locate the checkout before using its current shared bootstrap helpers.
+# Locate the checkout here, before Package dependencies: that step uses the
+# checkout's current retry helpers rather than the copy baked into the image.
 locate_repo_dir() {
   yuruna_service_find_repo test/extension/pool-control-service/server
 }
@@ -209,11 +210,12 @@ trap 'rm -rf -- "$BUILD"; [ -z "${SEED_TMP:-}" ] || sudo -u "$SERVICE_USER" rm -
 yuruna_service_build "$BUILD" 'pool-control-service' "$VERSION_STR"
 
 # --- REGION: Install the binary
+echo ""
+echo -e "\e[1;36m==== /usr/local/bin/pool-control-service ====\e[0m"
 yuruna_service_install "$BUILD/server/pool-control-service" /usr/local/bin/pool-control-service
 
 # --- REGION: Storage directories
-# Mount the pool NAS for the state dir (best-effort; the daemon degrades to no
-# persistence if the mount is absent).
+# Mount the pool NAS best-effort; the daemon runs without persistence when it is absent.
 if [[ -n "$POOL_NAS_UNC" ]]; then
   sudo mkdir -p "$MOUNT"
   # --- REGION: https://yuruna.link/428405a0-000b
@@ -234,7 +236,7 @@ fi
 # An empty path disables persistence without recreating the local directory.
 if mountpoint -q "$MOUNT" 2>/dev/null; then
   # No chown on the mounted share: the uid/gid mount options have already placed
-  # ownership and a chown can lock the host out.
+  # ownership and a chown can lock the hosts out.
   sudo mkdir -p "$STATE_DIR" 2>/dev/null || true
 else
   echo "pool-control-service: $MOUNT is not mounted; state persistence is off (a state dir created here would be shadowed by a later mount)." >&2
@@ -328,7 +330,7 @@ echo -e "\e[1;36m==== /etc/systemd/system/pool-control-service.service ====\e[0m
 sudo tee /etc/systemd/system/pool-control-service.service >/dev/null <<EOF
 # --- REGION: [Unit]
 [Unit]
-Description=Yuruna Pool control service
+Description=Yuruna pool-control service
 Documentation=https://yuruna.link/4207d71a-000c
 # See https://yuruna.link/42e220c4-000f
 # Order after the NAS mount without requiring it; offline service startup is supported.
@@ -351,6 +353,8 @@ WantedBy=multi-user.target
 EOF
 
 # --- REGION: Start the service and wait for readiness
+echo ""
+echo -e "\e[1;36m==== pool-control-service.service start and enable ====\e[0m"
 sudo systemctl daemon-reload
 sudo systemctl enable --now pool-control-service.service
 

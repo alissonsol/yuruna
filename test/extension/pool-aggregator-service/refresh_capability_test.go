@@ -21,6 +21,7 @@ import (
 	"time"
 
 	sdkpool "yuruna.com/test/extension/extension-sdk/pool"
+	"yuruna.com/test/extension/pool-aggregator-service/internal/hostpoll"
 )
 
 // The refresh capability's path through this daemon: read from each host's
@@ -79,7 +80,7 @@ func TestFetchControlStatusReadsTheRefreshSummary(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			srv := serveControlStatus(http.StatusOK, c.body)
 			defer srv.Close()
-			cs, err := fetchControlStatus(srv.Client(), srv.URL)
+			cs, err := hostpoll.FetchControlStatus(srv.Client(), srv.URL)
 			if err != nil || !cs.Present || cs.TokenTag != "TAG" {
 				t.Fatalf("the legacy fields must still read: %+v %v", cs, err)
 			}
@@ -107,7 +108,7 @@ func TestFetchControlStatusRefusesAnOversizeAnswer(t *testing.T) {
 	pad := strings.Repeat("x", 5000)
 	srv := serveControlStatus(http.StatusOK, `{"ok":true,"tokenConfigured":true,"tokenTag":"TAG","pad":"`+pad+`"}`)
 	defer srv.Close()
-	if _, err := fetchControlStatus(srv.Client(), srv.URL); err != errControlStatusOversize {
+	if _, err := hostpoll.FetchControlStatus(srv.Client(), srv.URL); err != errControlStatusOversize {
 		t.Fatalf("oversize answer: err = %v, want errControlStatusOversize", err)
 	}
 	exact := `{"ok":true,"tokenConfigured":true,"tokenTag":"TAG","pad":"`
@@ -117,7 +118,7 @@ func TestFetchControlStatusRefusesAnOversizeAnswer(t *testing.T) {
 	}
 	at := serveControlStatus(http.StatusOK, exact)
 	defer at.Close()
-	if cs, err := fetchControlStatus(at.Client(), at.URL); err != nil || !cs.Present {
+	if cs, err := hostpoll.FetchControlStatus(at.Client(), at.URL); err != nil || !cs.Present {
 		t.Fatalf("an answer of exactly the cap must read: %+v %v", cs, err)
 	}
 }

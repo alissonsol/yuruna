@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421ff7ed-6fcc-4816-b558-d052d6a39c1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,9 +28,9 @@
 
     A DETACHED PROCESS rather than a timer inside the status service, for the
     same reason the pool push forwarder is one -- and one more. The status
-    service's accept loop blocks indefinitely in HttpListener.GetContext() by
-    design (it has no self-exit timer, so it needs no periodic wake-up), so
-    there is no tick site inside it. A System.Threading.Timer cannot help
+    service's accept loop serves one request at a time and wakes only to renew
+    its liveness lease, so work there would hold every request behind it, and
+    it is the process being watched. A System.Threading.Timer cannot help
     either: its callback runs on a threadpool thread with no runspace, where a
     PowerShell scriptblock throws (the trap Test.RunnerHeartbeat documents),
     and this work is PowerShell -- HTTP calls and file writes -- not something
@@ -59,6 +59,14 @@
     fails to import or to run never ends the beacon; the announce keeps its
     schedule either way.
 
+    Each loop also runs one listener watch (Invoke-StatusListenerWatch): when
+    the status service's liveness lease has read wedged on two passes in a row
+    and the service does not answer, the beacon runs Start-StatusService.ps1
+    -RefreshSafe -ReplaceWedged, which stops that listener and starts a new
+    one without the full start's sweeps, so a wedged listener is replaced in
+    the middle of a cycle. The beacon keeps running across the replacement: it
+    follows server.pid.
+
 .PARAMETER RuntimeDir
     The runtime directory holding host.uuid and ipaddresses.txt. Defaults to
     $env:YURUNA_RUNTIME_DIR.
@@ -86,6 +94,9 @@ param(
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+# The level the process that started this one resolved (YURUNA_LOG_LEVEL).
+Import-Module (Join-Path $PSScriptRoot 'Test.LogLevel.psm1') -DisableNameChecking
+Use-LogLevelFromEnv
 $ErrorActionPreference = 'Continue'
 # This process exists to leave a record; its stdout is captured to
 # hostaddress.beacon.out. The default SilentlyContinue would discard every
@@ -164,6 +175,39 @@ try {
     Write-Verbose "host address beacon: service census unavailable -- $($_.Exception.Message)"
 }
 
+# --- REGION: Listener watch
+# A watch that cannot load leaves the beacon announcing as before.
+$watchReady = $false
+try {
+    Import-Module (Join-Path $PSScriptRoot 'Test.StatusControlRoute.psm1') -Force -DisableNameChecking -ErrorAction Stop
+    $watchReady = [bool](Get-Command -Name 'Invoke-StatusListenerWatch' -ErrorAction SilentlyContinue)
+} catch {
+    Write-Verbose "host address beacon: listener watch unavailable -- $($_.Exception.Message)"
+}
+$listenerWatch = @{ WedgedPasses = 0 }
+$probeListener = {
+    try {
+        $null = Invoke-WebRequest -Uri "http://localhost:$StatusPort/status/" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop -Verbose:$false
+        return $true
+    } catch { return $false }
+}
+# The replacement runs as its own process, as the refresh-safe start must, and
+# is bounded by the deadline it is handed plus a margin for its own exit.
+$replaceListener = {
+    $env:YURUNA_RUNTIME_DIR = $RuntimeDir
+    $starter = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
+    $deadline = [Environment]::TickCount64 + 90000
+    $options = @{
+        FilePath = (Get-Process -Id $PID).Path; PassThru = $true
+        ArgumentList = @('-NoProfile', '-NonInteractive', '-File', ('"' + $starter + '"'), '-RefreshSafe', '-ReplaceWedged', '-Port', "$StatusPort", '-DeadlineTickMs', "$deadline")
+        RedirectStandardOutput = (Join-Path $RuntimeDir 'status-replace.out'); RedirectStandardError = (Join-Path $RuntimeDir 'status-replace.err')
+    }
+    if ($IsWindows) { $options.WindowStyle = 'Hidden' }
+    $process = Start-Process @options
+    if (-not $process.WaitForExit(100000)) { return -1 }
+    return $process.ExitCode
+}
+
 # The status service's PID file is the liveness signal this beacon follows.
 # Read once per tick rather than cached: the service can be restarted under a
 # running beacon, and the beacon should keep going for the new one rather than
@@ -211,6 +255,13 @@ try {
                 $null = Invoke-YurunaServiceCensusTick -RuntimeDir $RuntimeDir -BudgetMilliseconds 5000 -Confirm:$false
             } catch {
                 Write-Verbose "host address beacon census tick: $($_.Exception.Message)"
+            }
+        }
+        if ($watchReady) {
+            try {
+                $null = Invoke-StatusListenerWatch -RuntimeDir $RuntimeDir -State $listenerWatch -Probe $probeListener -Replace $replaceListener
+            } catch {
+                Write-Verbose "host address beacon listener watch: $($_.Exception.Message)"
             }
         }
         Start-Sleep -Seconds $IntervalSeconds

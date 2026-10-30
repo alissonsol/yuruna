@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b7c714-750f-4b13-9c64-3f688f1db47d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,6 +80,10 @@ if ($oldPool) {
     $members = @($oldPool['members'] | Where-Object { $_ -ne $old })
     if (-not $newPool) { $members = @($members + $new) }
     $oldPool['members'] = $members
+    # The canary role moves with the identity only when the new id is a member of
+    # the same pool afterwards.
+    $replacement = if (-not $newPool -or [object]::ReferenceEquals($newPool, $oldPool)) { $new } else { '' }
+    $null = Update-YurunaPoolRingCanary -Pool $oldPool -HostId $old -NewHostId $replacement
     $changed = $true
 }
 $auto = $doc['autoEnrollment']

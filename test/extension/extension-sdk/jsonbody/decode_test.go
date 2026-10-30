@@ -95,3 +95,41 @@ func TestDecodeRequestClearsTheDeadlineOnceTheBodyIsIn(t *testing.T) {
 		t.Fatalf("handler past the body deadline answered %d %q, want 200 done", resp.StatusCode, body)
 	}
 }
+
+// ReadRequest hands back the raw bytes under the same deadline and limit, for a
+// handler that parses the body itself.
+func TestReadRequestCutsOffAStalledBodyAndRefusesAnOversizeOne(t *testing.T) {
+	shortBodyTimeout(t, 200*time.Millisecond)
+	type outcome struct {
+		data []byte
+		err  error
+	}
+	result := make(chan outcome, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, err := ReadRequest(w, r, 8)
+		result <- outcome{data, err}
+	}))
+	t.Cleanup(srv.Close)
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	fmt.Fprintf(conn, "POST / HTTP/1.1\r\nHost: fixture\r\nContent-Length: 8\r\n\r\nabc")
+	select {
+	case got := <-result:
+		if got.err == nil {
+			t.Fatalf("a body that never finished arriving was read: %q", got.data)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stalled body was never cut off")
+	}
+	resp, err := srv.Client().Post(srv.URL, "application/json", strings.NewReader("123456789"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got := <-result; !errors.Is(got.err, ErrOversize) {
+		t.Fatalf("a body past the limit = %q, %v; want ErrOversize", got.data, got.err)
+	}
+}

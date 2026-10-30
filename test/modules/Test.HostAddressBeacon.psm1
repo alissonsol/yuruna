@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d5663b-af64-472f-8342-ab50456c2fc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -444,6 +444,63 @@ function Write-HostAddressBaselineRecord {
     }
 }
 
+function Get-HostAddressChangeRow {
+<#
+.SYNOPSIS
+    The host address changes recorded inside a time window, each with its
+    instant and the addresses it moved between.
+.DESCRIPTION
+    The rows behind Get-HostAddressChangeCount, for a reader who needs more
+    than the count: a step failure record names the move that fell inside the
+    failed step, so a guest-side symptom (a fetch from the host's old address)
+    is read next to its cause. Rows that cannot be parsed are skipped rather
+    than throwing, on the same reasoning as the count.
+.PARAMETER RuntimeDir
+    The runtime directory holding hostaddress.changes.ndjson.
+.PARAMETER StartUtc
+    Window start, inclusive.
+.PARAMETER EndUtc
+    Window end, inclusive.
+.OUTPUTS
+    [object[]] of ordered hashtables (changedAtUtc, previous, current) in
+    record order, empty when the window was quiet; $null when there is no
+    record to read or no row of it could be parsed.
+#>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][datetime]$StartUtc,
+        [Parameter(Mandatory)][datetime]$EndUtc
+    )
+    # See https://yuruna.link/4213a0b3-005c
+    $path = Join-Path $RuntimeDir 'hostaddress.changes.ndjson'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $parsed = 0
+    foreach ($line in [System.IO.File]::ReadAllLines($path)) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        try {
+            $row = $line | ConvertFrom-Json -ErrorAction Stop
+            $at  = ([datetime]$row.changedAtUtc).ToUniversalTime()
+            $parsed++
+            if ([string]$row.event -eq 'host_address_baseline') { continue }
+            if ($at -ge $StartUtc -and $at -le $EndUtc) {
+                $rows.Add([ordered]@{
+                    changedAtUtc = $at.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                    previous     = [string]$row.previous
+                    current      = [string]$row.current
+                })
+            }
+        } catch {
+            Write-Verbose "host address change rows: skipping unparseable row -- $($_.Exception.Message)"
+        }
+    }
+    # A file whose every row was unreadable is not a quiet network either.
+    if ($parsed -eq 0) { return $null }
+    return ,@($rows.ToArray())
+}
+
 function Get-HostAddressChangeCount {
 <#
 .SYNOPSIS
@@ -472,25 +529,9 @@ function Get-HostAddressChangeCount {
         [Parameter(Mandatory)][datetime]$EndUtc
     )
     # See https://yuruna.link/4213a0b3-005c
-    $path = Join-Path $RuntimeDir 'hostaddress.changes.ndjson'
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return -1 }
-    $count = 0
-    $parsed = 0
-    foreach ($line in [System.IO.File]::ReadAllLines($path)) {
-        if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        try {
-            $row = $line | ConvertFrom-Json -ErrorAction Stop
-            $at  = ([datetime]$row.changedAtUtc).ToUniversalTime()
-            $parsed++
-            if ([string]$row.event -eq 'host_address_baseline') { continue }
-            if ($at -ge $StartUtc -and $at -le $EndUtc) { $count++ }
-        } catch {
-            Write-Verbose "host address change count: skipping unparseable row -- $($_.Exception.Message)"
-        }
-    }
-    # A file whose every row was unreadable is not a quiet network either.
-    if ($parsed -eq 0) { return -1 }
-    return $count
+    $rows = Get-HostAddressChangeRow -RuntimeDir $RuntimeDir -StartUtc $StartUtc -EndUtc $EndUtc
+    if ($null -eq $rows) { return -1 }
+    return @($rows).Count
 }
 
 function Get-HostAddressChurnVerdict {
@@ -1086,7 +1127,7 @@ function Invoke-HostAddressBeaconTick {
 
 Export-ModuleMember -Function Get-HostAddressBeaconState, Reset-HostAddressBeaconState, Assert-HostAddressStability,
     Write-HostAddressRecord, Write-HostAddressChangeRecord, Write-HostAddressBaselineRecord,
-    Get-HostAddressChangeCount, Get-BeaconHostAddress,
+    Get-HostAddressChangeCount, Get-HostAddressChangeRow, Get-BeaconHostAddress,
     Get-HostAddressChurnVerdict, Get-HostBridgeDhcpIdentity, Set-HostBridgeDhcpIdentity,
     Get-HostAddressStabilityReport,
     Send-HostAddressAnnounce, Invoke-HostAddressSquidNudge,

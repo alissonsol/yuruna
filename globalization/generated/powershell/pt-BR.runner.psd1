@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b0681f-50bb-3b49-3fcf-f99d409ef81e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -275,6 +275,33 @@
         }
         ')'
     )
+    'runner.cycle_over_budget' = @(
+        'O ciclo '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' passou em '
+        @{
+            'arg' = 'minutes'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' min, acima do orçamento aprendido de '
+        @{
+            'arg' = 'budgetMinutes'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' min (1,5 vez o percentil 90 dos últimos '
+        @{
+            'arg' = 'samples'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ciclos aprovados). O ciclo continua contando como aprovado; as linhas de fase em test/status/perf/phases mostram qual parte cresceu.'
+    )
     'runner.cycle_record_clear_action' = 'Remover o registro de ciclo do runner de um ciclo encerrado'
     'runner.cycle_record_write_action' = 'Gravar o registro de ciclo do runner'
     'runner.cycle_result_missing' = 'O ciclo retornou sem publicar um resultado. Registrando como um ciclo com falha (no-cycle-result) em vez de um ciclo concluído.'
@@ -342,6 +369,27 @@
             'trust' = 'internal'
         }
         ').'
+    )
+    'runner.entry_point_module_missing' = @(
+        'Initialize-YurunaEntryPointModuleSet: '
+        @{
+            'arg' = 'modName'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' não encontrado em '
+        @{
+            'arg' = 'modPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' (kind='
+        @{
+            'arg' = 'for'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); o ponto de entrada não inicia sem o seu conjunto de módulos. Restaure o arquivo neste checkout e inicie novamente.'
     )
     'runner.failure_alert_state' = @{
         'kind' = 'select'
@@ -476,6 +524,120 @@
             'trust' = 'external'
         }
     )
+    'runner.framework_ring_follow' = @(
+        'Este host segue o anel canário do seu pool: instalando a revisão do framework '
+        @{
+            'arg' = 'revision'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ', que tem '
+        @{
+            'arg' = 'passes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' aprovações canárias válidas (instalada: '
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'runner.framework_ring_hold_newer' = @(
+        'A revisão qualificada do anel '
+        @{
+            'arg' = 'revision'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' não é mais nova que a instalada '
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; o framework permanece em '
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.framework_ring_hold_not_in_history' = @(
+        'A revisão qualificada do anel '
+        @{
+            'arg' = 'revision'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' não está no histórico do upstream do framework que este host acompanha; o framework permanece em '
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.framework_ring_hold_unqualified' = @(
+        'Nenhuma revisão do framework tem '
+        @{
+            'arg' = 'passes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' aprovações canárias válidas ainda; o framework permanece em '
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.framework_ring_hold_unreachable' = @(
+        'Este host segue o anel canário do seu pool, mas o agregador do pool não respondeu ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); o framework permanece em '
+        @{
+            'arg' = 'current'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.gallery_package_digest_mismatch' = @(
+        'Recusando instalar '
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' '
+        @{
+            'arg' = 'version'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': o SHA-512 do pacote baixado ('
+        @{
+            'arg' = 'actual'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ') não corresponde ao digest fixado ('
+        @{
+            'arg' = 'expected'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
     'runner.gate_evidence_save_failed' = @(
         'Não foi possível salvar as evidências da verificação de configuração: '
         @{
@@ -528,6 +690,15 @@
         }
         ''' (edições locais permanecem na lista git stash).'
     )
+    'runner.guest_channel_key_unreadable' = @(
+        'A chave do canal de convidados em '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' não tem 64 caracteres hexadecimais minúsculos, portanto os convidados não conseguem verificar este host. Restaure o arquivo ou remova-o e recrie os convidados para criar uma nova chave.'
+    )
     'runner.guest_folder_missing' = @(
         'Pasta de visitas não encontrada: '
         @{
@@ -555,6 +726,21 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'runner.host_condition_probe_unanswered' = @(
+        'Não foi possível ler '
+        @{
+            'arg' = 'probe'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'tool'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' não respondeu, então a configuração está indeterminada, e não se sabe se é segura.'
     )
     'runner.host_diagnostic_timeout' = 'Diagnósticos do hospedeiro cronometraram após 120s; veja a amostra anterior do hospedeiro.'
     'runner.host_diagnostic_worker_failed' = @(
@@ -595,6 +781,21 @@
             'trust' = 'internal'
         }
         ' caracteres]'
+    )
+    'runner.host_input_unmappable' = @(
+        'O caminho de entrada '
+        @{
+            'arg' = 'transport'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' não tem tecla para estes caracteres do texto: '
+        @{
+            'arg' = 'characters'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. Nada foi digitado; a etapa não pode ser executada neste hospedeiro como está escrita.'
     )
     'runner.host_network_sweep_timed_out' = @(
         'A varredura de VMs abandonadas no caminho de recusa por falta de rede do host não terminou em '
@@ -1371,6 +1572,42 @@
             'trust' = 'internal'
         }
         '.'
+    )
+    'runner.host_refresh_oneshot_active' = @(
+        'Invoke-HostRefresh: uma execução única (PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', concessão '
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ') está usando este runtime; nenhuma etapa de reparo é executada enquanto ela detiver a concessão.'
+    )
+    'runner.host_refresh_oneshot_unconfirmed' = @(
+        'Invoke-HostRefresh: a concessão de execução única '
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' indica o PID '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', cuja identidade não pode ser confirmada ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); reparando mesmo assim.'
     )
     'runner.host_refresh_operator_instruction' = @(
         '  Solução: '
@@ -7248,15 +7485,6 @@
         }
         ', para que os demais consumidores também recebam a correção:'
     )
-    'runner.operator_400de73dc7d7af50' = @(
-        'Nenhum keysym VNC para o caracter '''
-        @{
-            'arg' = 'ch'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '''. Saltando.'
-    )
     'runner.operator_40166e264a276e0a' = 'Guardas pmset estendidas verificadas após a aplicação.'
     'runner.operator_40a63b3866ac44bd' = @(
         'As mudanças de endereço da máquina durante este ciclo não puderam ser contadas ('
@@ -9831,27 +10059,6 @@
         }
     )
     'runner.operator_5ea26e2a1f29b25e' = 'a descoberta não tem nenhum diretório-alvo para se apropriar.'
-    'runner.operator_5eb94d6047f29167' = @(
-        'Initialize-YurunaEntryPointModuleSet: '
-        @{
-            'arg' = 'modName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' não encontrado em '
-        @{
-            'arg' = 'modPath'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' (kind='
-        @{
-            'arg' = 'for'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '); pulando.'
-    )
     'runner.operator_5ec100a74f28c9e9' = 'Cantos quentes: nenhuma ligação perigosa (salvador de tela / sono / bloqueio) detectado.'
     'runner.operator_5ee21a55ab02bc48' = @(
         'w32tm /resync falhou: '
@@ -9915,21 +10122,6 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-    )
-    'runner.operator_5f9af4fdfbb52214' = @(
-        'Nenhum código de verificação para o caracter '''
-        @{
-            'arg' = 'ch'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' (0x'
-        @{
-            'arg' = 'x2'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '). Pular.'
     )
     'runner.operator_5fa4b4be805499ca' = 'O ciclo de espera OCR lê o framebuffer convidado através do WMI e não é afetado. Escalar atinge OCR através da janela vmconnect, que tocaOn sempre captura e que o caminho do frame cai de volta para quando a leitura WMI falha.'
     'runner.operator_5fe7035d37195fae' = 'Apagar recursivamente'
@@ -19913,21 +20105,6 @@
     )
     'runner.operator_dfd19c97aaa9ff6e' = 'Invoke-HostRefresh: hipervisor responsivo e um corredor está presente -- no-op verificado.'
     'runner.operator_dfd80a749d4fee8f' = 'Adicionar Get-Image.ps1 + New-VM.ps1 sob esse caminho para habilitar este convidado, ou'
-    'runner.operator_dfe205f918802162' = @(
-        'Send-TextKvm: nenhum código chave para o caracter '''
-        @{
-            'arg' = 'ch'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' (0x'
-        @{
-            'arg' = 'x2'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        '). Saltando.'
-    )
     'runner.operator_e00026446a75f063' = @(
         'Perdeu a corrida pidfile contra um Start-TestRunner concorrente. Inspecione '
         @{
@@ -22794,6 +22971,21 @@
         }
         '). Atualize este checkout antes de alterar a configuração do grupo.'
     )
+    'runner.pool_framework_ring_canary_not_member' = @(
+        '  pools.yml: o pool '
+        @{
+            'arg' = 'poolId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' cita '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' em frameworkRing.canaryMembers, mas esse host não é um dos seus membros, então suas aprovações nunca contam.'
+    )
     'runner.pool_notifier_busy' = 'Outra execução do notificador do pool mantém o bloqueio neste hospedeiro; esta não entregou nada.'
     'runner.pool_notifier_spool_errors' = @(
         '[ciclo externo '
@@ -22834,6 +23026,16 @@
         ' deve ser uma URL não vazia, sem espaços em branco nem caracteres de controle, e não pode começar com ''-''.'
     )
     'runner.pool_status_repositories_none' = '  repositórios: (nenhum)'
+    'runner.pool_storage_sudo_rule_stale' = ' (o sudo recusou a montagem, portanto o NAS nunca foi contatado: o drop-in instalado em /etc/sudoers.d não nomeia o comando exato desta montagem, porque o compartilhamento ou o ponto de montagem mudou depois que ele foi escrito, ou ele é a permissão ampla de uma versão anterior -- execute test/Test-Config.ps1 ou Sync-HostConfiguration em uma sessão interativa para instalar a regra atual)'
+    'runner.pool_storage_sudoers_word_unsupported' = @(
+        'O caminho de armazenamento '''
+        @{
+            'arg' = 'word'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' não pode ser escrito exatamente na regra do sudoers (contém espaço em branco, aspas ou um caractere curinga); escolha um compartilhamento e um ponto de montagem sem eles.'
+    )
     'runner.preflight_network_diagnostics' = @(
         'Diagnósticos de rede: '
         @{
@@ -23657,6 +23859,72 @@
             'trust' = 'external'
         }
     )
+    'runner.service_adopted' = @(
+        'Mantendo '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' em execução em '
+        @{
+            'arg' = 'address'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); use -ForceRebuild para reconstruí-la.'
+    )
+    'runner.service_advertisement_withdrawn' = @(
+        'O anúncio de '
+        @{
+            'arg' = 'area'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' foi retirado antes da reconstrução; este host sai de Extension hosts até que a nova VM sirva.'
+    )
+    'runner.service_build_plan_refused' = @(
+        'O plano de build de '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' foi recusado ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); a VM em funcionamento e seu anúncio não foram alterados. A saída do builder acima indica a entrada ausente.'
+    )
+    'runner.service_build_timeout' = @(
+        'O build de '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' não terminou em '
+        @{
+            'arg' = 'seconds'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' s e foi interrompido (falha ao encerrar: '
+        @{
+            'arg' = 'killFailed'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '). Aumente YURUNA_SERVICE_VM_BUILD_TIMEOUT_SECONDS para um link lento ou examine a saída do builder acima.'
+    )
     'runner.service_cachingproxy_utmctl_start_failed' = @(
         '''utmctl start '
         @{
@@ -23714,6 +23982,36 @@
         '); os scripts de início e parada de serviço recusam até que seja reparado ou movido. Nada foi alterado.'
     )
     'runner.service_census_update_should_process' = 'Mesclar observações de serviço no censo de serviços'
+    'runner.service_hostproof_exited' = @(
+        'O daemon pool-control no host encerrou imediatamente (código '
+        @{
+            'arg' = 'code'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); a porta '
+        @{
+            'arg' = 'port'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' pode estar em uso por outro processo. Nada foi anunciado.'
+    )
+    'runner.service_hostproof_previous_running' = @(
+        'O daemon pool-control anterior no host (pid '
+        @{
+            'arg' = 'pid'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ') não pôde ser parado ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '); recusando iniciar um segundo. Pare-o e execute novamente.'
+    )
     'runner.service_lockset_should_process' = @(
         'Obter os bloqueios de operação dos serviços '
         @{
@@ -24046,6 +24344,36 @@
         }
         '); ela não foi iniciada nem recriada.'
     )
+    'runner.service_start_degraded' = @(
+        ''''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' foi construída com valores de seed degradados: '
+        @{
+            'arg' = 'names'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. O serviço é executado, mas o convidado não os tem até ser reconstruído com eles resolvidos.'
+    )
+    'runner.service_start_stop_requested' = @(
+        'Uma parada de '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' foi solicitada enquanto este início era executado, então o serviço não é anunciado. Execute '
+        @{
+            'arg' = 'stopScript'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' novamente para remover a VM.'
+    )
     'runner.service_stop_final_state_unexpected' = @(
         'Estado final da VM '''
         @{
@@ -24060,6 +24388,39 @@
             'trust' = 'internal'
         }
         ' (esperado: ausente após a remoção). Inspecione-a com as ferramentas do hospedeiro e execute Stop-CachingProxyServiceVM.ps1 novamente.'
+    )
+    'runner.ssh_host_key_pin_mismatch' = @(
+        'A chave de host SSH em '
+        @{
+            'arg' = 'address'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' não é a chave que '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' apresentou no primeiro contato, portanto o comando não foi executado: outra máquina pode estar respondendo nesse endereço. Se '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' foi recriada fora do executor, execute Reset-GuestHostKeyPin -VMName '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' (chave fixada: '
+        @{
+            'arg' = 'pin'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ').'
     )
     'runner.start_cycle_worker_cleanup_failed' = @(
         'Início de ciclo '
@@ -24247,6 +24608,120 @@
             'trust' = 'internal'
         }
         '/status/ terão o tempo esgotado.'
+    )
+    'runner.status_listener_busy' = @(
+        'O serviço de status (PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') na porta '
+        @{
+            'arg' = 'port'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' não respondeu em 3 s, mas sua concessão de atividade mostra que ele está atendendo '
+        @{
+            'arg' = 'route'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' há '
+        @{
+            'arg' = 'seconds'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' s; ele continua em execução.'
+    )
+    'runner.status_listener_lease_verdict' = @(
+        'Serviço de status (PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '): concessão de atividade '
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', '
+        @{
+            'arg' = 'seconds'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' s).'
+    )
+    'runner.status_listener_replace_in_cycle' = @(
+        'Sinalizador de endereço do hospedeiro: o serviço de status (PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') não responde e sua concessão indicou travamento ('
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' há '
+        @{
+            'arg' = 'seconds'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' s em '''
+        @{
+            'arg' = 'route'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''); o início de substituição terminou com '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.status_listener_replaced' = @(
+        'Start-StatusService: parando o serviço de status travado (PID '
+        @{
+            'arg' = 'processId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' há '
+        @{
+            'arg' = 'seconds'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' s em '''
+        @{
+            'arg' = 'route'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''') e iniciando um novo.'
     )
     'runner.status_refresh_safe_existing_ready' = @(
         'O status service de PID '
@@ -24506,6 +24981,44 @@
             'trust' = 'external'
         }
         '). O ciclo continua, as exclusões continuam verificando referências, e o próximo ciclo tenta de novo.'
+    )
+    'runner.wait_ended_on_kernel_stall' = @(
+        'A espera pelo texto '''
+        @{
+            'arg' = 'patternLabel'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' terminou após ~'
+        @{
+            'arg' = 'waited'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's de '
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's: o kernel do convidado não atendeu nenhuma interrupção no(s) processador(es) virtual(is) '
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' por '
+        @{
+            'arg' = 'silentSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's e o seu console serial relatou '
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.warm_resume_declined_unverified' = @(
         '  WARM-RESUME recusado: '''

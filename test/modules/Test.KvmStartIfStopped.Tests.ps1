@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c1f2a7-5d3e-4b8a-9e61-7a4f0b2c9d13
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -786,8 +786,12 @@ Describe 'Restore-VMDiskSnapshot (KVM) -- discard current state only after valid
 
     It 'retains graceful shutdown before saving disk contents' {
         $hostPath = Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile($hostPath, [ref]$null, [ref]$null)
-        $save = Get-YurunaTestFunctionAst -Ast $ast -Name 'Save-VMDiskSnapshot'
+        $ast = Get-YurunaTestFileAst -Path $hostPath
+        # The save stops the VM through the stop primitive it hands the
+        # shared save.
+        $saveText = (Get-YurunaTestFunctionAst -Ast $ast -Name 'Save-VMDiskSnapshot').Extent.Text
+        $saveText | Should -Match 'Stop\s*=\s*\{\s*param\(\$Name\)\s*Stop-KvmVMForSnapshot -VMName \$Name\s*\}'
+        $save = Get-YurunaTestFunctionAst -Ast $ast -Name 'Stop-KvmVMForSnapshot'
         $stopCalls = @($save.FindAll({
             param($node)
             $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Stop-VM'
@@ -822,6 +826,10 @@ Describe 'Save-VMDiskSnapshot (KVM) -- confirmed power-off before metadata chang
         Mock -ModuleName Yuruna.Host Rename-VM { $script:SaveCalls.Add('rename'); $true }
         Mock -ModuleName Yuruna.Host Invoke-Virsh { $script:SaveCalls.Add(($VirshArgs -join ' ')); $global:LASTEXITCODE = 0 }
         Mock -ModuleName Yuruna.Host Format-YurunaOperatorMessage { $Key }
+        # The persisted name and its aside are free; the working VM's power
+        # state is what Get-KvmDomainState answers above.
+        Mock -ModuleName Yuruna.Host Get-VMState { 'absent' }
+        Mock -ModuleName Yuruna.Host Get-VMDiskSnapshotState { 'present' }
     }
 
     It 'confirms graceful power-off before promoting the VM and replacing its snapshot' {
@@ -971,7 +979,7 @@ Describe 'Assert-Virtualization (KVM) -- idle socket activation' {
             elseif ($unit -eq 'libvirtd.socket') { $global:LASTEXITCODE = 0; $script:SocketState }
             else { $global:LASTEXITCODE = 4; 'unknown' }
         }
-        Mock -ModuleName Yuruna.Host virsh { $global:LASTEXITCODE = $script:VirshExit }
+        Mock -ModuleName Yuruna.Host Invoke-Virsh { $global:LASTEXITCODE = $script:VirshExit; @() } -ParameterFilter { ($VirshArgs -join ' ') -eq 'list --name' }
     }
 
     It 'accepts an idle libvirtd behind a listening socket when the virsh round trip succeeds' {

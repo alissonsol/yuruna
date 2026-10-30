@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d362a1-db11-4834-938e-bcea5a9d09f2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,8 +42,11 @@ $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChil
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-# PSScriptInfo `.GUID <guid>` (scripts) and a manifest's `GUID = '<guid>'`
-# (.psd1) are the two shapes the convention appears in.
+Import-Module (Join-Path $repoRoot 'tools/Source.Identity.psm1') -Force -Global
+
+# The identity a PowerShell file declares is the .GUID of its PSScriptInfo
+# block, read the way the metadata gate reads it: a .GUID line elsewhere, such
+# as one quoted in a test fixture, declares nothing.
 function Get-ScriptGuid {
     [CmdletBinding()]
     [OutputType([string])]
@@ -53,11 +56,8 @@ function Get-ScriptGuid {
     catch [IO.DirectoryNotFoundException] { return $null }
     catch { return '' }
     try { $lines = [IO.File]::ReadAllLines($Path) } catch { return '' }
-    foreach ($line in $lines) {
-        if ($line -match '^\s*\.GUID\s+([0-9a-fA-F-]{36})\s*$')        { return $Matches[1] }
-        if ($line -match "^\s*GUID\s*=\s*['`"]([0-9a-fA-F-]{36})['`"]") { return $Matches[1] }
-    }
-    return ''
+    $declared = (Get-SourceHeaderFact -Style 'psinfo' -Line $lines).Guid
+    return $(if ($declared) { [string]$declared } else { '' })
 }
 
 function Get-TrackedPowerShellFile {
@@ -190,6 +190,23 @@ Describe 'the working-tree script GUID census' {
             Assert-Equal -Expected 1 -Actual $found.Count
             Assert-StringEqual -Expected 'new.ps1' -Actual $found[0].Rel
             Assert-True ($null -ne $found[0].Guid -and $found[0].Guid -ceq '') 'the new missing GUID remains a failure'
+        } finally { Remove-ScriptGuidCensusFixture -FixtureRoot $fixture }
+    }
+
+    It 'counts only the GUID a PSScriptInfo block declares, not one the file quotes' {
+        # A suite that writes a fixture header quotes a .GUID line in a
+        # here-string. The metadata gate reads only the block, so a census
+        # that read any .GUID line would credit a file with no header and
+        # could pair it with the real owner as a duplicate.
+        $fixture = New-ScriptGuidCensusFixture
+        try {
+            [IO.File]::WriteAllText((Join-Path $fixture 'quoted.ps1'), "Write-Output @'`n.GUID 42a701dd-4c44-4321-a234-123456789abc`n'@`n")
+            [IO.File]::WriteAllText((Join-Path $fixture 'declared.ps1'),
+                "<#PSScriptInfo`n.VERSION 2026.10.30`n.GUID 42b802ee-5d55-4432-b345-23456789abcd`n#>`nWrite-Output @'`n.GUID 42a701dd-4c44-4321-a234-123456789abc`n'@`n")
+            $found = @(Get-ScriptGuidRecord -RepoRoot $fixture | Sort-Object Rel)
+            Assert-Equal -Expected 2 -Actual $found.Count
+            Assert-StringEqual -Expected '42b802ee-5d55-4432-b345-23456789abcd' -Actual $found[0].Guid 'declared.ps1 declares the GUID of its block'
+            Assert-StringEqual -Expected '' -Actual $found[1].Guid 'quoted.ps1 has no PSScriptInfo block, so it declares no GUID'
         } finally { Remove-ScriptGuidCensusFixture -FixtureRoot $fixture }
     }
 

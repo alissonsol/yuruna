@@ -32,16 +32,11 @@ BeforeAll {
     $script:RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.WindowsInstaller.psm1') -Force -DisableNameChecking
 
+    Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.DriverSource.psm1') -Force -DisableNameChecking
     function Get-WindowsInstallerFunction {
         param([string]$RelativePath, [string]$Name)
-        $errors = $null
-        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot $RelativePath), [ref]$null, [ref]$errors)
-        if ($errors) { throw $errors[0].Message }
-        $function = $ast.Find({ param($node)
-            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $Name
-        }, $true)
-        if (-not $function) { throw "Missing function $Name in $RelativePath" }
-        return $function.Extent.Text
+        # A driver root's functions are found in whichever of its files defines them.
+        return (Get-YurunaSourceFunction -Path (Join-Path $script:RepoRoot $RelativePath) -Name $Name)
     }
 
     function Get-WindowsInstallerStartRegion {
@@ -309,6 +304,15 @@ Describe 'Windows builders start before sending the DVD key' {
             $Name | Should -Be 'fixture-windows'
             $script:StartupCalls.Add('start')
             if ($script:StartupFailure) { throw 'Fixture startup failed.' }
+        }
+        # The Hyper-V builder starts the VM through the driver's bounded call,
+        # which the region names module-qualified; here it reaches the stub above.
+        function Invoke-HyperVGuestBuildCmdlet {
+            [CmdletBinding()]
+            param($VMName, $Command, [hashtable]$Parameter, [switch]$Optional)
+            $VMName | Should -Be 'fixture-windows'
+            $Command | Should -Be 'Start-VM'
+            Start-VM @Parameter
         }
         function Start-UtmVM {
             [CmdletBinding(SupportsShouldProcess)]

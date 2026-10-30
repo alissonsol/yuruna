@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427e2e91-a49b-4c4a-99a0-cf1f450ad4c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,7 @@
 param()
 if (-not (Get-Command Describe -ErrorAction SilentlyContinue)) { throw 'Run this suite with Pester.' }
 BeforeAll {
+    Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))) 'test/modules/Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     function Get-SourceFunction {
         param([string]$Path, [string]$Name)
@@ -120,21 +121,32 @@ Describe 'Shell installer failure boundaries' -Skip:(-not (Get-Command bash -Err
         $source = Get-Content (Join-Path $script:RepoRoot 'install/ubuntu.kvm.sh') -Raw
         $body = [regex]::Match($source, '(?ms)^yuruna_install_cleanup\(\) \{.*?^\}').Value
         $body = [regex]::Match($source, '(?ms)^yuruna_cleanup_tmp_paths\(\) \{.*?^\}').Value + "`n" + $body
+        # The trap ends by writing the outcome record; its writer comes along, with
+        # the state folder under TestDrive so no record reaches the real home.
+        foreach ($name in 'yuruna_json_string', 'write_install_result') {
+            $body = [regex]::Match($source, "(?ms)^$name\(\) \{.*?^\}").Value + "`n" + $body
+        }
+        $state = Join-Path $TestDrive 'state'
         $fixture = Join-Path $TestDrive 'cleanup.sh'
         $content = @'
 set -euo pipefail
 SUDO_KEEPALIVE_PID=99999999
 YURUNA_STATUS_BACKUP=""
+YURUNA_ISSUES=()
 _yuruna_step=fixture-stage
-YURUNA_INSTALL_LOG=fixture.log
 _yuruna_flush_log() { :; }
-'@
+'@ + "`nXDG_STATE_HOME='$state'`nYURUNA_INSTALL_LOG='$(Join-Path $TestDrive 'fixture.log')'"
         [IO.File]::WriteAllText($fixture, $content + "`n" + $body + "`ntrap yuruna_install_cleanup EXIT`nfailing_step() { false; }`nfailing_step`n")
         $output = & bash $fixture 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 1
         $output | Should -Match 'installer exited with code 1'
         $output | Should -Match 'fixture-stage'
         $output | Should -Match 'fixture.log'
+        $record = Get-Content -LiteralPath (Join-Path $state 'yuruna/install-result.json') -Raw | ConvertFrom-Json
+        $record.outcome | Should -Be 'failed'
+        $record.exitCode | Should -Be 1
+        $record.step | Should -Be 'fixture-stage'
+        Test-Path -LiteralPath (Join-Path $TestDrive 'fixture.result.json') | Should -BeTrue
     }
     It 'rejects an unpublished Microsoft suite before changing any apt file' {
         $source = Get-Content (Join-Path $script:RepoRoot 'install/ubuntu.kvm.sh') -Raw
@@ -193,7 +205,7 @@ Describe 'Windows installer stops only the processes its PID files still name' {
         $script:Pattern = @('Start-TestRunner.ps1', 'Invoke-TestRunnerInnerLoop.ps1')
     }
     BeforeEach {
-        $script:SavedRuntimeDir = $env:YURUNA_RUNTIME_DIR
+        $script:SavedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR
         $script:Started = [datetime]::UtcNow.AddHours(-1)
@@ -208,7 +220,7 @@ Describe 'Windows installer stops only the processes its PID files still name' {
         function Write-Warn { }
     }
     AfterEach {
-        if ($null -eq $script:SavedRuntimeDir) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntimeDir }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeDir
     }
 
     It 'accepts a process that runs a Yuruna script, or one that started when its start record says' {
@@ -264,15 +276,14 @@ Describe 'Shell installers stop only the processes their PID files still name' -
             $stubs = "set -euo pipefail`nlog() { echo `"LOG: `$*`"; }`nwarn() { echo `"WARN: `$*`" >&2; }`npgrep() { :; }`nlsof() { :; }`nss() { :; }`n"
             $fixture = Join-Path $TestDrive ('stop-' + [guid]::NewGuid().ToString('N') + '.sh')
             [IO.File]::WriteAllText($fixture, $stubs + ($bodies -join "`n") + "`nstop_yuruna_processes`n")
-            $saved = @{ Runtime = $env:YURUNA_RUNTIME_DIR; Dir = $env:YURUNA_DIR }
+            $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'YURUNA_DIR'
             try {
                 $env:YURUNA_RUNTIME_DIR = $RuntimeDir
                 $env:YURUNA_DIR = $TestDrive
                 $output = & bash $fixture 2>&1 | Out-String
                 return @{ Code = $LASTEXITCODE; Output = $output }
             } finally {
-                $env:YURUNA_RUNTIME_DIR = $saved.Runtime
-                $env:YURUNA_DIR = $saved.Dir
+                Restore-YurunaTestEnvironment -Saved $saved
             }
         }
         function Start-FakeRunner {

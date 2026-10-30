@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42fa11cf-0b8e-4cd0-886d-508a27923c57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -227,6 +227,7 @@ Describe 'Manifest readers + Write-YurunaPoolManifest' {
     }
     It 'writes a manifest from a pool object and clears it when the pool has no repositories' {
         $d = New-TempDir
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = $d
             $pool = [ordered]@{ poolId='lab'; poolGuid='42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; repositories=[ordered]@{ frameworkUrl='https://x/f'; projectUrl='https://x/p' }; config=[ordered]@{} }
@@ -240,7 +241,7 @@ Describe 'Manifest readers + Write-YurunaPoolManifest' {
             # A pool with no repositories -> stale manifest removed
             $null = Write-YurunaPoolManifest -Pool ([ordered]@{ poolId='lab'; poolGuid='42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071' }) -Confirm:$false
             Assert-False (Test-Path $path) 'a pool without repositories clears the manifest'
-        } finally { $env:YURUNA_RUNTIME_DIR=$null; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -302,6 +303,7 @@ Describe 'Get-CycleOrchestrationList + Resolve-CyclePlan orchestration handling'
 Describe 'Write-YurunaPoolManifest repositories contract' {
     It 'writes exactly poolId, poolGuid, repositories, config and writtenAtUtc, with trimmed URLs' {
         $d = New-TempDir
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = $d
             $pool = [ordered]@{ poolId='lab'; poolGuid='42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; repositories=[ordered]@{ frameworkUrl=' https://x/f '; projectUrl='https://x/p' } }
@@ -310,10 +312,11 @@ Describe 'Write-YurunaPoolManifest repositories contract' {
             Assert-Equal -Expected 'config,poolGuid,poolId,repositories,writtenAtUtc' -Actual (Get-OrdinalKeyList -Map $back) -Because 'the manifest keys are a contract with the inner runner'
             Assert-Equal -Expected 'frameworkUrl,projectUrl' -Actual (Get-OrdinalKeyList -Map $back['repositories']) -Because 'repositories carries exactly the URL pair'
             Assert-Equal -Expected 'https://x/f' -Actual $back['repositories']['frameworkUrl'] -Because 'surrounding whitespace is trimmed'
-        } finally { $env:YURUNA_RUNTIME_DIR=$null; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'writes no manifest when either URL is missing or blank' {
         $d = New-TempDir
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = $d
             $path = Join-Path $d 'pool.manifest.json'
@@ -329,10 +332,11 @@ Describe 'Write-YurunaPoolManifest repositories contract' {
                 Assert-False (Write-YurunaPoolManifest -Pool $pool -Confirm:$false) 'no manifest for an incomplete pair'
                 Assert-False (Test-Path $path) 'an incomplete pair clears a stale manifest'
             }
-        } finally { $env:YURUNA_RUNTIME_DIR=$null; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'ignores repositories on the auto-enrollment target pool, warns, and removes a stale manifest' {
         $d = New-TempDir
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = $d
             $path = Join-Path $d 'pool.manifest.json'
@@ -345,7 +349,7 @@ Describe 'Write-YurunaPoolManifest repositories contract' {
             Assert-Equal -Expected 1 -Actual @($warnings).Count -Because 'the ignored repositories are reported once'
             Assert-True ("$($warnings[0])".Contains('default')) 'the warning names the pool'
             Assert-True (Write-YurunaPoolManifest -Pool $pool -AutoEnrollTargetPoolId 'other' -Confirm:$false) 'the same pool is honored when it is not the target'
-        } finally { $env:YURUNA_RUNTIME_DIR=$null; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'is read under the same key by the inner runner' {
         # A key mismatch between this writer and its only reader does not fail

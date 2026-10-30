@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d6fef3-6ad4-49be-88bf-13de72c99714
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -10,13 +10,13 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
     $script:relayRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $script:bare = Join-Path $TestDrive 'framework.git'
     $source = Join-Path $TestDrive 'source'
     $null = New-Item -ItemType Directory $source
-    & git -C $source init --quiet --initial-branch main
-    & git -C $source -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet --allow-empty -m 'outage fixture'
+    $null = New-YurunaTestGitRepository -Path $source -CommitMessage 'outage fixture'
     $script:sha = ([string](& git -C $source rev-parse HEAD)).Trim()
     & git clone --quiet --bare $source $script:bare
     if ($LASTEXITCODE) { throw 'Could not create the native Git outage fixture.' }

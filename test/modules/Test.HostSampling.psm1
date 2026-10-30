@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d6d3a9-02a1-4fb8-87ed-a2137333c910
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -480,6 +480,11 @@ $script:LivelockCauseCounters = @('Hypercalls/sec','SysReg Accesses/sec','MSR Ac
 # Synthetic bucket name for Get-YurunaVmLivelockVerdict's unexplained
 # remainder; never a real PDH counter, so it can never collide with one.
 $script:LivelockUnaccountedLabel = 'Unaccounted/sec'
+# Counters whose raw count and timestamp a run sample keeps beside the
+# cooked value. The cooked value is a rate over the sampler's one-second
+# collection, which a single interrupt can lift above zero or a quiet second
+# can drop to it; the raw pair gives the count over the whole interval.
+$script:VmRunRawCounters = @('Virtual Interrupts/sec')
 
 function ConvertTo-YurunaVmRunSample {
     <# .SYNOPSIS
@@ -497,6 +502,7 @@ function ConvertTo-YurunaVmRunSample {
         }
     }
     $machines = @{}
+    $raw = @{}
     foreach ($counter in @($Record.Counters)) {
         if (-not $counter -or $counter.Status -ne 'present' -or $null -eq $counter.Value) { continue }
         $instance = [string]$counter.Instance
@@ -511,6 +517,11 @@ function ConvertTo-YurunaVmRunSample {
         if (-not $machines.ContainsKey($vm)) { $machines[$vm] = @{} }
         if (-not $machines[$vm].ContainsKey($vp)) { $machines[$vm][$vp] = @{} }
         $machines[$vm][$vp][$name] = [double]$counter.Value
+        if ($name -in $script:VmRunRawCounters -and $null -ne $counter.RawValue -and $null -ne $counter.SecondValue) {
+            if (-not $raw.ContainsKey($vm)) { $raw[$vm] = @{} }
+            if (-not $raw[$vm].ContainsKey($vp)) { $raw[$vm][$vp] = @{} }
+            $raw[$vm][$vp][$name] = [pscustomobject]@{ Count = [double]$counter.RawValue; Ticks = [double]$counter.SecondValue }
+        }
     }
     # Get-VM's listing of the guests running when the sample was taken, or
     # $null when the record carries no successful listing. A powered-off guest
@@ -526,7 +537,7 @@ function ConvertTo-YurunaVmRunSample {
     $utc = if ($Record.Utc -is [datetime]) { $Record.Utc.ToUniversalTime() } else {
         [datetime]::Parse([string]$Record.Utc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
     }
-    [pscustomobject]@{ Utc = $utc; VMs = $machines; Running = $running; CounterCapabilities = @($Record.Capabilities | Where-Object Object -EQ 'Hyper-V Hypervisor Virtual Processor' | Select-Object Counter, Status, Reason) }
+    [pscustomobject]@{ Utc = $utc; VMs = $machines; RawCounters = $raw; Running = $running; CounterCapabilities = @($Record.Capabilities | Where-Object Object -EQ 'Hyper-V Hypervisor Virtual Processor' | Select-Object Counter, Status, Reason) }
 }
 
 function Read-YurunaHostVmRunSample {
@@ -612,6 +623,72 @@ function Read-YurunaHostVmRunSample {
     return $cache.Samples.ToArray()
 }
 
+function Test-YurunaVpStormed {
+    <# .SYNOPSIS
+        Whether one sampled processor reading has the storm shape: at least 80%
+        busy with the hypervisor holding at least 88% of that, or at least a
+        million intercepts per second.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param($Processor)
+    if (-not $Processor) { return $false }
+    $g = $Processor['% Guest Run Time']; $h = $Processor['% Hypervisor Run Time']; $t = $Processor['Total Intercepts/sec']
+    $measured = ($null -ne $g -and $null -ne $h -and [double]::IsFinite([double]$g) -and [double]::IsFinite([double]$h) -and
+        $g -ge 0 -and $h -ge 0 -and $g -le 100.5 -and $h -le 100.5)
+    $pinned = $measured -and (($g + $h) -ge 80) -and (($h / [math]::Max(0.001, $g + $h)) -ge 0.88)
+    $storming = ($null -ne $t -and [double]::IsFinite([double]$t) -and $t -ge 1000000)
+    return [bool]($pinned -or $storming)
+}
+
+function Get-YurunaVmQuietProcessorRun {
+    <# .SYNOPSIS
+        The newest unbroken run in which one processor took no virtual
+        interrupt while it had the storm shape.
+    .DESCRIPTION
+        A processor the guest has stopped servicing still traps: the
+        hypervisor holds it on external interrupts while nothing reaches the
+        guest, and its sibling spins waiting on it. Idle Linux processors on
+        the ARM64 lab host have the storm shape too but still take tens of
+        virtual interrupts a second, so the floor of one a second is what
+        separates them, and the storm shape keeps out processors idle to the
+        hypervisor, which are not busy and take nothing. Each interval is
+        judged from the raw interrupt count over the whole interval, never
+        from the cooked one-second rate. A gap in the recording, a counter
+        that went back, or a reading without the raw pair ends the run. The
+        run starts when the silence took the storm shape, which can trail the
+        moment the guest stopped servicing the processor by tens of seconds
+        while the processor still spins in guest code.
+    .OUTPUTS
+        [pscustomobject] Seconds and SinceUtc ('' and 0 outside a run), or
+        $null when no interval could be measured.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([object[]]$Reading, [string]$VMKey, [string]$Processor, [int]$GapLimit)
+    $counter = $script:VmRunRawCounters[0]
+    $measured = 0
+    $runEnd = $null; $runStart = $null
+    for ($i = $Reading.Count - 1; $i -ge 1; $i--) {
+        $newer = $Reading[$i]; $older = $Reading[$i - 1]
+        if (($newer.Utc - $older.Utc).TotalSeconds -gt $GapLimit) { break }
+        $b = if ($newer.RawCounters -and $newer.RawCounters[$VMKey] -and $newer.RawCounters[$VMKey][$Processor]) { $newer.RawCounters[$VMKey][$Processor][$counter] } else { $null }
+        $a = if ($older.RawCounters -and $older.RawCounters[$VMKey] -and $older.RawCounters[$VMKey][$Processor]) { $older.RawCounters[$VMKey][$Processor][$counter] } else { $null }
+        if (-not $a -or -not $b) { break }
+        $ticks = $b.Ticks - $a.Ticks
+        $count = $b.Count - $a.Count
+        if ($ticks -le 0 -or $count -lt 0) { break }
+        $measured++
+        $perSecond = $count / ($ticks / 10000000)
+        if ($perSecond -ge 1 -or -not (Test-YurunaVpStormed -Processor $newer.VMs[$VMKey][$Processor])) { break }
+        if (-not $runEnd) { $runEnd = $newer.Utc }
+        $runStart = $older.Utc
+    }
+    if ($measured -eq 0) { return $null }
+    if (-not $runEnd) { return [pscustomobject]@{ Seconds = 0; SinceUtc = '' } }
+    [pscustomobject]@{ Seconds = [int]($runEnd - $runStart).TotalSeconds; SinceUtc = $runStart.ToString('o') }
+}
+
 function Get-YurunaVmProcessorWindow {
     <# .SYNOPSIS
         Summarize each processor independently of the automatic recovery predicate.
@@ -680,11 +757,16 @@ function Get-YurunaVmProcessorWindow {
             $rate = $counters[$cause].Average
             if ($null -ne $rate -and $rate -gt $dominantRate) { $dominantRate = $rate; $dominant = $cause }
         }
+        # Judged over every reading the caller passed, not only the window:
+        # the run is as long as the readings since the wait began show it.
+        $quiet = Get-YurunaVmQuietProcessorRun -Reading $Reading -VMKey $VMKey -Processor ([string]$id) -GapLimit $GapLimit
         [pscustomobject]@{
             Processor = [string]$id; Counters = $counters
             HypervisorShare = $hypervisorShare
             Stormed = [bool](($null -ne $busy -and $busy -ge 80 -and $null -ne $hypervisorShare -and $hypervisorShare -ge 0.88) -or
                 ($null -ne $interceptAverage -and $interceptAverage -ge 1000000))
+            NoInterruptsServicedSeconds = if ($quiet) { $quiet.Seconds } else { $null }
+            NoInterruptsServicedSinceUtc = if ($quiet) { $quiet.SinceUtc } else { '' }
             DominantIntercept = $dominant
             UnaccountedEstimatePerSecond = if ($residuals.Count) { [math]::Round(($residuals | Measure-Object -Average).Average) } else { $null }
             ResidualSampleCount = $residuals.Count
@@ -702,12 +784,7 @@ function Get-YurunaVmProcessorWindow {
         $set = @(foreach ($id in $processorIds) {
             $vp = $row.VMs[$VMKey][$id]
             if (-not $vp) { continue }
-            $g = $vp['% Guest Run Time']; $h = $vp['% Hypervisor Run Time']; $t = $vp['Total Intercepts/sec']
-            $measured = ($null -ne $g -and $null -ne $h -and [double]::IsFinite([double]$g) -and [double]::IsFinite([double]$h) -and
-                $g -ge 0 -and $h -ge 0 -and $g -le 100.5 -and $h -le 100.5)
-            $pinned = $measured -and (($g + $h) -ge 80) -and (($h / [math]::Max(0.001, $g + $h)) -ge 0.88)
-            $storming = ($null -ne $t -and [double]::IsFinite([double]$t) -and $t -ge 1000000)
-            if ($pinned -or $storming) { [string]$id }
+            if (Test-YurunaVpStormed -Processor $vp) { [string]$id }
         })
         $key = ($set -join ',')
         if ($null -ne $previousSet -and $key -ne $previousSet) {
@@ -722,6 +799,10 @@ function Get-YurunaVmProcessorWindow {
         Processors=$processors; CounterCapabilities=@($Reading[-1].CounterCapabilities)
         StormedProcessors=@($processors | Where-Object Stormed | ForEach-Object Processor)
         StormTransitions=@($transitions)
+        # Healthy guests on the ARM64 lab host showed such a run for one or two
+        # intervals at most; a guest kernel that stopped servicing a processor
+        # held it until the VM was powered off.
+        NoInterruptsServicedProcessors=@($processors | Where-Object { $null -ne $_.NoInterruptsServicedSeconds -and $_.NoInterruptsServicedSeconds -ge 120 } | ForEach-Object Processor)
     }
 }
 

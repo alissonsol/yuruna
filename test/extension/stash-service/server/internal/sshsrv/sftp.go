@@ -9,17 +9,17 @@
 // (chooseTarget + FinalizeStaging + commit). Downloads and listings are
 // refused; the stash is a sink.
 //
-// Path handling (section 5.1): the client-supplied path is metadata, not a real
+// Path handling (https://yuruna.link/429e934f-0007): the client-supplied path is metadata, not a real
 // location. Stat reports EVERY path as a directory, so scp appends the
 // real local filename and we always capture a sensible originalFilename;
 // the full requested path is stored verbatim as pathMetadata.
 //
-// Limitation: the SFTP protocol has no channel to surface the section 9
+// Limitation: the SFTP protocol has no channel to surface the
 // "YURUNA-STASH-ID: <id>" line to the scp client (that marker only shows
 // under the legacy protocol, which renders server stderr). Over SFTP the
 // ID is logged server-side and recorded in metadata, not echoed to the
-// client. Each uploaded file becomes its own record (the section 5.3/section 5.4
-// multi-file/recursive ZIP grouping is a legacy-protocol behavior).
+// client. Each uploaded file becomes its own record (the multi-file/recursive
+// ZIP grouping is a legacy-protocol behavior, https://yuruna.link/429e934f-0007).
 package sshsrv
 
 import (
@@ -107,7 +107,7 @@ func (h *stashSFTP) release() {
 func (h *stashSFTP) Filecmd(*sftp.Request) error { return nil }
 
 // Filelist answers Stat/List/Readlink. Stat reports any path as a
-// directory so scp appends the local filename (section 5.1 path-is-metadata);
+// directory so scp appends the local filename (path-is-metadata, https://yuruna.link/429e934f-0007);
 // List is empty; Readlink is unsupported.
 func (h *stashSFTP) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 	switch r.Method {
@@ -166,7 +166,7 @@ type sftpUpload struct {
 
 // newSFTPUpload allocates an ID, picks the share/buffer target, inserts a
 // pending row, and opens a staging file. reqPath is the client-supplied
-// path, stored verbatim as pathMetadata (section 5.1).
+// path, stored verbatim as pathMetadata (https://yuruna.link/429e934f-0007).
 func (s *Server) newSFTPUpload(reqPath, username, clientIP string) (*sftpUpload, error) {
 	now := time.Now().UTC()
 	// The staging FILE is opened after the row is written, not before: an ID
@@ -186,8 +186,8 @@ func (s *Server) newSFTPUpload(reqPath, username, clientIP string) (*sftpUpload,
 	}
 	f, err := os.Create(filepath.Join(pending.stagingDir, origName))
 	if err != nil {
-		// Nothing was received, so the row must go the way the section 5.5
-		// empty-filename path takes it: no artifact, no record.
+		// Nothing was received, so the row must go the way the empty-filename
+		// path (https://yuruna.link/429e934f-0008) takes it: no artifact, no record.
 		if derr := s.Meta.Delete(pending.id); derr != nil {
 			log.Printf("sftp: delete pending row after staging-file failure id=%s: %v", pending.id, derr)
 		}
@@ -203,7 +203,7 @@ func (s *Server) newSFTPUpload(reqPath, username, clientIP string) (*sftpUpload,
 }
 
 // WriteAt writes a chunk to the staging file, enforcing the 100 MB cap
-// (section 5.5): bytes past the cap are dropped and the record flagged truncated,
+// (https://yuruna.link/429e934f-0008): bytes past the cap are dropped and the record flagged truncated,
 // but the client still sees a full-length write so the transfer completes.
 func (u *sftpUpload) WriteAt(p []byte, off int64) (int, error) {
 	u.mu.Lock()
@@ -243,7 +243,7 @@ var _ sftp.TransferError = (*sftpUpload)(nil)
 
 // Close finalizes the staged file into the stash (single-file artifact)
 // and commits the metadata + sidecar. pkg/sftp calls this on the SFTP
-// CLOSE request. A mid-transfer failure is recorded as partial (section 8.2).
+// CLOSE request. A mid-transfer failure is recorded as partial (https://yuruna.link/429e934f-000d).
 func (u *sftpUpload) Close() error {
 	u.mu.Lock()
 	defer u.mu.Unlock()

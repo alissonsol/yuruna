@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ada8e8-3ff4-49bc-88b3-4e1d20a217de
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,6 +67,8 @@ if (-not $IsLinux) {
     exit 1
 }
 
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Stop on failed VM configuration; the child process exit is the caller's failure signal.
 $ErrorActionPreference = 'Stop'
 $ScriptDir = $GuestScriptRoot
 
@@ -352,9 +354,16 @@ try {
     }
 
     Write-Verbose "virt-install --print-xml=1 $($installArgs -join ' ')"
-    $installXml = (& virt-install @installArgs --print-xml=1 2>&1) -join "`n"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_bba21c5cbbc83755' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; installXml = "$installXml" })
+    # virt-install reads the host's capabilities from libvirt even to print.
+    $printed = Invoke-BoundedNativeCommand -FilePath 'virt-install' -ArgumentList (@($installArgs) + '--print-xml=1') -TimeoutSeconds 120
+    # The definition is stdout alone; a warning on stderr is not XML.
+    $installXml = @(Get-BoundedNativeOutputLine -Result $printed) -join "`n"
+    $printExit = if (Test-BoundedNativeResultComplete -Result $printed) { $printed.ExitCode } else { -1 }
+    if ($printExit -ne 0) {
+        $printedText = @(Get-BoundedNativeOutputLine -Result $printed -IncludeError) -join "`n"
+        $message = Format-YurunaOperatorMessage -Key 'host.operator_bba21c5cbbc83755' -Arguments @{ lASTEXITCODE = "$printExit"; installXml = "$printedText" }
+        Write-YurunaProvisionResult -Kind $(if ($printed.Started -and $printExit -eq -1) { 'unresponsive' } else { 'tool' }) -Message $message
+        Write-Error $message
         exit 1
     }
 
@@ -388,10 +397,25 @@ try {
     $xmlFile = New-TemporaryFile
     try {
         Set-Content -LiteralPath $xmlFile.FullName -Value $patchedXml -NoNewline
-        & virsh --connect $virshUri define $xmlFile.FullName
-        if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a419339df771d79e' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" }); exit 1 }
-        & virsh --connect $virshUri start $VMName
-        if ($LASTEXITCODE -ne 0) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1b83e0a223018f37' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" }); exit 1 }
+        # Bounded like every other virsh call: a daemon that stops answering is
+        # recorded as such for the runner instead of holding the build. Each
+        # failure key is passed by name so the catalog source map can trace it
+        # to the formatter.
+        function Invoke-BuildVirshStep {
+            param([string[]]$Arguments, [string]$FailureKey)
+            $virsh = Invoke-BoundedNativeCommand -FilePath 'virsh' -ArgumentList (@('--connect', $virshUri) + $Arguments) `
+                -Environment @{ LC_MESSAGES = 'C'; LC_ALL = '' } -TimeoutSeconds 120
+            Get-BoundedNativeOutputLine -Result $virsh -IncludeError | ForEach-Object { Write-Information $_ -InformationAction Continue }
+            $complete = Test-BoundedNativeResultComplete -Result $virsh
+            if ($complete -and $virsh.ExitCode -eq 0) { return }
+            $exitText = if ($complete) { "$($virsh.ExitCode)" } else { 'no answer' }
+            $message = Format-YurunaOperatorMessage -Key $FailureKey -Arguments @{ lASTEXITCODE = $exitText }
+            Write-YurunaProvisionResult -Kind $(if ($virsh.Started -and -not $complete) { 'unresponsive' } else { 'tool' }) -Message $message
+            Write-Error $message
+            exit 1
+        }
+        Invoke-BuildVirshStep -Arguments @('define', $xmlFile.FullName) -FailureKey 'host.operator_a419339df771d79e'
+        Invoke-BuildVirshStep -Arguments @('start', $VMName) -FailureKey 'host.operator_1b83e0a223018f37'
     } finally {
         Remove-Item -LiteralPath $xmlFile.FullName -Force -ErrorAction SilentlyContinue
     }
@@ -405,3 +429,7 @@ Write-Verbose "VM '$VMName' created. Subiquity will autoinstall (~5-10 min)."
 Write-Verbose "Default credentials - username: $Username, password: <vault-managed> (must be changed on first login). Vault: test/status/extension/authentication/vault.yml (set YURUNA_GUEST_PASSWORD to bypass vault for ad-hoc dev runs)"
 Write-Verbose "Console:  virt-viewer --connect $virshUri $VMName"
 Write-Verbose "Get IP via 'virsh -c $virshUri domifaddr $VMName' once cloud-init finishes."
+
+# --- REGION: Completion
+# Clear a successful native probe's stale exit code before returning to the wrapper.
+exit 0

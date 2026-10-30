@@ -50,7 +50,8 @@ layout -- the runner does **not** silently migrate it. Instead it:
 3. Warns and stops the test when a populated value no longer maps.
 
 Copy the values the warning lists from `test.config.yml.backup` into the new
-`test.config.yml` by hand, then restart.
+`test.config.yml` by hand, then restart. The earlier versions (the newest 20) are also kept in
+`test.config.yml.journal/` (see [test configuration](../docs/test-config.md)).
 
 ### Guest ordering and skipping
 
@@ -339,6 +340,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

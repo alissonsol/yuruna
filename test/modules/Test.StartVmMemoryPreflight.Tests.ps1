@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b5c288-370d-4abd-9a24-488e540acb2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,7 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 Import-Module (Join-Path (Get-YurunaTestRepoRoot -SuiteDirectory $here) 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
+Import-Module (Join-Path (Get-YurunaTestRepoRoot -SuiteDirectory $here) 'host/modules/Yuruna.HostProvision.psm1') -Global -DisableNameChecking -WarningAction SilentlyContinue
 $script:Driver = Join-Path (Get-YurunaTestRepoRoot -SuiteDirectory $here) 'host/windows.hyper-v/modules/Yuruna.Host.psm1'
 $script:Lifted = @{}
 foreach ($name in 'Get-HostMemoryStatus', 'Format-HostMemoryStatus', 'Test-HostResourceExhaustionError',
@@ -202,6 +203,7 @@ function Invoke-StartCase {
         [hashtable]$Reading,
         [int]$MemoryWaitSeconds = 45,
         [switch]$AsWhatIf,
+        [switch]$Unanswered,
         [hashtable[]]$StorageReading = @(@{ allowed = $true; status = 'ready'; volumes = @(); vms = @(); errorCode = ''; reason = '' })
     )
     $seen = [pscustomobject]@{ Starts = 0; Definitions = 0; Sleeps = 0; StorageReads = 0 }
@@ -228,6 +230,16 @@ function Invoke-StartCase {
     }
     function Get-VMState { param($VMName) $VMState }
     function Get-HostMemoryStatus { $Reading }
+    # The start runs in a thread job on a host; here it runs in this scope,
+    # where the stand-in answers it, unless the case stands for a hypervisor
+    # that never answers.
+    function Invoke-HyperVBoundedCall {
+        param([scriptblock]$ScriptBlock, [object[]]$ArgumentList = @(), [int]$TimeoutSeconds)
+        $null = $TimeoutSeconds
+        if ($Unanswered) { return @{ TimedOut = $true; Error = $null; Output = @() } }
+        try { return @{ TimedOut = $false; Error = $null; Output = @(& $ScriptBlock @ArgumentList) } }
+        catch { return @{ TimedOut = $false; Error = $_; Output = @() } }
+    }
     function Start-Sleep {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
             Justification = 'Stand-in for the built-in of the same name, so the retry pause costs milliseconds; a confirmation prompt would hang the run.')]
@@ -414,6 +426,15 @@ Describe 'Start-VM waits, attempts, and retries only what a wait can fix' {
         Assert-Equal -Expected 1 -Actual $run.Starts -Because 'the hypervisor states the outcome, not the wait'
     }
 
+    It 'files a start the management service never answers as hypervisor_unresponsive, without a retry' {
+        $run = Invoke-StartCase -Reading $script:Ample -Unanswered
+        $run.Result.success | Should -BeFalse
+        $run.Result['failureClass'] | Should -Be 'hypervisor_unresponsive'
+        $run.Result['kind'] | Should -Be 'unresponsive'
+        $run.Starts | Should -Be 0 -Because 'the stand-in is never reached when the call does not answer'
+        $run.Sleeps | Should -Be 0 -Because 'a hung service is not a memory refusal a wait could fix'
+    }
+
     It 'skips the wait when there is no size to wait for' {
         $run = Invoke-StartCase -Reading $script:Short -StartupMemory 0 -MemoryWaitSeconds 5
         Assert-True $run.Result.success 'an unreadable VM definition must not stop the start'
@@ -477,7 +498,7 @@ Describe 'Start-VM waits, attempts, and retries only what a wait can fix' {
 Describe 'the driver publishes what the runner and the record builder call' {
 
     It 'exports every function the failure record and the preflight depend on' {
-        $source = Get-Content -Raw -LiteralPath $script:Driver
+        $source = Get-YurunaTestSourceText -Path $script:Driver
         $export = [regex]::Match($source, '(?s)Export-ModuleMember\s+-Function\s+(?<names>.+?)\r?\n\r?\n')
         Assert-True $export.Success 'the driver must carry an Export-ModuleMember block'
         foreach ($name in 'Get-HostMemoryStatus', 'Format-HostMemoryStatus', 'Test-HostResourceExhaustionError',

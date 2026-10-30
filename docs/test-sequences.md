@@ -721,7 +721,10 @@ block from its first inner step on any failure, up to `maxAttempts`.
 The block succeeds when one attempt completes every inner step; if all
 attempts fail, the deepest inner-failure label is wrapped with
 `retry exhausted (N attempts)` in `last_failure.json`. `retry` blocks
-may nest.
+may nest. An attempt whose failed send the host can never make -- text with a
+character the input path has no key for, a key name no map defines -- ends the
+block at once with the reason `deterministic-input-fault`, since every later
+attempt would fail the same way; the inner class is `plan_invalid`.
 
 | Parameter | Type | Notes |
 |---|---|---|
@@ -900,7 +903,9 @@ snapshot id so the next cycle's
 every VM whose name matches the `test-*` prefix -- leaves the persisted
 VM alone. After a successful rename the engine updates its internal
 `$VMName` to the snapshot id, so subsequent steps target the persisted
-VM transparently.
+VM transparently, and moves the guest's pinned SSH host key to the new
+name (`Move-GuestHostKeyPin`), replacing the pin an earlier guest of
+that name left behind.
 
 | Parameter | Type | Notes |
 |---|---|---|
@@ -1373,11 +1378,12 @@ know what happens on each host.
 ### `Save-VMDiskSnapshot` + `Rename-VM`
 
 Backs the [`saveDiskSnapshot`](#savedisksnapshot) action. Two
-operations run in sequence: capture a disk-only point, then move
-the VM out of the `test-*` namespace so it survives the next cycle's
-cleanup sweep (KVM reverses the order). The rename is **part of the contract** -- calling the
+operations run in sequence through the shared save
+(`Invoke-YurunaDiskSnapshotSave`): move the VM out of the `test-*`
+namespace so it survives the next cycle's cleanup sweep, then capture a
+disk-only point under that final name. The rename is **part of the contract** -- calling the
 contract function commits to both legs and returns `$false` if either
-fails.
+fails, after renaming the VMs back.
 
 <a id="428e4df6-0031"></a>
 
@@ -1480,7 +1486,7 @@ reading of `Get-VMDiskSnapshotState`, which answers `present`, `absent` or
 
 | Host | Implementation of `Get-VMDiskSnapshotState` |
 |---|---|
-| Hyper-V | Every checkpoint of the VM (`Hyper-V\Get-VMCheckpoint -VMName <name>`) after a `Get-VMState`-not-`absent` guard, matched by name; a listing that fails is `unknown`. |
+| Hyper-V | Every checkpoint of the VM (`Hyper-V\Get-VMCheckpoint -VMName <name>`) after a `Get-VMState`-not-`absent` guard, matched by name; the listing runs in a bounded call (`Invoke-HyperVLifecycleCmdlet`), as the calls that create and remove checkpoints do, and a listing that fails or does not answer within the cap is `unknown`. When a new checkpoint is not listed at once, the save also reads Hyper-V's own record for the VM's Id while it waits, bounded, for the listing. |
 | KVM | `virsh snapshot-list --domain <name> --name` after a `Get-VMState`-not-`absent` guard, matched by name: the list does not depend on the language libvirt reports errors in; a failed listing is `unknown`. |
 | UTM | `qemu-img snapshot -l` on every `*.qcow2` in the bundle's `Data/`; all disks must list `<id>` to be `present`. A missing bundle or disk is `absent`; a missing `qemu-img` or a read that did not complete is `unknown`. |
 
@@ -1562,6 +1568,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

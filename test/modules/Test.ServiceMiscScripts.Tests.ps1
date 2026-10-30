@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 424533be-1c51-4584-9728-27ea5064d2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,6 +102,9 @@ Describe 'caching proxy stop state across hosts' {
         Assert-StringEqual -Expected 'confirmed|absent' -Actual $result.ExitCall -Because 'a removal that left the VM absent confirms the stop'
         Assert-Equal -Expected 0 -Actual $result.ExitCode
         Assert-Equal -Expected 0 -Actual $result.Warnings
+        Assert-True (@($result.Order | Where-Object { $_ -like 'portmap:*' }).Count -gt 0) 'the stop tears down the host port forwards'
+        Assert-StringEqual -Expected 'portmap:caching-proxy-service' -Actual (@($result.Order | Where-Object { $_ -like 'portmap:*' } | Sort-Object -Unique) -join ',') `
+            -Because 'the cache removes only the forwards it holds, never another service''s'
     }
 
     It 'reports a <Platform> removal that left the VM registered as a failed stop' -TestCases @(
@@ -133,9 +136,9 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
         @{ Name = 'Stop-PoolControlServiceVM.ps1'; FirstMutation = @('Stop-Process', 'Remove-ExtensionServiceMarker') }
         @{ Name = 'Stop-DownloadAgentServiceVM.ps1'; FirstMutation = @('Remove-ExtensionServiceMarker') }
         @{ Name = 'Start-CachingProxyServiceVM.ps1'; FirstMutation = @('Enter-CachingProxyServiceLock') }
-        @{ Name = 'Start-StashServiceVM.ps1'; FirstMutation = @('Invoke-YurunaServiceVmBuild') }
-        @{ Name = 'Start-PoolControlServiceVM.ps1'; FirstMutation = @('Invoke-YurunaServiceVmBuild') }
-        @{ Name = 'Start-DownloadAgentServiceVM.ps1'; FirstMutation = @('Invoke-YurunaServiceVmBuild') }
+        @{ Name = 'Start-StashServiceVM.ps1'; FirstMutation = @('Remove-YurunaServiceVmAdvertisement', 'Invoke-YurunaServiceVmBuild') }
+        @{ Name = 'Start-PoolControlServiceVM.ps1'; FirstMutation = @('Remove-YurunaServiceVmAdvertisement', 'Invoke-YurunaServiceVmBuild') }
+        @{ Name = 'Start-DownloadAgentServiceVM.ps1'; FirstMutation = @('Remove-YurunaServiceVmAdvertisement', 'Invoke-YurunaServiceVmBuild') }
     ) {
         $target = Resolve-LifecycleScript $Name
         $ast = Get-ScriptAst $target.Path
@@ -212,7 +215,7 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
             $vmModule = Get-ScriptAst (Join-Path (Split-Path -Parent $script:serviceDir) 'modules/Test.ServiceVm.psm1')
             $builder = $vmModule.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-YurunaServiceVmBuild' }, $true)
             $inner = @(Get-CommandCallAst -Ast $builder -Name 'Test-YurunaServiceOperationCurrent')
-            $launch = @($builder.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.Extent.Text -match '@arguments' }, $true))
+            $launch = @(Get-CommandCallAst -Ast $builder -Name 'Invoke-YurunaServiceVmBuilderRun')
             Assert-True ($inner.Count -ge 1) "$Name's shared builder rechecks the intent generation"
             Assert-True ($launch.Count -ge 1 -and $inner[0].Extent.StartOffset -lt $launch[0].Extent.StartOffset) "$Name rechecks before the VM is built"
         } else {
@@ -413,7 +416,8 @@ function Invoke-CachingProxyStopFixture {
         function Remove-PortMap {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
                 Justification = 'Isolated host-operation stub has no external effects.')]
-            param()
+            param([string]$Owner)
+            $fixture.Order.Add("portmap:$Owner")
             $true
         }
         function Test-Path {
@@ -490,7 +494,7 @@ function Invoke-CachingProxyStopFixture {
 function Invoke-PoolControlStopFixture {
     param([ValidateSet('verified', 'unverified', 'exited', 'none')][string]$HostProcess)
     $driver = {
-        param($Path, $ProcessCase)
+        param($Path, $ProcessCase, $StopFunction)
         # Read by the stand-ins below; bound here so the use is visible.
         $null = $ProcessCase
         $fixture = @{ Order = [System.Collections.Generic.List[string]]::new(); ExitCall = ''; StoppedPid = 0 }
@@ -572,6 +576,9 @@ function Invoke-PoolControlStopFixture {
             param()
             $fixture.Order.Add('remove-vm')
         }
+        # The real shared stop, lifted from Test.ExtensionService.psm1, so it
+        # drives the stand-ins above exactly as the script's call does.
+        . ([scriptblock]::Create($StopFunction))
         $warned = $null
         & $Path -VMName 'fixture-vm' -ServiceKey 'pool-control' -Area 'pool-control-service' -ServiceName 'PoolControl' -CallerScript 'Stop-PoolControlServiceVM.ps1' -Confirm:$false -WarningVariable warned -WarningAction SilentlyContinue 1>$null 4>$null 5>$null 6>$null
         $code = $LASTEXITCODE
@@ -585,7 +592,9 @@ function Invoke-PoolControlStopFixture {
     }
     $shell = [PowerShell]::Create()
     try {
-        [void]$shell.AddScript($driver.ToString()).AddArgument((Join-Path $script:serviceDir 'Stop-ExtensionService.ps1')).AddArgument($HostProcess)
+        $moduleAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Test.ExtensionService.psm1'), [ref]$null, [ref]$null)
+        $stopFunction = $moduleAst.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Stop-ExtensionServiceHostProcess' }, $true).Extent.Text
+        [void]$shell.AddScript($driver.ToString()).AddArgument((Join-Path $script:serviceDir 'Stop-ExtensionService.ps1')).AddArgument($HostProcess).AddArgument($stopFunction)
         $out = @($shell.Invoke())
         $row = $out | Select-Object -Last 1
         [pscustomobject]@{

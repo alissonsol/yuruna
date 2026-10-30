@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1301,26 +1301,32 @@ function Connect-YurunaPoolStorage {
                     if ($mk.ExitCode -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_ea88e75707522b67' -Arguments @{ localPath = "$($Config.LocalPath)"; exitCode = "$($mk.ExitCode)"; stdErr = "$(Get-PoolStorageProcessErrorDetail -StdErr $mk.StdErr)" }) }
                 }
             }
-            $credDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { [System.IO.Path]::GetTempPath() }
-            # Per-invocation unique name (no cross-run collision) deleted in the
-            # finally below: the plaintext credentials only need to exist for the
-            # mount() syscall, never after it.
-            $credFile = Join-Path $credDir ("poolstorage.$PID.$([guid]::NewGuid().ToString('N')).cifs.cred")
+            # The command line is the one the sudoers drop-in names word for word
+            # (Get-PoolStorageSudoSpec), so its credentials file has a fixed path
+            # per mount point. The file exists only for the mount() syscall and is
+            # deleted in the finally below.
+            $mountCommand = Get-PoolStorageMountCommand -Config $Config
+            $credFile = $mountCommand.CredentialFile
             try {
-                $utf8 = [System.Text.UTF8Encoding]::new($false)
-                # Lock the file down to 0600 BEFORE the secret is written: create it
-                # empty, chmod, then write. A plaintext SMB password must never sit
+                # Owner-only from creation: a plaintext SMB password must never sit
                 # in a world-readable file, not even momentarily.
-                [System.IO.File]::WriteAllText($credFile, '', $utf8)
-                & chmod 600 $credFile 2>$null
-                if ($LASTEXITCODE -ne 0) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_7387b2930b7001c9' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE" }) }
-                $credBody = "username=$($Config.NetworkUser)`npassword=$password`n"
-                [System.IO.File]::WriteAllText($credFile, $credBody, $utf8)
-                $uid = (& id -u).Trim(); $gid = (& id -g).Trim()
-                $opts = "credentials=$credFile,vers=3.0,uid=$uid,gid=$gid,iocharset=utf8,nofail"
+                $options = [System.IO.FileStreamOptions]::new()
+                $options.Mode = [System.IO.FileMode]::Create
+                $options.Access = [System.IO.FileAccess]::Write
+                $options.Share = [System.IO.FileShare]::None
+                $options.UnixCreateMode = [System.IO.UnixFileMode]'UserRead, UserWrite'
+                [void][System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($credFile))
+                $stream = [System.IO.FileStream]::new($credFile, $options)
+                try {
+                    if (([int][System.IO.File]::GetUnixFileMode($credFile) -band 0x3F) -ne 0) {
+                        throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_7387b2930b7001c9' -Arguments @{ lASTEXITCODE = 'mode' })
+                    }
+                    $credBytes = [System.Text.UTF8Encoding]::new($false).GetBytes("username=$($Config.NetworkUser)`npassword=$password`n")
+                    $stream.Write($credBytes, 0, $credBytes.Length)
+                } finally { $stream.Dispose() }
                 # sudo -n: never prompt. Without passwordless sudo for this mount it
                 # fails fast instead of blocking the loop on a hidden password prompt.
-                $mnt = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList @('-n', 'mount', '-t', 'cifs', $remote, $Config.LocalPath, '-o', $opts) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds
+                $mnt = Invoke-PoolStorageProcessResult -FilePath 'sudo' -ArgumentList (@('-n', 'mount') + $mountCommand.Argument) -TimeoutSeconds $script:PoolStorageMountTimeoutSeconds
                 if ($mnt.ExitCode -ne 0) {
                     # The credentials went in via a 0600 file, so neither the account
                     # nor the password can appear in what mount prints back -- the
@@ -1329,7 +1335,11 @@ function Connect-YurunaPoolStorage {
                     $detail = Get-PoolStorageProcessErrorDetail -StdErr $mnt.StdErr
                     # See https://yuruna.link/4213a0b3-00c7
                     $hint = if (Test-PoolStorageSudoRefusal -StdErr $mnt.StdErr) {
-                        if (Test-PoolStorageSudoReady -Commands @((Get-PoolStorageSudoCommandPath).Mount)) {
+                        $currentSpec = $null
+                        try { $currentSpec = Get-PoolStorageSudoSpec -User ((& id -un 2>$null | Out-String).Trim()) } catch { Write-Verbose "sudoers spec: $($_.Exception.Message)" }
+                        if ($currentSpec -and $currentSpec.Marker -and -not (Test-PoolStorageSudoReady -Probe @(, $currentSpec.Marker))) {
+                            (Format-YurunaOperatorMessage -Key 'runner.pool_storage_sudo_rule_stale')
+                        } elseif (Test-PoolStorageSudoReady -Commands @((Get-PoolStorageSudoCommandPath).Mount)) {
                             (Format-YurunaOperatorMessage -Key 'runner.operator_2e2613f652d7e9ff')
                         } else {
                             (Format-YurunaOperatorMessage -Key 'runner.operator_a985eecf3e05691f')
@@ -1371,7 +1381,56 @@ function Connect-YurunaPoolStorage {
 
 <#
 .SYNOPSIS
-Returns the /etc/sudoers.d drop-in specification (file path, the NOPASSWD rule line, and the resolved command list) for the Linux passwordless-sudo precondition the poolStorage mount needs. Pure (caller passes the account + binary paths); the rule grants the test account NOPASSWD mkdir/mount/umount (mkdir is needed when localPath sits under a root-owned parent like /mnt). Single source of truth shared by the operator hint and the interactive installer so they can never disagree on the rule. A blank user yields an empty Rule/Commands.
+The exact mount command line for one storage tier on Linux: the arguments after `mount`, and the per-mount-point credentials file they name.
+.DESCRIPTION
+The sudoers drop-in grants this command line word for word, so every part of it is a function of the configuration: the share, the mount point, the account's uid/gid, and a credentials file whose path depends only on the mount point. $env:YURUNA_RUNTIME_DIR holds the file when set, else test/status/runtime (the default Initialize-YurunaRuntimeDir uses), so the installer and the runner name the same path.
+#>
+function Get-PoolStorageMountCommand {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)]$Config,
+        [string]$Uid = '',
+        [string]$Gid = '',
+        [string]$RuntimeDirectory = ''
+    )
+    if (-not $Uid) { $Uid = (& id -u | Out-String).Trim() }
+    if (-not $Gid) { $Gid = (& id -g | Out-String).Trim() }
+    if (-not $RuntimeDirectory) {
+        $RuntimeDirectory = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path (Split-Path -Parent $PSScriptRoot) 'status/runtime' }
+    }
+    $remote = Get-PoolStorageUncPath -Path $Config.NetworkPath -Style unix
+    $sha = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes([string]$Config.LocalPath))
+    $credFile = Join-Path $RuntimeDirectory ('poolstorage.' + [Convert]::ToHexString($sha, 0, 8).ToLowerInvariant() + '.cifs.cred')
+    $opts = "credentials=$credFile,vers=3.0,uid=$Uid,gid=$Gid,iocharset=utf8,nofail"
+    return @{
+        Remote         = $remote
+        LocalPath      = [string]$Config.LocalPath
+        CredentialFile = $credFile
+        Argument       = @('-t', 'cifs', $remote, [string]$Config.LocalPath, '-o', $opts)
+    }
+}
+
+# A word of a sudoers command line: the separators sudoers reserves are escaped,
+# and a word sudoers cannot express exactly (whitespace, wildcards) is refused,
+# because a rule that matched more than the one command would grant it.
+function ConvertTo-PoolStorageSudoersWord {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Word)
+    if ($Word -match '[\s*?\[\]''"]' -or $Word.Length -eq 0) {
+        throw (Format-YurunaOperatorMessage -Key 'runner.pool_storage_sudoers_word_unsupported' -Arguments @{ word = "$Word" })
+    }
+    return ($Word -replace '([\\,:=])', '\$1')
+}
+
+<#
+.SYNOPSIS
+Returns the /etc/sudoers.d drop-in specification (file path, the NOPASSWD rule line, and the probes that prove it) for the Linux passwordless-sudo precondition the storage mounts need. Pure apart from resolving uid/gid; a blank user yields an empty Rule/Probe.
+.DESCRIPTION
+The rule names the exact commands the mount path runs for each configured tier -- `mkdir -p <mount point>`, the full `mount -t cifs ...` line and `umount <mount point>` -- rather than the mkdir/mount/umount binaries, which as bare grants let the account mount any filesystem anywhere and so act as root. It also grants each binary's `--version` (the harmless probe Test-PoolStorageSudoReady runs) and a marker, `true yuruna-poolstorage-<hash of the rule>`: the marker answers only while the installed drop-in is the rule for the current configuration, so a changed share or mount point shows as a rule to reinstall instead of a mount refused for no visible reason. Single source of truth for the operator hint and the installer.
+.PARAMETER Tier
+Storage tier records (NetworkPath, LocalPath), as Get-YurunaPoolStorageConfig and Get-YurunaStashStorageConfig return them. Omitted, the configured tiers are read.
 #>
 function Get-PoolStorageSudoSpec {
     [CmdletBinding()]
@@ -1381,15 +1440,51 @@ function Get-PoolStorageSudoSpec {
         [Parameter()][string]$MkdirPath  = '/usr/bin/mkdir',
         [Parameter()][string]$MountPath  = '/usr/bin/mount',
         [Parameter()][string]$UmountPath = '/usr/bin/umount',
-        [Parameter()][string]$DropInName = 'yuruna-poolstorage'
+        [Parameter()][string]$TruePath   = '/usr/bin/true',
+        [Parameter()][string]$DropInName = 'yuruna-poolstorage',
+        [Parameter()][AllowNull()][object[]]$Tier,
+        [Parameter()][string]$Uid = '',
+        [Parameter()][string]$Gid = '',
+        [Parameter()][string]$RuntimeDirectory = ''
     )
     $file = "/etc/sudoers.d/$DropInName"
     if ([string]::IsNullOrWhiteSpace($User)) {
-        return @{ User = ''; Commands = @(); File = $file; Rule = ''; DropInName = $DropInName }
+        return @{ User = ''; Commands = @(); Probe = @(); Marker = $null; File = $file; Rule = ''; DropInName = $DropInName }
+    }
+    if (-not $PSBoundParameters.ContainsKey('Tier')) { $Tier = @(Get-PoolStorageMountTier) }
+    if (-not $Uid) { $Uid = (& id -u $User 2>$null | Out-String).Trim() }
+    if (-not $Gid) { $Gid = (& id -g $User 2>$null | Out-String).Trim() }
+    $grants = [System.Collections.Generic.List[string]]::new()
+    foreach ($t in @($Tier | Where-Object { $_ })) {
+        $mountCommand = Get-PoolStorageMountCommand -Config $t -Uid $Uid -Gid $Gid -RuntimeDirectory $RuntimeDirectory
+        $local = ConvertTo-PoolStorageSudoersWord -Word $mountCommand.LocalPath
+        $grants.Add("$MkdirPath -p $local")
+        $grants.Add("$MountPath " + (($mountCommand.Argument | ForEach-Object { ConvertTo-PoolStorageSudoersWord -Word $_ }) -join ' '))
+        $grants.Add("$UmountPath $local")
     }
     $commands = @(@($MkdirPath, $MountPath, $UmountPath) | Where-Object { $_ })
-    $rule = "$User ALL=(root) NOPASSWD: $($commands -join ', ')"
-    return @{ User = $User; Commands = $commands; File = $file; Rule = $rule; DropInName = $DropInName }
+    foreach ($c in $commands) { $grants.Add("$c --version") }
+    $hash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData(
+            [System.Text.Encoding]::UTF8.GetBytes("$User`n" + ($grants -join "`n"))), 0, 8).ToLowerInvariant()
+    $marker = @($TruePath, "yuruna-poolstorage-$hash")
+    $grants.Add("$TruePath yuruna-poolstorage-$hash")
+    $rule = "$User ALL=(root) NOPASSWD: $($grants -join ', ')"
+    $probe = @(@($commands | ForEach-Object { , @($_, '--version') }) + @(, $marker))
+    return @{ User = $User; Commands = $commands; Probe = $probe; Marker = $marker; File = $file; Rule = $rule; DropInName = $DropInName }
+}
+
+<#
+.SYNOPSIS
+The storage tiers the Linux mount path will mount: pool and stash, each only when configured. Read from test.config.yml; an unreadable configuration yields none.
+#>
+function Get-PoolStorageMountTier {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param()
+    $tiers = @()
+    try { $pool = Get-YurunaPoolStorageConfig -WarningAction SilentlyContinue; if ($pool) { $tiers += $pool } } catch { Write-Verbose "pool tier: $($_.Exception.Message)" }
+    try { $stash = Get-YurunaStashStorageConfig; if ($stash) { $tiers += $stash } } catch { Write-Verbose "stash tier: $($_.Exception.Message)" }
+    return , $tiers
 }
 
 <#
@@ -1404,13 +1499,19 @@ function Get-PoolStorageLinuxSudoHint {
         [Parameter()][string]$MkdirPath  = '/usr/bin/mkdir',
         [Parameter()][string]$MountPath  = '/usr/bin/mount',
         [Parameter()][string]$UmountPath = '/usr/bin/umount',
-        [Parameter()][string]$DropInName = 'yuruna-poolstorage'
+        [Parameter()][string]$TruePath   = '/usr/bin/true',
+        [Parameter()][string]$DropInName = 'yuruna-poolstorage',
+        [Parameter()][AllowNull()][object[]]$Tier
     )
     if ([string]::IsNullOrWhiteSpace($User)) { return @() }
-    $spec = Get-PoolStorageSudoSpec -User $User -MkdirPath $MkdirPath -MountPath $MountPath -UmountPath $UmountPath -DropInName $DropInName
+    $specArguments = @{ User = $User; MkdirPath = $MkdirPath; MountPath = $MountPath; UmountPath = $UmountPath; TruePath = $TruePath; DropInName = $DropInName }
+    if ($PSBoundParameters.ContainsKey('Tier')) { $specArguments['Tier'] = $Tier }
+    $spec = Get-PoolStorageSudoSpec @specArguments
+    # printf, not echo: the rule escapes sudoers separators with backslashes,
+    # which some shells' echo would interpret.
     return @(
         "Fix (one-time, run as a sudoer -- the unattended runner cannot self-install this: 'sudo -n' never prompts and /etc/sudoers.d needs root; from an interactive session Sync-HostConfiguration installs it for you):",
-        "  echo '$($spec.Rule)' | sudo tee $($spec.File) >/dev/null",
+        "  printf '%s\n' '$($spec.Rule)' | sudo tee $($spec.File) >/dev/null",
         "  sudo chmod 0440 $($spec.File) && sudo visudo -cf $($spec.File)",
         "Then re-run Test-Config. (Adjust the binary paths if your distro differs.)"
     )
@@ -1436,6 +1537,7 @@ function Get-PoolStorageSudoCommandPath {
         Mkdir  = (& $resolve 'mkdir'  '/usr/bin/mkdir')
         Mount  = (& $resolve 'mount'  '/usr/bin/mount')
         Umount = (& $resolve 'umount' '/usr/bin/umount')
+        True   = (& $resolve 'true'   '/usr/bin/true')
     }
 }
 
@@ -1454,15 +1556,23 @@ Biased toward $false: any check that is not a clean 0 reports "not configured". 
 function Test-PoolStorageSudoReady {
     [CmdletBinding()]
     [OutputType([bool])]
-    param([Parameter()][string[]]$Commands = @())
+    param(
+        [Parameter()][string[]]$Commands = @(),
+        # Whole command lines (each an argument array) to run instead of
+        # "<command> --version"; the drop-in's marker is one of them.
+        [Parameter()][object[]]$Probe = @()
+    )
     if (-not $IsLinux) { return $true }
-    if (-not $Commands -or $Commands.Count -eq 0) {
-        $p = Get-PoolStorageSudoCommandPath
-        $Commands = @($p.Mkdir, $p.Mount, $p.Umount)
+    $lines = @($Probe | Where-Object { $_ })
+    if ($lines.Count -eq 0) {
+        if (-not $Commands -or $Commands.Count -eq 0) {
+            $p = Get-PoolStorageSudoCommandPath
+            $Commands = @($p.Mkdir, $p.Mount, $p.Umount)
+        }
+        $lines = @($Commands | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { , @($_, '--version') })
     }
-    foreach ($c in $Commands) {
-        if ([string]::IsNullOrWhiteSpace($c)) { continue }
-        $rc = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', '-k', $c, '--version') -TimeoutSeconds 15
+    foreach ($line in $lines) {
+        $rc = Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList (@('-n', '-k') + @($line)) -TimeoutSeconds 15
         if ($rc -ne 0) { return $false }
     }
     return $true
@@ -1508,15 +1618,22 @@ function Set-PoolStorageSudoers {
     $mkdir  = $paths.Mkdir
     $mount  = $paths.Mount
     $umount = $paths.Umount
-    $spec = Get-PoolStorageSudoSpec -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount
+    try {
+        $spec = Get-PoolStorageSudoSpec -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount -TruePath $paths.True
+    } catch {
+        return @{ Action = 'failed'; DropInPath = '/etc/sudoers.d/yuruna-poolstorage'; Rule = ''; Message = "$($_.Exception.Message)" }
+    }
 
-    # Idempotency: is passwordless sudo for every command already in effect?
-    if (Test-PoolStorageSudoReady -Commands $spec.Commands) {
+    # Idempotency: is the rule for the current storage configuration already in
+    # effect? The marker probe fails for a drop-in written for other mount
+    # points, or for the bare-binary grant older releases wrote, which the
+    # narrow rule replaces.
+    if (Test-PoolStorageSudoReady -Probe $spec.Probe) {
         return @{ Action = 'present'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_7a2644594a03553e' -Arguments @{ user = "$User" }) }
     }
 
     if ($NonInteractive -and (Invoke-PoolStorageProcess -FilePath 'sudo' -ArgumentList @('-n', '-v') -TimeoutSeconds 15) -ne 0) {
-        return @{ Action = 'skipped'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_3f1222f3734c430b' -Arguments @{ join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
+        return @{ Action = 'skipped'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_3f1222f3734c430b' -Arguments @{ join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount -TruePath $paths.True) -join ' ')" }) }
     }
     if (-not $PSCmdlet.ShouldProcess($spec.File, (Format-YurunaOperatorMessage -Key 'runner.operator_5276d666b1441ef9' -Arguments @{ user = "$User" }))) {
         return @{ Action = 'whatif'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_8fe9554f294d1183' -Arguments @{ rule = "$($spec.Rule)" }) }
@@ -1550,7 +1667,7 @@ function Set-PoolStorageSudoers {
             $spec.Rule | & sudo tee $spec.File | Out-Null
             $teeRc = $LASTEXITCODE
             if ($teeRc -ne 0) {
-                return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_cf16b3b8b709addd' -Arguments @{ file = "$($spec.File)"; teeRc = "$teeRc"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
+                return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_cf16b3b8b709addd' -Arguments @{ file = "$($spec.File)"; teeRc = "$teeRc"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount -TruePath $paths.True) -join ' ')" }) }
             }
             & sudo chmod 0440 $spec.File | Out-Null
             $chmodRc = $LASTEXITCODE
@@ -1565,16 +1682,16 @@ function Set-PoolStorageSudoers {
             } else {
                 & sudo rm -f $spec.File | Out-Null
             }
-            return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_19bf4f38e92c1bb1' -Arguments @{ chmodRc = "$chmodRc"; visudoRc = "${visudoRc}"; visudoOut = "$visudoOut"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
+            return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_19bf4f38e92c1bb1' -Arguments @{ chmodRc = "$chmodRc"; visudoRc = "${visudoRc}"; visudoOut = "$visudoOut"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount -TruePath $paths.True) -join ' ')" }) }
         }
-        if (-not (Test-PoolStorageSudoReady -Commands $spec.Commands)) {
+        if (-not (Test-PoolStorageSudoReady -Probe $spec.Probe)) {
             # Keep a valid rule for inspection: another matching rule may be
             # overriding it, and deleting this one cannot repair that policy.
-            throw [UnauthorizedAccessException]::new("sudo -n -k <command> --version != 0; NOPASSWD: $($spec.Commands -join ', ')")
+            throw [UnauthorizedAccessException]::new("sudo -n -k <probe> != 0; NOPASSWD: $(($spec.Probe | ForEach-Object { $_ -join ' ' }) -join ', ')")
         }
         return @{ Action = 'installed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_59aa4c1b646b2e46' -Arguments @{ file = "$($spec.File)"; user = "$User" }) }
     } catch {
-        return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_6227c4e7e4952085' -Arguments @{ file = "$($spec.File)"; message = "$($_.Exception.Message)"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount) -join ' ')" }) }
+        return @{ Action = 'failed'; DropInPath = $spec.File; Rule = $spec.Rule; Message = (Format-YurunaOperatorMessage -Key 'runner.operator_6227c4e7e4952085' -Arguments @{ file = "$($spec.File)"; message = "$($_.Exception.Message)"; join = "$((Get-PoolStorageLinuxSudoHint -User $User -MkdirPath $mkdir -MountPath $mount -UmountPath $umount -TruePath $paths.True) -join ' ')" }) }
     } finally {
         if ($temporary) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
     }
@@ -2979,7 +3096,7 @@ Export-ModuleMember -Function `
     Dismount-PoolStorageShare, `
     Get-YurunaPoolStorageConfig, Get-YurunaStashStorageConfig, Test-YurunaPoolStorageMounted, `
     Test-PoolStorageMountEntry, Test-PoolStorageWriteProbe, Connect-YurunaPoolStorage, `
-    Get-PoolStorageLinuxSudoHint, Get-PoolStorageSudoSpec, Set-PoolStorageSudoers, `
+    Get-PoolStorageLinuxSudoHint, Get-PoolStorageSudoSpec, Get-PoolStorageMountCommand, Get-PoolStorageMountTier, Set-PoolStorageSudoers, `
     Get-PoolStorageSudoCommandPath, Test-PoolStorageSudoReady, Test-PoolStorageCifsHelper, `
     Sync-YurunaPoolStorageFolder, Test-PoolStorageVaultDecision, Get-PoolStorageCycleIdentity, `
     Get-PoolStoragePendingSet, Merge-PoolStorageLedger, Read-PoolStorageLedger, `

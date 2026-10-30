@@ -35,11 +35,11 @@ reference and any other reader of that scope.
 
 <a id="42e5cdfd-0003"></a>
 
-## host/macos.utm/modules/Yuruna.Host.psm1: Start-UtmVM
+## host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1: Start-UtmVM
 
 Applies to:
 
-- [host/macos.utm/modules/Yuruna.Host.psm1](../host/macos.utm/modules/Yuruna.Host.psm1)
+- [host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1](../host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1)
 
 Distinguish the two ways the bundle can be missing, from the
 structured probe rather than the throwing boolean wrapper: still
@@ -78,11 +78,11 @@ downstream steps before anything notices, and the eventual symptom
 
 <a id="42e5cdfd-0004"></a>
 
-## host/macos.utm/modules/Yuruna.Host.psm1: Assert-NoConcurrentUtmVm
+## host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1: Assert-NoConcurrentUtmVm
 
 Applies to:
 
-- [host/macos.utm/modules/Yuruna.Host.psm1](../host/macos.utm/modules/Yuruna.Host.psm1)
+- [host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1](../host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1)
 
 Distinguish "confirmed no concurrent VM" from "couldn't check". If
 UTM.app is unresponsive (host memory pressure -> Apple Event timeout,
@@ -95,11 +95,11 @@ the signal, and the per-guest teardown probe is the other backstop.
 
 <a id="42e5cdfd-0005"></a>
 
-## host/macos.utm/modules/Yuruna.Host.psm1: Get-VncScreenshot
+## host/macos.utm/modules/Yuruna.Host.Screenshot.ps1: Get-VncScreenshot
 
 Applies to:
 
-- [host/macos.utm/modules/Yuruna.Host.psm1](../host/macos.utm/modules/Yuruna.Host.psm1)
+- [host/macos.utm/modules/Yuruna.Host.Screenshot.ps1](../host/macos.utm/modules/Yuruna.Host.Screenshot.ps1)
 
 Full-frame rect (the common case for an initial
 FramebufferUpdateRequest after a fresh handshake): read
@@ -463,11 +463,11 @@ that is defined but inactive is skipped with a pointer at the fix.
 
 <a id="42e5cdfd-0017"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: External network helpers
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: External network helpers
 
 Applies to:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 Internal. The reason $Iface cannot serve as a bridge's uplink port,
 or '' when it can. Only plain wired Ethernet works: bond/vlan/tunnel
@@ -497,11 +497,11 @@ nmcli; omitted, it queries `nmcli -t -f DEVICE,STATE device status` live.
 
 <a id="42e5cdfd-0018"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: Clear-YurunaExternalBridgeResidue
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: Clear-YurunaExternalBridgeResidue
 
 Applies to:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 Safety latches, not just comments: never sweep anything that could
 be carrying the host's connectivity.
@@ -529,11 +529,11 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-0019"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaExternalNetwork
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: New-YurunaExternalNetwork
 
 Applies to:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 If the operator (or a previous run) already put the WAN NIC on a
 bridge, reuse it. This keeps the host networking change to zero:
@@ -548,11 +548,11 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-001a"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaExternalNetwork
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: Step 4: Build the bridge
 
 Applies to:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 Pick the bridge backend by whether NetworkManager actually MANAGES the
 NIC -- not merely whether the NM daemon is running. On Ubuntu Server the
@@ -569,11 +569,11 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-001b"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaBridgeViaNmcli
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: New-YurunaBridgeViaNmcli
 
 Applies to:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 Record which profile currently holds $Nic -- needed twice: the
 success epilogue disables its autoconnect (so on reboot the bridge
@@ -610,11 +610,11 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-001c"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: New-YurunaBridgeViaNetplan
+## host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1: New-YurunaBridgeViaNetplan
 
 Applies to:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1](../host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1)
 
 If NetworkManager currently manages the NIC (this path also runs as
 the fallback after a failed nmcli build on an NM host), hand the
@@ -677,11 +677,11 @@ with the verbatim libvirt-sock "Permission denied" line.
 
 <a id="42e5cdfd-001f"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: DHCP evidence capture
+## host/ubuntu.kvm/modules/Yuruna.Host.Capture.ps1: DHCP evidence capture
 
 Applies to:
 
-- [host/ubuntu.kvm/modules/Yuruna.Host.psm1](../host/ubuntu.kvm/modules/Yuruna.Host.psm1)
+- [host/ubuntu.kvm/modules/Yuruna.Host.Capture.ps1](../host/ubuntu.kvm/modules/Yuruna.Host.Capture.ps1)
 
 Say why the DHCP evidence is not there. The capture is armed on every VM
 start and copied only on the failure path, so a cycle that ends with no
@@ -696,7 +696,7 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-0020"></a>
 
-## host/ubuntu.kvm/Enable-TestAutomation.ps1: libvirt services and default network
+## host/ubuntu.kvm/Enable-TestAutomation.ps1: libvirt services + default network
 
 Applies to:
 
@@ -716,7 +716,7 @@ whose output is being captured.
 
 <a id="42e5cdfd-0021"></a>
 
-## host/ubuntu.kvm/Enable-TestAutomation.ps1: Status-service LAN reachability
+## host/ubuntu.kvm/Enable-TestAutomation.ps1: Status-service LAN reachability (host firewall)
 
 Applies to:
 
@@ -752,7 +752,7 @@ the same call lands here.
 
 <a id="42e5cdfd-0023"></a>
 
-## host/ubuntu.kvm/Enable-TestAutomation.ps1: Pool-storage mount point
+## host/ubuntu.kvm/Enable-TestAutomation.ps1: networkStorage pool SMB mount point (optional NAS replication target)
 
 Applies to:
 
@@ -843,11 +843,11 @@ platform this path is for.
 
 <a id="42e5cdfd-0028"></a>
 
-## host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-CacheVmCandidateIp
+## host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1: Caching-proxy service IP discovery
 
 Applies to:
 
-- [host/windows.hyper-v/modules/Yuruna.Host.psm1](../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+- [host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1](../host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1)
 
 KVP can emit both IPv4 and IPv6. Net-routable v4 stays first since
 downstream port-forwarders here are netsh portproxy v4tov4; v6
@@ -864,11 +864,11 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-0029"></a>
 
-## host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-OrCreateYurunaExternalSwitch
+## host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1: Get-OrCreateYurunaExternalSwitch
 
 Applies to:
 
-- [host/windows.hyper-v/modules/Yuruna.Host.psm1](../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+- [host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1](../host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1)
 
 2. ANY existing External-type vSwitch: reuse it instead of
 creating a redundant second External on the same NIC. Hyper-V
@@ -883,11 +883,11 @@ declines here instead of falling through to the create path.
 
 <a id="42e5cdfd-002a"></a>
 
-## host/windows.hyper-v/modules/Yuruna.Host.psm1: Start-WindowsCachingProxyServiceForwarder
+## host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1: Start-WindowsCachingProxyServiceForwarder
 
 Applies to:
 
-- [host/windows.hyper-v/modules/Yuruna.Host.psm1](../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+- [host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1](../host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1)
 
 -RedirectStandardInput against an empty file: without an explicit
 stdin redirect the detached forwarder inherits the parent
@@ -901,11 +901,11 @@ sentinel file in the forwarder's state dir.
 
 <a id="42e5cdfd-002b"></a>
 
-## host/windows.hyper-v/modules/Yuruna.Host.psm1: Get-HyperVScreenshot
+## host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1: Get-HyperVScreenshot
 
 Applies to:
 
-- [host/windows.hyper-v/modules/Yuruna.Host.psm1](../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+- [host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1](../host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1)
 
 Detect the "headless host" symptom: WMI returns a valid
 thumbnail but every pixel is black because the host's
@@ -939,11 +939,11 @@ bare hex, no separators.
 
 <a id="42e5cdfd-002d"></a>
 
-## host/windows.hyper-v/modules/Yuruna.Host.psm1: DHCP evidence capture
+## host/windows.hyper-v/modules/Yuruna.Host.Capture.ps1: DHCP evidence capture
 
 Applies to:
 
-- [host/windows.hyper-v/modules/Yuruna.Host.psm1](../host/windows.hyper-v/modules/Yuruna.Host.psm1)
+- [host/windows.hyper-v/modules/Yuruna.Host.Capture.ps1](../host/windows.hyper-v/modules/Yuruna.Host.Capture.ps1)
 
 The guest-side network diagnostic can only say "no lease". Whether the
 DISCOVER left the guest at all, died crossing the vSwitch or the uplink, or
@@ -1076,7 +1076,7 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-0034"></a>
 
-## test/service/Start-CachingProxyServiceVM.ps1: Host status-service bootstrap
+## test/service/Start-CachingProxyServiceVM.ps1: Start the host status service
 
 Applies to:
 
@@ -1093,7 +1093,7 @@ but the inlined Grafana dashboards still deploy).
 
 <a id="42e5cdfd-0035"></a>
 
-## test/service/Start-CachingProxyServiceVM.ps1: Start the host status service
+## test/service/Start-CachingProxyServiceVM.ps1: Start the host config service
 
 Applies to:
 
@@ -1189,7 +1189,7 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-0038"></a>
 
-## test/service/Start-CachingProxyServiceVM.ps1: Configure Shared NAT forwarding
+## test/service/Start-CachingProxyServiceVM.ps1: Step 5: macOS bridged -- wait for the cache VM to DHCP and squid to listen
 
 Applies to:
 
@@ -1299,8 +1299,8 @@ from every Hyper-V guest on that switch), so this portproxy adds LAN
 exposure without changing the local-guest path -- those still target
 the VM's private IP. The port list matches Invoke-TestRunnerInnerLoop.ps1's
 Add-PortMap call; mismatched lists fight each other because
-the function runs Clear-AllCachingProxyServicePortMapping first. Requires
-elevation; Add-PortMap warns and no-ops otherwise.
+Add-PortMap replaces the forwarders the cache owns with the list it is
+given. Requires elevation; Add-PortMap warns and no-ops otherwise.
 
 If the cache VM is on an External vSwitch, it has its own LAN
 IP via DHCP and remote clients reach it directly -- squid sees
@@ -1337,7 +1337,7 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-003d"></a>
 
-## test/service/Start-StatusService.ps1: Module setup
+## test/service/Start-StatusService.ps1: Startup serialization and the refresh-safe outcome
 
 Applies to:
 
@@ -1363,14 +1363,15 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-003e"></a>
 
-## test/service/Start-StatusService.ps1: Startup serialization and the refresh-safe outcome
+## test/service/Start-StatusService.ps1: Check for an existing server
 
 Applies to:
 
 - [test/service/Start-StatusService.ps1](../test/service/Start-StatusService.ps1)
 
-The detached server bakes the ~3.5 KLOC here-string (and the modules
-it imports at startup) into its in-memory state. Files under test/status/
+The detached server loads its runtime, Invoke-StatusServiceRuntime.ps1
+(and the modules it imports at startup), into its in-memory state when it
+starts. Files under test/status/
 are served from disk per request, so frontend edits do NOT need a
 restart; only a change in the framework code does. We persist the
 framework HEAD SHA to server.sha at launch and compare it here, so the
@@ -1378,6 +1379,20 @@ zero-change cycle of the inner runner (the common case) is a no-op
 instead of a 1 s teardown + multi-second relaunch. Cycle-start downtime
 drops from "every cycle" to "only when `git pull` actually pulled
 something that affects the server".
+
+The listener serves one request at a time, so a long request (a cycle
+archive being packed, a diagnostic streamed back) leaves it unable to answer
+the 3 s probe this start sends an existing server. Its liveness lease,
+`server.lease.json`, tells that apart from a wedge: the loop renews it while
+idle (it wakes at least every 15 s) and stamps each request it starts. A probe
+that times out against a listener whose lease reads idle within 90 s or busy
+within 600 s leaves it running, and any restart for new framework code waits
+for the next start (`runner.status_listener_busy`); a wedged or missing lease
+replaces it as before, naming the verdict. In the middle of a cycle the
+host-address beacon watches the same lease and, after two wedged passes and a
+probe that fails, runs `Start-StatusService.ps1 -RefreshSafe -ReplaceWedged`,
+which stops that listener and starts a new one without the full start's
+sweeps.
 
 <a id="42e5cdfd-003f"></a>
 
@@ -1416,7 +1431,7 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-0040"></a>
 
-## test/service/Start-StatusService.ps1: Ensure repoUrl is set in status.json
+## test/service/Start-StatusService.ps1: Clean up leftovers from older layouts
 
 Applies to:
 
@@ -1438,7 +1453,7 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-0041"></a>
 
-## test/service/Start-StatusService.ps1: Clean up leftovers from older layouts
+## test/service/Start-StatusService.ps1: Enumerate host IPs -> $env:YURUNA_RUNTIME_DIR/ipaddresses.txt
 
 Applies to:
 
@@ -1459,14 +1474,14 @@ stale entries from a previous host/network are not preserved.
 
 <a id="42e5cdfd-0042"></a>
 
-## test/service/Start-StatusService.ps1: Detect host type
+## test/service/Start-StatusService.ps1: Announce the forwarder teardown's sudo
 
 Applies to:
 
 - [test/service/Start-StatusService.ps1](../test/service/Start-StatusService.ps1)
 
-macOS: the Remove-PortMap calls in the port-map region below are clear-ALL,
-so they stop every host-side forwarder -- and killing the root-owned :80
+macOS: the Remove-PortMap calls in the port-map region below stop every
+host-side forwarder the cache owns -- and killing the root-owned :80
 forwarder that Start-CachingProxyServiceVM created on the Shared-NAT path
 needs sudo. Left to itself that fires a bare "[sudo] password for ..." deep
 in the run, including on the unattended per-cycle path. Detect the exact
@@ -1530,7 +1545,7 @@ the same caching-proxy-service.txt so banner and console stay
 in lock-step.
 
 Windows: port lists across callers MUST match -- Add-PortMap
-runs Clear-AllCachingProxyServicePortMapping first (netsh clears all), so
+replaces the cache's netsh mappings with the list it is given, so
 any port omitted here would be torn down. macOS: per-port pidfiles
 mean each caller manages its own subset independently; no match
 required. The macOS fallback includes port 80 and Grafana on 3000; the
@@ -1557,9 +1572,10 @@ Remove-PortMap / Get-BestHostIp are now resolvable via Yuruna.Host.
 
 Serialize the whole discriminate-and-write block against the
 runner's per-cycle refresh and against a caching-proxy-service
-bring-up. Add-PortMap is clear-all-first, so two writers whose
-port lists differ tear each other's netsh mappings, firewall
-rules and forwarders down; and a forwarder installed in front of
+bring-up. Add-PortMap replaces the cache's forwarders with its
+list, so two writers whose port lists differ tear each other's
+netsh mappings, firewall rules and forwarders down; and a forwarder
+installed in front of
 a BRIDGED cache replaces the direct LAN path with kernel NAT,
 which loses the client source IP squid logs. Try-once with the
 same policy the runner uses: a live holder owns the maps for the
@@ -1584,8 +1600,9 @@ configured HTTP and HTTPS proxy remaps. Each port has its own pidfile,
 so refreshing one does not remove the others. The normal bridged-cache
 path removes host forwarders and uses the cache VM's LAN address.
 On Windows, all caching-proxy-service port mappings are repeated in every
-caller's list because Add-PortMap clears Yuruna netsh and firewall state
-first; omitting any here would tear it down each status-service restart.
+caller's list because Add-PortMap replaces the cache's netsh and firewall
+state with the list it is given; omitting any here would tear it down each
+status-service restart.
 
 Windows External-vSwitch fast path: when the cache
 VM is bridged to LAN (its own routable IP), remote
@@ -1613,8 +1630,8 @@ env vars (defaults 3128 / 3129).
 The exposed-port set (incl. 9302 caching-proxy-parser-service
 live tail) comes from Get-CachingProxyServiceExposedPort so it
 cannot drift from Start-CachingProxyServiceVM's install list;
-Add-PortMap is clear-all-first, so a dropped port goes
-dark on reinstall. macOS re-maps only the two ports an
+Add-PortMap replaces the cache's forwarders with this set, so a
+dropped port goes dark on reinstall. macOS re-maps only the two ports an
 operator opens by hand: Grafana, and 80 -- which is
 where the caching-proxy VM's landing page lives, and
 therefore where the Dashboards link below points.
@@ -1649,30 +1666,27 @@ Applies to:
 
 - [test/service/Start-StatusService.ps1](../test/service/Start-StatusService.ps1)
 
-Write the server script to a file and launch with -File rather than
-base64-encoding it onto the command line. The server script grew past
-~23 KB of source, which becomes ~61 KB when base64(UTF-16LE) encoded --
-that plus the pwsh.exe path (on Windows Store installs, pwsh resolves
-to a 100+ char Microsoft.PowerShell_*_8wekyb3d8bbwe\pwsh.exe path)
-pushes the command line past the Windows CreateProcess 32,767-char
-limit. The failure mode is a Start-Process error reading
-"The filename or extension is too long" which is obscure and easy to
-misread as a path problem. -File sidesteps the size limit entirely:
-pwsh reads the script from disk instead of its command line.
+The runtime lives in test/service/Invoke-StatusServiceRuntime.ps1, a
+script with a parameter block. The launch writes a one-line launcher,
+`.status-service.ps1` in the runtime directory, that calls the runtime with
+this start's port and directories, and starts the launcher with -File. The
+launcher's path on the server's command line is what the ownership check,
+the runner reclaim and the installers match, so it stays even though it no
+longer carries the runtime. The runtime is a script rather than a module
+because its route handlers and helpers share the request loop's
+script-scope state, which a module would split into separate session
+states.
 Drop the previously generated server script (.status-service.ps1) and its
 stdout log (server.out) so an upgrade does not leave a stale, misleading copy
 under the runtime dir that an inspector could mistake for the live server.
 Runs before the current script is written below.
 
-The server body above is a here-string: THIS process only ever parses it as
-text, and the detached child is the first thing that parses it as code. So a
-syntax slip that survives the escaping -- "$var:" (a colon right after a
-variable name reads as a scope qualifier), a `" that collapsed into a bare
-quote -- costs nothing at write time and kills the child on its first line.
-Without this gate the operator sees none of that: the launch "succeeds", the
-readiness probe below burns its full budget, and the report names the PORT,
-sending the search to port ownership when the real defect is a typo in the
-generated file. Parse it here, where the error is exact and instant.
+Both the launcher and the runtime are parsed before the launch. A syntax
+error would otherwise kill the detached child on its first line while the
+launch "succeeds": the readiness probe below burns its full budget, and the
+report names the PORT, sending the search to port ownership when the real
+defect is in the script. Parse them here, where the error is exact and
+instant.
 
 Explicit stdio redirection on Windows is REQUIRED for outer-runner
 liveness. Without -RedirectStandardOutput / -RedirectStandardError,
@@ -1716,7 +1730,7 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-0046"></a>
 
-## test/service/Start-StatusService.ps1: Verify server started
+## test/service/Start-StatusService.ps1: Host-address beacon
 
 Applies to:
 
@@ -1770,7 +1784,7 @@ must not wedge the next beacon out.
 
 <a id="42e5cdfd-0048"></a>
 
-## test/service/Start-StatusService.ps1: Display connection info
+## test/service/Start-StatusService.ps1: Publish where this service can be reached
 
 Applies to:
 
@@ -1788,7 +1802,7 @@ extension. Reusing that mechanism would mean declaring it to be one.
 
 <a id="42e5cdfd-0049"></a>
 
-## test/service/Start-StatusService.ps1: Publish where this service can be reached
+## test/service/Start-StatusService.ps1: LAN reachability self-heal (all host types)
 
 Applies to:
 
@@ -1809,7 +1823,7 @@ configuration, and the listener it restores was reachable before.
 
 <a id="42e5cdfd-004a"></a>
 
-## test/service/Stop-CachingProxyServiceVM.ps1: Clear an abandoned bring-up lock
+## test/service/Stop-CachingProxyServiceVM.ps1: Clear an abandoned caching-proxy-service bring-up lock
 
 Applies to:
 
@@ -1832,7 +1846,7 @@ a partial module set degrades to the previous (no-op) behavior instead of errori
 
 <a id="42e5cdfd-004b"></a>
 
-## test/service/Stop-CachingProxyServiceVM.ps1: Clear an abandoned caching-proxy-service bring-up lock
+## test/service/Stop-CachingProxyServiceVM.ps1: Clear the host proxy
 
 Applies to:
 

@@ -2,7 +2,7 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
   GUID: 42e402ad-73e0-4ca2-b05a-7a69c7b55ca0
-  Version: 2026.10.26
+  Version: 2026.10.30
 
   Framework-free checks for the host-refresh, start-cycle and diagnostics
   flows in test/status/yuruna.common.js. Run: node host-refresh.test.js

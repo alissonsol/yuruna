@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42798304-85e4-4102-8026-ce168ff64fd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,15 +43,10 @@ Import-Module (Join-Path $here 'Test.Catalog.psm1') -Force -Global -DisableNameC
 Import-Module (Join-Path $here 'Test.StatusControlRoute.psm1') -Force -Global -DisableNameChecking
 
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
-$script:ServicePath = Join-Path $script:RepoRoot 'test/service/Start-StatusService.ps1'
+$script:RuntimePath = Join-Path $script:RepoRoot 'test/service/Invoke-StatusServiceRuntime.ps1'
 
-function Get-GeneratedServerText {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    return Get-YurunaTestGeneratedServerText -Path $script:ServicePath -Expand { param($Raw) $ExecutionContext.InvokeCommand.ExpandString($Raw) }
-}
-$script:ServerText = Get-GeneratedServerText
+# The status service runtime the launcher runs.
+$script:ServerText = [IO.File]::ReadAllText($script:RuntimePath)
 $parseErrors = $null
 $script:ServerAst = [System.Management.Automation.Language.Parser]::ParseInput($script:ServerText, [ref]$null, [ref]$parseErrors)
 $script:ServerParseErrors = @($parseErrors)
@@ -952,7 +947,8 @@ Describe 'the generated server wires the routes the way the listener must' {
     }
 
     It 'guards the refresh route with the always-on cross-site check and answers 405 through the shared error' {
-        Assert-Match "'control/host-refresh'" (($script:ServerText -split '\$csrfWriteProtected')[0]) 'control/host-refresh must be in the always-protected list'
+        $guard = Get-StatusControlRouteGuard -Path 'control/host-refresh' -Method 'GET'
+        Assert-True ($guard -and $guard.Guard -eq 'Always' -and $guard.RequiresHeader) 'control/host-refresh must be guarded on every method'
         $route = Get-ServerRouteText -Route 'control/host-refresh'
         Assert-Match "Send-JsonError -Response \`$res -StatusCode 405 -Request \`$req -Key 'status.api_post_required_663cc07c'" $route
         Assert-True ($route -notmatch 'ReadToEnd') 'the refresh route must not read its body synchronously'
@@ -1516,5 +1512,134 @@ $($script:ArchiveIndexText)
             Assert-Equal $ArchiveCalls $result.Calls 'local-only backfill discovery must never enumerate the network archive'
             Assert-StringEqual $Names $result.Names 'the regular index still merges and deduplicates archive folders'
         } finally { Remove-Module $module -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'the listener liveness lease' {
+    BeforeAll {
+        function Read-LeaseRecord {
+            param([string]$Path)
+            [IO.File]::ReadAllText($Path) | ConvertFrom-Json -AsHashtable
+        }
+        function Set-LeaseRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes a lease file into the case''s scratch directory.')]
+            param([string]$Path, [int]$ProcessId = $PID, [string]$State, [long]$Tick, [long]$StartTimeUnixMs = 0, [string]$Route = '')
+            if (-not $StartTimeUnixMs) { $StartTimeUnixMs = [DateTimeOffset]::new((Get-Process -Id $ProcessId).StartTime).ToUnixTimeMilliseconds() }
+            $record = [ordered]@{ schemaVersion = 1; pid = $ProcessId; startTimeUnixMs = $StartTimeUnixMs; state = $State; route = $Route
+                sinceUtc = ''; sinceTick = $Tick; renewedUtc = ''; renewedTick = $Tick; served = 3 }
+            [IO.File]::WriteAllText($Path, ($record | ConvertTo-Json -Compress))
+        }
+    }
+
+    It 'writes on every change a reader must see and holds back the rest' {
+        $path = Join-Path $TestDrive 'policy.lease.json'
+        $lease = New-StatusServiceLease -Path $path
+        $t = [long]1000000
+        Assert-True (Update-StatusServiceLease -Lease $lease -State idle -NowTick $t -Confirm:$false) 'the first idle state is written'
+        Assert-False (Update-StatusServiceLease -Lease $lease -State idle -NowTick ($t + 9000) -Confirm:$false) 'an idle lease renews every ten seconds, not sooner'
+        Assert-True (Update-StatusServiceLease -Lease $lease -State busy -Route 'archive/a.zip' -NowTick ($t + 9500) -Confirm:$false) 'a request right after a renewal is still written'
+        $record = Read-LeaseRecord $path
+        Assert-Equal 'busy' $record.state
+        Assert-Equal 'archive/a.zip' $record.route
+        Assert-Equal ($t + 9500) $record.sinceTick
+        Assert-False (Update-StatusServiceLease -Lease $lease -State idle -NowTick ($t + 10500) -Confirm:$false) 'idle waits two seconds after a request'
+        Assert-False (Update-StatusServiceLease -Lease $lease -State busy -Route 'b' -NowTick ($t + 11000) -Confirm:$false) 'a request within five seconds keeps the earlier stamp'
+        Assert-True (Update-StatusServiceLease -Lease $lease -State busy -Route 'c' -NowTick ($t + 15000) -Confirm:$false) 'a request five seconds on restamps'
+        Assert-Equal ($t + 15000) (Read-LeaseRecord $path).sinceTick
+        Assert-True (Update-StatusServiceLease -Lease $lease -State idle -NowTick ($t + 17500) -Confirm:$false) 'idle is written once the request has been done for two seconds'
+        $record = Read-LeaseRecord $path
+        Assert-Equal 'idle' $record.state
+        Assert-Equal '' $record.route
+        Assert-Equal $PID $record.pid
+        Assert-Equal 3 $record.served
+        Assert-True (Update-StatusServiceLease -Lease $lease -State idle -NowTick ($t + 27500) -Confirm:$false) 'an idle lease is renewed after ten seconds'
+        Assert-Equal ($t + 27500) (Read-LeaseRecord $path).renewedTick
+    }
+
+    It 'reports a write it could not make' {
+        $lease = New-StatusServiceLease -Path (Join-Path $TestDrive 'no-such-dir/x.lease.json')
+        Assert-False (Update-StatusServiceLease -Lease $lease -State idle -Confirm:$false)
+        Assert-True $lease.WriteFailed
+    }
+
+    It 'reads <Case>' -TestCases @(
+        @{ Case = 'a fresh idle lease as alive'; State = 'idle'; AgeMs = 30000; Expected = 'alive' }
+        @{ Case = 'an idle lease past its renewals as wedged'; State = 'idle'; AgeMs = 91000; Expected = 'wedged' }
+        @{ Case = 'a request under the ceiling as busy'; State = 'busy'; AgeMs = 590000; Expected = 'busy' }
+        @{ Case = 'a request past the ceiling as wedged'; State = 'busy'; AgeMs = 601000; Expected = 'wedged' }
+    ) {
+        param($State, $AgeMs, $Expected)
+        $path = Join-Path $TestDrive "verdict-$State-$AgeMs.json"
+        $now = [long]50000000
+        Set-LeaseRecord -Path $path -State $State -Tick ($now - $AgeMs) -Route 'log/x'
+        $verdict = Get-StatusServiceLeaseVerdict -Path $path -ProcessId $PID -NowTick $now
+        Assert-Equal $Expected $verdict.Verdict
+        Assert-Equal ([long][Math]::Floor($AgeMs / 1000)) $verdict.AgeSeconds
+        Assert-Equal $State $verdict.State
+    }
+
+    It 'has no evidence from a missing lease, another process''s, or an earlier process behind the same PID' {
+        $path = Join-Path $TestDrive 'unknown.lease.json'
+        Assert-Equal 'lease-missing' (Get-StatusServiceLeaseVerdict -Path $path -ProcessId $PID).Reason
+        Set-LeaseRecord -Path $path -State idle -Tick ([Environment]::TickCount64)
+        Assert-Equal 'lease-other-process' (Get-StatusServiceLeaseVerdict -Path $path -ProcessId ($PID + 1)).Reason
+        Set-LeaseRecord -Path $path -State idle -Tick ([Environment]::TickCount64) -StartTimeUnixMs 1000
+        $recycled = Get-StatusServiceLeaseVerdict -Path $path -ProcessId $PID
+        Assert-Equal 'unknown' $recycled.Verdict
+        Assert-Equal 'lease-other-process' $recycled.Reason
+        [IO.File]::WriteAllText($path, '{ not json')
+        Assert-Equal 'lease-unreadable' (Get-StatusServiceLeaseVerdict -Path $path -ProcessId $PID).Reason
+    }
+
+    It 'replaces the listener only on a second wedged pass that the probe confirms, and then waits before trying again' {
+        $runtime = Join-Path $TestDrive 'watch-runtime'
+        $null = New-Item -ItemType Directory -Path $runtime -Force
+        [IO.File]::WriteAllText((Join-Path $runtime 'server.pid'), "$PID")
+        $lease = Join-Path $runtime 'server.lease.json'
+        $now = [long]90000000
+        $state = @{ WedgedPasses = 0 }
+        $script:Replaced = 0
+        $script:ProbeAnswers = $false
+        $probe = { $script:ProbeAnswers }
+        $replace = { $script:Replaced++; 0 }
+        Set-LeaseRecord -Path $lease -State idle -Tick ($now - 10000)
+        Assert-Equal 'ok' (Invoke-StatusListenerWatch -RuntimeDir $runtime -State $state -Probe $probe -Replace $replace -NowTick $now -InformationAction SilentlyContinue)
+        Set-LeaseRecord -Path $lease -State idle -Tick ($now - 200000)
+        Assert-Equal 'wedged-pending' (Invoke-StatusListenerWatch -RuntimeDir $runtime -State $state -Probe $probe -Replace $replace -NowTick $now -InformationAction SilentlyContinue)
+        $script:ProbeAnswers = $true
+        Assert-Equal 'answered' (Invoke-StatusListenerWatch -RuntimeDir $runtime -State $state -Probe $probe -Replace $replace -NowTick $now -InformationAction SilentlyContinue)
+        Assert-Equal 0 $script:Replaced 'a listener that answers is never replaced'
+        $script:ProbeAnswers = $false
+        Assert-Equal 'wedged-pending' (Invoke-StatusListenerWatch -RuntimeDir $runtime -State $state -Probe $probe -Replace $replace -NowTick $now -InformationAction SilentlyContinue)
+        Assert-Equal 'replaced' (Invoke-StatusListenerWatch -RuntimeDir $runtime -State $state -Probe $probe -Replace $replace -NowTick $now -InformationAction SilentlyContinue)
+        Assert-Equal 1 $script:Replaced
+        $null = Invoke-StatusListenerWatch -RuntimeDir $runtime -State $state -Probe $probe -Replace $replace -NowTick ($now + 1000) -InformationAction SilentlyContinue
+        Assert-Equal 'throttled' (Invoke-StatusListenerWatch -RuntimeDir $runtime -State $state -Probe $probe -Replace $replace -NowTick ($now + 2000) -InformationAction SilentlyContinue)
+        Assert-Equal 1 $script:Replaced 'no second attempt inside the retry window'
+        Assert-Equal 'replace-failed' (Invoke-StatusListenerWatch -RuntimeDir $runtime -State $state -Probe $probe -Replace { 2 } -NowTick ($now + 301000) -InformationAction SilentlyContinue)
+        Remove-Item -LiteralPath (Join-Path $runtime 'server.pid')
+        Assert-Equal 'no-listener' (Invoke-StatusListenerWatch -RuntimeDir $runtime -State $state -Probe $probe -Replace $replace -NowTick $now -InformationAction SilentlyContinue)
+    }
+
+    It 'renews the lease from the listener loop and stamps each request' {
+        $script:ServerText | Should -Match ([regex]::Escape("`$script:ServerLease = New-StatusServiceLease -Path (Join-Path `$runtimeDir 'server.lease.json')"))
+        $loop = $script:ServerText.Substring($script:ServerText.IndexOf('while ($listener.IsListening) {', [StringComparison]::Ordinal))
+        $idle = $loop.IndexOf('Update-StatusServiceLease -Lease $script:ServerLease -State idle', [StringComparison]::Ordinal)
+        $wait = $loop.IndexOf('[System.Threading.Tasks.Task]::WaitAny(', [StringComparison]::Ordinal)
+        $busy = $loop.IndexOf('Update-StatusServiceLease -Lease $script:ServerLease -State busy -Route $path', [StringComparison]::Ordinal)
+        $route = $loop.IndexOf("if (`$path -eq 'metrics')", [StringComparison]::Ordinal)
+        Assert-True ($idle -ge 0 -and $idle -lt $wait) 'the idle lease is renewed before every wait'
+        Assert-True ($busy -gt $wait -and $busy -lt $route) 'each request is stamped before any route runs'
+        $loop | Should -Match '\$waitMs = 15000' -Because 'the loop wakes to renew the lease even with no request'
+    }
+}
+
+Describe 'the host-address beacon watches the listener' {
+    It 'runs one watch pass per loop and replaces through the refresh-safe start' {
+        $beacon = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'test/modules/Invoke-HostAddressBeacon.ps1'))
+        $beacon | Should -Match ([regex]::Escape('Invoke-StatusListenerWatch -RuntimeDir $RuntimeDir -State $listenerWatch -Probe $probeListener -Replace $replaceListener'))
+        $beacon | Should -Match ([regex]::Escape("'-RefreshSafe', '-ReplaceWedged'"))
+        $beacon | Should -Not -Match 'Start-StatusService\.ps1''\)[^\r\n]*-Restart' -Because 'the replacement must not run the full start''s sweeps'
     }
 }

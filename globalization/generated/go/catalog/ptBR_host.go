@@ -38,6 +38,26 @@ const DataptBRhost = `{
     " Nenhum sentinela ou registro de origem foi gravado para ele."
   ],
   "host.clock_service_description": "Serviço de tempo do Windows (W32Time)",
+  "host.download_incomplete": [
+    "O download de ",
+    {
+      "arg": "uri",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não foi concluído (",
+    {
+      "arg": "bytes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " bytes estão preparados para a próxima tentativa): ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "host.enable_automation_no_prompt_confirm_conflict": "Enable-TestAutomation: -NoOperatorPrompt não pode ser combinado com -Confirm, que pede confirmação antes de cada alteração; nada foi capturado nem alterado.",
   "host.enable_automation_no_prompt_mode": "Enable-TestAutomation: executando com -NoOperatorPrompt -- sem diálogos de consentimento, sem reinício do Dock ou do protetor de tela, sem instalação de módulos, sem solicitação de senha do sudo e sem questionário de networkStorage. As configurações que exigem um operador são informadas como ainda não atendidas.",
   "host.enable_automation_no_prompt_unsupported": "Enable-TestAutomation: -NoOperatorPrompt requer Set-MacHostConditionSet -NoGuiDisruption, que esta cópia do repositório não fornece; nada foi capturado nem alterado. Em vez disso, execute-o sem -NoOperatorPrompt a partir de uma sessão assistida.",
@@ -50,6 +70,102 @@ const DataptBRhost = `{
     },
     " dentro do tempo limite; o arquivo de PID foi mantido e nada foi sinalizado."
   ],
+  "host.hyperv_bounded_call_no_answer": [
+    "A chamada ao Hyper-V terminou sem retornar resposta (estado do job: ",
+    {
+      "arg": "state",
+      "type": "token",
+      "trust": "internal"
+    },
+    "; motivo: ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "host.hyperv_checkpoint_listing_lagged": [
+    "Save-VMDiskSnapshot: o Hyper-V contém o checkpoint '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "/",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "', mas o módulo Hyper-V não o listou em ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " segundos."
+  ],
+  "host.hyperv_checkpoint_listing_unanswered": [
+    "Save-VMDiskSnapshot: a listagem de checkpoints do módulo Hyper-V para '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' falhou ou não respondeu enquanto o salvamento aguardava ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " segundos pelo checkpoint '",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "'; o registro do próprio Hyper-V contém [",
+    {
+      "arg": "held",
+      "type": "detail",
+      "trust": "external"
+    },
+    "] (? quando não pôde ser lido)."
+  ],
+  "host.hyperv_checkpoint_not_listed": [
+    "Save-VMDiskSnapshot: Checkpoint-VM informou sucesso para '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "/",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "', mas o checkpoint não aparece na listagem em seguida. Checkpoint-VM retornou [",
+    {
+      "arg": "made",
+      "type": "detail",
+      "trust": "external"
+    },
+    "]; o módulo Hyper-V listou [",
+    {
+      "arg": "listed",
+      "type": "detail",
+      "trust": "external"
+    },
+    "]; o registro do próprio Hyper-V contém [",
+    {
+      "arg": "held",
+      "type": "detail",
+      "trust": "external"
+    },
+    "] (? quando não pôde ser lido)."
+  ],
   "host.hyperv_dism_timed_out": [
     "Assert-HyperVEnabled: dism.exe não informou o estado do recurso Hyper-V em até ",
     {
@@ -58,6 +174,27 @@ const DataptBRhost = `{
       "trust": "internal"
     },
     " segundos; o estado do recurso é desconhecido."
+  ],
+  "host.hyperv_lifecycle_unanswered": [
+    "O Hyper-V não respondeu a ",
+    {
+      "arg": "verb",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " para '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' em ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " segundos; o serviço de gerenciamento de máquinas virtuais pode estar travado."
   ],
   "host.hyperv_rename_destination_dir_occupied": [
     "Não é possível renomear para '",
@@ -72,7 +209,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    " já contém arquivos, e mover o armazenamento para ele falharia depois da renomeação e a deixaria pela metade."
+    " já contém arquivos de armazenamento de máquina virtual, e mover o armazenamento para ele falharia depois da renomeação e a deixaria pela metade."
   ],
   "host.hyperv_rename_source_not_stopped": [
     "Rename-VM: o estado de '",
@@ -191,6 +328,32 @@ const DataptBRhost = `{
   "host.kvm_running_cache_unreachable": "A VM caching-proxy-service está em execução, mas seu proxy está inacessível. Execute test/service/Start-CachingProxyServiceVM.ps1 para restaurá-lo ou passe -CachingProxyServiceUrl \"\" para baixar diretamente.",
   "host.kvm_start_network_action": "Iniciar a rede inativa da libvirt",
   "host.kvm_start_unit_action": "Iniciar a unidade parada da libvirt",
+  "host.media_digest_mismatch": [
+    {
+      "arg": "file",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " de ",
+    {
+      "arg": "url",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " tem SHA-256 ",
+    {
+      "arg": "actual",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ", e não o ",
+    {
+      "arg": "expected",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " fixado para essa versão; o download foi descartado e a mídia existente não foi alterada."
+  ],
   "host.operator_005bab80fe0f8f32": [
     "SSH: ssh pool-control-service-admin@",
     {
@@ -2281,33 +2444,6 @@ const DataptBRhost = `{
       "trust": "external"
     },
     " (não está no disco)"
-  ],
-  "host.operator_3d4bd722f2cfda09": [
-    "Save-VMDiskSnapshot: o instantâneo '",
-    {
-      "arg": "id",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' gravado em '",
-    {
-      "arg": "utmBundle",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' mas renomear '",
-    {
-      "arg": "vMName",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' -> '",
-    {
-      "arg": "id",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' falhou; o VM será apagado na limpeza do próximo ciclo. O instantâneo do qcow2 está no disco e pode ser restaurado manualmente."
   ],
   "host.operator_3d53fa1f73f89fed": [
     "a genisoimage falhou (saída ",
@@ -4826,7 +4962,6 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_87abce329e878b18": "Continuar o serviço VM após o relançamento da UTM",
-  "host.operator_87d1543cf3bfdad9": "Limpar o mapeamento das portas do Yuruna",
   "host.operator_87e79790981d47af": [
     "Definir o 'proxy' da máquina para ",
     {
@@ -5534,21 +5669,6 @@ const DataptBRhost = `{
   ],
   "host.operator_a0e97dcbb626019f": "Somente a regra de porta de status da ufw será removida -- ela é provavelmente nossa. Membros do grupo, o $HOME ACL, libvirtd/virtlogd e as teclas GNOME são deixadas exatamente como são, e relatadas.",
   "host.operator_a127790ebde6e4ff": "cache VM nele), ou defini-lo à mão -- veja",
-  "host.operator_a1763a8af3ef734a": [
-    "Save-VMDiskSnapshot: renomear '",
-    {
-      "arg": "vMName",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' -> '",
-    {
-      "arg": "id",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' falhou; nenhum instantâneo tomado, domínio será apagado na limpeza do próximo ciclo."
-  ],
   "host.operator_a19074ac4867746e": "Usuário da consola/SSH:",
   "host.operator_a1a6059aaacffcb8": [
     "'",
@@ -5904,14 +6024,6 @@ const DataptBRhost = `{
     "' não tem ligação física (apenas portas de toque anexadas). Auto-cura..."
   ],
   "host.operator_a9dbdd1577bb8c0e": "(também incorporado no seed.iso's user-data -- chpasswd)",
-  "host.operator_a9dcf6d3662588bf": [
-    {
-      "arg": "mB",
-      "type": "detail",
-      "trust": "external"
-    },
-    " MB"
-  ],
   "host.operator_a9e197e13deba921": [
     "(ou salvar qualquer arquivo Win11*.iso para ",
     {
@@ -6816,26 +6928,6 @@ const DataptBRhost = `{
     },
     "' não desligou completamente (qcow2 ainda bloqueado); abortando para evitar uma reversão entupida."
   ],
-  "host.operator_c67e69b1dce2a237": [
-    {
-      "arg": "mB",
-      "type": "detail",
-      "trust": "external"
-    },
-    " / ",
-    {
-      "arg": "mB2",
-      "type": "detail",
-      "trust": "external"
-    },
-    " MB (",
-    {
-      "arg": "percent",
-      "type": "detail",
-      "trust": "external"
-    },
-    "%)"
-  ],
   "host.operator_c689a85719965f3f": [
     "Resolvendo a construção estável de ",
     {
@@ -7597,27 +7689,6 @@ const DataptBRhost = `{
       "trust": "external"
     },
     "'"
-  ],
-  "host.operator_dda22dc70c2dcb9f": [
-    "Save-VMDiskSnapshot: o instantâneo '",
-    {
-      "arg": "id",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' salvo, mas renomear '",
-    {
-      "arg": "vMName",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' -> '",
-    {
-      "arg": "id",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' falhou; VM será apagado na limpeza do ciclo seguinte."
   ],
   "host.operator_ddd6375b1613a19a": [
     "A Apple publicou o macOS ",
@@ -8658,6 +8729,62 @@ const DataptBRhost = `{
     },
     " segundos, então os registros do UTM são desconhecidos; nada foi excluído. Execute novamente quando o UTM responder."
   ],
+  "host.portmap_ledger_busy": [
+    "O registro de mapeamento de portas ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " permaneceu bloqueado por outro processo; os encaminhamentos de ",
+    {
+      "arg": "owner",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " estão ativos, mas não foram registrados."
+  ],
+  "host.portmap_ledger_unwritten": [
+    "Não foi possível gravar o registro de mapeamento de portas ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " para ",
+    {
+      "arg": "owner",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "host.portmap_port_held": [
+    "Os encaminhamentos de porta de ",
+    {
+      "arg": "owner",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " não foram alterados: a porta ",
+    {
+      "arg": "port",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " do host pertence a ",
+    {
+      "arg": "holder",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
   "host.proxy_ca_refused_build": [
     "'",
     {
@@ -8729,8 +8856,122 @@ const DataptBRhost = `{
     },
     "' não foi renomeada e o pacote dela não foi editado."
   ],
+  "host.service_build_plan_accepted": [
+    "Plano de build de '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' aceito: todas as entradas de que o build precisa estão presentes, e nada foi alterado."
+  ],
+  "host.service_seed_degraded": [
+    "A seed de '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' está degradada: ",
+    {
+      "arg": "name",
+      "type": "token",
+      "trust": "internal"
+    },
+    " foi gravado vazio. O convidado inicia sem ele, e o Start dele relata a inicialização como degradada."
+  ],
   "host.signature_could_not_be_checked": "  A ASSINATURA GPG DO SHA256SUMS NÃO PÔDE SER VERIFICADA",
   "host.signature_could_not_be_checked_detail": "  O gpg e as chaves de assinatura do Ubuntu fixadas estão presentes, mas a assinatura não pôde ser obtida nem verificada; a soma de verificação é recusada por não estar autenticada.",
+  "host.snapshot_leftover_unsettled": [
+    "O snapshot '",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' não foi salvo: um salvamento anterior interrompido deixou '",
+    {
+      "arg": "previous",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "', e sua resolução parou em ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "host.snapshot_previous_not_removed": [
+    "O snapshot '",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' foi salvo, mas a VM persistida anterior '",
+    {
+      "arg": "previous",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' não pôde ser removida; o próximo salvamento de '",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' a remove."
+  ],
+  "host.snapshot_save_rollback_incomplete": [
+    "O snapshot '",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' não foi salvo a partir de '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' (",
+    {
+      "arg": "step",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " falhou), e nem todas as VMs puderam voltar aos nomes anteriores; o próximo salvamento de '",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' as acerta."
+  ],
+  "host.snapshot_save_rolled_back": [
+    "O snapshot '",
+    {
+      "arg": "id",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' não foi salvo a partir de '",
+    {
+      "arg": "vMName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' (",
+    {
+      "arg": "step",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " falhou); as duas VMs mantêm os nomes que tinham antes da tentativa."
+  ],
   "host.snapshot_state_unknown": [
     "Não foi possível saber se o snapshot '",
     {

@@ -15,7 +15,7 @@ import (
 )
 
 func TestDisabledStoreIsInert(t *testing.T) {
-	s := New("", time.Now())
+	s := New("", "agent-a", time.Now())
 	if s.Enabled() {
 		t.Fatal("an empty state dir must leave the store disabled")
 	}
@@ -28,7 +28,7 @@ func TestDisabledStoreIsInert(t *testing.T) {
 
 func TestRecordAppendsOneJSONLineAndRefreshesStatus(t *testing.T) {
 	dir := t.TempDir()
-	s := New(dir, time.Now())
+	s := New(dir, "agent-a", time.Now())
 	now := time.Now()
 	s.Record(now, AuditEntry{
 		AtUTC: now.UTC().Format(time.RFC3339), Action: "delete",
@@ -37,7 +37,7 @@ func TestRecordAppendsOneJSONLineAndRefreshesStatus(t *testing.T) {
 	})
 	s.Record(now, AuditEntry{AtUTC: now.UTC().Format(time.RFC3339), Action: "prune", Outcome: "ok"})
 
-	b, err := os.ReadFile(filepath.Join(dir, "audit.jsonl"))
+	b, err := os.ReadFile(filepath.Join(dir, AuditFile("agent-a")))
 	if err != nil {
 		t.Fatalf("audit log: %v", err)
 	}
@@ -57,13 +57,13 @@ func TestRecordAppendsOneJSONLineAndRefreshesStatus(t *testing.T) {
 	if h.Actions != 2 || h.LastAction != "prune" || !h.Healthy {
 		t.Fatalf("health = %+v", h)
 	}
-	sb, err := os.ReadFile(filepath.Join(dir, "status.json"))
+	sb, err := os.ReadFile(filepath.Join(dir, StatusFile("agent-a")))
 	if err != nil {
-		t.Fatalf("status.json: %v", err)
+		t.Fatalf("status file: %v", err)
 	}
 	var persisted Status
 	if err := json.Unmarshal(sb, &persisted); err != nil {
-		t.Fatalf("status.json is not JSON: %v", err)
+		t.Fatalf("status file is not JSON: %v", err)
 	}
 	if persisted.Actions != 2 {
 		t.Fatalf("persisted status = %+v", persisted)
@@ -72,7 +72,7 @@ func TestRecordAppendsOneJSONLineAndRefreshesStatus(t *testing.T) {
 
 func TestTargetCarriesTheFullIdentity(t *testing.T) {
 	dir := t.TempDir()
-	s := New(dir, time.Now())
+	s := New(dir, "agent-a", time.Now())
 	s.Record(time.Now(), AuditEntry{
 		Action: "refresh", HostType: "macos.utm", ImageKey: "ubuntu.extension.26",
 		Arch: "arm64", Variant: "stable", Outcome: "ok",
@@ -84,11 +84,11 @@ func TestTargetCarriesTheFullIdentity(t *testing.T) {
 
 func TestAWriteFailureIsRecordedInHealthWhileTheMutationProceeds(t *testing.T) {
 	dir := t.TempDir()
-	s := New(dir, time.Now())
+	s := New(dir, "agent-a", time.Now())
 	// Block the audit path with a directory so its append cannot succeed. The
 	// mutation has already happened by the time this runs; losing the record
 	// must degrade health, not the service.
-	if err := os.MkdirAll(filepath.Join(dir, "audit.jsonl"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, AuditFile("agent-a")), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	s.Record(time.Now(), AuditEntry{Action: "delete", Outcome: "ok"})
@@ -112,7 +112,7 @@ func TestHealthStaysReadableWhileTheStoreIsWriting(t *testing.T) {
 	// hang the one endpoint whose whole job is to answer while the share is
 	// sick. Run under -race, this also pins the two-lock discipline itself.
 	const rounds = 200
-	s := New(t.TempDir(), time.Now())
+	s := New(t.TempDir(), "agent-a", time.Now())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -135,7 +135,7 @@ func TestHealthStaysReadableWhileTheStoreIsWriting(t *testing.T) {
 }
 
 func TestRecordStampsAnEntryThatCarriesNoTime(t *testing.T) {
-	s := New(t.TempDir(), time.Now())
+	s := New(t.TempDir(), "agent-a", time.Now())
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	s.Record(now, AuditEntry{Action: "prune", Outcome: "ok"})
 	if got := s.Health().LastActionUTC; got != now.Format(time.RFC3339) {
@@ -145,7 +145,7 @@ func TestRecordStampsAnEntryThatCarriesNoTime(t *testing.T) {
 
 func TestBeatTracksPoolAvailability(t *testing.T) {
 	dir := t.TempDir()
-	s := New(dir, time.Now())
+	s := New(dir, "agent-a", time.Now())
 	s.Beat(time.Now(), false)
 	if h := s.Health(); h.PoolAvailable || h.HeartbeatUTC == "" {
 		t.Fatalf("health = %+v", h)
@@ -163,7 +163,7 @@ func TestIndependentStoresPublishCompleteStatusSnapshots(t *testing.T) {
 	dir := t.TempDir()
 	stores := make([]*Store, 8)
 	for i := range stores {
-		stores[i] = New(dir, time.Now())
+		stores[i] = New(dir, "agent-a", time.Now())
 	}
 	errs := make(chan error, len(stores))
 	for _, s := range stores {
@@ -182,7 +182,7 @@ func TestIndependentStoresPublishCompleteStatusSnapshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "status.json"))
+	b, err := os.ReadFile(filepath.Join(dir, StatusFile("agent-a")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,8 +190,48 @@ func TestIndependentStoresPublishCompleteStatusSnapshots(t *testing.T) {
 	if err := json.Unmarshal(b, &status); err != nil {
 		t.Fatalf("partial status: %v", err)
 	}
-	names, err := filepath.Glob(filepath.Join(dir, ".status.json.tmp-*"))
+	names, err := filepath.Glob(filepath.Join(dir, "."+StatusFile("agent-a")+".tmp-*"))
 	if err != nil || len(names) != 0 {
 		t.Fatalf("temporary files left behind: %v %v", names, err)
+	}
+}
+
+// Every agent of a pool shares the state directory on the share, where an
+// append is not atomic across clients. Each agent therefore keeps its own log
+// and status, so one agent's lines and snapshot are never another's to tear.
+func TestAgentsSharingADirectoryKeepTheirOwnFiles(t *testing.T) {
+	dir := t.TempDir()
+	a := New(dir, "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", time.Now())
+	b := New(dir, "host/with:odd name", time.Now())
+	a.Record(time.Now(), AuditEntry{Action: "delete", Outcome: "ok"})
+	b.Record(time.Now(), AuditEntry{Action: "prune", Outcome: "ok"})
+	b.Record(time.Now(), AuditEntry{Action: "refresh", Outcome: "ok"})
+
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return string(data)
+	}
+	if got := strings.Count(read(AuditFile("42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")), "\n"); got != 1 {
+		t.Fatalf("first agent's log holds %d line(s), want its own 1", got)
+	}
+	if got := strings.Count(read(AuditFile("host/with:odd name")), "\n"); got != 2 {
+		t.Fatalf("second agent's log holds %d line(s), want its own 2", got)
+	}
+	var sa, sb Status
+	if err := json.Unmarshal([]byte(read(StatusFile("42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))), &sa); err != nil || sa.Actions != 1 {
+		t.Fatalf("first agent's status = %+v (%v), want its own 1 action", sa, err)
+	}
+	if err := json.Unmarshal([]byte(read(StatusFile("host/with:odd name"))), &sb); err != nil || sb.Actions != 2 {
+		t.Fatalf("second agent's status = %+v (%v), want its own 2 actions", sb, err)
+	}
+	if name := AuditFile("host/with:odd name"); strings.ContainsAny(name, "/: ") {
+		t.Fatalf("audit file name %q carries characters a share may refuse", name)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "audit.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("a shared audit.jsonl was written (stat err = %v)", err)
 	}
 }

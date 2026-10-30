@@ -203,25 +203,6 @@ const DatazhCNexceptions = `{
     }
   ],
   "exceptions.host_56dd0a83b1740c20": "Disable-TestAutomation.ps1（host/ubuntu.kvm）只能在Linux上运行。",
-  "exceptions.host_5e82d7a32d22a269": [
-    {
-      "arg": "uri",
-      "type": "detail",
-      "trust": "external"
-    },
-    "返回HTTP ",
-    {
-      "arg": "status",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ",
-    {
-      "arg": "reasonPhrase",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
   "exceptions.host_5fbd4e8bd8efc5cc": [
     "extension-service基础映像不支持此架构：",
     {

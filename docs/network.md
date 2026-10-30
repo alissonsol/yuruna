@@ -361,10 +361,13 @@ literals.
 | Variable | Pins | Consumed by |
 |---|---|---|
 | `YURUNA_K8S_MINOR` | Kubernetes apt-repo minor track (`pkgs.k8s.io/core:/stable:/v<minor>/deb`) | Ubuntu `*.k8s.sh` |
-| `YURUNA_OPENTOFU_VERSION` | OpenTofu release for the standalone installer's `--opentofu-version` | guest OpenTofu install |
-| `YURUNA_HELM_VERSION` | Helm release, passed to the installer as `DESIRED_VERSION=v<x>` | Ubuntu `*.k8s.sh` |
-| `YURUNA_NVM_VERSION` | nvm release tag (`nvm-sh/nvm`) the Ubuntu guests fetch `install.sh` from | Ubuntu `*.n8n.sh` / `*.openclaw.sh` |
-| `YURUNA_NODE_MAJOR` | Node.js major (`nvm install <major>`; nodesource `setup_<major>.x` on AL2023) | Ubuntu + AL2023 Node installs |
+| `YURUNA_OPENTOFU_VERSION`, `YURUNA_OPENTOFU_SHA256_AMD64`, `YURUNA_OPENTOFU_SHA256_ARM64` | OpenTofu release tarball `tofu_<x>_linux_<arch>.tar.gz` and its digests | Ubuntu `*.k8s.sh` |
+| `YURUNA_HELM_VERSION`, `YURUNA_HELM_SHA256_AMD64`, `YURUNA_HELM_SHA256_ARM64` | Helm release tarball `helm-v<x>-linux-<arch>.tar.gz` and its digests | Ubuntu `*.k8s.sh` |
+| `YURUNA_FLANNEL_VERSION`, `YURUNA_FLANNEL_MANIFEST_SHA256` | flannel release whose `Documentation/kube-flannel.yml` the guest applies, and that file's digest | Ubuntu `*.k8s.sh`; the caching proxy's image warm |
+| `YURUNA_MKCERT_VERSION`, `YURUNA_MKCERT_SHA256_AMD64`, `YURUNA_MKCERT_SHA256_ARM64` | mkcert release binary `mkcert-v<x>-linux-<arch>` and its digests | Ubuntu `*.k8s.sh` |
+| `YURUNA_NVM_VERSION`, `YURUNA_NVM_INSTALL_SHA256` | nvm release tag (`nvm-sh/nvm`) the Ubuntu guests fetch `install.sh` from, and that script's digest | Ubuntu `*.n8n.sh` / `*.openclaw.sh` |
+| `YURUNA_DOTNET_INSTALL_COMMIT`, `YURUNA_DOTNET_INSTALL_SHA256` | `dotnet/install-scripts` commit whose `src/dotnet-install.sh` the code guests run, and that script's digest (the Windows code workload pins the same commit's `dotnet-install.ps1` inline) | Ubuntu + AL2023 `*.code.sh` |
+| `YURUNA_NODE_MAJOR` | Node.js major (`nvm install <major>`; NodeSource `pub_<major>.x` repository on AL2023) | Ubuntu + AL2023 Node installs |
 
 **Why pin at all.** Bump `YURUNA_K8S_MINOR` only across a minor your
 kubeadm/kubelet/kubectl are validated on. `YURUNA_OPENTOFU_VERSION` exists so
@@ -373,13 +376,28 @@ the standalone installer never queries the rate-limited GitHub releases API for
 once many guests share one NAT egress IP, which makes the fallback
 non-deterministic exactly when a pool is busiest.
 
-`YURUNA_HELM_VERSION` carries a second constraint: the guests must fetch
-upstream's **`get-helm-4`** installer, not `get-helm-3`. The v3 script resolves
-its default from `get.helm.sh/helm3-latest-version`, so it can only ever land a
-3.x binary -- a guest provisioned with it can never satisfy the Helm requirement
-in `Yuruna.Requirement.yml`, however that requirement is bumped. Passing
-`DESIRED_VERSION=v<x>` both pins the release (the installer verifies the tarball
-checksum) and keeps the guest off the same unauthenticated "latest" lookup.
+**Why a digest beside each version.** The guests reach these downloads
+through the caching proxy, which re-signs every HTTPS response it relays, so
+TLS proves nothing about the bytes a guest receives. Every third-party
+installer artifact a guest fetches and installs or executes is therefore
+pinned by version **and** SHA-256, and `yuruna_verify_sha256` (in
+`yuruna-retry.sh`) checks the downloaded file before anything installs or runs
+it. What a verified installer downloads in turn follows the floating lines this
+file chooses and is not digest-pinned: the .NET SDK from its LTS channel,
+Node.js within `YURUNA_NODE_MAJOR` (nvm checks it against the release's
+`SHASUMS256.txt`), npm packages, and the newest PowerShell (checked against its
+release's `hashes.sha256`). A missing or malformed
+pin fails the step too: a guest whose seed-baked `yuruna-versions.sh` predates
+a pin has nothing to verify against and must be rebuilt. No upstream installer
+script is piped to a shell: Helm, OpenTofu and mkcert install from their
+release tarballs or binaries, the nvm `install.sh` runs only after it matches
+its digest, and Amazon Linux reaches NodeSource through a repository file whose
+signing key is checked against a pinned fingerprint (dnf then verifies every
+package). Apt repository keys are pinned the same way, by fingerprint.
+
+The flannel pin also decides which images the caching proxy warms: its warm
+job reads `YURUNA_FLANNEL_VERSION` from the host's copy of this file, so the
+warm set and the manifest a guest applies stay the same release.
 
 `YURUNA_NVM_VERSION` pins the installer script URL fetched by the Ubuntu n8n
 and OpenClaw guests. A moving script could change provisioning behavior between
@@ -396,7 +414,14 @@ can parse it with a line regex instead of sourcing a shell. Values are
 scripts use; a child shell only inherits exported state.
 
 **To bump a dependency.** Run `Check-DependencyVersion.ps1`; when it reports a
-newer stable release upstream, edit the matching number here.
+newer stable release upstream, edit the matching number here **and** replace
+its digests, taking them from the source the comment above each digest pin
+names: the release's own checksum file where upstream publishes one (Helm's
+`<file>.sha256sum`, OpenTofu's GPG-signed `tofu_<x>_SHA256SUMS`), otherwise
+`sha256sum` of the release asset or of the file at the new tag or commit
+(flannel's manifest, mkcert, nvm's `install.sh`, the .NET installer script). A bump that leaves an old digest fails
+the guest step with a `sha256 verify` mismatch rather than installing an
+unverified file.
 
 ---
 
@@ -476,6 +501,16 @@ address before it rewrites anything -- libvirt in the same `define` that relocat
 disks, UTM while the app is quit (alongside the VNC display, which is frozen at build
 time for the same reason), Hyper-V with `Set-VMNetworkAdapter` on the new name. An
 address that is not the outgoing name's belongs to the guest, and is left alone.
+
+**A rename back restores the address the VM had under that name.** The rule above
+does not undo itself. A guest pinned at build time to an identity equal to the name
+it is promoted to -- one whose hostname is its snapshot id -- keeps its address on the
+way in, and on the way back, when a failed snapshot save renames it back, carries
+exactly the address the name being left derives. So every rename records what it left
+on the NIC (`Register-YurunaRenameMac`), and a rename that returns a VM to the name it
+had before restores the address it carried under that name while the NIC still holds
+what that rename wrote (`Resolve-YurunaRenameMac`). The record lives in the process
+that renamed the VM; every other rename follows the outgoing-name rule.
 
 The pool footprint this settles at is one address per *guest identity* a host has
 built, not one per slot: two guests built one after another in the same slot now hold
@@ -1145,7 +1180,9 @@ stash, pool-control and download-agent seeds take the framework as an
 archive of the commit `host.env` names, requested with `?commit=` and
 extracted only when it matches the seeded
 `/etc/yuruna/framework-archive.sha256`; otherwise they fall through to
-the mirror fetch of that exact commit, and when that fails too, to a
+the mirror fetch of that exact commit (a seed with no digest or commit goes
+there at once instead of waiting through the six attempts for an archive it
+could not accept), and when that fails too, to a
 shallow clone of the public GitHub repository's default branch, which runs
 published code rather than the host's commit.
 
@@ -1299,19 +1336,19 @@ allow-set of PRIMARY-key fingerprints before it is trusted:
 
 ## Helm installer fetch
 
-The Ubuntu `*.k8s.sh` scripts install Helm via upstream's **`get-helm-4`**
-installer, never `get-helm-3`, passing
-`DESIRED_VERSION=v$YURUNA_HELM_VERSION` -- see
-[`Defining yuruna versions pins`](#defining-yuruna-versions-pins) for why
-the v3 script and the unauthenticated "latest" lookup are both ruled out.
+The Ubuntu `*.k8s.sh` scripts install Helm from the release tarball
+`get.helm.sh/helm-v$YURUNA_HELM_VERSION-linux-<arch>.tar.gz`, fetched with
+`curl_retry` and checked against `YURUNA_HELM_SHA256_<ARCH>` before the binary
+is installed to `/usr/local/bin/helm` -- see
+[`Defining yuruna versions pins`](#defining-yuruna-versions-pins). Upstream's
+`get-helm-4` installer script is not used: it is served from a moving branch
+and would run unverified, and it fetched the tarball with its own un-retried
+download. Taking the tarball directly also keeps the guest off the
+unauthenticated "latest" lookup and lands exactly the pinned 4.x release.
 
-The installer downloads the binary with its own un-retried curl/wget, so
-a single transient blip leaves helm uninstalled. The scripts therefore
-capture the installer script once with `curl_retry`, run it under
-`_yuruna_retry` (same capped backoff as every other fetch), and then
-verify the binary actually landed: a swallowed failure here otherwise
-surfaces far away as a `helm: not recognized` abort in the k8s.website
-workload.
+A download, digest or install failure stops the script at once, and the
+binary is then probed: a swallowed failure here otherwise surfaces far away as
+a `helm: not recognized` abort in the k8s.website workload.
 
 <a id="4220a755-0020"></a>
 
@@ -2643,9 +2680,11 @@ first place.
 
 Private repository credentials reach Ubuntu and Amazon Linux guests through
 the seed ISO, never through OCR console input or HTTP. When a token is set,
-the seed writes it to `/etc/profile.d` for login shells and `~/.bashrc` for
-the runner's interactive shell. An unset token omits that credential block
-while preserving the independent prompt-suppression settings.
+the seed writes it to the guest user's `~/.config/yuruna/github-token` (mode
+0600), which the `github.com`-scoped credential helper and the askpass shim
+read; the startup files load it from there for `gh` and never carry it
+themselves. An unset token omits that credential block while preserving the
+independent prompt-suppression settings and the helper registration.
 
 <a id="4220a755-0050"></a>
 
@@ -2834,6 +2873,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

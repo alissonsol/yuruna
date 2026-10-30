@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4202eb15-d68a-475f-9f7f-9e84da9b500a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,11 +30,14 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Write-Output "|  Right-click PowerShell and select 'Run as Administrator' |"
     Write-Output "========"
     Write-Output ""
-    throw 'Guest update failed; review the preceding error.'
+    # throw, not exit: under the documented `irm ... | iex` one-liner an exit
+    # closes the operator's console before the reason above can be read, while
+    # a throw still ends -File and -Command runs with a non-zero exit code.
+    throw 'This script requires elevation (Run as Administrator).'
 }
 
-# See https://yuruna.link/42e220c4-0005
 # --- REGION: Invoke-GuestWingetInstall
+# See https://yuruna.link/42e220c4-0005
 function Invoke-GuestWingetInstall {
     <#
     .SYNOPSIS
@@ -111,6 +114,7 @@ $yamlInstall = "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyC
 $yamlOk = $false
 for ($attempt = 1; $attempt -le 3 -and -not $yamlOk; $attempt++) {
     pwsh -NoProfile -Command $yamlInstall
+    # A fresh-process YAML round-trip verifies the installed module is usable.
     pwsh -NoProfile -Command "Import-Module powershell-yaml -ErrorAction Stop; if ((ConvertFrom-Yaml 'k: v').k -ne 'v') { exit 1 }"
     if ($LASTEXITCODE -eq 0) { $yamlOk = $true }
     else { Write-Output "powershell-yaml install/import attempt $attempt/3 failed; retrying..."; Start-Sleep -Seconds ($attempt * 5) }
@@ -120,6 +124,60 @@ if (-not $yamlOk) {
     throw 'Guest update failed; review the preceding error.'
 }
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
+
+# --- REGION: Verified host archive
+# See https://yuruna.link/42185271-000d
+# With the guest-channel key, keep the archive only when its bytes match the
+# digest /archive-digest proved; a failure throws into the caller's fallback
+# (the pinned framework commit or a git clone). Without the key -- a guest built
+# before it existed -- the archive is fetched as served.
+function Get-GuestHostArchive {
+    param(
+        [Parameter(Mandatory)][ValidateSet('framework', 'project')][string]$Archive,
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$OutFile,
+        [string]$KeyPath = 'C:\ProgramData\yuruna\guest-channel.key',
+        [string]$HostId = ''
+    )
+    $route = if ($Archive -eq 'framework') { 'yuruna-archive.tar.gz' } else { 'yuruna-project-archive.tar.gz' }
+    $key = ''
+    if (Test-Path -LiteralPath $KeyPath -PathType Leaf) {
+        $text = ([System.IO.File]::ReadAllText($KeyPath)).Trim()
+        if ($text -cmatch '^[0-9a-f]{64}$') { $key = $text }
+    }
+    if (-not $key) {
+        Invoke-WebRequest -Uri "$BaseUrl/$route" -UseBasicParsing -OutFile $OutFile -ErrorAction Stop
+        return
+    }
+    $bytes = New-Object byte[] 16
+    $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    $nonce = ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
+    $answer = Invoke-RestMethod -Uri "$BaseUrl/archive-digest?archive=$Archive&nonce=$nonce" -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
+    $commit = [string]$answer.commit
+    $sha256 = [string]$answer.sha256
+    $answerHostId = [string]$answer.hostId
+    $proof = [string]$answer.proof
+    if ($commit -cnotmatch '^[0-9a-f]{40}$' -or $sha256 -cnotmatch '^[0-9a-f]{64}$' -or $proof -cnotmatch '^[0-9a-f]{64}$') {
+        throw "the host's $Archive archive digest answer is incomplete"
+    }
+    if ($HostId -and $answerHostId -ne $HostId) {
+        throw "the $Archive archive digest answer speaks for host '$answerHostId', not this guest's host '$HostId'"
+    }
+    $hmac = New-Object System.Security.Cryptography.HMACSHA256 (, [System.Text.Encoding]::ASCII.GetBytes($key))
+    try {
+        $message = [System.Text.Encoding]::UTF8.GetBytes("yuruna-archive-digest/1`n$answerHostId`n$nonce`n$Archive`n$commit`n$sha256")
+        $expected = ($hmac.ComputeHash($message) | ForEach-Object { $_.ToString('x2') }) -join ''
+    } finally { $hmac.Dispose() }
+    if ($proof -cne $expected) { throw "the $Archive archive digest answer does not prove this host's guest-channel key" }
+    Invoke-WebRequest -Uri "$BaseUrl/$($route)?commit=$commit" -UseBasicParsing -OutFile $OutFile -ErrorAction Stop
+    $actual = (Get-FileHash -LiteralPath $OutFile -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -cne $sha256) {
+        Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+        throw "the $Archive archive for $commit has SHA-256 $actual, not the $sha256 the host proved"
+    }
+    Write-Output "yuruna: $Archive archive $commit verified (sha256 $sha256)"
+}
 
 # --- REGION: Early yuruna framework extraction
 # See https://yuruna.link/42d69dfa-0037
@@ -138,13 +196,12 @@ if (Test-Path -LiteralPath $hostEnv -PathType Leaf) {
 }
 if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT -and -not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
     $livecheckUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/livecheck"
-    $tarballUrl   = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/yuruna-archive.tar.gz"
     try {
         # Probe liveness without downloading a response body.
         $null = Invoke-WebRequest -Uri $livecheckUrl -Method Head -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
         New-Item -ItemType Directory -Path $yurunaRoot -Force | Out-Null
         $tarPath = Join-Path $env:TEMP 'yuruna-archive.tar.gz'
-        Invoke-WebRequest -Uri $tarballUrl -UseBasicParsing -OutFile $tarPath -ErrorAction Stop
+        Get-GuestHostArchive -Archive framework -BaseUrl "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)" -OutFile $tarPath -HostId ([string]$env:YURUNA_HOST_ID)
         # tar.exe (bsdtar) ships in-box since Windows 10 1803 and reads .tar.gz directly.
         tar.exe -xzf $tarPath -C $yurunaRoot
         if ($LASTEXITCODE -ne 0) { throw "Framework archive extraction failed (tar exit code $LASTEXITCODE)." }
@@ -380,7 +437,7 @@ if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
             Write-Output "yuruna: fetching committed tarball from $tarballUrl"
             New-Item -ItemType Directory -Path $yurunaRoot -Force | Out-Null
             $tarPath = Join-Path $env:TEMP 'yuruna-archive.tar.gz'
-            Invoke-WebRequest -Uri $tarballUrl -UseBasicParsing -OutFile $tarPath -ErrorAction Stop
+            Get-GuestHostArchive -Archive framework -BaseUrl "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)" -OutFile $tarPath -HostId ([string]$env:YURUNA_HOST_ID)
             tar.exe -xzf $tarPath -C $yurunaRoot
             if ($LASTEXITCODE -ne 0) { throw "Framework archive extraction failed (tar exit code $LASTEXITCODE)." }
             if (-not (Test-Path -LiteralPath $frameworkVersion -PathType Leaf) -or (Get-Item -LiteralPath $frameworkVersion).Length -eq 0) {
@@ -428,7 +485,7 @@ if (-not (Test-Path -LiteralPath $yurunaProject -PathType Container)) {
         try {
             New-Item -ItemType Directory -Path $yurunaProject -Force | Out-Null
             $tarPath = Join-Path $env:TEMP 'yuruna-project-archive.tar.gz'
-            Invoke-WebRequest -Uri $projectTarballUrl -UseBasicParsing -OutFile $tarPath -ErrorAction Stop
+            Get-GuestHostArchive -Archive project -BaseUrl "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)" -OutFile $tarPath -HostId ([string]$env:YURUNA_HOST_ID)
             tar.exe -xzf $tarPath -C $yurunaProject
             if ($LASTEXITCODE -ne 0) { throw "Project archive extraction failed (tar exit code $LASTEXITCODE)." }
             Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue

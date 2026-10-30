@@ -7479,8 +7479,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 136,
+      "path": "host/macos.utm/modules/Yuruna.Host.UtmHelpers.ps1",
+      "line": 54,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_458ed1226109f7ab",
       "arguments": [
@@ -7488,8 +7488,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 144,
+      "path": "host/macos.utm/modules/Yuruna.Host.UtmHelpers.ps1",
+      "line": 62,
       "sink": "Write-Information",
       "key": "host.operator_433ccfae8929f757",
       "arguments": [
@@ -7498,8 +7498,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 149,
+      "path": "host/macos.utm/modules/Yuruna.Host.UtmHelpers.ps1",
+      "line": 67,
       "sink": "Write-Warning",
       "key": "host.operator_09ab019cee710514",
       "arguments": [
@@ -7509,29 +7509,29 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 150,
+      "path": "host/macos.utm/modules/Yuruna.Host.UtmHelpers.ps1",
+      "line": 68,
       "sink": "Write-Warning",
       "key": "host.operator_5320270963cb858b",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 151,
+      "path": "host/macos.utm/modules/Yuruna.Host.UtmHelpers.ps1",
+      "line": 69,
       "sink": "Write-Warning",
       "key": "host.operator_521642cda75605a9",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 153,
+      "path": "host/macos.utm/modules/Yuruna.Host.UtmHelpers.ps1",
+      "line": 71,
       "sink": "Write-Warning",
       "key": "host.operator_3d7dd16f8eeb04cc",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 157,
+      "path": "host/macos.utm/modules/Yuruna.Host.UtmHelpers.ps1",
+      "line": 75,
       "sink": "Write-Warning",
       "key": "host.operator_bd1b3169db53710a",
       "arguments": [
@@ -7543,8 +7543,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 778,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 332,
       "sink": "Write-Warning",
       "key": "host.operator_e22e1a85f32b3a0b",
       "arguments": [
@@ -7552,15 +7552,15 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 781,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 335,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_67195d8019562611",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 795,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 349,
       "sink": "Write-Information",
       "key": "host.operator_c22cbc5129006aa6",
       "arguments": [
@@ -7571,8 +7571,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 821,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 370,
       "sink": "Write-Information",
       "key": "host.operator_fac89af7ceb85a93",
       "arguments": [
@@ -7580,8 +7580,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 842,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 391,
       "sink": "Write-Warning",
       "key": "host.operator_368bbdea275958b3",
       "arguments": [
@@ -7589,8 +7589,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 870,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 419,
       "sink": "Write-Warning",
       "key": "host.operator_9b8f576034f602fb",
       "arguments": [
@@ -7599,8 +7599,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 871,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 420,
       "sink": "Write-Warning",
       "key": "host.operator_0b768b57cdd33d5e",
       "arguments": [
@@ -7608,15 +7608,15 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 919,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 468,
       "sink": "Write-Output",
       "key": "host.operator_51cfbd5426e42f8d",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 924,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 473,
       "sink": "Write-Warning",
       "key": "host.operator_2b5a075a69fb02ea",
       "arguments": [
@@ -7625,8 +7625,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 940,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 489,
       "sink": "Write-Output",
       "key": "host.operator_7934de6bf4f9bbe6",
       "arguments": [
@@ -7634,8 +7634,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 945,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 494,
       "sink": "Write-Warning",
       "key": "host.operator_5c93ad943c43270c",
       "arguments": [
@@ -7644,15 +7644,15 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 949,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 498,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_378bec0a86550e8e",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 952,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 501,
       "sink": "Write-Output",
       "key": "host.operator_0dbaee5477554260",
       "arguments": [
@@ -7660,8 +7660,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 976,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 525,
       "sink": "Write-Warning",
       "key": "host.operator_7bbd97967255a376",
       "arguments": [
@@ -7669,8 +7669,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 986,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 535,
       "sink": "Write-Warning",
       "key": "host.operator_fd3a364b69ecd8d4",
       "arguments": [
@@ -7678,8 +7678,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 989,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 538,
       "sink": "Write-Warning",
       "key": "host.operator_157f9a28bfef1ebf",
       "arguments": [
@@ -7687,29 +7687,29 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1057,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 606,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_36b84d687b0706c6",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1234,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 67,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_9037cbd3068bafc8",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1294,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 127,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_1e72e0f10e85d00c",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1415,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 249,
       "sink": "Write-Warning",
       "key": "host.operator_ac705056e60985ac",
       "arguments": [
@@ -7717,8 +7717,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1593,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 427,
       "sink": "throw",
       "key": "exceptions.host_ede3d2a333ea0452",
       "arguments": [
@@ -7726,8 +7726,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1642,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 476,
       "sink": "Write-Warning",
       "key": "host.operator_42b86b87ff2eaef3",
       "arguments": [
@@ -7735,15 +7735,15 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1645,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 479,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_b0f525825afab689",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1659,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 493,
       "sink": "Write-Warning",
       "key": "host.operator_c86b25c8af7f4942",
       "arguments": [
@@ -7752,8 +7752,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1664,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 498,
       "sink": "Write-Information",
       "key": "host.operator_f412d26264dfbdd1",
       "arguments": [
@@ -7763,14 +7763,14 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1693,
+      "line": 258,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_12924e738438f274",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1696,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 530,
       "sink": "Write-Output",
       "key": "host.operator_ad3787aa98e176ba",
       "arguments": [
@@ -7778,8 +7778,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1704,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 535,
       "sink": "Write-Warning",
       "key": "host.operator_69569daab01168ea",
       "arguments": [
@@ -7787,8 +7787,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1713,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 540,
       "sink": "Write-Warning",
       "key": "host.operator_4b393323b168a09a",
       "arguments": [
@@ -7796,8 +7796,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1720,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 547,
       "sink": "Write-Output",
       "key": "host.operator_fdce3f3a724deacc",
       "arguments": [
@@ -7805,8 +7805,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1722,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 549,
       "sink": "Write-Warning",
       "key": "host.operator_16a11cbfeabe41ff",
       "arguments": [
@@ -7814,15 +7814,15 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1835,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 674,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_5e0073f7baaa6926",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1864,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 707,
       "sink": "display-result-errorMessage",
       "key": "host.operator_dc12e47845da9820",
       "arguments": [
@@ -7830,8 +7830,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1872,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 715,
       "sink": "display-result-errorMessage",
       "key": "host.operator_5cde67d59ac2073f",
       "arguments": [
@@ -7840,8 +7840,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1877,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 720,
       "sink": "Write-Information",
       "key": "host.operator_a1a6059aaacffcb8",
       "arguments": [
@@ -7853,8 +7853,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1887,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 730,
       "sink": "Write-Information",
       "key": "host.operator_4d8f5df44a5acae0",
       "arguments": [
@@ -7862,8 +7862,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1905,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 747,
       "sink": "display-result-errorMessage",
       "key": "host.operator_b0d08bfb4f337561",
       "arguments": [
@@ -7871,8 +7871,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1913,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 755,
       "sink": "display-result-errorMessage",
       "key": "host.operator_d2824e1687d3fb3f",
       "arguments": [
@@ -7881,8 +7881,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1954,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 796,
       "sink": "display-result-errorMessage",
       "key": "host.operator_d389bec5f4a68d26",
       "arguments": [
@@ -7891,8 +7891,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1957,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 799,
       "sink": "display-result-errorMessage",
       "key": "host.operator_0d8dc260f5da53ac",
       "arguments": [
@@ -7901,8 +7901,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1960,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 802,
       "sink": "display-result-errorMessage",
       "key": "host.operator_4b2811cd5d4abd27",
       "arguments": [
@@ -7910,15 +7910,15 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1965,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 807,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_13ef318fcba6de6e",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1974,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 822,
       "sink": "Write-Information",
       "key": "host.operator_76b79a689aa25a38",
       "arguments": [
@@ -7926,8 +7926,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1995,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 829,
       "sink": "display-result-errorMessage",
       "key": "host.operator_239ba3e5aec356be",
       "arguments": [
@@ -7935,8 +7935,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 1999,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 833,
       "sink": "Write-Information",
       "key": "host.operator_645bdc6defb51655",
       "arguments": [
@@ -7946,8 +7946,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2004,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 836,
       "sink": "Write-Warning",
       "key": "host.operator_d3e7833e5fc51e09",
       "arguments": [
@@ -7955,8 +7955,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2027,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 866,
       "sink": "display-result-errorMessage",
       "key": "host.operator_3f0823f611b21152",
       "arguments": [
@@ -7965,15 +7965,15 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2039,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 878,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_ec02730efdb72c13",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2047,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 887,
       "sink": "Write-Warning",
       "key": "host.operator_56dca8fbb7ddb723",
       "arguments": [
@@ -7982,8 +7982,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2074,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 914,
       "sink": "Write-Output",
       "key": "host.operator_ebad947b6ac44dfe",
       "arguments": [
@@ -7991,8 +7991,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2081,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 921,
       "sink": "Write-Warning",
       "key": "host.operator_6d178454089aa5b0",
       "arguments": [
@@ -8001,8 +8001,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2287,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1116,
       "sink": "Write-Warning",
       "key": "host.operator_c58ea69de806b447",
       "arguments": [
@@ -8011,64 +8011,64 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2373,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1195,
       "sink": "Write-Warning",
       "key": "host.operator_c2034aca8b66df6c",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2396,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1218,
       "sink": "Write-Warning",
       "key": "host.operator_500559b43c00e9b5",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2399,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1221,
       "sink": "Write-Warning",
       "key": "host.operator_304b5f00f0993a84",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2400,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1222,
       "sink": "Write-Warning",
       "key": "host.operator_126b9e222d96af9b",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2401,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1223,
       "sink": "Write-Warning",
       "key": "host.operator_3fe3cd93d9d34a34",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2402,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1224,
       "sink": "Write-Warning",
       "key": "host.operator_9e142fdec39e7972",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2403,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1225,
       "sink": "Write-Warning",
       "key": "host.operator_90bd2a836a6aaeff",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2404,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1226,
       "sink": "Write-Warning",
       "key": "host.operator_1e843c81eb019b8e",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2405,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1227,
       "sink": "Write-Warning",
       "key": "host.operator_dd2f6150f71e2f9e",
       "arguments": [
@@ -8076,8 +8076,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2407,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1229,
       "sink": "Write-Warning",
       "key": "host.operator_afea0597f2c66720",
       "arguments": [
@@ -8085,8 +8085,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2409,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1231,
       "sink": "Write-Warning",
       "key": "host.operator_aee40e2e224cb007",
       "arguments": [
@@ -8094,15 +8094,15 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 2423,
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1245,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_5ca701631669fb6d",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3015,
+      "line": 813,
       "sink": "Write-Warning",
       "key": "host.operator_5e237b9eea6b9490",
       "arguments": [
@@ -8111,7 +8111,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3020,
+      "line": 813,
       "sink": "Write-Warning",
       "key": "host.operator_13cb024dfb19c946",
       "arguments": [
@@ -8120,14 +8120,14 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3024,
+      "line": 813,
       "sink": "Write-Warning",
       "key": "host.operator_06786a3211f6200f",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3121,
+      "line": 879,
       "sink": "Write-Warning",
       "key": "host.operator_dec3b9d961011af3",
       "arguments": [
@@ -8136,7 +8136,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3126,
+      "line": 879,
       "sink": "Write-Warning",
       "key": "host.operator_2443a2232e97400d",
       "arguments": [
@@ -8145,35 +8145,35 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3130,
+      "line": 879,
       "sink": "Write-Warning",
       "key": "host.operator_67f1fe22f87fb1a8",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3291,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 160,
       "sink": "throw",
       "key": "exceptions.host_ce186b06237fbe4d",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3293,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 162,
       "sink": "Write-Output",
       "key": "host.operator_b5a36047ba736ed1",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3296,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 165,
       "sink": "throw",
       "key": "exceptions.host_674dd7c6c0448e92",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3308,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 177,
       "sink": "Write-Warning",
       "key": "host.operator_653d228ea35c1f2c",
       "arguments": [
@@ -8182,8 +8182,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3317,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 186,
       "sink": "Write-Warning",
       "key": "host.operator_d13b1c09a5291094",
       "arguments": [
@@ -8192,8 +8192,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3331,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 200,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_79c77d5e8acb27cf",
       "arguments": [
@@ -8201,8 +8201,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3331,
+      "path": "host/macos.utm/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 200,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_ed3c547320b2c6d6",
       "arguments": [
@@ -8211,8 +8211,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3575,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 183,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_54d6a4d70cca189d",
       "arguments": [
@@ -8220,8 +8220,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3592,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 200,
       "sink": "Write-Warning",
       "key": "host.operator_6877083d4624d081",
       "arguments": [
@@ -8230,8 +8230,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3628,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 236,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_05af7f58bfd72dce",
       "arguments": [
@@ -8239,8 +8239,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3632,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 240,
       "sink": "Write-Warning",
       "key": "host.operator_19d6ab966bbc187c",
       "arguments": [
@@ -8248,8 +8248,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3638,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 246,
       "sink": "Write-Warning",
       "key": "host.operator_0311eef6cb69b548",
       "arguments": [
@@ -8258,8 +8258,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 3975,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 576,
       "sink": "Write-Warning",
       "key": "host.operator_4ec0afe642270f86",
       "arguments": [
@@ -8269,22 +8269,22 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4005,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 606,
       "sink": "Write-Warning",
       "key": "host.operator_63d92a5157f8b436",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4006,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 607,
       "sink": "Write-Warning",
       "key": "host.operator_baea4919b222d9c9",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4012,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 613,
       "sink": "Write-Warning",
       "key": "host.operator_0b1218dff32f3243",
       "arguments": [
@@ -8292,15 +8292,15 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4013,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 614,
       "sink": "Write-Warning",
       "key": "host.operator_2401d57af4c6cd28",
       "arguments": []
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4045,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 646,
       "sink": "Write-Warning",
       "key": "host.operator_52bc6c4a54214905",
       "arguments": [
@@ -8309,8 +8309,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4048,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 649,
       "sink": "Write-Warning",
       "key": "host.operator_663cbbf805c2b958",
       "arguments": [
@@ -8320,8 +8320,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4055,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 656,
       "sink": "Write-Error",
       "key": "host.operator_46fe17589543a111",
       "arguments": [
@@ -8329,8 +8329,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4077,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 678,
       "sink": "Write-Warning",
       "key": "host.operator_d8b4fab086012607",
       "arguments": [
@@ -8339,8 +8339,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4082,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 683,
       "sink": "Write-Warning",
       "key": "host.operator_88b70a1a42a7df41",
       "arguments": [
@@ -8348,8 +8348,8 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4095,
+      "path": "host/macos.utm/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 696,
       "sink": "Write-Warning",
       "key": "host.operator_6f6bbc018b383fb2",
       "arguments": [
@@ -8359,49 +8359,49 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4162,
+      "line": 177,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_5115fc3aa0fb34ef",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4177,
+      "line": 198,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_156e139837bd477d",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4177,
+      "line": 198,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_872a5355019f83c5",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4210,
+      "line": 240,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_8ba70db3f3e461cb",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4268,
+      "line": 749,
       "sink": "throw",
       "key": "exceptions.host_81fb05f8b6924bce",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4273,
+      "line": 754,
       "sink": "throw",
       "key": "exceptions.host_76bccb579d55bc73",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4277,
+      "line": 758,
       "sink": "throw",
       "key": "exceptions.host_7c4b552da601ab61",
       "arguments": [
@@ -8410,14 +8410,14 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4732,
+      "line": 576,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_87abce329e878b18",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4763,
+      "line": 598,
       "sink": "Write-Warning",
       "key": "host.operator_a986b71028c74af3",
       "arguments": [
@@ -8427,7 +8427,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4768,
+      "line": 603,
       "sink": "Write-Warning",
       "key": "host.operator_dbd4e4ba20849958",
       "arguments": [
@@ -8437,7 +8437,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4796,
+      "line": 624,
       "sink": "Write-Warning",
       "key": "host.operator_126a49ca0c55779b",
       "arguments": [
@@ -8447,7 +8447,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4864,
+      "line": 322,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_6d832084f2cb44cf",
       "arguments": [
@@ -8456,7 +8456,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4867,
+      "line": 325,
       "sink": "Write-Warning",
       "key": "host.operator_b3adfc0d608ac6e8",
       "arguments": [
@@ -8466,7 +8466,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4878,
+      "line": 336,
       "sink": "Write-Warning",
       "key": "host.operator_524e2803f12e1efa",
       "arguments": [
@@ -8475,7 +8475,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4879,
+      "line": 337,
       "sink": "Write-Warning",
       "key": "host.operator_697963516e07c1d1",
       "arguments": [
@@ -8484,7 +8484,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4880,
+      "line": 338,
       "sink": "Write-Warning",
       "key": "host.operator_476ac9f4728142ba",
       "arguments": [
@@ -8493,7 +8493,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4887,
+      "line": 345,
       "sink": "Write-Warning",
       "key": "host.operator_8325345b98bdf237",
       "arguments": [
@@ -8502,7 +8502,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4889,
+      "line": 347,
       "sink": "Write-Warning",
       "key": "host.operator_f69adb6b2f614a13",
       "arguments": [
@@ -8511,7 +8511,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4899,
+      "line": 357,
       "sink": "Write-Warning",
       "key": "host.operator_15b9626a689d8633",
       "arguments": [
@@ -8520,7 +8520,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4903,
+      "line": 361,
       "sink": "Write-Warning",
       "key": "host.operator_b89811c24b571c30",
       "arguments": [
@@ -8529,7 +8529,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4912,
+      "line": 370,
       "sink": "Write-Warning",
       "key": "host.operator_5e409de2ac1c55b7",
       "arguments": [
@@ -8539,7 +8539,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4918,
+      "line": 376,
       "sink": "Write-Warning",
       "key": "host.operator_76727d9ff6fe99e5",
       "arguments": [
@@ -8548,7 +8548,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4963,
+      "line": 415,
       "sink": "Write-Warning",
       "key": "host.operator_5c039b0b7884d16b",
       "arguments": [
@@ -8559,7 +8559,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4970,
+      "line": 422,
       "sink": "Write-Warning",
       "key": "host.operator_b6e0da77ab1ba6b5",
       "arguments": [
@@ -8568,7 +8568,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 4981,
+      "line": 433,
       "sink": "Write-Warning",
       "key": "host.operator_50978cbbff00be18",
       "arguments": [
@@ -8579,7 +8579,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5002,
+      "line": 448,
       "sink": "Write-Warning",
       "key": "host.operator_fc7e4d718a95d1a2",
       "arguments": [
@@ -8589,7 +8589,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5019,
+      "line": 457,
       "sink": "Write-Warning",
       "key": "host.operator_844a212ddde38874",
       "arguments": [
@@ -8599,7 +8599,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5024,
+      "line": 462,
       "sink": "Write-Warning",
       "key": "host.operator_8e1418fef79d70dd",
       "arguments": [
@@ -8609,7 +8609,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5042,
+      "line": 475,
       "sink": "Write-Warning",
       "key": "host.operator_84987470d9b561d8",
       "arguments": [
@@ -8621,7 +8621,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5065,
+      "line": 498,
       "sink": "Write-Warning",
       "key": "host.operator_20dac0c25f3fe7a9",
       "arguments": [
@@ -8630,7 +8630,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5136,
+      "line": 785,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_dd94ac62ae57701c",
       "arguments": [
@@ -8639,7 +8639,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5154,
+      "line": 823,
       "sink": "Write-Warning",
       "key": "host.operator_ceeff55becfc6e28",
       "arguments": [
@@ -8648,7 +8648,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5163,
+      "line": 849,
       "sink": "Write-Warning",
       "key": "host.operator_4e18f285f91cd947",
       "arguments": [
@@ -8658,18 +8658,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5169,
-      "sink": "Write-Warning",
-      "key": "host.operator_3d4bd722f2cfda09",
-      "arguments": [
-        "id",
-        "utmBundle",
-        "vMName"
-      ]
-    },
-    {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5220,
+      "line": 875,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_122c73a3a2052796",
       "arguments": [
@@ -8678,7 +8667,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5243,
+      "line": 891,
       "sink": "Write-Warning",
       "key": "host.operator_c66ee6ced9fa2d77",
       "arguments": [
@@ -8687,7 +8676,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5256,
+      "line": 904,
       "sink": "Write-Warning",
       "key": "host.operator_3566f32ac9581467",
       "arguments": [
@@ -8697,21 +8686,21 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5286,
+      "line": 1058,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_6e0202c4ffd01c8a",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5356,
+      "line": 1131,
       "sink": "Write-Warning",
       "key": "host.operator_f4a1977247ebda51",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5384,
+      "line": 1152,
       "sink": "Write-Warning",
       "key": "host.operator_1e2f99261b1a1683",
       "arguments": [
@@ -8720,14 +8709,14 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5401,
+      "line": 1170,
       "sink": "Write-Warning",
       "key": "host.operator_4ffbf7056dde8493",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5422,
+      "line": 1183,
       "sink": "Write-Warning",
       "key": "host.operator_c53432cf9b294e69",
       "arguments": [
@@ -8736,7 +8725,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5438,
+      "line": 1200,
       "sink": "Write-Warning",
       "key": "host.operator_bf613f7460bae519",
       "arguments": [
@@ -8747,7 +8736,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5557,
+      "line": 1328,
       "sink": "display-result-Detail",
       "key": "host.operator_b7d0860a322acd62",
       "arguments": [
@@ -8757,7 +8746,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5562,
+      "line": 1333,
       "sink": "display-result-Detail",
       "key": "host.operator_9ea0a8c951ae7be7",
       "arguments": [
@@ -8766,7 +8755,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5610,
+      "line": 1388,
       "sink": "display-result-Detail",
       "key": "host.operator_689d94eae42f4fe8",
       "arguments": [
@@ -8777,7 +8766,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5621,
+      "line": 1398,
       "sink": "display-result-Detail",
       "key": "host.operator_912d123572f4b9c5",
       "arguments": [
@@ -8787,7 +8776,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 5626,
+      "line": 1402,
       "sink": "display-result-Detail",
       "key": "host.operator_7b4448d951dc6b7c",
       "arguments": [
@@ -8797,14 +8786,14 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6019,
+      "line": 1802,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_80e0ecef6307a2d3",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6543,
+      "line": 2326,
       "sink": "Write-Warning",
       "key": "host.operator_1db4026c87e87900",
       "arguments": [
@@ -8813,7 +8802,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6548,
+      "line": 2331,
       "sink": "Write-Warning",
       "key": "host.operator_acad3d911acdf65d",
       "arguments": [
@@ -8822,7 +8811,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6554,
+      "line": 2337,
       "sink": "Write-Warning",
       "key": "host.operator_355f6d92ffafef75",
       "arguments": [
@@ -8832,14 +8821,14 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6676,
+      "line": 2456,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_0da6776e773e7f47",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6715,
+      "line": 2501,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_0c74b58906c540e7",
       "arguments": [
@@ -8848,7 +8837,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6721,
+      "line": 2507,
       "sink": "Write-Warning",
       "key": "host.operator_88bea28586a2663a",
       "arguments": [
@@ -8857,14 +8846,14 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6746,
+      "line": 2540,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_832575bbe1b2f32f",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6756,
+      "line": 2550,
       "sink": "Write-Warning",
       "key": "host.operator_68cc3422228bb646",
       "arguments": [
@@ -8873,14 +8862,14 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6772,
+      "line": 2580,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_f3f37ca41e1f0e2f",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6834,
+      "line": 2659,
       "sink": "Write-Warning",
       "key": "host.operator_82599fffc9de7081",
       "arguments": [
@@ -8891,7 +8880,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6840,
+      "line": 2665,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_06c9287f29190c68",
       "arguments": [
@@ -8900,7 +8889,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6843,
+      "line": 2668,
       "sink": "Write-Warning",
       "key": "host.operator_372aa49990c2bacc",
       "arguments": [
@@ -8910,7 +8899,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6845,
+      "line": 2670,
       "sink": "Write-Information",
       "key": "host.operator_89f0c1507d2b052b",
       "arguments": [
@@ -8919,14 +8908,14 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 6919,
+      "line": 2745,
       "sink": "Write-Warning",
       "key": "host.operator_133c681126464a2b",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7029,
+      "line": 2851,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_1d67149dffd75755",
       "arguments": [
@@ -8935,21 +8924,21 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7029,
+      "line": 2851,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_b8a5ce8d9003b608",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7035,
+      "line": 2857,
       "sink": "throw",
       "key": "exceptions.host_9a18fc9562c73b34",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7042,
+      "line": 2864,
       "sink": "Write-Information",
       "key": "host.operator_ba4025ead45708af",
       "arguments": [
@@ -8959,14 +8948,14 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7054,
+      "line": 2877,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_ca5c5716704ce8c4",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7060,
+      "line": 2883,
       "sink": "Write-Information",
       "key": "host.operator_1b177181d83a9078",
       "arguments": [
@@ -8975,7 +8964,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7063,
+      "line": 2886,
       "sink": "Write-Warning",
       "key": "host.operator_62b64e15fd55e2e0",
       "arguments": [
@@ -8984,35 +8973,35 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7067,
+      "line": 2890,
       "sink": "Write-Information",
       "key": "host.operator_2ddcdf5273a49efa",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7081,
+      "line": 2905,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_0b42b69cacf83715",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7081,
+      "line": 2905,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_49b535bc8f7577f0",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7085,
+      "line": 2909,
       "sink": "Write-Warning",
       "key": "host.operator_fac07fa116ddd338",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7099,
+      "line": 2923,
       "sink": "Write-Warning",
       "key": "host.operator_f32f219fa4e39d9e",
       "arguments": [
@@ -9022,7 +9011,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7104,
+      "line": 2928,
       "sink": "Write-Warning",
       "key": "host.operator_172e01672f44afab",
       "arguments": [
@@ -9035,7 +9024,7 @@
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7107,
+      "line": 2931,
       "sink": "Write-Information",
       "key": "host.operator_d4f53d6a06fdcc8f",
       "arguments": [
@@ -9043,22 +9032,22 @@
       ]
     },
     {
-      "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7182,
+      "path": "host/macos.utm/modules/Yuruna.Host.ServiceBundle.ps1",
+      "line": 61,
       "sink": "Write-Warning",
       "key": "host.operator_15685f8ad1d8fea6",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7253,
+      "line": 3025,
       "sink": "Write-Warning",
       "key": "host.operator_9cd70c93af7ab7e6",
       "arguments": []
     },
     {
       "path": "host/macos.utm/modules/Yuruna.Host.psm1",
-      "line": 7255,
+      "line": 3027,
       "sink": "Write-Warning",
       "key": "host.operator_1f268a9fcff06a4e",
       "arguments": []
@@ -9422,37 +9411,6 @@
       "key": "host.operator_90cb61bda0fc16e4",
       "arguments": [
         "uri"
-      ]
-    },
-    {
-      "path": "host/modules/Yuruna.DownloadAgent.psm1",
-      "line": 631,
-      "sink": "throw",
-      "key": "exceptions.host_5e82d7a32d22a269",
-      "arguments": [
-        "status",
-        "reasonPhrase",
-        "uri"
-      ]
-    },
-    {
-      "path": "host/modules/Yuruna.DownloadAgent.psm1",
-      "line": 656,
-      "sink": "Write-Progress",
-      "key": "host.operator_c67e69b1dce2a237",
-      "arguments": [
-        "mB",
-        "mB2",
-        "percent"
-      ]
-    },
-    {
-      "path": "host/modules/Yuruna.DownloadAgent.psm1",
-      "line": 658,
-      "sink": "Write-Progress",
-      "key": "host.operator_a9dcf6d3662588bf",
-      "arguments": [
-        "mB"
       ]
     },
     {
@@ -12934,7 +12892,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/New-UbuntuServerVM.ps1",
-      "line": 364,
+      "line": 415,
       "sink": "Write-Error",
       "key": "host.operator_a419339df771d79e",
       "arguments": [
@@ -12943,7 +12901,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/New-UbuntuServerVM.ps1",
-      "line": 366,
+      "line": 416,
       "sink": "Write-Error",
       "key": "host.operator_1b83e0a223018f37",
       "arguments": [
@@ -13002,14 +12960,14 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 316,
+      "line": 426,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_5115fc3aa0fb34ef",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 325,
+      "line": 435,
       "sink": "display-result-errorMessage",
       "key": "host.operator_b336377014884ff4",
       "arguments": [
@@ -13018,7 +12976,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 329,
+      "line": 439,
       "sink": "display-result-errorMessage",
       "key": "host.operator_f5d119c4d88afb7b",
       "arguments": [
@@ -13027,28 +12985,28 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 358,
+      "line": 464,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_156e139837bd477d",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 358,
+      "line": 464,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_872a5355019f83c5",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 509,
+      "line": 617,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_44b8aa9af404e9b3",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 526,
+      "line": 634,
       "sink": "Write-Warning",
       "key": "host.operator_30ca216f8c140b13",
       "arguments": [
@@ -13058,14 +13016,14 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 582,
+      "line": 691,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_12924e738438f274",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 614,
+      "line": 716,
       "sink": "Write-Warning",
       "key": "host.operator_b63de47809d76147",
       "arguments": [
@@ -13075,7 +13033,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 618,
+      "line": 721,
       "sink": "Write-Warning",
       "key": "host.operator_94ae6ac85570e806",
       "arguments": [
@@ -13085,7 +13043,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 640,
+      "line": 733,
       "sink": "Write-Warning",
       "key": "host.operator_235282ccbea4652f",
       "arguments": [
@@ -13095,14 +13053,14 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 672,
+      "line": 984,
       "sink": "throw",
       "key": "exceptions.host_6ce33651bd210b55",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 676,
+      "line": 988,
       "sink": "throw",
       "key": "exceptions.host_a6a18006853361cb",
       "arguments": [
@@ -13111,7 +13069,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1077,
+      "line": 776,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_e9e1683d4b60f469",
       "arguments": [
@@ -13120,7 +13078,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1087,
+      "line": 781,
       "sink": "Write-Warning",
       "key": "host.operator_0ef104304974ce38",
       "arguments": [
@@ -13129,7 +13087,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1096,
+      "line": 790,
       "sink": "Write-Warning",
       "key": "host.operator_f69adb6b2f614a13",
       "arguments": [
@@ -13138,7 +13096,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1104,
+      "line": 805,
       "sink": "Write-Warning",
       "key": "host.operator_c041d9cc53c27c36",
       "arguments": [
@@ -13147,8 +13105,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1116,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.Storage.ps1",
+      "line": 215,
       "sink": "Write-Warning",
       "key": "host.operator_69d94670b398f46b",
       "arguments": [
@@ -13159,8 +13117,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1123,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.Storage.ps1",
+      "line": 228,
       "sink": "Write-Warning",
       "key": "host.operator_7f8fa391d73801ba",
       "arguments": [
@@ -13170,15 +13128,15 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1154,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.Storage.ps1",
+      "line": 257,
       "sink": "Write-Warning",
       "key": "host.operator_0da8dccbc6a8c66f",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1198,
+      "line": 1025,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_cf6c53f788458edb",
       "arguments": [
@@ -13187,17 +13145,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1206,
-      "sink": "Write-Warning",
-      "key": "host.operator_a1763a8af3ef734a",
-      "arguments": [
-        "vMName",
-        "id"
-      ]
-    },
-    {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1216,
+      "line": 1079,
       "sink": "Write-Warning",
       "key": "host.operator_d055b300ffe84fec",
       "arguments": [
@@ -13207,7 +13155,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1259,
+      "line": 1105,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_122c73a3a2052796",
       "arguments": [
@@ -13216,7 +13164,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1264,
+      "line": 1110,
       "sink": "Write-Warning",
       "key": "host.operator_22ea2e011669030a",
       "arguments": [
@@ -13226,7 +13174,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1274,
+      "line": 1126,
       "sink": "Write-Warning",
       "key": "host.operator_1bf94e57cf95ae30",
       "arguments": [
@@ -13237,21 +13185,21 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1327,
+      "line": 1232,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_71b92b0d0881c6c9",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1397,
+      "line": 1309,
       "sink": "Write-Warning",
       "key": "host.operator_f4a1977247ebda51",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1423,
+      "line": 1330,
       "sink": "Write-Warning",
       "key": "host.operator_1e2f99261b1a1683",
       "arguments": [
@@ -13260,14 +13208,14 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1440,
+      "line": 1348,
       "sink": "Write-Warning",
       "key": "host.operator_4ffbf7056dde8493",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1460,
+      "line": 1362,
       "sink": "Write-Warning",
       "key": "host.operator_c53432cf9b294e69",
       "arguments": [
@@ -13276,7 +13224,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1476,
+      "line": 1379,
       "sink": "Write-Warning",
       "key": "host.operator_00de7e0959068c8c",
       "arguments": [
@@ -13287,7 +13235,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1510,
+      "line": 1417,
       "sink": "Write-Warning",
       "key": "host.operator_ba1882e41aac59a1",
       "arguments": [
@@ -13296,7 +13244,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1518,
+      "line": 1434,
       "sink": "Write-Warning",
       "key": "host.operator_6d9c4686b08fcf2a",
       "arguments": [
@@ -13305,21 +13253,21 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1580,
+      "line": 1502,
       "sink": "Write-Output",
       "key": "host.operator_c89f111266a03848",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1926,
+      "line": 1941,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_c75b8ce6370d1e89",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2109,
+      "line": 1975,
       "sink": "Write-Warning",
       "key": "host.operator_9a26d7342217e270",
       "arguments": [
@@ -13328,21 +13276,21 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2123,
+      "line": 1990,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_418659719eacc4c3",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2123,
+      "line": 1990,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_797508abfaab1ff7",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2326,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 199,
       "sink": "Write-Warning",
       "key": "host.operator_16656037757bbcc2",
       "arguments": [
@@ -13350,8 +13298,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2328,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 201,
       "sink": "Write-Warning",
       "key": "host.operator_f29ceda33915a5d0",
       "arguments": [
@@ -13360,8 +13308,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2331,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 204,
       "sink": "Write-Warning",
       "key": "host.operator_4991467056bc0e31",
       "arguments": [
@@ -13369,8 +13317,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2422,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 286,
       "sink": "Write-Warning",
       "key": "host.operator_f723e2637a819ebc",
       "arguments": [
@@ -13378,57 +13326,57 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2423,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 287,
       "sink": "Write-Warning",
       "key": "host.operator_d51d62e7c9ed3701",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2424,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 288,
       "sink": "Write-Warning",
       "key": "host.operator_77240278d57e7feb",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2425,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 289,
       "sink": "Write-Warning",
       "key": "host.operator_cb83aca140e41904",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2426,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 290,
       "sink": "Write-Warning",
       "key": "host.operator_7d3759d60761e085",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2427,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 291,
       "sink": "Write-Warning",
       "key": "host.operator_4fcc5a4693566633",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2428,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 292,
       "sink": "Write-Warning",
       "key": "host.operator_91fb8bd5d3786902",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2429,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 293,
       "sink": "Write-Warning",
       "key": "host.operator_3f2bc91d0d5e444f",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2431,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 295,
       "sink": "Write-Warning",
       "key": "host.operator_eabfc8c3589f08a7",
       "arguments": [
@@ -13436,8 +13384,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2464,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 319,
       "sink": "Write-Warning",
       "key": "host.operator_51d154571ef1e845",
       "arguments": [
@@ -13446,8 +13394,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2468,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 323,
       "sink": "Write-Warning",
       "key": "host.operator_12c1c9adfaecb9b1",
       "arguments": [
@@ -13455,8 +13403,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2473,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 328,
       "sink": "Write-Warning",
       "key": "host.operator_9cceb6fb2d6d1d12",
       "arguments": [
@@ -13465,8 +13413,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2478,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 333,
       "sink": "Write-Warning",
       "key": "host.operator_bd884891a3af3bba",
       "arguments": [
@@ -13474,8 +13422,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2489,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 344,
       "sink": "Write-Information",
       "key": "host.operator_b71b7d147e26ec7a",
       "arguments": [
@@ -13483,8 +13431,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2504,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 353,
       "sink": "Write-Information",
       "key": "host.operator_14a5b48380ba2726",
       "arguments": [
@@ -13492,8 +13440,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2521,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 370,
       "sink": "Write-Information",
       "key": "host.operator_58d831021de668db",
       "arguments": [
@@ -13501,8 +13449,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2524,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 373,
       "sink": "Write-Warning",
       "key": "host.operator_4b42f77ed64dee7d",
       "arguments": [
@@ -13510,8 +13458,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2548,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 389,
       "sink": "Write-Information",
       "key": "host.operator_5365a43db3f3d3f2",
       "arguments": [
@@ -13519,8 +13467,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2638,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 480,
       "sink": "Write-Warning",
       "key": "host.operator_c77fa353349289bd",
       "arguments": [
@@ -13529,8 +13477,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2643,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 485,
       "sink": "Write-Warning",
       "key": "host.operator_a9b466db2e20d135",
       "arguments": [
@@ -13538,8 +13486,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2665,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 502,
       "sink": "Write-Warning",
       "key": "host.operator_c319018d146decfd",
       "arguments": [
@@ -13550,8 +13498,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2671,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 508,
       "sink": "Write-Information",
       "key": "host.operator_f303b03da5066386",
       "arguments": [
@@ -13559,8 +13507,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2675,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 512,
       "sink": "Write-Information",
       "key": "host.operator_dd5116399fa7eb32",
       "arguments": [
@@ -13568,8 +13516,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2678,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 515,
       "sink": "Write-Information",
       "key": "host.operator_99d1b419322487c4",
       "arguments": [
@@ -13578,15 +13526,15 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2688,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 519,
       "sink": "Write-Warning",
       "key": "host.operator_4496ea1417ee8739",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2721,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 552,
       "sink": "Write-Information",
       "key": "host.operator_57d04989b79f71fc",
       "arguments": [
@@ -13596,8 +13544,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2724,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 555,
       "sink": "Write-Warning",
       "key": "host.operator_d9f5e63dbaea5cc8",
       "arguments": [
@@ -13605,8 +13553,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 2728,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 559,
       "sink": "Write-Warning",
       "key": "host.operator_d3b82b9cf50e1dd4",
       "arguments": [
@@ -13614,8 +13562,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3013,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 829,
       "sink": "Write-Information",
       "key": "host.operator_56aa4cd4e8221b7b",
       "arguments": [
@@ -13623,8 +13571,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3030,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 846,
       "sink": "Write-Information",
       "key": "host.operator_afb798cdf6e697d6",
       "arguments": [
@@ -13633,8 +13581,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3042,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 853,
       "sink": "Write-Warning",
       "key": "host.operator_a3517dfa1bc5ed4b",
       "arguments": [
@@ -13642,8 +13590,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3046,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 857,
       "sink": "Write-Information",
       "key": "host.operator_6d08dce3222aea60",
       "arguments": [
@@ -13651,8 +13599,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3049,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 860,
       "sink": "Write-Warning",
       "key": "host.operator_7f672114891b8a1f",
       "arguments": [
@@ -13660,8 +13608,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3070,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 874,
       "sink": "Write-Warning",
       "key": "host.operator_e8acb2369dabbb2a",
       "arguments": [
@@ -13669,8 +13617,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3075,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 879,
       "sink": "Write-Information",
       "key": "host.operator_3ec9f21facd50a2d",
       "arguments": [
@@ -13678,8 +13626,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3079,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 883,
       "sink": "Write-Information",
       "key": "host.operator_cd47fb33aabc4897",
       "arguments": [
@@ -13688,43 +13636,43 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3094,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 892,
       "sink": "Write-Warning",
       "key": "host.operator_f1fbdb4d5f2e3394",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3095,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 893,
       "sink": "Write-Warning",
       "key": "host.operator_b24cd356cf4d01e9",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3096,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 894,
       "sink": "Write-Warning",
       "key": "host.operator_699ff5d4716ff43f",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3097,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 895,
       "sink": "Write-Warning",
       "key": "host.operator_905604f5e2aa1bd4",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3098,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 896,
       "sink": "Write-Warning",
       "key": "host.operator_177c91d4127baf48",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3109,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 902,
       "sink": "Write-Information",
       "key": "host.operator_fca7faa4a4ccb506",
       "arguments": [
@@ -13733,8 +13681,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3116,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 909,
       "sink": "Write-Warning",
       "key": "host.operator_d2fdb19108e5936a",
       "arguments": [
@@ -13743,8 +13691,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3121,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 914,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_614cae015ba6f4c9",
       "arguments": [
@@ -13753,15 +13701,15 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3122,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 915,
       "sink": "Write-Warning",
       "key": "host.operator_69b2d5c408d306f0",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3124,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 917,
       "sink": "Write-Warning",
       "key": "host.operator_b82c5e55e5a0af3d",
       "arguments": [
@@ -13769,15 +13717,15 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3158,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 937,
       "sink": "Write-Warning",
       "key": "host.operator_b797b5ece4b87be2",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3163,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 942,
       "sink": "Write-Information",
       "key": "host.operator_ef067e7328ed1c14",
       "arguments": [
@@ -13785,22 +13733,22 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3165,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 944,
       "sink": "Write-Information",
       "key": "host.operator_0e3e389832dbc97d",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3170,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 949,
       "sink": "Write-Warning",
       "key": "host.operator_12968989b3705520",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3208,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 982,
       "sink": "Write-Warning",
       "key": "host.operator_640df0d6dcbb011e",
       "arguments": [
@@ -13809,8 +13757,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3219,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 993,
       "sink": "Write-Warning",
       "key": "host.operator_fae4b0ca3431a5dc",
       "arguments": [
@@ -13819,8 +13767,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3224,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 998,
       "sink": "Write-Information",
       "key": "host.operator_191b359ad430e736",
       "arguments": [
@@ -13829,8 +13777,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3251,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1025,
       "sink": "Write-Warning",
       "key": "host.operator_4f4646a7c84a5765",
       "arguments": [
@@ -13838,8 +13786,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3301,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1067,
       "sink": "Write-Warning",
       "key": "host.operator_d44e12c7bd610d38",
       "arguments": [
@@ -13847,8 +13795,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3317,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1076,
       "sink": "Write-Information",
       "key": "host.operator_41630aabf4bd4c06",
       "arguments": [
@@ -13856,15 +13804,15 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3321,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1080,
       "sink": "Write-Warning",
       "key": "host.operator_266b54d6b96583f4",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3337,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1086,
       "sink": "Write-Information",
       "key": "host.operator_7c0523905b3ee3ea",
       "arguments": [
@@ -13873,8 +13821,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3341,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1090,
       "sink": "Write-Warning",
       "key": "host.operator_edfab703348ab819",
       "arguments": [
@@ -13882,8 +13830,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3351,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1100,
       "sink": "Write-Warning",
       "key": "host.operator_028ad8fb2010c909",
       "arguments": [
@@ -13892,8 +13840,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3366,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1115,
       "sink": "Write-Warning",
       "key": "host.operator_12e7b55dcdfe19f9",
       "arguments": [
@@ -13901,8 +13849,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3371,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1120,
       "sink": "Write-Warning",
       "key": "host.operator_01b9bade8d78a614",
       "arguments": [
@@ -13910,8 +13858,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3388,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1131,
       "sink": "Write-Information",
       "key": "host.operator_1fcd66a663cf4d86",
       "arguments": [
@@ -13920,8 +13868,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3393,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1136,
       "sink": "Write-Warning",
       "key": "host.operator_2e94e17d6c886c3b",
       "arguments": [
@@ -13929,8 +13877,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3471,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1199,
       "sink": "Write-Information",
       "key": "host.operator_9a93f742283b5cf6",
       "arguments": [
@@ -13938,8 +13886,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3512,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1230,
       "sink": "Write-Warning",
       "key": "host.operator_398ccf080207bc32",
       "arguments": [
@@ -13947,8 +13895,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3523,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1241,
       "sink": "Write-Warning",
       "key": "host.operator_3fcb53efee68e05d",
       "arguments": [
@@ -13956,22 +13904,22 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3528,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1246,
       "sink": "Write-Information",
       "key": "host.operator_088321ac50d84a12",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3531,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1249,
       "sink": "Write-Warning",
       "key": "host.operator_a364da43ba1a8746",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3546,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1264,
       "sink": "Write-Warning",
       "key": "host.operator_3ec30441269e453e",
       "arguments": [
@@ -13980,8 +13928,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3549,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ExternalNetwork.ps1",
+      "line": 1267,
       "sink": "Write-Warning",
       "key": "host.operator_8901b9ff5d800b56",
       "arguments": [
@@ -13991,7 +13939,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3645,
+      "line": 2085,
       "sink": "Write-Warning",
       "key": "host.operator_9d16111c7f988de8",
       "arguments": [
@@ -14000,7 +13948,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3648,
+      "line": 2088,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_d143cf357a0454e0",
       "arguments": [
@@ -14009,14 +13957,14 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3656,
+      "line": 2096,
       "sink": "Write-Warning",
       "key": "host.operator_0093ac9c0edd7d9f",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3722,
+      "line": 2163,
       "sink": "Write-Warning",
       "key": "host.operator_fbda1bdab1fd89aa",
       "arguments": [
@@ -14025,14 +13973,14 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3726,
+      "line": 2167,
       "sink": "Write-Warning",
       "key": "host.operator_97d3ec722b0257fc",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3737,
+      "line": 2179,
       "sink": "Write-Information",
       "key": "host.operator_2d2328e8a847d429",
       "arguments": [
@@ -14043,7 +13991,7 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3740,
+      "line": 2182,
       "sink": "Write-Warning",
       "key": "host.operator_127df62fba83d1e0",
       "arguments": [
@@ -14053,14 +14001,14 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3756,
+      "line": 2204,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_f297da4003f2a69b",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3984,
+      "line": 2395,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_1d67149dffd75755",
       "arguments": [
@@ -14069,14 +14017,14 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3984,
+      "line": 2395,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_3ecc49e6648c527c",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 3992,
+      "line": 2403,
       "sink": "Write-Information",
       "key": "host.operator_3f5727a91dcab9f6",
       "arguments": [
@@ -14085,21 +14033,21 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 4004,
+      "line": 2416,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_b336eaad209fac7c",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 4004,
+      "line": 2416,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_ca5c5716704ce8c4",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 4009,
+      "line": 2421,
       "sink": "Write-Information",
       "key": "host.operator_44e3bf492036c774",
       "arguments": [
@@ -14108,28 +14056,28 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 4012,
+      "line": 2424,
       "sink": "Write-Information",
       "key": "host.operator_730bab99bcf2735f",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 4026,
+      "line": 2439,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_0b42b69cacf83715",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 4032,
+      "line": 2445,
       "sink": "Write-Information",
       "key": "host.operator_b1305c31540ab9a6",
       "arguments": []
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 4761,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.Capture.ps1",
+      "line": 64,
       "sink": "Write-Warning",
       "key": "host.operator_072eb8558b8e4f3a",
       "arguments": [
@@ -14138,8 +14086,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 5075,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 42,
       "sink": "throw",
       "key": "exceptions.host_d43d0cab95add9be",
       "arguments": [
@@ -14148,8 +14096,8 @@
       ]
     },
     {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 5079,
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 46,
       "sink": "throw",
       "key": "exceptions.host_9174df31c5ee6350",
       "arguments": [
@@ -14159,14 +14107,14 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 5202,
+      "line": 2542,
       "sink": "Write-Warning",
       "key": "host.operator_905958f7fa20b7bf",
       "arguments": []
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 5204,
+      "line": 2544,
       "sink": "Write-Warning",
       "key": "host.operator_71d7daffdb4db566",
       "arguments": []
@@ -16777,7 +16725,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 173,
+      "line": 141,
       "sink": "throw",
       "key": "exceptions.host_34a5ef05cab6ab38",
       "arguments": [
@@ -16786,7 +16734,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 187,
+      "line": 155,
       "sink": "throw",
       "key": "exceptions.host_ba52b7b4134e8e12",
       "arguments": [
@@ -16794,8 +16742,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 764,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 553,
       "sink": "display-assignment-$remedy",
       "key": "host.operator_710de7288caf79e4",
       "arguments": [
@@ -16803,8 +16751,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 767,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 556,
       "sink": "display-assignment-$remedy",
       "key": "host.operator_8508b39a41d150f0",
       "arguments": [
@@ -16812,15 +16760,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 770,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 559,
       "sink": "display-assignment-$remedy",
       "key": "host.operator_7e71105ad8861eb3",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 773,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 562,
       "sink": "display-assignment-$remedy",
       "key": "host.operator_f6be3a6bb731458d",
       "arguments": [
@@ -16828,8 +16776,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 776,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 565,
       "sink": "display-assignment-$remedy",
       "key": "host.operator_38cd6d99f2d7616b",
       "arguments": [
@@ -16837,8 +16785,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 779,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 568,
       "sink": "display-assignment-$remedy",
       "key": "host.operator_dc75df94eaaa9e40",
       "arguments": [
@@ -16846,8 +16794,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 793,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 582,
       "sink": "Write-Warning",
       "key": "host.operator_a4149a26e3a5fd3f",
       "arguments": [
@@ -16859,8 +16807,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 873,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 662,
       "sink": "display-result-Reason",
       "key": "host.operator_c57bb9bc8d0199f8",
       "arguments": [
@@ -16868,8 +16816,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 897,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 686,
       "sink": "display-result-Reason",
       "key": "host.operator_cdbc1c26789f6f1b",
       "arguments": [
@@ -16877,8 +16825,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 945,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 734,
       "sink": "Write-Warning",
       "key": "host.operator_8ca5971160cae12e",
       "arguments": [
@@ -16886,15 +16834,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 948,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 737,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_b4ff57c817c9c679",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 956,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 745,
       "sink": "Write-Warning",
       "key": "host.operator_4a92938eff3fa2e3",
       "arguments": [
@@ -16903,8 +16851,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1107,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 896,
       "sink": "Write-Warning",
       "key": "host.operator_a74a594d6e7c15a4",
       "arguments": [
@@ -16914,8 +16862,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1111,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 900,
       "sink": "Write-Warning",
       "key": "host.operator_a31c1b64d4b949a8",
       "arguments": [
@@ -16924,8 +16872,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1123,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 912,
       "sink": "Write-Warning",
       "key": "host.operator_15a6309222839c03",
       "arguments": [
@@ -16934,8 +16882,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1160,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 949,
       "sink": "Write-Information",
       "key": "host.operator_700059c0fbee589a",
       "arguments": [
@@ -16946,8 +16894,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1165,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 954,
       "sink": "Write-Information",
       "key": "host.operator_74adb6c89d5b326d",
       "arguments": [
@@ -16955,8 +16903,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1168,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 957,
       "sink": "Write-Warning",
       "key": "host.operator_56774322cef868bc",
       "arguments": [
@@ -16966,8 +16914,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1172,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 961,
       "sink": "Write-Information",
       "key": "host.operator_0a90ff42da4c208c",
       "arguments": [
@@ -16979,8 +16927,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1176,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 965,
       "sink": "Write-Warning",
       "key": "host.operator_ab1fcde57a7857c8",
       "arguments": [
@@ -16990,8 +16938,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1191,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 980,
       "sink": "Write-Warning",
       "key": "host.operator_a06c9a13a89841f7",
       "arguments": [
@@ -17001,8 +16949,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1199,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 988,
       "sink": "Write-Warning",
       "key": "host.operator_44815e503565a001",
       "arguments": [
@@ -17011,8 +16959,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1207,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 996,
       "sink": "Write-Information",
       "key": "host.operator_da3d2f1f78ad6fd4",
       "arguments": [
@@ -17021,8 +16969,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1210,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 999,
       "sink": "Write-Warning",
       "key": "host.operator_4843e747d7df16f4",
       "arguments": [
@@ -17032,8 +16980,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1323,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1098,
       "sink": "Write-Information",
       "key": "host.operator_4770215bffdbd75c",
       "arguments": [
@@ -17042,8 +16990,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1327,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1102,
       "sink": "display-assignment-$detail",
       "key": "host.operator_ebb334b20c14e63c",
       "arguments": [
@@ -17051,15 +16999,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1339,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1114,
       "sink": "Write-Warning",
       "key": "host.operator_56b61ac1fd231932",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1345,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1120,
       "sink": "Write-Warning",
       "key": "host.operator_26843e669bc191ba",
       "arguments": [
@@ -17067,8 +17015,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1350,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1125,
       "sink": "Write-Warning",
       "key": "host.operator_cf17af079799e5c1",
       "arguments": [
@@ -17077,8 +17025,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1357,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1132,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_1cc226961160e63b",
       "arguments": [
@@ -17086,8 +17034,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1361,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1136,
       "sink": "Write-Information",
       "key": "host.operator_f1828451620bc0f7",
       "arguments": [
@@ -17096,8 +17044,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1365,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1140,
       "sink": "Write-Warning",
       "key": "host.operator_3aa815d3eed4c968",
       "arguments": [
@@ -17105,8 +17053,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1378,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1148,
       "sink": "Write-Warning",
       "key": "host.operator_6526c96616af3782",
       "arguments": [
@@ -17115,8 +17063,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1381,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1151,
       "sink": "Write-Information",
       "key": "host.operator_2eafe07b6f1ae191",
       "arguments": [
@@ -17125,7 +17073,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1614,
+      "line": 1432,
       "sink": "Write-Warning",
       "key": "host.operator_90aa079d7950671d",
       "arguments": [
@@ -17135,7 +17083,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1624,
+      "line": 1437,
       "sink": "Write-Warning",
       "key": "host.operator_f20ec6dc25a27749",
       "arguments": [
@@ -17145,7 +17093,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1626,
+      "line": 1439,
       "sink": "Write-Warning",
       "key": "host.operator_eb80b57d92f969a7",
       "arguments": [
@@ -17153,8 +17101,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1731,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1400,
       "sink": "Write-Information",
       "key": "host.operator_683db69e0f21153d",
       "arguments": [
@@ -17162,15 +17110,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1735,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1404,
       "sink": "Write-Information",
       "key": "host.operator_3993337ab1c4f142",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1744,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1413,
       "sink": "Write-Information",
       "key": "host.operator_ea0434e09c4fc728",
       "arguments": [
@@ -17178,8 +17126,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1749,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1418,
       "sink": "Write-Information",
       "key": "host.operator_5956121984632a78",
       "arguments": [
@@ -17187,15 +17135,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1755,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1424,
       "sink": "Write-Information",
       "key": "host.operator_32c598c080522dc9",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1759,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1",
+      "line": 1428,
       "sink": "Write-Information",
       "key": "host.operator_d7a37d0b142d440c",
       "arguments": [
@@ -17203,8 +17151,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1853,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 101,
       "sink": "Write-Information",
       "key": "host.operator_352afab56bf6c9c5",
       "arguments": [
@@ -17213,8 +17161,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1856,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 104,
       "sink": "Write-Error",
       "key": "host.operator_fb588d98fea5af35",
       "arguments": [
@@ -17222,15 +17170,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1895,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 143,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_53198937e6a2855f",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1921,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 169,
       "sink": "Write-Warning",
       "key": "host.operator_79b3a3b71b34f01c",
       "arguments": [
@@ -17241,8 +17189,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1933,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 181,
       "sink": "Write-Warning",
       "key": "host.operator_631642be837a8711",
       "arguments": [
@@ -17250,8 +17198,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1944,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 192,
       "sink": "Write-Information",
       "key": "host.operator_60cb175cc471b1fe",
       "arguments": [
@@ -17260,8 +17208,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1946,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 194,
       "sink": "Write-Warning",
       "key": "host.operator_c00f98d8832e6542",
       "arguments": [
@@ -17270,8 +17218,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1960,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 208,
       "sink": "Write-Warning",
       "key": "host.operator_23fb4d89d4ecb64b",
       "arguments": [
@@ -17281,14 +17229,14 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 1989,
+      "line": 289,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_12924e738438f274",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2011,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 404,
       "sink": "Write-Information",
       "key": "host.operator_9c763f8a46614503",
       "arguments": [
@@ -17296,8 +17244,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2014,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 407,
       "sink": "Write-Warning",
       "key": "host.operator_d660ea14d5a1e764",
       "arguments": [
@@ -17305,8 +17253,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2021,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 414,
       "sink": "Write-Warning",
       "key": "host.operator_be96c470ac033b2c",
       "arguments": [
@@ -17315,8 +17263,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2033,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 428,
       "sink": "Write-Warning",
       "key": "host.operator_06870ad7a1059861",
       "arguments": [
@@ -17325,8 +17273,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2301,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 696,
       "sink": "Write-Information",
       "key": "host.operator_5a62ca9dd9977b94",
       "arguments": [
@@ -17337,8 +17285,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2313,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 708,
       "sink": "Write-Information",
       "key": "host.operator_04fd116620ef7962",
       "arguments": [
@@ -17348,8 +17296,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2332,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 727,
       "sink": "Write-Information",
       "key": "host.operator_dbb1034060435dc0",
       "arguments": [
@@ -17360,15 +17308,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2381,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1189,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_a3da8d2bcc4b8ff7",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2412,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1234,
       "sink": "Write-Warning",
       "key": "host.operator_4c797db53595bac6",
       "arguments": [
@@ -17377,8 +17325,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2435,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1261,
       "sink": "display-result-errorMessage",
       "key": "host.operator_b97fb4abbfde180c",
       "arguments": [
@@ -17387,22 +17335,22 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2485,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1311,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_8cb88c0dfdc75d37",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2538,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1365,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_1809ac610f9f348c",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2543,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1376,
       "sink": "Write-Warning",
       "key": "host.operator_f3ac8c54b3ef36d7",
       "arguments": [
@@ -17411,8 +17359,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2547,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1380,
       "sink": "Write-Warning",
       "key": "host.operator_57c0e651cba9b6ec",
       "arguments": [
@@ -17421,8 +17369,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2554,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1387,
       "sink": "Write-Information",
       "key": "host.operator_f62df16b646f2313",
       "arguments": [
@@ -17430,8 +17378,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2556,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1389,
       "sink": "Write-Warning",
       "key": "host.operator_df85cfa2ce176e71",
       "arguments": [
@@ -17439,8 +17387,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2585,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1413,
       "sink": "Write-Information",
       "key": "host.operator_651f84ee3d7b34f4",
       "arguments": [
@@ -17449,8 +17397,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2590,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1418,
       "sink": "Write-Error",
       "key": "host.operator_df84c7ed1226f405",
       "arguments": [
@@ -17459,8 +17407,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2702,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1554,
       "sink": "Write-Information",
       "key": "host.operator_94dcd74cd5ca1780",
       "arguments": [
@@ -17468,15 +17416,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2731,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "line": 1618,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_00df328f839cec6c",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2872,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 141,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_87e79790981d47af",
       "arguments": [
@@ -17484,22 +17432,22 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 2872,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 141,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_bee8709211e28c63",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3094,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 363,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_8681ed98b32ff086",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3095,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 364,
       "sink": "Write-Information",
       "key": "host.operator_e9d71dbc40aa4cf9",
       "arguments": [
@@ -17508,8 +17456,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3099,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 368,
       "sink": "Write-Warning",
       "key": "host.operator_1eec727cf63db6d8",
       "arguments": [
@@ -17518,15 +17466,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3131,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 400,
       "sink": "Write-Warning",
       "key": "host.operator_1e70ed145bb5ab5f",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3137,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 406,
       "sink": "Write-Warning",
       "key": "host.operator_7055bf70ab553d9b",
       "arguments": [
@@ -17534,15 +17482,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3149,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 418,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_872f663e1444d15e",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3152,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 421,
       "sink": "Write-Information",
       "key": "host.operator_20be2f035272a5ea",
       "arguments": [
@@ -17550,8 +17498,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3194,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 450,
       "sink": "Write-Warning",
       "key": "host.operator_368bbdea275958b3",
       "arguments": [
@@ -17559,8 +17507,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3207,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 463,
       "sink": "Write-Information",
       "key": "host.operator_da31f377a43264d3",
       "arguments": [
@@ -17569,8 +17517,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3208,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 464,
       "sink": "Write-Information",
       "key": "host.operator_39c802c10067031a",
       "arguments": [
@@ -17578,8 +17526,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3214,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 470,
       "sink": "Write-Warning",
       "key": "host.operator_957af0b7e5a09c03",
       "arguments": [
@@ -17589,22 +17537,22 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3243,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 499,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_a9163573316af907",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3254,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 510,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_a6547fddd359850a",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3259,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 515,
       "sink": "Write-Warning",
       "key": "host.operator_b21a8288b21cbc12",
       "arguments": [
@@ -17613,22 +17561,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3345,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ProxyAndPortMap.ps1",
+      "line": 601,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_4ad9fc4774e8be4d",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3387,
-      "sink": "ShouldProcess-prompt",
-      "key": "host.operator_87d1543cf3bfdad9",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3709,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 338,
       "sink": "Write-Warning",
       "key": "host.operator_f06b7d9e3317cbea",
       "arguments": [
@@ -17636,8 +17577,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3774,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 406,
       "sink": "Write-Warning",
       "key": "host.operator_54ea5d7934b12c17",
       "arguments": [
@@ -17645,8 +17586,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3795,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 427,
       "sink": "Write-Warning",
       "key": "host.operator_76032954131178ae",
       "arguments": [
@@ -17654,8 +17595,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3797,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 429,
       "sink": "Write-Error",
       "key": "host.operator_46fe17589543a111",
       "arguments": [
@@ -17663,15 +17604,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3817,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 449,
       "sink": "Write-Warning",
       "key": "host.operator_cf8e95c1480fece8",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3824,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 456,
       "sink": "Write-Warning",
       "key": "host.operator_4b760cb1106fa1f1",
       "arguments": [
@@ -17679,8 +17620,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3829,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 461,
       "sink": "Write-Warning",
       "key": "host.operator_0481de2c867ab7b9",
       "arguments": [
@@ -17688,8 +17629,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3843,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.Screenshot.ps1",
+      "line": 475,
       "sink": "Write-Warning",
       "key": "host.operator_b87fb2bbf66827b8",
       "arguments": [
@@ -17698,35 +17639,35 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3901,
+      "line": 222,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_5115fc3aa0fb34ef",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3923,
+      "line": 255,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_156e139837bd477d",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3923,
+      "line": 255,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_872a5355019f83c5",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3941,
+      "line": 276,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_c6326e5af9fb01ff",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3990,
+      "line": 330,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_e9e1683d4b60f469",
       "arguments": [
@@ -17735,7 +17676,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 3999,
+      "line": 339,
       "sink": "Write-Warning",
       "key": "host.operator_5104cefeb7625d7d",
       "arguments": [
@@ -17744,7 +17685,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4012,
+      "line": 352,
       "sink": "Write-Warning",
       "key": "host.operator_f69adb6b2f614a13",
       "arguments": [
@@ -17753,7 +17694,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4022,
+      "line": 382,
       "sink": "Write-Warning",
       "key": "host.operator_08e327b03f39d8c6",
       "arguments": [
@@ -17762,7 +17703,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4039,
+      "line": 391,
       "sink": "Write-Warning",
       "key": "host.operator_9828b6c9013ab31e",
       "arguments": [
@@ -17772,7 +17713,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4046,
+      "line": 398,
       "sink": "Write-Warning",
       "key": "host.operator_73ba8ba1e410fa99",
       "arguments": [
@@ -17783,7 +17724,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4059,
+      "line": 414,
       "sink": "Write-Warning",
       "key": "host.operator_e69fb2b8940dab5a",
       "arguments": [
@@ -17795,7 +17736,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4094,
+      "line": 515,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_dd94ac62ae57701c",
       "arguments": [
@@ -17804,7 +17745,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4099,
+      "line": 544,
       "sink": "Write-Warning",
       "key": "host.operator_f14a8d0740e60f7c",
       "arguments": [
@@ -17814,7 +17755,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4106,
+      "line": 572,
       "sink": "Write-Warning",
       "key": "host.operator_4b9f3935d5cddbc4",
       "arguments": [
@@ -17824,7 +17765,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4111,
+      "line": 581,
       "sink": "Write-Warning",
       "key": "host.operator_653d2c6949f53ff7",
       "arguments": [
@@ -17835,17 +17776,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4120,
-      "sink": "Write-Warning",
-      "key": "host.operator_dda22dc70c2dcb9f",
-      "arguments": [
-        "id",
-        "vMName"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4164,
+      "line": 606,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_122c73a3a2052796",
       "arguments": [
@@ -17854,7 +17785,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4167,
+      "line": 609,
       "sink": "Write-Warning",
       "key": "host.operator_b45c917f03c9cba3",
       "arguments": [
@@ -17864,7 +17795,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4183,
+      "line": 628,
       "sink": "Write-Warning",
       "key": "host.operator_1b2ab5d91cb086fd",
       "arguments": [
@@ -17875,7 +17806,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4217,
+      "line": 482,
       "sink": "throw",
       "key": "exceptions.host_de8cc2205b118bfb",
       "arguments": [
@@ -17884,21 +17815,21 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4486,
+      "line": 710,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_fd6bea70e855e2b8",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4556,
+      "line": 818,
       "sink": "Write-Warning",
       "key": "host.operator_f4a1977247ebda51",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4582,
+      "line": 838,
       "sink": "Write-Warning",
       "key": "host.operator_1e2f99261b1a1683",
       "arguments": [
@@ -17907,14 +17838,14 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4599,
+      "line": 856,
       "sink": "Write-Warning",
       "key": "host.operator_4ffbf7056dde8493",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4613,
+      "line": 869,
       "sink": "Write-Warning",
       "key": "host.operator_c53432cf9b294e69",
       "arguments": [
@@ -17923,7 +17854,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4637,
+      "line": 893,
       "sink": "Write-Warning",
       "key": "host.operator_0c2172f8af698467",
       "arguments": [
@@ -17932,21 +17863,21 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4695,
+      "line": 968,
       "sink": "display-result-Detail",
       "key": "host.operator_540894cbcc3a0f70",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4700,
+      "line": 973,
       "sink": "display-result-Detail",
       "key": "host.operator_020a57eb5b872e90",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4708,
+      "line": 981,
       "sink": "display-result-Detail",
       "key": "host.operator_fc02650ed15d14f2",
       "arguments": [
@@ -17956,7 +17887,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4713,
+      "line": 986,
       "sink": "display-result-Detail",
       "key": "host.operator_e5ac91fd2fb33378",
       "arguments": [
@@ -17966,28 +17897,28 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4993,
+      "line": 1106,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_c287504e62bbfb0e",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 4993,
+      "line": 1106,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_c75b8ce6370d1e89",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5025,
+      "line": 1140,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_17b5ae6b7de1d3d8",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5054,
+      "line": 1177,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_768bdece9805bfb7",
       "arguments": [
@@ -17996,7 +17927,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5059,
+      "line": 1182,
       "sink": "Write-Warning",
       "key": "host.operator_0ecd062994307300",
       "arguments": [
@@ -18005,21 +17936,21 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5063,
+      "line": 1186,
       "sink": "Write-Warning",
       "key": "host.operator_e91e5d5a5d4ac989",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5090,
+      "line": 1218,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_33e4bdda661323b1",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5098,
+      "line": 1226,
       "sink": "Write-Warning",
       "key": "host.operator_b038c339b5d9669a",
       "arguments": [
@@ -18030,7 +17961,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5113,
+      "line": 1241,
       "sink": "Write-Information",
       "key": "host.operator_297025349b1d260e",
       "arguments": [
@@ -18040,7 +17971,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5115,
+      "line": 1243,
       "sink": "Write-Information",
       "key": "host.operator_9ad65918bbd86e4f",
       "arguments": [
@@ -18049,7 +17980,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5123,
+      "line": 1251,
       "sink": "Write-Warning",
       "key": "host.operator_122a7f5c9946bd10",
       "arguments": [
@@ -18061,7 +17992,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5129,
+      "line": 1257,
       "sink": "Write-Information",
       "key": "host.operator_906168be03f0bc02",
       "arguments": [
@@ -18073,7 +18004,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5150,
+      "line": 1266,
       "sink": "Write-Warning",
       "key": "host.operator_681c2451182fe9d4",
       "arguments": [
@@ -18084,21 +18015,21 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5164,
+      "line": 1288,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_e5138cdd99be5619",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5164,
+      "line": 1288,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_eb750dccc700903d",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5168,
+      "line": 1292,
       "sink": "Write-Warning",
       "key": "host.operator_9fd9951d4cc1a81d",
       "arguments": [
@@ -18107,7 +18038,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5175,
+      "line": 1300,
       "sink": "Write-Information",
       "key": "host.operator_4730b007bba5b6f7",
       "arguments": [
@@ -18116,7 +18047,7 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5304,
+      "line": 1504,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_1d67149dffd75755",
       "arguments": [
@@ -18125,14 +18056,14 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5304,
+      "line": 1504,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_5657b68f115e9443",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5309,
+      "line": 1509,
       "sink": "Write-Information",
       "key": "host.operator_31ab5c2f0d63be27",
       "arguments": [
@@ -18141,49 +18072,49 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5321,
+      "line": 1522,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_1bb9777911767c4b",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5326,
+      "line": 1527,
       "sink": "Write-Information",
       "key": "host.operator_eaa6f26f6eccca85",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5329,
+      "line": 1530,
       "sink": "Write-Information",
       "key": "host.operator_0a0e99400cdc89b7",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5343,
+      "line": 1545,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_0b42b69cacf83715",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5343,
+      "line": 1545,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_f95b24ace7630162",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5345,
+      "line": 1547,
       "sink": "Write-Information",
       "key": "host.operator_06397ff6173863e8",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5929,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.VirtualizationRepair.ps1",
+      "line": 766,
       "sink": "Write-Warning",
       "key": "host.operator_710526e17721aa1a",
       "arguments": [
@@ -18192,8 +18123,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5954,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.VirtualizationRepair.ps1",
+      "line": 791,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_02eff2d9f27b202c",
       "arguments": [
@@ -18201,8 +18132,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 5963,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.VirtualizationRepair.ps1",
+      "line": 800,
       "sink": "Write-Warning",
       "key": "host.operator_379851375f35c850",
       "arguments": [
@@ -18211,15 +18142,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6009,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.VirtualizationRepair.ps1",
+      "line": 839,
       "sink": "ShouldProcess-prompt",
       "key": "host.operator_ce28ce6cce0e7f70",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6018,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.VirtualizationRepair.ps1",
+      "line": 848,
       "sink": "Write-Warning",
       "key": "host.operator_8107fa04808ac8e9",
       "arguments": [
@@ -18228,8 +18159,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6074,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.VirtualizationRepair.ps1",
+      "line": 889,
       "sink": "Write-Warning",
       "key": "host.operator_c9cdde915a1c6b17",
       "arguments": [
@@ -18238,8 +18169,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6132,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 38,
       "sink": "Write-Output",
       "key": "host.operator_96658c0e8ad547f3",
       "arguments": [
@@ -18247,8 +18178,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6137,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 52,
       "sink": "throw",
       "key": "exceptions.host_1c714189825ec0e2",
       "arguments": [
@@ -18258,8 +18189,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6141,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 56,
       "sink": "throw",
       "key": "exceptions.host_634b857addaa8df5",
       "arguments": [
@@ -18267,8 +18198,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6143,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 58,
       "sink": "Write-Output",
       "key": "host.operator_86f314067f7955de",
       "arguments": [
@@ -18276,8 +18207,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6161,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 85,
       "sink": "Write-Warning",
       "key": "host.operator_38edbb4cc8da6eb6",
       "arguments": [
@@ -18285,8 +18216,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6163,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 87,
       "sink": "Write-Information",
       "key": "host.operator_6ec7fa5a08a2eb27",
       "arguments": [
@@ -18294,15 +18225,15 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6164,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 88,
       "sink": "Write-Information",
       "key": "host.operator_9bb7f114ca4530e9",
       "arguments": []
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6180,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 105,
       "sink": "Write-Output",
       "key": "host.operator_b0bde9c66516dc8a",
       "arguments": [
@@ -18311,8 +18242,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6213,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 139,
       "sink": "Write-Output",
       "key": "host.operator_86ae3482cd8932d7",
       "arguments": [
@@ -18320,8 +18251,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6222,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 148,
       "sink": "Write-Output",
       "key": "host.operator_711aec356a249726",
       "arguments": [
@@ -18329,8 +18260,8 @@
       ]
     },
     {
-      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6223,
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1",
+      "line": 149,
       "sink": "Write-Output",
       "key": "host.operator_c31ff5024871e3cc",
       "arguments": [
@@ -18340,14 +18271,14 @@
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6294,
+      "line": 1643,
       "sink": "Write-Warning",
       "key": "host.operator_d190e255da2d0044",
       "arguments": []
     },
     {
       "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
-      "line": 6296,
+      "line": 1645,
       "sink": "Write-Warning",
       "key": "host.operator_92893d28632002d2",
       "arguments": []
@@ -21290,8 +21221,8 @@
       "arguments": []
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 564,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1351,
       "sink": "Write-Warning",
       "key": "runner.operator_a45d371d59f46ba6",
       "arguments": [
@@ -21300,8 +21231,8 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 576,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1364,
       "sink": "Write-Information",
       "key": "runner.operator_cdaca8b5f8db383b",
       "arguments": [
@@ -21310,8 +21241,8 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 647,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1426,
       "sink": "Write-Warning",
       "key": "runner.operator_cc161913a057897a",
       "arguments": [
@@ -21320,8 +21251,8 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 685,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1464,
       "sink": "Write-Warning",
       "key": "runner.operator_612dcd1868df2ca1",
       "arguments": [
@@ -21333,8 +21264,8 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 687,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1466,
       "sink": "Write-Warning",
       "key": "runner.operator_acea7366671e16ac",
       "arguments": [
@@ -21344,8 +21275,8 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 706,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1485,
       "sink": "Write-Warning",
       "key": "runner.operator_8f0a9afe5b056fbf",
       "arguments": [
@@ -21355,15 +21286,15 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 709,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1488,
       "sink": "Write-Warning",
       "key": "runner.operator_ee4abed5e7b99f8a",
       "arguments": []
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 711,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1490,
       "sink": "Write-Warning",
       "key": "runner.operator_cff5fb33306a5066",
       "arguments": [
@@ -21371,29 +21302,29 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 712,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1491,
       "sink": "Write-Warning",
       "key": "runner.operator_77a92c1797d58532",
       "arguments": []
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 713,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1492,
       "sink": "Write-Warning",
       "key": "runner.operator_7cca750082a38685",
       "arguments": []
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 715,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1494,
       "sink": "Write-Warning",
       "key": "runner.operator_c3f47c04f41d8b32",
       "arguments": []
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 716,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1495,
       "sink": "Write-Warning",
       "key": "runner.operator_937f393383f53958",
       "arguments": [
@@ -21401,22 +21332,22 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 717,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1496,
       "sink": "Write-Warning",
       "key": "runner.operator_371e8101f5a8b5d7",
       "arguments": []
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 718,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1497,
       "sink": "Write-Warning",
       "key": "runner.operator_622d686388181455",
       "arguments": []
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 728,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1518,
       "sink": "Write-Warning",
       "key": "runner.operator_80e0664397f67e27",
       "arguments": [
@@ -21451,8 +21382,8 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 795,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1572,
       "sink": "Write-Warning",
       "key": "runner.operator_96a9c1c4155d58e1",
       "arguments": [
@@ -21460,8 +21391,8 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 835,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1629,
       "sink": "Write-Warning",
       "key": "runner.operator_c3f68b5f80163e1f",
       "arguments": [
@@ -21469,8 +21400,8 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 854,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1640,
       "sink": "Write-Information",
       "key": "runner.operator_ebd1a9555df545ac",
       "arguments": [
@@ -21478,15 +21409,15 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 922,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1712,
       "sink": "Write-Output",
       "key": "runner.operator_f5d13a74fd026605",
       "arguments": []
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 952,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1724,
       "sink": "Write-Output",
       "key": "runner.operator_76d8c741d7d223ad",
       "arguments": [
@@ -21495,8 +21426,8 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 1018,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1783,
       "sink": "Write-Output",
       "key": "runner.operator_39426f6aa7b04537",
       "arguments": [
@@ -21504,22 +21435,22 @@
       ]
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 1020,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1785,
       "sink": "Write-Output",
       "key": "runner.operator_1d66dd0d87cb6777",
       "arguments": []
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 1023,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1788,
       "sink": "Write-Output",
       "key": "runner.operator_fe40f9dec8593d1a",
       "arguments": []
     },
     {
-      "path": "test/modules/Invoke-TestRunnerInnerLoop.ps1",
-      "line": 1032,
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "line": 1797,
       "sink": "Write-Output",
       "key": "runner.operator_32de3de6b68e1ac1",
       "arguments": [
@@ -31726,17 +31657,6 @@
     },
     {
       "path": "test/modules/Test.Prelude.psm1",
-      "line": 393,
-      "sink": "Write-Warning",
-      "key": "runner.operator_5eb94d6047f29167",
-      "arguments": [
-        "modName",
-        "modPath",
-        "for"
-      ]
-    },
-    {
-      "path": "test/modules/Test.Prelude.psm1",
       "line": 465,
       "sink": "Write-Progress",
       "key": "runner.operator_c28443177bbd5207",
@@ -35745,8 +35665,8 @@
       ]
     },
     {
-      "path": "test/modules/Test.SequenceEngine.psm1",
-      "line": 1610,
+      "path": "test/modules/Test.SequenceFailureState.psm1",
+      "line": 369,
       "sink": "Write-Information",
       "key": "runner.operator_b24a2d8bfa724905",
       "arguments": [
@@ -35755,8 +35675,8 @@
       ]
     },
     {
-      "path": "test/modules/Test.SequenceEngine.psm1",
-      "line": 1615,
+      "path": "test/modules/Test.SequenceFailureState.psm1",
+      "line": 376,
       "sink": "Write-Information",
       "key": "runner.operator_ae9f061222f374f7",
       "arguments": [
@@ -36582,25 +36502,6 @@
       "key": "runner.operator_5eefabfaa35c260f",
       "arguments": [
         "matchedPattern"
-      ]
-    },
-    {
-      "path": "test/modules/Test.SequenceHandler.psm1",
-      "line": 1704,
-      "sink": "Write-Information",
-      "key": "runner.operator_b24a2d8bfa724905",
-      "arguments": [
-        "failScreenPath",
-        "screensDir"
-      ]
-    },
-    {
-      "path": "test/modules/Test.SequenceHandler.psm1",
-      "line": 1708,
-      "sink": "Write-Information",
-      "key": "runner.operator_ae9f061222f374f7",
-      "arguments": [
-        "failOcrPath"
       ]
     },
     {
@@ -38178,15 +38079,6 @@
     },
     {
       "path": "test/modules/Test.Transport.psm1",
-      "line": 498,
-      "sink": "Write-Warning",
-      "key": "runner.operator_400de73dc7d7af50",
-      "arguments": [
-        "ch"
-      ]
-    },
-    {
-      "path": "test/modules/Test.Transport.psm1",
       "line": 522,
       "sink": "Write-Warning",
       "key": "runner.operator_2d0a11d52e180ee9",
@@ -38300,16 +38192,6 @@
     },
     {
       "path": "test/modules/Test.Transport.psm1",
-      "line": 1014,
-      "sink": "Write-Warning",
-      "key": "runner.operator_dfe205f918802162",
-      "arguments": [
-        "ch",
-        "x2"
-      ]
-    },
-    {
-      "path": "test/modules/Test.Transport.psm1",
       "line": 1022,
       "sink": "Write-Warning",
       "key": "runner.operator_966231fe730b28ff",
@@ -38325,16 +38207,6 @@
       "sink": "Write-Warning",
       "key": "runner.operator_9f57b55a58b15b7c",
       "arguments": []
-    },
-    {
-      "path": "test/modules/Test.Transport.psm1",
-      "line": 1095,
-      "sink": "Write-Warning",
-      "key": "runner.operator_5f9af4fdfbb52214",
-      "arguments": [
-        "ch",
-        "x2"
-      ]
     },
     {
       "path": "test/modules/Test.Transport.psm1",

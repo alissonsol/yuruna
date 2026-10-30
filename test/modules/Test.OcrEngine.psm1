@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -126,6 +126,8 @@ function Invoke-OcrProvider {
         [Parameter(Mandatory)] [string]$Name,
         [Parameter(Mandatory)] [string]$ImagePath
     )
+    # Chaos tests only (Test.FaultInjection).
+    if ($env:YURUNA_FAULT_POINTS) { Import-Module (Join-Path $PSScriptRoot 'Test.FaultInjection.psm1') -DisableNameChecking; Invoke-YurunaFaultPoint -Name 'ocr' }
     $provider = & $script:OcrProviderRegistry.Get $Name
     if (-not $provider) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_30370fb77a74bcc8' -Arguments @{ name = "$Name" }) }
     $key = $null

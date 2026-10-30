@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4285f6b7-ed85-acb7-05f2-67970932d046
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -215,26 +215,6 @@
         }
     )
     'exceptions.host_56dd0a83b1740c20' = '⁦Disable-TestAutomation.ps1⁩ (host⁦/ubuntu.kvm⁩) פועל רק במערכת Linux.'
-    'exceptions.host_5e82d7a32d22a269' = @(
-        'HTTP '
-        @{
-            'arg' = 'status'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' '
-        @{
-            'arg' = 'reasonPhrase'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' עבור '
-        @{
-            'arg' = 'uri'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
     'exceptions.host_5fbd4e8bd8efc5cc' = @(
         'ארכיטקטורה לא נתמכת עבור דמות הבסיס של extension-service: '
         @{

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d985d1-8774-4cde-a9d4-deb5b4740d25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,6 +112,8 @@ $script:rootAst = Get-StatusModuleAst -Path $statusModulePath
 }
 
 Describe 'status.json lastFailure surface' {
+    BeforeAll { $script:BlockEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR' }
+    AfterAll { Restore-YurunaTestEnvironment -Saved $script:BlockEnvironment }
     It 'normalizes mixed UTC dates and offset timestamps for history durations' {
         $module = Get-Module Test.Status
         $seconds = & $module {
@@ -122,7 +124,7 @@ Describe 'status.json lastFailure surface' {
 
     It 'retains a completed history row when the configured count is absent' {
         $dir = New-TempStatusDir
-        $saved = $env:YURUNA_RUNTIME_DIR
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = $dir
             $path = Join-Path $dir 'status.json'
@@ -131,7 +133,7 @@ Describe 'status.json lastFailure surface' {
             $doc = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
             @($doc.history).Count | Should -Be 1
         } finally {
-            $env:YURUNA_RUNTIME_DIR = $saved
+            Restore-YurunaTestEnvironment -Saved $saved
             Remove-Item -LiteralPath $dir -Recurse -Force
         }
     }
@@ -218,6 +220,8 @@ Describe 'Test.Status guards its Send-CycleEventSafely emits' {
 }
 
 Describe 'Test.Status nested-cycle support' {
+    BeforeAll { $script:NestedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'YURUNA_CYCLE_CONTEXT' }
+    AfterAll { Restore-YurunaTestEnvironment -Saved $script:NestedEnvironment }
 
     It 'Reset + Initialize seed an empty nested map' {
         $dir = New-TempStatusDir
@@ -292,6 +296,74 @@ Describe 'Test.Status nested-cycle support' {
     }
 }
 
+Describe 'status.json writers share one lock' {
+    # The runner's whole-document write and the field updates of the status
+    # service and the start-cycle worker hold the same status-file lock, so one
+    # process's read-modify-write is never interleaved with another's replace.
+    AfterAll { Restore-YurunaTestEnvironment -Saved $script:BlockEnvironment }
+    BeforeAll {
+        $script:BlockEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        function Start-LockHolder {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: a thread job that holds the scratch status lock for a while.')]
+            param([string]$StatusPath, [int]$HoldMilliseconds, [hashtable]$WriteWhileHeld)
+            $module = Join-Path $here 'Test.Status.psm1'
+            $null = $HoldMilliseconds, $WriteWhileHeld # Read by the thread job through $using:.
+            $job = Start-ThreadJob -ScriptBlock {
+                Import-Module $using:module -DisableNameChecking
+                $lock = Enter-StatusLock -Path $using:StatusPath -TimeoutMs 2000
+                try {
+                    $extra = $using:WriteWhileHeld
+                    if ($extra) {
+                        $doc = [IO.File]::ReadAllText($using:StatusPath) | ConvertFrom-Json -AsHashtable
+                        foreach ($key in $extra.Keys) { $doc[$key] = $extra[$key] }
+                        [IO.File]::WriteAllText($using:StatusPath, ($doc | ConvertTo-Json -Depth 20))
+                    }
+                    Start-Sleep -Milliseconds $using:HoldMilliseconds
+                } finally { Exit-StatusLock -Lock $lock }
+            }
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            while (-not (Test-Path -LiteralPath "$StatusPath.lock") -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+            return $job
+        }
+    }
+
+    It 'holds the lock for the owner''s write even with no nested run' {
+        Import-Module (Join-Path $here 'Test.Status.psm1') -Force -Global -DisableNameChecking
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+        $job = Start-LockHolder -StatusPath $sf -HoldMilliseconds 1500
+        try {
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            Set-GuestStatus -GuestKey 'guest.x' -Status 'pass' -Confirm:$false
+            $watch.Stop()
+        } finally { $null = Wait-Job -Job $job -Timeout 10; Remove-Job -Job $job -Force }
+        Assert-True ($watch.ElapsedMilliseconds -ge 900) "the write waited for the held lock ($($watch.ElapsedMilliseconds) ms)"
+        Assert-Equal 'pass' ((Get-Content -Raw $sf | ConvertFrom-Json).guests | Where-Object { $_.guestKey -eq 'guest.x' }).status
+        Assert-False (Test-Path -LiteralPath "$sf.lock") 'the lock is released'
+    }
+
+    It 'updates named fields in place, after the other writer, without losing its change' {
+        $dir = New-TempStatusDir
+        $sf = Join-Path $dir 'status.json'
+        [IO.File]::WriteAllText($sf, (@{ overallStatus = 'running'; cyclePaused = $false } | ConvertTo-Json))
+        $job = Start-LockHolder -StatusPath $sf -HoldMilliseconds 800 -WriteWhileHeld @{ byOtherWriter = 'kept' }
+        try {
+            $written = Update-StatusDocumentField -StatusPath $sf -Field @{ cyclePaused = $true; cyclePausedSinceUtc = 'since-fixture' } -Confirm:$false
+        } finally { $null = Wait-Job -Job $job -Timeout 10; Remove-Job -Job $job -Force }
+        Assert-True $written
+        $doc = Get-Content -Raw $sf | ConvertFrom-Json
+        Assert-True $doc.cyclePaused
+        Assert-Equal 'since-fixture' $doc.cyclePausedSinceUtc
+        Assert-Equal 'kept' $doc.byOtherWriter 'the field the other writer set while holding the lock survives'
+        Assert-Equal 'running' $doc.overallStatus
+        Assert-False (Update-StatusDocumentField -StatusPath (Join-Path $dir 'absent.json') -Field @{ cyclePaused = $true } -Confirm:$false) 'nothing to update'
+        Assert-False (Test-Path -LiteralPath (Join-Path $dir 'absent.json')) 'an absent document is not created'
+    }
+}
+
 # --- REGION: No-document tolerance
 # The in-memory document is module state, so it does not survive the -Force
 # re-import the runner does every cycle, and a cycle whose top-level is an
@@ -302,6 +374,8 @@ Describe 'Test.Status nested-cycle support' {
 # record in the first place, and on a freshly installed host that is the very
 # first cycle.
 Describe 'Test.Status with no status document loaded' {
+    BeforeAll { $script:BlockEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR' }
+    AfterAll { Restore-YurunaTestEnvironment -Saved $script:BlockEnvironment }
     It 'Set-LastGetImageTime and Write-StatusJson no-op instead of throwing' {
         $dir = New-TempStatusDir
         $mp  = Join-Path $here 'Test.Status.psm1'
@@ -346,7 +420,7 @@ Describe 'Test.Status with no status document loaded' {
 Describe 'status JSON collection shapes' {
     It 'keeps zero, one and multiple lab-hold areas as JSON arrays' {
         $dir = New-TempStatusDir
-        $beforeRuntime = $env:YURUNA_RUNTIME_DIR
+        $beforeRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = $dir
             $sf = Join-Path $dir 'status.json'
@@ -365,7 +439,7 @@ Describe 'status JSON collection shapes' {
             Assert-True ($doc.history -is [array]) 'one history row stays a JSON array'
             Assert-Equal 1 $doc.history.Count
         } finally {
-            if ($null -eq $beforeRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $beforeRuntime }
+            Restore-YurunaTestEnvironment -Saved $beforeRuntime
             Remove-Item -LiteralPath $dir -Recurse -Force
         }
     }

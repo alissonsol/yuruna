@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42046a95-dbf3-4dd6-b06d-4ee539c58a98
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,41 +96,20 @@ $hostProcessLeftRunning = $false
 $markerLeftPresent = $false
 if ($m) {
     if ($deployment.Pid) {
-        $hostProcess = Get-ExtensionServiceHostProcessState -ProcessId ([int]$deployment.Pid) `
-            -ProcessStartUnixMs ([long]$deployment.ProcessStartUnixMs) -ExpectedName $Area
-        if ($hostProcess.IdentityVerified) {
-            if ($PSCmdlet.ShouldProcess("pid $($deployment.Pid)", "Stop host-side $Area")) {
-                $targetProcess = $null
-                try {
-                    $targetProcess = Get-Process -Id ([int]$deployment.Pid) -ErrorAction Stop
-                    # Capture the handle and recheck identity before stopping it;
-                    # a PID can be reused between the marker lookup and this call.
-                    $null = $targetProcess.SafeHandle
-                    $startMs = [DateTimeOffset]::new($targetProcess.StartTime).ToUnixTimeMilliseconds()
-                    if ($deployment.ProcessStartUnixMs -le 0 -or
-                        [Math]::Abs([decimal]$startMs - [decimal]$deployment.ProcessStartUnixMs) -gt 2000) {
-                        $hostProcessLeftRunning = $true
-                    } else {
-                        Stop-Process -InputObject $targetProcess -Force -ErrorAction Stop
-                        $hostProcessLeftRunning = -not $targetProcess.WaitForExit(5000)
-                    }
-                } catch {
-                    $hostProcessLeftRunning = $true
-                    try {
-                        if ($targetProcess -and $targetProcess.HasExited) { $hostProcessLeftRunning = $false }
-                    } catch { Write-Verbose "Process exit state unavailable: $_" }
-                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_poolcontrol_pid_unverified' -Arguments @{
-                        pid = [string]$deployment.Pid; reason = [string]$_.Exception.Message })
-                } finally {
-                    if ($targetProcess) { $targetProcess.Dispose() }
-                }
-            } else {
-                $hostProcessLeftRunning = $true
-            }
-        } elseif ($hostProcess.Alive -or $hostProcess.Reason -ne 'not-running') {
+        # The shared identity-verified stop: name and recorded start time must
+        # both match, re-read from the captured handle right before the kill. A
+        # process it cannot verify, or a stop that raised, is named here; the
+        # incomplete stop is reported below.
+        $confirmArgs = @{}
+        if ($PSBoundParameters.ContainsKey('Confirm')) { $confirmArgs.Confirm = $PSBoundParameters['Confirm'] }
+        $hostStop = Stop-ExtensionServiceHostProcess -Deployment $deployment -Area $Area @confirmArgs
+        $hostProcessLeftRunning = [bool]$hostStop.LeftRunning
+        $unverifiedReason = if ($hostStop.StopError) { [string]$hostStop.StopError }
+            elseif (-not $hostStop.IdentityVerified -and $hostStop.LeftRunning) { [string]$hostStop.Reason }
+            else { '' }
+        if ($unverifiedReason) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_poolcontrol_pid_unverified' -Arguments @{
-                    pid = [string]$deployment.Pid; reason = [string]$hostProcess.Reason })
-            $hostProcessLeftRunning = $true
+                    pid = [string]$deployment.Pid; reason = $unverifiedReason })
         }
     }
     if (-not $hostProcessLeftRunning) {

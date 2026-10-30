@@ -32,6 +32,12 @@ anyone on the LAN, `status.json` is served, and the config-sync read
 | `control/test-config`, `control/perf-aggregates` | on `POST`/`PUT` -- their read path stays open |
 | `control/runner-status`, `control/control-status`, `control/host-facts` | never -- read-only, and pool services read them |
 
+The listener reads these guards, and the proof scope each route accepts, from one
+table: `Get-StatusControlRouteGuard` in
+[Test.StatusControlRoute.psm1](../test/modules/Test.StatusControlRoute.psm1). A new
+state-changing route is guarded by adding its row there; a route missing from the
+table is a read route.
+
 The browser UI uses the status service's own origin. State-changing control
 requests require `X-Yuruna: 1`; cross-origin browsers must preflight that custom
 header, and the service returns no `Access-Control-Allow-*` grants. This stops a
@@ -781,6 +787,17 @@ extracts the answer only when it matches the SHA-256 seeded beside it, which
 `Export-YurunaGitArchive` in `test/modules/Test.HostGit.psm1` makes possible by building
 the archive one way for both the route and the seed renderer.
 
+`archive-digest?archive=framework|project&nonce=<16..128 hex>` serves a guest that has no
+seeded digest -- the Windows updater, which runs outside the fetch envelope. It answers the
+commit the checkout's `HEAD` names, the SHA-256 of that commit's archive, the host id and
+`proof`: hex(HMAC-SHA256) with this host's guest-channel key of `yuruna-archive-digest/1`,
+the host id, the nonce, the archive kind, the commit and the digest, one per line
+(`Get-YurunaGuestChannelProof` in `automation/Yuruna.Common.psm1`). The updater fetches
+the archive by `?commit=` and extracts it only when its bytes match the proved digest. A
+host that has no key answers 404. `livecheck?nonce=` uses the same key with the
+`yuruna-livecheck/1` scope, so a guest's resolver accepts only its own host; a probe
+without a nonce gets the plain answer.
+
 `archive/<cycle-folder>.zip` is dispatched *before* this by-prefix step and
 never reaches it: it names a folder to pack rather than a file to serve, and it
 carries its own grammar in place of the StartsWith pin (see below).
@@ -935,6 +952,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ac2b74-32fe-4772-8fad-0e7833bd2f68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,15 +92,15 @@ $script:proxies = @('Write-Output', 'Write-Error', 'Write-Warning', 'Write-Debug
 # on the run pass and its definitions reach every Describe below it.
 function New-TranscriptFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = 'Test must seed the Yuruna.Log transcript-handle global the proxies read.')]
+        Justification = 'Test must save the preference globals the proxies honor.')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: temp file + seeds/saves globals; no production state.')]
     [OutputType([hashtable])]
     param()
-    $saved = @{ LogFile = $global:__YurunaLogFile; Warn = $global:WarningPreference; Info = $global:InformationPreference }
+    $saved = @{ Globals = (Save-YurunaTestGlobal -Name '__YurunaLogFile'); Warn = $global:WarningPreference; Info = $global:InformationPreference }
     $file = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-tee-' + [guid]::NewGuid().ToString('N') + '.html')
     [System.IO.File]::WriteAllText($file, '')
-    $global:__YurunaLogFile = $file
+    Set-YurunaTestGlobal -Value @{ __YurunaLogFile = $file }
     return @{ File = $file; Saved = $saved }
 }
 
@@ -110,7 +110,7 @@ function Restore-TranscriptFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test teardown: restores saved globals and removes the temp file.')]
     param([Parameter(Mandatory)][hashtable]$Fixture)
-    $global:__YurunaLogFile      = $Fixture.Saved.LogFile
+    Restore-YurunaTestGlobal -Saved $Fixture.Saved.Globals
     $global:WarningPreference     = $Fixture.Saved.Warn
     $global:InformationPreference = $Fixture.Saved.Info
     if ($Fixture.File) { Remove-Item -LiteralPath $Fixture.File -Force -ErrorAction SilentlyContinue }

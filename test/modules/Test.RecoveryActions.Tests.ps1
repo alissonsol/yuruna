@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 428b7f5c-e722-4d67-858d-b11427a01f39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,8 +67,7 @@ function Initialize-TestRepo {
     param([Parameter(Mandatory)][string]$Path)
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
     if ($script:HaveGit) {
-        & git -c init.defaultBranch=main init -q $Path 2>&1 | Out-Null
-        & git -C $Path -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q --allow-empty -m init 2>&1 | Out-Null
+        $null = New-YurunaTestGitRepository -Path $Path -CommitMessage 'init'
     } else {
         New-Item -ItemType Directory -Path (Join-Path $Path '.git/refs/heads') -Force | Out-Null
     }
@@ -916,7 +915,7 @@ Describe 'The bounded git status' {
         $tracked = Join-Path $repo 'tracked.txt'
         [System.IO.File]::WriteAllText($tracked, 'content')
         & git -C $repo add tracked.txt 2>&1 | Out-Null
-        & git -C $repo -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q -m tracked 2>&1 | Out-Null
+        & git -C $repo commit -q -m tracked 2>&1 | Out-Null
         # Same content, different timestamp: a status that is allowed to write
         # refreshes the index entry and rewrites the file.
         [System.IO.File]::SetLastWriteTimeUtc($tracked, [datetime]::UtcNow.AddMinutes(30))

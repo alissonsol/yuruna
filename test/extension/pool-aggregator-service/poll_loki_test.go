@@ -298,7 +298,7 @@ func TestCycleStatusRequiresMatchingTerminalHistory(t *testing.T) {
 			row := cycleVerdict{CycleStartUtc: tc.historyStart, OverallStatus: tc.historyStatus}
 			row.LastFailure.FailureClass = "script_error"
 			st.History = []cycleVerdict{row}
-			got := st.cycleStatus()
+			got := st.CycleStatus()
 			if got.OverallStatus != tc.want {
 				t.Fatalf("got %s, want %s", got.OverallStatus, tc.want)
 			}
@@ -311,7 +311,7 @@ func TestCycleStatusRequiresMatchingTerminalHistory(t *testing.T) {
 		})
 	}
 	st := &hostStatus{OverallStatus: "fail"}
-	if st.cycleStatus() != st {
+	if st.CycleStatus() != st {
 		t.Fatal("missing history must preserve an interrupted cycle")
 	}
 }

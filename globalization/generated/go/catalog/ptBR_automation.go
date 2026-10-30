@@ -7,6 +7,41 @@ package catalog
 // DataptBRautomation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataptBRautomation = `{
+  "automation.deploy_phase_reused": [
+    "A fase ",
+    {
+      "arg": "phase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " foi ignorada: ela passou com estas entradas antes de a fase ",
+    {
+      "arg": "failedPhase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " falhar, e suas saídas continuam no lugar. Exclua ",
+    {
+      "arg": "ledgerPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    " para executar todas as fases novamente."
+  ],
+  "automation.deploy_tool_deadline": [
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não terminou em ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " segundos e foi interrompido. Isso conta como tempo esgotado, e o que ele fez antes de ser interrompido é desconhecido."
+  ],
   "automation.diagnostic_checkout_unavailable": "(não se aplica: as evidências do checkout não estão disponíveis; passe -CheckoutRoot para usar um checkout existente do Yuruna)",
   "automation.diagnostic_phase_log_limits": "A busca de logs de fase está limitada a 100 arquivos, 12 níveis de diretório e 10 segundos; cada log mostra no máximo seus últimos 64 KiB.",
   "automation.host_setup_module_install_skipped": [
@@ -22,6 +57,27 @@ const DataptBRautomation = `{
       "trust": "internal"
     },
     " -Scope CurrentUser"
+  ],
+  "automation.memory_commit_charge": [
+    "Commit : ",
+    {
+      "arg": "charged",
+      "type": "detail",
+      "trust": "external"
+    },
+    " de ",
+    {
+      "arg": "limit",
+      "type": "detail",
+      "trust": "external"
+    },
+    " cobrados, ",
+    {
+      "arg": "uncharged",
+      "type": "detail",
+      "trust": "external"
+    },
+    " livres (o início de uma VM é cobrado contra este limite, não contra a memória física livre)"
   ],
   "automation.memory_plan": {
     "kind": "plural",
@@ -148,6 +204,15 @@ const DataptBRautomation = `{
       ]
     }
   },
+  "automation.network_dhcp_lease": [
+    "Concessão DHCP no dispositivo da rota padrão (",
+    {
+      "arg": "device",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")"
+  ],
   "automation.operator_00010ebe540ede32": "esta máquina não reporta a sua memória instalada",
   "automation.operator_0006b705ae0abd93": [
     {
@@ -5180,6 +5245,39 @@ const DataptBRautomation = `{
     }
   ],
   "automation.runtime_ipc_remove_action": "Remover a entrada remanescente do runtime .NET de um processo que já não existe",
+  "automation.seed_value_unsafe": [
+    "O valor de seed para ",
+    {
+      "arg": "placeholder",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " não pode ser colocado em seu contexto ",
+    {
+      "arg": "context",
+      "type": "token",
+      "trust": "internal"
+    },
+    " (linha ",
+    {
+      "arg": "line",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " do modelo): ele contém ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". Altere o valor; ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ocorrência(s) de placeholder foram recusadas no total."
+  ],
   "automation.setup_service_vm_reason_intended_stopped": "foi parado de propósito; recriando porque o setup recebeu o pedido de iniciá-lo",
   "automation.setup_service_vm_reason_lock_unavailable": "não foi possível obter o bloqueio de operação",
   "automation.setup_service_vm_reason_operation_busy": "outra inicialização ou parada deste serviço ainda está em execução",
@@ -5339,6 +5437,7 @@ const DataptBRautomation = `{
       "trust": "internal"
     },
     " segundos; a listagem acima pode estar incompleta (o UTM pode não estar respondendo a Apple Events)."
-  ]
+  ],
+  "automation.top_processes_private_bytes": "Top 10 por bytes privados (cobrança de commit)"
 }
 `

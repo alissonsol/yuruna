@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 426a6ad8-45b3-4008-972c-5b67700fa245
@@ -295,6 +295,29 @@ _yuruna_ca_sha256() {
     fi
 }
 
+# --- REGION: yuruna_read_env_file
+# host.env is data, not a script: KEY=VALUE lines the seed and the host-locate
+# refresh write. Sourcing it would run whatever a value spells as shell, so
+# only YURUNA_* names are taken, each value literally, with one level of
+# matching quotes removed. The same function is in fetch-and-execute.sh,
+# yuruna-host-locate.sh and yuruna-retry.sh, each of which is deployed alone.
+yuruna_read_env_file() {
+    local file="$1" line key value
+    [ -r "$file" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        key="${line%%=*}"
+        [ "$key" != "$line" ] || continue
+        [[ "$key" =~ ^YURUNA_[A-Z0-9_]+$ ]] || continue
+        value="${line#*=}"
+        value="${value%$'\r'}"
+        case "$value" in
+            \'*\'|\"*\") value="${value:1:${#value}-2}" ;;
+        esac
+        printf -v "$key" '%s' "$value"
+    done < "$file"
+    return 0
+}
+
 # --- REGION: yuruna_ca_selfheal
 yuruna_ca_selfheal() {
     # Guard on the bump port with a boundary so a no-cache/direct guest (empty
@@ -303,10 +326,7 @@ yuruna_ca_selfheal() {
     _yuruna_bump_trusted && return 1
     # YURUNA_HOST_ENV_FILE is the override yuruna-host-locate.sh honors for fixtures.
     local host_env="${YURUNA_HOST_ENV_FILE:-/etc/yuruna/host.env}"
-    if [ -r "$host_env" ]; then
-        # shellcheck disable=SC1090
-        . "$host_env"
-    fi
+    yuruna_read_env_file "$host_env" || true
     if [ -z "${YURUNA_STATUS_SERVICE_IP:-}" ] || [ -z "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
         echo "CA self-heal: bump HTTPS untrusted and no host.env coordinates; cannot recover CA." >&2
         return 2
@@ -470,9 +490,7 @@ _yuruna_pwsh_attempt() {
 # --- REGION: yuruna_host_env
 # Guest update bootstrap shared by Ubuntu and Amazon Linux.
 yuruna_host_env() {
-    [ -r /etc/yuruna/host.env ] || return 1
-    # shellcheck disable=SC1091
-    . /etc/yuruna/host.env
+    yuruna_read_env_file /etc/yuruna/host.env || return 1
     [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]
 }
 
@@ -806,6 +824,28 @@ _yuruna_verify_key_fpr() {
     echo "  key verify: OK ($keyfile)"
 }
 
+# --- REGION: yuruna_verify_sha256
+# arg1 = downloaded file, arg2 = pinned SHA-256, arg3 = label for messages.
+# Runs before anything installs or executes the file. TLS alone is no proof: the
+# caching proxy re-signs every HTTPS response it relays. A missing or malformed
+# pin fails too, because a guest whose baked yuruna-versions.sh predates the pin
+# has nothing to verify against.
+yuruna_verify_sha256() {
+    local file="$1" want="${2:-}" label="${3:-$1}" got=""
+    want="${want,,}"
+    if ! [[ "$want" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "!! sha256 verify: no valid pinned digest for ${label}; this guest's /usr/local/lib/yuruna/yuruna-versions.sh may predate the pin (rebuild the guest)" >&2
+        return 1
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "$file" 2>/dev/null)"; else got="$(shasum -a 256 "$file" 2>/dev/null)"; fi
+    got="${got%% *}"
+    if [ "$got" != "$want" ]; then
+        echo "!! sha256 verify: ${label} has SHA-256 ${got:-unreadable}, the pin is ${want}" >&2
+        return 1
+    fi
+    echo "  sha256 verify: OK (${label})"
+}
+
 # --- REGION: yuruna_install_pwsh_tarball
 # See https://yuruna.link/42d69dfa-0036
 # Install the same verified tarball on every Linux guest. Dependencies are caller-owned.
@@ -835,7 +875,7 @@ yuruna_install_pwsh_tarball() (
     sudo chmod +x /opt/microsoft/powershell/7/pwsh || return 1
     sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh
 )
-export -f yuruna_host_env yuruna_host_relocate yuruna_fetch_archive yuruna_materialize_framework_pin yuruna_materialize_repositories yuruna_wait_network _yuruna_verify_key_fpr yuruna_install_pwsh_tarball
+export -f yuruna_host_env yuruna_host_relocate yuruna_fetch_archive yuruna_materialize_framework_pin yuruna_materialize_repositories yuruna_wait_network _yuruna_verify_key_fpr yuruna_verify_sha256 yuruna_install_pwsh_tarball
 
 # --- REGION: https://yuruna.link/4220a755-0003
 # Child Bash payloads need the wrappers and every helper they call.

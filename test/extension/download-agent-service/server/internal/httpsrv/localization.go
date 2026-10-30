@@ -12,7 +12,13 @@ import (
 )
 
 func prepareLocalizedPages(language string, allowPseudo bool) *webui.Pages {
-	pages, err := webui.NewPages(catalog.Catalogs, catalog.BrowserCatalogs, catalog.BrowserKernel, language, allowPseudo)
+	// The non-default tables are the embedded web/assets files, the one copy
+	// of them this binary carries.
+	browser, err := webui.AssetCatalogs(webFS, "web/assets", "download", catalog.Catalogs)
+	if err != nil {
+		panic("invalid embedded browser catalog: " + err.Error())
+	}
+	pages, err := webui.NewPages(catalog.Catalogs, browser, catalog.BrowserKernel, language, allowPseudo)
 	if err != nil {
 		panic("invalid embedded browser catalog: " + err.Error())
 	}

@@ -646,7 +646,10 @@ relaunches via `-File`, so every child runs from that one file with a
 real `$PSCommandPath` and never re-fetches. The temp file is written
 byte-true from the IRM response (not `ScriptBlock.ToString()`, whose
 PS 5.1 round-trip fidelity is unverified), so the materialized bytes
-match the canonical installer.
+match the canonical installer. The fetch always carries a cache-buster
+(`YurunaCacheContent` when set, otherwise a timestamp and a random
+suffix), so a CDN copy older than the one the console is running is
+never the one materialized.
 
 Before materializing, the installer sweeps stale materialization temps
 left by a crashed prior run -- only temps older than one hour, so the
@@ -667,9 +670,16 @@ Windows PowerShell across the UAC boundary.
 For the `irm | iex` entry path the downloaded script initially has no
 `$PSCommandPath`, and `iex` itself does not forward args to the invoked
 code. The materialization gate establishes a file path before elevation.
-The relaunch uses `-File` against that same installer and forwards explicitly
-bound parameters with `-SkipPreflight`, so the elevated child does not
-re-download the script or re-prompt the requirements check.
+That file sits in a folder the unelevated account can write, so the
+elevated shell never runs it directly: a process at the same unelevated
+level could replace it between the UAC prompt and the elevated read. The
+installer hashes its own file (SHA-256) as soon as it starts, and the
+elevated shell starts from an `-EncodedCommand` that creates a new folder
+under `%ProgramData%\yuruna` writable only by Administrators and SYSTEM,
+copies the installer there, refuses to continue when the copy's hash
+differs, and runs the copy with the explicitly bound parameters and
+`-SkipPreflight`, so the elevated child neither re-downloads the script nor
+re-prompts the requirements check. The folder is removed when the run ends.
 
 If the elevated shell is still PS 5.x, the PS7 bootstrap block installs
 `Microsoft.PowerShell` via winget, refreshes PATH so `pwsh.exe`
@@ -749,6 +759,19 @@ handoff to a fresh pwsh window with NEXT STEPS guidance.
 After the summary and bounded closing hold, the installer stops its transcript
 and returns exit 1 when installation did not complete. Automated callers can
 therefore detect failure while the operator has time to read its explanation.
+
+**Outcome record.** Every installer (all three hosts) ends by writing one JSON
+record of how the run went, so automation (a nested host, a provisioning
+script) reads the outcome instead of parsing the closing summary: `outcome`
+(`succeeded`, `succeeded-with-issues`, `restart-required` on Windows, or
+`failed`), `exitCode`, the last `step` (macOS, Ubuntu), every deferred issue in
+`issues`, the installed `version` and the `log` path. It is written to
+`~/.local/state/yuruna/install-result.json` on macOS and Ubuntu
+(`$XDG_STATE_HOME` when set) or `%LOCALAPPDATA%\yuruna\install-result.json`
+on Windows (the elevated account), with a copy beside the run's log as
+`<log name>.result.json`. Writing it is best-effort and never changes the
+installer's exit code; on Windows a terminating error outside the main
+`try` (a preflight refusal) still writes a `failed` record.
 
 <a id="429fb30b-0020"></a>
 
@@ -1224,6 +1247,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

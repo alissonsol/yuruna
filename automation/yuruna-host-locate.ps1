@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4276263e-b3ef-4219-b17d-1c87a3cfa238
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,17 +134,73 @@ function Get-YhlHttpString {
     }
 }
 
+# --- REGION: Guest-channel proof
+function Get-YhlChannelProof {
+<#
+.SYNOPSIS
+    hex(HMAC-SHA256) of the livecheck question under the guest-channel key, as
+    the host's Get-YurunaGuestChannelProof computes it (the key used as the
+    ASCII bytes of its hex form).
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$Key, [string]$HostId, [string]$Nonce)
+    $hmac = New-Object System.Security.Cryptography.HMACSHA256 (, [System.Text.Encoding]::ASCII.GetBytes($Key))
+    try {
+        $hash = $hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes("yuruna-livecheck/1`n$HostId`n$Nonce"))
+        return (($hash | ForEach-Object { $_.ToString('x2') }) -join '')
+    } finally { $hmac.Dispose() }
+}
+
 function Test-YhlLivecheck {
 <#
 .SYNOPSIS
-    Does a Yuruna status service answer at this base URL? The one question
-    that decides everything else in this script.
+    Does this guest's own Yuruna host answer at this base URL? The one
+    question that decides everything else in this script.
+.DESCRIPTION
+    A guest seeded with its host's guest-channel key (guest-channel.key beside
+    host.env) accepts only a status service that answers a fresh nonce with the
+    key's HMAC, so a directory answer or a stale address cannot hand it to
+    another responder. A guest without the key keeps the reachability probe.
 #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param([Parameter(Mandatory)][string]$BaseUrl)
-    $probe = Get-YhlHttpString -Uri "$($BaseUrl.TrimEnd('/'))/livecheck" -TimeoutSec $script:ProbeTimeoutSec
-    return ($null -ne $probe)
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [string]$KeyPath = '',
+        [string]$HostId = ''
+    )
+    $key = ''
+    if ($KeyPath -and (Test-Path -LiteralPath $KeyPath -PathType Leaf)) {
+        $text = ([System.IO.File]::ReadAllText($KeyPath)).Trim()
+        if ($text -cmatch '^[0-9a-f]{64}$') { $key = $text }
+    }
+    if (-not $key) {
+        $probe = Get-YhlHttpString -Uri "$($BaseUrl.TrimEnd('/'))/livecheck" -TimeoutSec $script:ProbeTimeoutSec
+        return ($null -ne $probe)
+    }
+    $bytes = New-Object byte[] 16
+    $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    $nonce = ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
+    $body = Get-YhlHttpString -Uri "$($BaseUrl.TrimEnd('/'))/livecheck?nonce=$nonce" -TimeoutSec $script:ProbeTimeoutSec
+    if ($null -eq $body) { return $false }
+    try { $answer = $body | ConvertFrom-Json } catch { return $false }
+    $proof = [string]$answer.proof
+    $answerHostId = [string]$answer.hostId
+    if ($proof -cnotmatch '^[0-9a-f]{64}$') {
+        Write-Verbose "yuruna-host-locate: $BaseUrl answered without proving this host's guest-channel key; not accepted"
+        return $false
+    }
+    if ($HostId -and $answerHostId -ne $HostId) {
+        Write-Verbose "yuruna-host-locate: $BaseUrl speaks for host '$answerHostId', not this guest's host '$HostId'; not accepted"
+        return $false
+    }
+    if ($proof -cne (Get-YhlChannelProof -Key $key -HostId $answerHostId -Nonce $nonce)) {
+        Write-Verbose "yuruna-host-locate: $BaseUrl did not prove this host's guest-channel key; not accepted"
+        return $false
+    }
+    return $true
 }
 
 # --- REGION: https://yuruna.link/4220a755-0030
@@ -326,8 +382,10 @@ function Invoke-YurunaHostLocate {
 
     $currentIp   = $env:YURUNA_STATUS_SERVICE_IP
     $currentPort = $env:YURUNA_STATUS_SERVICE_PORT
+    $keyPath = Join-Path (Split-Path -Parent $HostEnvPath) 'guest-channel.key'
+    $seededHostId = [string]$coords['YURUNA_HOST_ID']
     if ($currentIp -and $currentPort) {
-        if (Test-YhlLivecheck -BaseUrl "http://${currentIp}:$currentPort") { return $true }
+        if (Test-YhlLivecheck -BaseUrl "http://${currentIp}:$currentPort" -KeyPath $keyPath -HostId $seededHostId) { return $true }
     }
 
     # Both coordinates of the indirection are required. A guest imaged
@@ -349,7 +407,7 @@ function Invoke-YurunaHostLocate {
         # adopted -- an address that does not serve this guest is not an
         # improvement on the stale one it would replace. A stale answer fails
         # this check too, which is what makes re-asking worthwhile.
-        if (Test-YhlLivecheck -BaseUrl $candidate) { $answer = $candidate; break }
+        if (Test-YhlLivecheck -BaseUrl $candidate -KeyPath $keyPath -HostId $hostId) { $answer = $candidate; break }
     }
     if ([string]::IsNullOrWhiteSpace($answer)) { return $false }
 

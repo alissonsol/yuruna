@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42a2e15f-718a-4b8e-97d9-4b0c1aa172ab
@@ -33,6 +33,7 @@ esac
 # --- REGION: Load retry helpers
 # See https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
+declare -F yuruna_verify_sha256 >/dev/null || { echo "ERROR: this guest's /usr/local/lib/yuruna/yuruna-retry.sh predates pinned-digest checks; rebuild the guest." >&2; exit 1; }
 # --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
@@ -56,14 +57,21 @@ if ! grep -q 'export JAVA_HOME=/etc/alternatives/java_sdk' /etc/bashrc 2>/dev/nu
 fi
 
 # --- REGION: Install .NET SDK
-# See https://yuruna.link/42e220c4-0005
 echo ""
 echo -e "\e[1;36m==== .NET SDK ====\e[0m"
+# See https://yuruna.link/42e220c4-0005
 # Microsoft's RPM repositories do not target AL2023; use dotnet-install.sh.
 dnf_retry sudo dnf install -y libicu
 sudo mkdir -p /usr/local/dotnet
-curl_retry -fsSL "https://dot.net/v1/dotnet-install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/dotnet-install.sh
-chmod +x /tmp/dotnet-install.sh
+# The installer comes from a pinned commit and runs only after it matches its
+# pinned digest; dot.net serves a moving copy.
+[ -n "${YURUNA_DOTNET_INSTALL_COMMIT:-}" ] || { echo "ERROR: no dotnet-install commit pin in /usr/local/lib/yuruna/yuruna-versions.sh; rebuild the guest." >&2; exit 1; }
+curl_retry -fsSL "https://raw.githubusercontent.com/dotnet/install-scripts/${YURUNA_DOTNET_INSTALL_COMMIT}/src/dotnet-install.sh" -o /tmp/dotnet-install.sh
+if ! yuruna_verify_sha256 /tmp/dotnet-install.sh "${YURUNA_DOTNET_INSTALL_SHA256:-}" "dotnet-install.sh at ${YURUNA_DOTNET_INSTALL_COMMIT}"; then
+  rm -f /tmp/dotnet-install.sh
+  echo "ERROR: dotnet-install.sh does not match its pinned digest; refusing to run it." >&2
+  exit 1
+fi
 sudo bash /tmp/dotnet-install.sh --channel LTS --install-dir /usr/local/dotnet
 rm -f /tmp/dotnet-install.sh
 
@@ -76,7 +84,6 @@ dotnet --version || echo "dotnet: version probe failed (non-fatal)"
 # --- REGION: Install Visual Studio Code
 echo ""
 echo -e "\e[1;36m==== VS Code ====\e[0m"
-# The VS Code yum repo provides both x86_64 and aarch64 packages.
 # --- REGION: https://yuruna.link/4220a755-001e
 # arg1 = key file; remaining args = ALLOWED primary fingerprints, FIRST also required.
 if ! command -v _yuruna_verify_key_fpr >/dev/null 2>&1; then
@@ -96,6 +103,7 @@ _yuruna_verify_key_fpr() {
     echo "  key verify: OK ($keyfile)"
 }
 fi
+# The VS Code yum repo provides both x86_64 and aarch64 packages.
 # gpg is required for the fingerprint check; Amazon Linux 2023 may not ship it.
 command -v gpg >/dev/null 2>&1 || dnf_retry sudo dnf install -y gnupg2
 curl_retry -fsSL "https://packages.microsoft.com/keys/microsoft.asc${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/microsoft.asc

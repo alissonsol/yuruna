@@ -2,7 +2,7 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 // GUID: 42a252bf-9cca-4dc9-bf1c-cc384397b04a
 
-// Package meta owns the SQLite metadata store (section 8). One row per
+// Package meta owns the SQLite metadata store (https://yuruna.link/429e934f-000c). One row per
 // upload. Status moves pending -> {complete | truncated | partial}.
 //
 // The driver is modernc.org/sqlite (pure-Go), so the daemon builds
@@ -31,7 +31,7 @@ import (
 	"stash-service/internal/fsutil"
 )
 
-// Status values (section 8.1).
+// Status values (https://yuruna.link/429e934f-000c).
 const (
 	StatusPending   = "pending"
 	StatusComplete  = "complete"
@@ -39,7 +39,7 @@ const (
 	StatusTruncated = "truncated"
 )
 
-// Record mirrors section 8.1's metadata fields.
+// Record mirrors the metadata fields of https://yuruna.link/429e934f-000c.
 type Record struct {
 	ID               string
 	StoredPath       string
@@ -53,7 +53,7 @@ type Record struct {
 	Status           string
 	SizeBytes        int64
 	// LocallyBuffered is true while the artifact sits in the VM-local
-	// buffer awaiting flush to the share (section 8.4). Committed (on-share)
+	// buffer awaiting flush to the share (https://yuruna.link/429e934f-000e). Committed (on-share)
 	// records are false.
 	LocallyBuffered bool
 
@@ -313,7 +313,7 @@ func (s *Store) Exists(id string) (bool, error) {
 	return true, nil
 }
 
-// InsertPending writes the up-front pending record per section 8.2 step 2.
+// InsertPending writes the up-front pending record (https://yuruna.link/429e934f-000d).
 // storedPath is the operator's best-known intended location at this
 // point; FinalizeStaging will rewrite it via UpdateOnComplete.
 // A collision with an id already in the index returns ErrDuplicateID.
@@ -332,7 +332,7 @@ VALUES (?,  ?,         ?,                ?,         ?,        ?,            ?,  
 	return classifyInsert(err)
 }
 
-// UpdateType writes the section 10 detection fields onto an existing row. Called
+// UpdateType writes the detection fields (https://yuruna.link/429e934f-0016) onto an existing row. Called
 // by the ingest path after the artifact is on disk (commit / flush) and
 // by the UI's on-demand backfill for a locally-owned typeless record.
 func (s *Store) UpdateType(id, mimeType, contentClass string, isText bool, typeLabel string, typeScore float64) error {
@@ -345,7 +345,7 @@ UPDATE uploads
 	return err
 }
 
-// UpdateOnComplete writes section 8.2 step 4's terminal state (complete or
+// UpdateOnComplete writes the terminal state of https://yuruna.link/429e934f-000d (complete or
 // truncated) AND the final storedPath / originalFilename / isArchive
 // that FinalizeStaging produced.
 func (s *Store) UpdateOnComplete(id string, storedPath, originalFilename string, isArchive bool, status string, sizeBytes int64, receivedAt time.Time) error {
@@ -364,7 +364,7 @@ UPDATE uploads
 	return err
 }
 
-// UpdateOnPartial writes section 8.2 step 5 -- the client disconnected mid-
+// UpdateOnPartial writes the partial outcome of https://yuruna.link/429e934f-000d -- the client disconnected mid-
 // transfer or the SCP wire protocol broke. The partial bytes already
 // on disk are kept; we record what we saw.
 func (s *Store) UpdateOnPartial(id string, sizeBytes int64, receivedAt time.Time) error {
@@ -378,7 +378,7 @@ UPDATE uploads
 }
 
 // UpdateOnFlushed records that a previously buffered artifact reached the
-// share (section 8.4): the storedPath moves from the VM-local buffer to the
+// share (https://yuruna.link/429e934f-000e): the storedPath moves from the VM-local buffer to the
 // share, and locallyBuffered clears. Status is untouched.
 func (s *Store) UpdateOnFlushed(id, storedPath string) error {
 	_, err := s.db.Exec(`
@@ -390,8 +390,8 @@ UPDATE uploads
 	return err
 }
 
-// Delete removes the row with the given id. Used only on the section 5.5
-// empty-filename path where the spec requires "no metadata record"
+// Delete removes the row with the given id. Used only on the empty-filename
+// path (https://yuruna.link/429e934f-0008), which keeps "no metadata record"
 // even though we already inserted a pending row up front.
 func (s *Store) Delete(id string) error {
 	_, err := s.db.Exec(`DELETE FROM uploads WHERE id = ?`, id)
@@ -415,7 +415,7 @@ SELECT `+uploadColumns+`
 }
 
 // Count returns the number of rows in the index. main uses it to decide
-// whether to rebuild from on-share sidecars on a fresh VM (section 8.5).
+// whether to rebuild from on-share sidecars on a fresh VM (https://yuruna.link/429e934f-000f).
 func (s *Store) Count() (int, error) {
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM uploads`).Scan(&n)
@@ -423,7 +423,7 @@ func (s *Store) Count() (int, error) {
 }
 
 // ListBuffered returns completed artifacts still in the VM-local buffer, oldest
-// first, so the flush worker drains the backlog in arrival order (section 8.4).
+// first, so the flush worker drains the backlog in arrival order (https://yuruna.link/429e934f-000e).
 func (s *Store) ListBuffered() ([]*Record, error) {
 	rows, err := s.db.Query(`
 SELECT ` + uploadColumns + `
@@ -444,7 +444,7 @@ SELECT ` + uploadColumns + `
 	return out, rows.Err()
 }
 
-// SearchFilter mirrors section 8.3. Empty fields are ignored. Username and
+// SearchFilter mirrors the lookups of https://yuruna.link/429e934f-000c. Empty fields are ignored. Username and
 // originalFilename / pathMetadata accept substrings (LIKE %x%);
 // createdAt / receivedAt accept range bounds.
 type SearchFilter struct {
@@ -587,7 +587,7 @@ func scanRow(s scanner) (*Record, error) {
 }
 
 // Sidecar is the on-disk JSON record written next to each committed
-// artifact on the share (section 8.5). It is the durable, reimage-surviving form
+// artifact on the share (https://yuruna.link/429e934f-000f). It is the durable, reimage-surviving form
 // of a metadata record, deliberately decoupled from the SQLite schema so the
 // on-disk format and the index can evolve independently. The UI and the
 // rebuild path (RebuildFromSidecars) both read it.
@@ -605,7 +605,7 @@ type Sidecar struct {
 	SizeBytes        int64      `json:"sizeBytes"`
 	// LocallyBuffered is always false in a sidecar: sidecars are only
 	// written for artifacts already committed to the share. The field is
-	// carried for section 8.1 completeness and forward-compatibility.
+	// carried so the sidecar holds the whole record and for forward-compatibility.
 	LocallyBuffered bool `json:"locallyBuffered"`
 	// UI detection fields. omitempty so a sidecar written without them
 	// round-trips unchanged; an empty contentClass signals "not yet
@@ -622,7 +622,7 @@ type Sidecar struct {
 // WriteSidecar serializes r and writes <id>.yuruna.meta.json next to the
 // artifact (derived from r.StoredPath). It must be called LAST, after the
 // artifact is on the share and the DB row is terminal -- its presence
-// marks a fully committed upload (section 8.5). The write is atomic (temp file
+// marks a fully committed upload (https://yuruna.link/429e934f-000f). The write is atomic (temp file
 // in the same dir, fsync, rename) so a torn write never leaves a partial
 // sidecar that the rebuild path would mis-read.
 func WriteSidecar(r *Record) error {
@@ -656,7 +656,7 @@ func ReadSidecar(path string) (*Record, error) {
 
 // RebuildFromSidecars repopulates the index by scanning every
 // *.yuruna.meta.json under filesRoot. Used on a fresh VM whose VM-local
-// SQLite index is empty (the metadata-loss-on-reimage recovery, section 8.5).
+// SQLite index is empty (the metadata-loss-on-reimage recovery, https://yuruna.link/429e934f-000f).
 // Idempotent (INSERT OR REPLACE); a corrupt individual sidecar is skipped
 // rather than aborting the whole rebuild. Returns the count restored.
 func (s *Store) RebuildFromSidecars(filesRoot string) (int, error) {

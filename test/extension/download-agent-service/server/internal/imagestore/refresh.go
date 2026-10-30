@@ -45,6 +45,9 @@ const (
 	ReasonPoolUnavailable = "pool-unavailable"
 	ReasonLeaseReadOnly   = "lease-read-only"
 	ReasonUnsupported     = "unsupported-image"
+	// ReasonDeleting answers for an identity whose delete is still running: a
+	// download started then would land bytes the delete is removing.
+	ReasonDeleting = "deleting"
 	// ReasonPoolWalkFailed stands in for any share-level failure while reading
 	// the pool. The wire contract is a fixed token, so the underlying error goes
 	// to the log and the audit record instead of into the response -- where it
@@ -628,7 +631,17 @@ func (a *Agent) setKnownHostTypes(hostTypes []string) {
 
 // --- REGION: Refresh pipeline
 // startRefresh joins or starts the single-flight refresh for one identity.
+//
+// No flight starts while the identity is being deleted (nil, false). The check
+// and the start happen under a.mu, where Delete raises its flag, so a poll can
+// neither restart a download the delete just canceled nor start one the
+// cancel misses.
 func (a *Agent) startRefresh(id ImageID, seed bool) (*Flight, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.deleting[id.Key()] {
+		return nil, false
+	}
 	return a.flights.Start(id.Key(), seed, func(ctx context.Context, p *Progress) error {
 		dctx, cancel := context.WithTimeout(ctx, downloadDeadline)
 		defer cancel()
@@ -1192,6 +1205,9 @@ func (a *Agent) Ensure(now time.Time, id ImageID, fp Fingerprint) EnsureResult {
 	if !Supported(id) {
 		return EnsureResult{HTTPStatus: http.StatusNotFound, State: StateUnsupported, Reason: ReasonUnsupported}
 	}
+	if a.isDeleting(id) {
+		return EnsureResult{HTTPStatus: http.StatusServiceUnavailable, State: StateUnavailable, Reason: ReasonDeleting}
+	}
 	ce, hasPointer := a.Entry(now, id)
 	res := EnsureResult{Image: ce}
 
@@ -1277,6 +1293,9 @@ func (a *Agent) Ensure(now time.Time, id ImageID, fp Fingerprint) EnsureResult {
 	}
 
 	f, _ := a.startRefresh(id, false)
+	if f == nil {
+		return EnsureResult{HTTPStatus: http.StatusServiceUnavailable, State: StateUnavailable, Reason: ReasonDeleting, Image: ce}
+	}
 	snap := f.Progress.Snapshot()
 	select {
 	case <-f.Done():
@@ -1297,6 +1316,13 @@ func (a *Agent) Ensure(now time.Time, id ImageID, fp Fingerprint) EnsureResult {
 	res.BytesDone = snap.Done
 	res.BytesTotal = snap.Total
 	return res
+}
+
+// isDeleting reports whether a delete of the identity is still running.
+func (a *Agent) isDeleting(id ImageID) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.deleting[id.Key()]
 }
 
 // lastFailure reports the most recent recorded refresh failure for a key.
@@ -1344,7 +1370,10 @@ func (a *Agent) ForceRefresh(id ImageID) (bool, error) {
 	if a.lease.ReadOnly() {
 		return false, errors.New(ReasonLeaseReadOnly)
 	}
-	_, started := a.startRefresh(id, false)
+	f, started := a.startRefresh(id, false)
+	if f == nil {
+		return false, errors.New(ReasonDeleting)
+	}
 	return started, nil
 }
 
@@ -1373,10 +1402,21 @@ func (a *Agent) RefreshAll() (int, error) {
 // Delete cancels any in-flight download for the identity, clears its staging,
 // removes the pointer FIRST and then every generation it owns. The next host
 // request or seed pass re-downloads from origin.
+//
+// Like the refreshes, it is the lease holder's to do: a follower removing
+// generations while the holder promotes the same identity can leave a pointer
+// naming a file that is gone.
 func (a *Agent) Delete(id ImageID) error {
 	if !a.store.Available() {
 		return errors.New(ReasonPoolUnavailable)
 	}
+	if a.lease.ReadOnly() {
+		return errors.New(ReasonLeaseReadOnly)
+	}
+	// The flag goes up under a.mu, where startRefresh checks it before starting
+	// a flight, so every flight is either refused from here on or already
+	// registered for the cancel below. Cancel waits for the flight, which takes
+	// a.mu as it finishes, so it runs after the unlock.
 	a.mu.Lock()
 	a.deleting[id.Key()] = true
 	a.mu.Unlock()
@@ -1403,6 +1443,9 @@ func (a *Agent) Delete(id ImageID) error {
 func (a *Agent) PrunePrevious(id ImageID) (int, error) {
 	if !a.store.Available() {
 		return 0, errors.New(ReasonPoolUnavailable)
+	}
+	if a.lease.ReadOnly() {
+		return 0, errors.New(ReasonLeaseReadOnly)
 	}
 	n, err := a.store.PrunePrevious(id)
 	outcome, detail := "ok", fmt.Sprintf("pruned %d generation(s)", n)

@@ -360,11 +360,19 @@ func (s *Server) handleFidoTest(w http.ResponseWriter, r *http.Request) {
 // route that answers before any credential is checked.
 func refusalReason(err error) string {
 	switch msg := err.Error(); msg {
-	case imagestore.ReasonPoolUnavailable, imagestore.ReasonLeaseReadOnly, imagestore.ReasonUnsupported:
+	case imagestore.ReasonPoolUnavailable, imagestore.ReasonLeaseReadOnly, imagestore.ReasonUnsupported, imagestore.ReasonDeleting:
 		return msg
 	default:
 		return imagestore.ReasonPoolWalkFailed
 	}
+}
+
+// namedRefusal reports whether err is one of the pool engine's own refusals
+// (the pool is not mounted, another agent holds the lease, ...), which a route
+// answers with its reason token, as opposed to a failure of the work itself.
+func namedRefusal(err error) (string, bool) {
+	reason := refusalReason(err)
+	return reason, reason != imagestore.ReasonPoolWalkFailed
 }
 
 // refusalStatus keeps one condition to one status code across routes: ensure
@@ -408,6 +416,10 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.images.Delete(id); err != nil {
 		s.record("delete", id, "failed", err.Error())
+		if reason, named := namedRefusal(err); named {
+			s.writeLocalizedError(w, r, refusalStatus(reason), "download.api_delete_refused_reason", reason, map[string]any{"reason": reason})
+			return
+		}
 		s.writeLocalizedError(w, r, http.StatusInternalServerError, "download.api_detail", "", map[string]any{"detail": err.Error()})
 		return
 	}
@@ -426,6 +438,10 @@ func (s *Server) handlePrune(w http.ResponseWriter, r *http.Request) {
 	n, err := s.images.PrunePrevious(id)
 	if err != nil {
 		s.record("prune", id, "failed", err.Error())
+		if reason, named := namedRefusal(err); named {
+			s.writeLocalizedError(w, r, refusalStatus(reason), "download.api_prune_refused_reason", reason, map[string]any{"reason": reason})
+			return
+		}
 		s.writeLocalizedError(w, r, http.StatusInternalServerError, "download.api_detail", "", map[string]any{"detail": err.Error()})
 		return
 	}

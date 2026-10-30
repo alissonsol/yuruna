@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -188,6 +188,102 @@ $script:X11Chords = Get-KeyCodeMap -Kind 'X11-Chord'
 # --- REGION: Cached VNC connection (reused across steps within a sequence)
 $script:CachedVnc   = $null
 $script:CachedVncVM = $null
+
+# --- REGION: Input fault record
+# Every key and text send returns [bool], and a bool cannot say whether the
+# same send would fail again. A deterministic fault -- text the input path has
+# no key for, a key name no map defines -- fails identically on every retry,
+# while a transient one -- a closed connection, a refused write -- may clear on
+# the next attempt. Each failing send records which it was here; the sequence
+# dispatcher reads the record after a failed send to classify the step, and a
+# fallback path reads Delivered to resume after the characters that did go out.
+$script:LastInputFault = $null
+
+function Set-HostInputFault {
+    <#
+    .SYNOPSIS
+        Record how the last key or text send failed.
+    .PARAMETER Delivered
+        Characters of the text known to have been written before the failure;
+        -1 when the extent is unknown or the send was a key.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Records an observation in module memory; it changes no system state.')]
+    param(
+        [Parameter(Mandatory)][ValidateSet('deterministic', 'transient')][string]$Kind,
+        [Parameter(Mandatory)][string]$Reason,
+        [string]$Transport = '',
+        [string]$Detail = '',
+        [int]$Delivered = -1,
+        [int]$Total = -1
+    )
+    $script:LastInputFault = [ordered]@{
+        kind = $Kind; reason = $Reason; transport = $Transport; detail = $Detail
+        delivered = $Delivered; total = $Total
+    }
+}
+
+function Get-HostInputFault {
+    <#
+    .SYNOPSIS
+        The fault the last failed key or text send recorded, or $null.
+    #>
+    [CmdletBinding()]
+    param()
+    return $script:LastInputFault
+}
+
+function Clear-HostInputFault {
+    <#
+    .SYNOPSIS
+        Forget the recorded input fault before a new send.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Clears an observation in module memory; it changes no system state.')]
+    param()
+    $script:LastInputFault = $null
+}
+
+function Test-TextKeyMapCoverage {
+    <#
+    .SYNOPSIS
+        Refuse, before anything is typed, text that a transport's character
+        map cannot type.
+    .DESCRIPTION
+        Dropping an unmapped character and typing the rest delivers a
+        different string than the step asked for -- a command with a missing
+        character, a password that is wrong by one -- and reports success, so
+        the step fails later under a label that names something else. Checking
+        the whole text first keeps a refused send from leaving half a line in
+        the guest. The characters are named by code point and position, not
+        by value, because the text may be a credential.
+    .OUTPUTS
+        [bool] $true when every character has a key; otherwise records a
+        deterministic fault, warns once and returns $false.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [AllowEmptyString()][string]$Text,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$KeyMap,
+        [Parameter(Mandatory)][string]$Transport
+    )
+    $missing = [System.Collections.Generic.List[string]]::new()
+    for ($index = 0; $index -lt $Text.Length; $index++) {
+        $character = [string]$Text[$index]
+        if (-not $KeyMap[$character]) { $missing.Add(('U+{0:X4} at {1}' -f [int]$Text[$index], $index)) }
+    }
+    if ($missing.Count -eq 0) { return $true }
+    $shown = @($missing | Select-Object -First 8) -join ', '
+    if ($missing.Count -gt 8) { $shown += ', ...' }
+    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.host_input_unmappable' -Arguments @{
+        transport = $Transport; characters = $shown })
+    Set-HostInputFault -Kind deterministic -Reason 'unmappable-character' -Transport $Transport `
+        -Detail $shown -Delivered 0 -Total $Text.Length
+    return $false
+}
 
 function Read-VncBuffer {
     <#
@@ -479,9 +575,13 @@ function Send-KeyVNC {
     # the guest's tty sees a bare 'u' instead of the VKILL control code.
     $chord = $script:X11Chords[$KeyName]
     $keySym = if ($chord) { $null } else { $script:X11KeySyms[$KeyName] }
-    if (-not $chord -and -not $keySym) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_920700a319d8346c' -Arguments @{ keyName = "$KeyName" }); return $false }
+    if (-not $chord -and -not $keySym) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_920700a319d8346c' -Arguments @{ keyName = "$KeyName" })
+        Set-HostInputFault -Kind deterministic -Reason 'unknown-key' -Transport 'VNC' -Detail $KeyName
+        return $false
+    }
     $tcp = Connect-VNC -VMName $VMName -Port $Port
-    if (-not $tcp) { return $false }
+    if (-not $tcp) { Set-HostInputFault -Kind transient -Reason 'connection-unavailable' -Transport 'VNC' -Detail $KeyName; return $false }
     # Same held-key bookkeeping as Send-TextVNC: an unmatched press leaves
     # the key auto-repeating in the guest. It matters just as much here --
     # this is the path that sends the Enter after every typed command.
@@ -515,6 +615,7 @@ function Send-KeyVNC {
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_22ec2c9b5f0c9a52' -Arguments @{ value = "$_" })
         Add-VncConnectionEvent -VMName $VMName -Kind 'write-failed' -Detail "key $KeyName"
+        Set-HostInputFault -Kind transient -Reason 'write-failed' -Transport 'VNC' -Detail $KeyName
         $sendFailed = $true
         return $false
     } finally {
@@ -541,7 +642,10 @@ function Send-TextVNC {
         shifted flag. Emits an explicit LShift press/release around
         shifted chars because UTM's QEMU VNC does NOT auto-shift from
         the bare keysym (asterisk arrives as 8 without the shift).
-        Returns $false on transport failure.
+        Returns $false, before typing anything, when a character has no
+        keysym, and $false on transport failure, with the count of characters
+        written before it in the recorded input fault so a fallback can type
+        only the rest.
 
         Every press is paired with its release on EVERY exit path (see
         the finally below): a KeyEvent down that never gets its matching
@@ -553,8 +657,12 @@ function Send-TextVNC {
     #>
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs,
           [int]$Port = 0)
+    if (-not (Test-TextKeyMapCoverage -Text $Text -KeyMap $script:X11CharKeySyms -Transport 'VNC')) { return $false }
     $tcp = Connect-VNC -VMName $VMName -Port $Port
-    if (-not $tcp) { return $false }
+    if (-not $tcp) {
+        Set-HostInputFault -Kind transient -Reason 'connection-unavailable' -Transport 'VNC' -Delivered 0 -Total $Text.Length
+        return $false
+    }
     Write-Debug "      VNC text send: $($Text.Length) chars, charDelay=${CharDelayMs}ms"
     # See https://yuruna.link/4213a0b3-0183
     $shiftSym = $script:X11KeySyms["LShift"]
@@ -564,13 +672,13 @@ function Send-TextVNC {
     $heldSym    = $null
     $shiftHeld  = $false
     $sendFailed = $false
+    # Characters whose press and release were both written. A key that died
+    # between them is released in the finally and counts as not delivered; a
+    # failure while letting go of Shift comes after its character went out.
+    $delivered  = 0
     try {
         foreach ($ch in $Text.ToCharArray()) {
             $entry = $script:X11CharKeySyms["$ch"]
-            if (-not $entry) {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_400de73dc7d7af50' -Arguments @{ ch = "$ch" })
-                continue
-            }
             $keySym  = $entry[0]
             $shifted = $entry[1]
             if ($shifted) {
@@ -581,6 +689,7 @@ function Send-TextVNC {
             $heldSym = $keySym
             Send-VncKeyTap -Client $tcp -KeySym $keySym
             $heldSym = $null
+            $delivered++
             if ($shifted) {
                 Start-Sleep -Milliseconds $shiftUpMs
                 Send-VncKeyEvent -Client $tcp -KeySym $shiftSym -Down $false
@@ -593,6 +702,7 @@ function Send-TextVNC {
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2d0a11d52e180ee9' -Arguments @{ value = "$_" })
         Add-VncConnectionEvent -VMName $VMName -Kind 'write-failed' -Detail "text of $($Text.Length) characters"
+        Set-HostInputFault -Kind transient -Reason 'write-failed' -Transport 'VNC' -Delivered $delivered -Total $Text.Length
         $sendFailed = $true
         return $false
     } finally {
@@ -849,9 +959,13 @@ function Send-KeyHyperV {
     # would otherwise be rejected as unknown.
     $chord = $script:Ps2Chords[$KeyName]
     $scanCode = if ($chord) { $null } else { $script:PS2ScanCodes[$KeyName] }
-    if (-not $chord -and -not $scanCode) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b45972989e70af37' -Arguments @{ keyName = "$KeyName" }); return $false }
+    if (-not $chord -and -not $scanCode) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_b45972989e70af37' -Arguments @{ keyName = "$KeyName" })
+        Set-HostInputFault -Kind deterministic -Reason 'unknown-key' -Transport 'Hyper-V' -Detail $KeyName
+        return $false
+    }
     $kb = Get-HyperVKeyboard -VMName $VMName
-    if (-not $kb) { return $false }
+    if (-not $kb) { Set-HostInputFault -Kind transient -Reason 'connection-unavailable' -Transport 'Hyper-V' -Detail $KeyName; return $false }
     try {
         if ($chord) {
             # Modifier make, base make, base break, modifier break -- the
@@ -869,15 +983,18 @@ function Send-KeyHyperV {
             )
             $chordOk = Send-ScanCode -Keyboard $kb -Codes $chordCodes
             Write-Debug "      TypeScancodes chord='$KeyName' mod=0x$($modMake.ToString('X2')) key=0x$($baseMake.ToString('X2')) ok=$chordOk"
+            if (-not $chordOk) { Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'Hyper-V' -Detail $KeyName }
             return $chordOk
         }
         # Send make + break (press + release) as raw PS/2 scan codes
         [byte[]]$codes = @([byte]$scanCode, [byte]($scanCode -bor 0x80))
         $ok = Send-ScanCode -Keyboard $kb -Codes $codes
         Write-Debug "      TypeScancodes key='$KeyName' scan=0x$($scanCode.ToString('X2')) ok=$ok"
+        if (-not $ok) { Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'Hyper-V' -Detail $KeyName }
         return $ok
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7dbb92d8228f60e2' -Arguments @{ value = "$_" })
+        Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'Hyper-V' -Detail $KeyName
         return $false
     }
 }
@@ -909,7 +1026,11 @@ function Send-ChordUTM {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName, [Parameter(Mandatory)][string]$KeyName)
     $chord = $script:UtmChords[$KeyName]
-    if (-not $chord) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_052af545ee232755' -Arguments @{ keyName = "$KeyName" }); return $false }
+    if (-not $chord) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_052af545ee232755' -Arguments @{ keyName = "$KeyName" })
+        Set-HostInputFault -Kind deterministic -Reason 'unknown-key' -Transport 'UTM' -Detail $KeyName
+        return $false
+    }
     $modCode  = [int]$chord[0]
     $baseCode = [int]$chord[1]
     $modFlag  = [int]$chord[2]
@@ -950,7 +1071,9 @@ function Send-ChordUTM {
 
     $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
     Write-Debug "      JXA CGEvent chord='$KeyName': $result"
-    return ("$result" -eq "ok")
+    if ("$result" -eq "ok") { return $true }
+    Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'UTM' -Detail "$KeyName -> $result"
+    return $false
 }
 
 function Send-KeyUTM {
@@ -971,7 +1094,11 @@ function Send-KeyUTM {
         return (Send-ChordUTM -VMName $VMName -KeyName $KeyName)
     }
     $code = $script:UTMKeyMap[$KeyName]
-    if (-not $code) { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_21ed4ccad135bc84' -Arguments @{ keyName = "$KeyName" }); return $false }
+    if (-not $code) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_21ed4ccad135bc84' -Arguments @{ keyName = "$KeyName" })
+        Set-HostInputFault -Kind deterministic -Reason 'unknown-key' -Transport 'UTM' -Detail $KeyName
+        return $false
+    }
     # Use `key code` for everything (including Enter, code 36). The
     # `keystroke return` form for Enter sometimes fired twice when chained
     # after a Send-Text run that left System Events' keystroke buffer warm --
@@ -999,7 +1126,9 @@ return "window_not_found"
 "@
     $result = Invoke-OsaScriptFile -Script $appleScript -Language AppleScript
     Write-Debug "      AppleScript: $result"
-    return ("$result" -eq "ok")
+    if ("$result" -eq "ok") { return $true }
+    Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'UTM' -Detail "$KeyName -> $result"
+    return $false
 }
 
 # --- REGION: libvirt KVM keystroke transport: virsh send-key
@@ -1023,10 +1152,17 @@ function Send-KeyKvm {
     if (-not $codes -or -not $codes[0]) {
         $codes = @((Get-KeyCodeMap -Kind 'KVM-Named')[$KeyName])
     }
-    if (-not $codes -or -not $codes[0]) { $codes = @($KeyName) }
+    $passThrough = (-not $codes -or -not $codes[0])
+    if ($passThrough) { $codes = @($KeyName) }
     $out = & virsh --connect qemu:///system send-key $VMName @codes 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3f5e4d13c7518db1' -Arguments @{ join = "$($codes -join ' ')"; vMName = "$VMName"; trim = "$((@($out) | Out-String).Trim())" })
+        $outText = (@($out) | Out-String).Trim()
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_3f5e4d13c7518db1' -Arguments @{ join = "$($codes -join ' ')"; vMName = "$VMName"; trim = "$outText" })
+        # A name no map knows reaches virsh verbatim; virsh refusing it as a
+        # keycode will refuse it again on every retry.
+        $unknownKey = $passThrough -and $outText -match '(?i)invalid key ?code|unknown key ?code|invalid keycode'
+        Set-HostInputFault -Kind ($unknownKey ? 'deterministic' : 'transient') -Reason ($unknownKey ? 'unknown-key' : 'send-failed') `
+            -Transport 'KVM' -Detail $KeyName
         return $false
     }
     return $true
@@ -1110,16 +1246,13 @@ function Send-TextKvm {
         a failed or interrupted libvirt send is never replayed.
     #>
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
+    if (-not (Test-TextKeyMapCoverage -Text $Text -KeyMap $script:KvmCharKeyMap -Transport 'KVM')) { return $false }
     $ps2 = Get-KeyCodeMap -Kind 'PS2-Char'
     $named = Get-KeyCodeMap -Kind 'PS2-Named'
     $chords = [Collections.Generic.List[object]]::new()
     $characters = [Collections.Generic.List[string]]::new()
     foreach ($ch in $Text.ToCharArray()) {
         $character = [string]$ch
-        if (-not $script:KvmCharKeyMap[$character]) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dfe205f918802162' -Arguments @{ ch = "$ch"; x2 = "$([int][char]$ch | ForEach-Object { $_.ToString('X4') })" })
-            continue
-        }
         if ($ps2.ContainsKey($character)) {
             $entry = $ps2[$character]
             $chord = if ($entry[1]) { @([int]$named.LShift, [int]$entry[0]) } else { @([int]$entry[0]) }
@@ -1137,6 +1270,8 @@ function Send-TextKvm {
         $failedCharacter = if ($result.UnknownDelivery) { '?' } else { $characters[[Math]::Min($result.Sent, $characters.Count - 1)] }
         $failedCodes = if ($result.UnknownDelivery) { '?' } else { $script:KvmCharKeyMap[$failedCharacter] -join ',' }
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_966231fe730b28ff' -Arguments @{ ch = $failedCharacter; join = $failedCodes; trim = $result.Error })
+        Set-HostInputFault -Kind transient -Reason ($result.UnknownDelivery ? 'delivery-unknown' : 'send-failed') -Transport 'KVM' `
+            -Detail $result.Error -Delivered ($result.UnknownDelivery ? -1 : [int]$result.Sent) -Total $Text.Length
         return $false
     }
     $effectiveDelay = [Math]::Max($script:KvmMinimumCharDelayMs, $CharDelayMs)
@@ -1155,19 +1290,17 @@ function Send-TextKvmLegacy {
         between chars so the guest's input layer has time to drain.
     #>
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
+    if (-not (Test-TextKeyMapCoverage -Text $Text -KeyMap $script:KvmCharKeyMap -Transport 'KVM')) { return $false }
     $sentChars = 0
     foreach ($ch in $Text.ToCharArray()) {
         $codes = $script:KvmCharKeyMap["$ch"]
-        if (-not $codes) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_dfe205f918802162' -Arguments @{ ch = "$ch"; x2 = "$([int][char]$ch | ForEach-Object { $_.ToString('X4') })" })
-            continue
-        }
         # Splat the chord onto the virsh command line: with `&` the array
         # elements become positional args, which is exactly what virsh
         # send-key wants (one chord per call).
         $out = & virsh --connect qemu:///system send-key $VMName @codes 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_966231fe730b28ff' -Arguments @{ ch = "$ch"; join = "$($codes -join ',')"; trim = "$((@($out) | Out-String).Trim())" })
+            Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'KVM' -Delivered $sentChars -Total $Text.Length
             return $false
         }
         $sentChars++
@@ -1192,8 +1325,13 @@ function Send-TextHyperV {
         post-batch settle at DefaultSettleMs.
     #>
     param([string]$VMName, [string]$Text, [int]$CharDelayMs = $script:DefaultCharDelayMs)
+    if (-not (Test-TextKeyMapCoverage -Text $Text -KeyMap $script:CharScanCodes -Transport 'Hyper-V')) { return $false }
     $kb = Get-HyperVKeyboard -VMName $VMName
-    if (-not $kb) { return $false }
+    if (-not $kb) {
+        Set-HostInputFault -Kind transient -Reason 'connection-unavailable' -Transport 'Hyper-V' -Delivered 0 -Total $Text.Length
+        return $false
+    }
+    $charCount = 0
     try {
         # --- REGION: https://yuruna.link/4222e5f2-0005
         # Break codes for every modifier are issued first: a leftover held
@@ -1225,13 +1363,8 @@ function Send-TextHyperV {
         # CharDelayMs settles a batch or paces individual characters.
         $batched = $script:DefaultBatchedTextSend
         $codeList = [System.Collections.Generic.List[byte]]::new()
-        $charCount = 0
         foreach ($ch in $Text.ToCharArray()) {
             $entry = $script:CharScanCodes["$ch"]
-            if (-not $entry) {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5f9af4fdfbb52214' -Arguments @{ ch = "$ch"; x2 = "$([int][char]$ch | ForEach-Object { $_.ToString('X4') })" })
-                continue
-            }
             $scan = [byte]$entry[0]
             $shifted = $entry[1]
             [byte[]]$charCodes = @()
@@ -1248,6 +1381,7 @@ function Send-TextHyperV {
                 # upshifted.
                 if (-not (Send-ScanCode -Keyboard $kb -Codes $charCodes)) {
                     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_66740d874d3769c0' -Arguments @{ charCount = "$charCount" })
+                    Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'Hyper-V' -Delivered $charCount -Total $Text.Length
                     return $false
                 }
                 if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
@@ -1258,6 +1392,7 @@ function Send-TextHyperV {
             $ok = Send-ScanCode -Keyboard $kb -Codes ([byte[]]$codeList.ToArray())
             if (-not $ok) {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_7f72e9572bce0b62' -Arguments @{ charCount = "$charCount" })
+                Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'Hyper-V' -Delivered 0 -Total $Text.Length
                 return $false
             }
         }
@@ -1271,6 +1406,9 @@ function Send-TextHyperV {
         return $true
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_28903f180d50abb4' -Arguments @{ value = "$_" })
+        # A batch that threw may have reached the keyboard in part.
+        Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'Hyper-V' `
+            -Delivered ($script:DefaultBatchedTextSend ? -1 : $charCount) -Total $Text.Length
         return $false
     }
 }
@@ -1279,15 +1417,18 @@ function Test-HardCharsInText {
     <#
     .SYNOPSIS
         Returns $true if $Text contains at least one char that needs
-        Shift in MacCharKeyCodes after the keypad remap.
+        Shift in MacCharKeyCodes after the keypad remap, or that has no
+        macOS key code at all.
     .DESCRIPTION
         Used by Send-TextUTM to decide whether the ShellEscape encoding
-        is needed before handing the payload to JXA CGEvent typing.
+        is needed before handing the payload to JXA CGEvent typing. The
+        encoding spells every byte with unshifted keys, so it also carries
+        a character the key map cannot type.
     #>
     param([string]$Text)
     foreach ($ch in $Text.ToCharArray()) {
         $e = $script:MacCharKeyCodes["$ch"]
-        if ($e -and $e[1]) { return $true }
+        if (-not $e -or $e[1]) { return $true }
     }
     return $false
 }
@@ -1345,17 +1486,13 @@ function Send-TextUTM {
         Write-Debug "      UTM Send-Text -ShellEscape: '$orig' rewritten to '$Text' (Linux bash decodes \xNN at the prompt)."
     }
     $delaySeconds = [math]::Max(0.02, $CharDelayMs / 1000.0)
+    if (-not (Test-TextKeyMapCoverage -Text $Text -KeyMap $script:MacCharKeyCodes -Transport 'UTM')) { return $false }
 
     $charIndex = 0
     $shiftedCount = 0
     $keyCalls = [System.Text.StringBuilder]::new()
     foreach ($ch in $Text.ToCharArray()) {
         $entry = $script:MacCharKeyCodes["$ch"]
-        if (-not $entry) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_99c028f32f58e097' -Arguments @{ ch = "$ch"; charIndex = "$charIndex" })
-            $charIndex++
-            continue
-        }
         $kc = $entry[0]
         $shifted = if ($entry[1]) { 'true' } else { 'false' }
         if ($entry[1]) { $shiftedCount++ }
@@ -1412,7 +1549,11 @@ __KEYCALLS__
 
     $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
     Write-Debug "      JXA CGEvent: $result"
-    return ("$result" -eq "ok")
+    if ("$result" -eq "ok") { return $true }
+    # osascript posts the events as it runs, so a script that did not finish
+    # may have typed any part of the text.
+    Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'UTM' -Detail "$result" -Total $Text.Length
+    return $false
 }
 
 function Initialize-HyperVMouseType {
@@ -1670,4 +1811,4 @@ Export-ModuleMember -Function Get-HyperVKeyboard, Clear-HyperVKeyboard, Read-Vnc
     Send-ScanCode, Send-KeyHyperV, Send-KeyUTM, Send-ChordUTM, Send-KeyKvm, `
     Send-TextKvm, Send-TextHyperV, Test-HardCharsInText, ConvertTo-ShellEscapedText, `
     Send-TextUTM, Initialize-HyperVMouseType, Send-ClickHyperV, Send-ClickUtm, `
-    Update-TransportDefault
+    Update-TransportDefault, Set-HostInputFault, Get-HostInputFault, Clear-HostInputFault

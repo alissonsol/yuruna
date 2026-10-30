@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 425548c6-683c-4519-9712-2f32b36e15e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
     network stack, and write the result into test.config.yml.
 
 .DESCRIPTION
-    See https://yuruna.link/42010605-0003.
+    See https://yuruna.link/42010605-007a.
 .PARAMETER Root
     Storage root, skipping the prompt. Omit it for the interactive prompt,
     which offers this platform's convention as the default.
@@ -173,7 +173,7 @@ function Confirm-Step {
 }
 
 # --- REGION: Step progress
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-0078
 $Script:StepTimer = [System.Diagnostics.Stopwatch]::new()
 
 # --- REGION: Complete-LabStorageStep
@@ -433,7 +433,7 @@ if ($Platform -eq 'macos' -and -not $WhatIfPreference) {
         switch ($verdict) {
             'ok'          { Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_5833b283f23b8ad6' -Arguments @{ account = "$($t.Account)" }) }
             'auth'        {
-                # See https://yuruna.link/42010605-0003
+                # See https://yuruna.link/42010605-0077
                 throw ("'$($t.Account)' carries a password record but the SMB server still refuses it, so the $($t.Kind) share cannot be mounted. " +
                        "The account and its password are in $labVault.")
             }
@@ -502,10 +502,10 @@ if ($wrote) {
 }
 
 # --- REGION: Step 8 -- mount
-# See https://yuruna.link/42010605-0003
+# See https://yuruna.link/42010605-0076
 Write-LabStorageStep -Number 8 -Title 'Mount'
 if ($IsLinux) {
-    # See https://yuruna.link/42010605-0003
+    # See https://yuruna.link/42010605-0075
     $sudoers = Set-PoolStorageSudoers -NonInteractive:(-not (Test-YurunaCanPrompt)) -WhatIf:$WhatIfPreference
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_c70a278ff660af73' -Arguments @{ action = "$($sudoers.Action)"; message = "$($sudoers.Message)" })
 }
@@ -527,7 +527,7 @@ if ($WhatIfPreference -or -not $wrote) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d86220aef2724166' -Arguments @{ kind = "$($t.Kind)"; configPath = "$configPath" })
             continue
         }
-        # See https://yuruna.link/42010605-0003
+        # See https://yuruna.link/42010605-0074
         $superseded = @(Get-PoolStorageSupersededMount -Config $cfg)
         $blocked = $false
         foreach ($old in $superseded) {

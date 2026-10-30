@@ -7,7 +7,8 @@ subscribers:
     - transport: email
       address: ""
   config.smoke: []
-  # pool.alert -- the advisory pool DEGRADED alert delivered by the host-side pool
+  # pool.alert -- the advisory pool DEGRADED alert, and any pool host's notice that
+  # its automatic recovery is disabled, delivered by the host-side pool
   # notifier (Test.PoolNotifier). Configure it on the ONE host that runs the
   # caching-proxy-service + dashboards: a host self-elects as pool notifier because
   # the transport is configured here. Leave empty elsewhere (the notifier no-ops).

@@ -7,14 +7,13 @@
 version: 2
 # --- REGION: ethernets
 ethernets:
-  # critical pins the kernel address lifetime open: a guest clock jump
-  # otherwise expires the DHCP address before the lease does.
   yuruna-en:
     match:
       name: "en*"
     dhcp4: true
     dhcp6: true
     dhcp-identifier: mac
+    # netplan renders this as networkd KeepConfiguration=, which installs the DHCP address with an infinite kernel lifetime so a guest clock anomaly cannot expire it while the lease is valid.
     critical: true
   yuruna-eth:
     match:
@@ -22,4 +21,5 @@ ethernets:
     dhcp4: true
     dhcp6: true
     dhcp-identifier: mac
+    # netplan renders this as networkd KeepConfiguration=, which installs the DHCP address with an infinite kernel lifetime so a guest clock anomaly cannot expire it while the lease is valid.
     critical: true

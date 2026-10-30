@@ -21,6 +21,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"yuruna.com/test/extension/pool-aggregator-service/internal/incident"
 )
 
 // --- REGION: Loki query fixture
@@ -1141,7 +1142,7 @@ func TestBackfillSweepRestoresHistoryOnce(t *testing.T) {
 	if len(incidentStreams) != 1 {
 		t.Errorf("only the incident that was over before the collector arrived may be replayed: %v", incidentStreams)
 	}
-	incID := incidentID(hostB.id, burst[0].end)
+	incID := incident.ID(hostB.id, burst[0].end)
 	inc := loki.lines(map[string]string{"src": "incident", "hostId": hostB.id, "incidentId": incID})
 	if len(inc) != 2 || !strings.Contains(inc[0].line, `"event":"incident_open"`) || !strings.Contains(inc[1].line, `"event":"incident_resolved"`) ||
 		inc[1].ns != burst[2].end.Add(defaultIncidentWin).UnixNano() {

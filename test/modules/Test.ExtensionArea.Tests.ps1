@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42fa8d36-e7cb-4b28-93b8-d483c23cdcb4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -215,13 +215,14 @@ Describe 'the pool-aggregator route names' {
         # rename on one side answers 404 to a host asking the right question,
         # and nothing fails until a cycle cannot find the service it needs.
         # The Go half of this pair is route_names_test.go, which pins the same
-        # five values; this half proves the client still asks for them.
+        # six values; this half proves the client still asks for them.
         $expected = [ordered]@{
             Health         = '/healthz'
             Metrics        = '/metrics'
             Status         = '/api/v1/pool-status'
             ExtensionHosts = '/api/v1/extension-hosts'
             LabToken       = '/api/v1/lab-token'
+            FrameworkRing  = '/api/v1/framework-ring'
         }
         $psm1 = Join-Path (Join-Path (Join-Path $script:RepoRoot 'test') 'extension') 'pool-aggregator-service' |
             Join-Path -ChildPath 'default.psm1'
@@ -244,7 +245,7 @@ Describe 'the pool-aggregator route names' {
         $source = Get-Content -Raw -LiteralPath $mainGo
         $goConstant = [ordered]@{
             Health = 'routeHealth'; Metrics = 'routeMetrics'; Status = 'routePoolStatus'
-            ExtensionHosts = 'routeExtensionHosts'; LabToken = 'routeLabToken'
+            ExtensionHosts = 'routeExtensionHosts'; LabToken = 'routeLabToken'; FrameworkRing = 'routeFrameworkRing'
         }
         foreach ($name in $expected.Keys) {
             $pattern = '(?m)^\s*' + [regex]::Escape($goConstant[$name]) + '\s*=\s*"' +

@@ -39,7 +39,7 @@ func run() error {
 	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the internal authentication key accepted as a bearer on the gated routes (empty or missing disables bearer auth)")
 	poolDir := flag.String("pool-dir", config.DefaultPoolDir, "pool share mount point; the Download pool lives under <pool-dir>/images")
 	poolNetworkPath := flag.String("pool-network-path", "", "the pool share as the rest of the lab reaches it, e.g. //nas/share/yuruna.pool; used only to name pool folders to an operator (empty names the local mount instead)")
-	stateDir := flag.String("state-dir", "", "directory (under the pool share) for audit.jsonl + status.json; empty disables persistence")
+	stateDir := flag.String("state-dir", "", "directory (under the pool share) for this agent's audit.<agent>.jsonl and status.<agent>.json; empty disables persistence")
 	scanInterval := flag.Duration("scan-interval", config.DefaultScanInterval, "background pool scan cadence")
 	freshness := flag.Duration("freshness", config.DefaultFreshness, "how long an image stays fresh after its last origin verification")
 	prefetchLead := flag.Duration("prefetch-lead", config.DefaultPrefetchLead, "act on images expiring within this window")
@@ -60,7 +60,7 @@ func run() error {
 	// feature.
 	authToken := readTokenFile(*authTokenFile)
 
-	store := state.New(*stateDir, time.Now())
+	store := state.New(*stateDir, stateAgentName(*hostID), time.Now())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -171,6 +171,16 @@ func waitBounded(grace time.Duration, chans ...chan struct{}) {
 		}
 		timer.Stop()
 	}
+}
+
+// stateAgentName names this agent's files in the shared state directory: the
+// host id the beacon and the lease use, or the VM's host name when none is set.
+func stateAgentName(hostID string) string {
+	if hostID != "" {
+		return hostID
+	}
+	name, _ := os.Hostname()
+	return name
 }
 
 // readTokenFile loads the internal authentication key; an absent or unreadable

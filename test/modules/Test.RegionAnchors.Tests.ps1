@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a1c8e3-5b47-4f60-9d2a-7e83b415cc09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -817,5 +817,124 @@ Describe 'published nonlocalized SBOM anchor authority' {
         $generated = @($actual | Where-Object { @($_[0]) -contains '42aaaaaa' })
         Assert-Equal 1 $generated.Count 'the generated id remains unique'
         Assert-True (@($generated[0][0]) -contains 'legacy-readme') 'the existing slug alias remains published'
+    }
+}
+
+Describe 'implementation-note headings name the region their pointer sits in' {
+    BeforeDiscovery {
+        $script:FixtureLink = 'https://yuruna.link/'
+    }
+
+    BeforeAll {
+        # Built by concatenation so the anchor gate, which scans this file, does not
+        # read the fixture links as pointers into the real documents.
+        $script:FixtureLink = 'https://yuruna.link/'
+        $toolAst = [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $script:RepoRoot 'tools/Invoke-DocAnchor.ps1'), [ref]$null, [ref]$null)
+        foreach ($name in 'Get-HeadingHome', 'Get-PointerRegion', 'Find-HeadingRegionMismatch') {
+            $definition = $toolAst.Find({ param($n)
+                $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $name }, $true)
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+        foreach ($variable in 'RegionMarkerPattern', 'CommentLinePattern') {
+            $assignment = $toolAst.Find({ param($n)
+                $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+                $n.Left.Extent.Text -ceq "`$$variable" }, $false)
+            . ([scriptblock]::Create($assignment.Extent.Text))
+        }
+    }
+
+    It 'reads a heading home from a <Form> heading' -TestCases @(
+        @{ Form = 'path-prefixed'; Line = @('## test/modules/Run.ps1: Resolve paths', '', 'Body.'); Repo = $null; Path = 'test/modules/Run.ps1'; Name = 'Resolve paths' },
+        @{ Form = 'root-file'; Line = @('## setup.ps1: 5. Storage'); Repo = $null; Path = 'setup.ps1'; Name = '5. Storage' },
+        @{ Form = 'backticked path line'; Line = @('### Resolve paths', '', '`yuruna/test/Run.ps1`', '', 'Body.'); Repo = 'yuruna'; Path = 'test/Run.ps1'; Name = 'Resolve paths' }
+    ) {
+        param($Line, $Repo, $Path, $Name)
+        $found = Get-HeadingHome -Line $Line -HeadingIndex 0
+        $found.Repo | Should -Be $Repo
+        $found.Path | Should -BeExactly $Path
+        $found.Name | Should -BeExactly $Name
+    }
+
+    It 'gives no home to a heading that names no source file' {
+        Get-HeadingHome -Line @('## Why the gate exists', '', 'Prose follows.') -HeadingIndex 0 | Should -BeNullOrEmpty
+        Get-HeadingHome -Line @('### Section', '', 'Prose before `yuruna/test/Run.ps1`') -HeadingIndex 0 | Should -BeNullOrEmpty
+    }
+
+    It 'places a pointer in the region whose marker heads its comment block' {
+        $lines = @('# --- REGION: Resolve paths', '# Why it is shaped this way.', ('# See ' + $script:FixtureLink + '42aaaaaa-0002'), '$a = 1')
+        Get-PointerRegion -Line $lines -Index 2 | Should -BeExactly 'Resolve paths'
+        $xml = @('<!-- --- REGION: Template body -->', ('<!-- See ' + $script:FixtureLink + '42aaaaaa-0003 -->'))
+        Get-PointerRegion -Line $xml -Index 1 | Should -BeExactly 'Template body'
+    }
+
+    It 'does not judge a pointer under <Case>' -TestCases @(
+        @{ Case = 'code between it and the marker'; Line = @('# --- REGION: Resolve paths', '$a = 1', ('# See ' + $script:FixtureLink + '42aaaaaa-0002')); Index = 2 },
+        @{ Case = 'a blank line between it and the marker'; Line = @('# --- REGION: Resolve paths', '', ('# See ' + $script:FixtureLink + '42aaaaaa-0002')); Index = 2 },
+        @{ Case = 'a marker that is itself a link'; Line = @(('# --- REGION: ' + $script:FixtureLink + '42bbbbbb-0001'), ('# See ' + $script:FixtureLink + '42aaaaaa-0002')); Index = 1 },
+        @{ Case = 'no marker at all'; Line = @('# A comment.', ('# See ' + $script:FixtureLink + '42aaaaaa-0002')); Index = 1 },
+        @{ Case = 'a code line of its own'; Line = @('# --- REGION: Resolve paths', ('$u = "' + $script:FixtureLink + '42aaaaaa-0002"')); Index = 1 }
+    ) {
+        param($Line, $Index)
+        Get-PointerRegion -Line $Line -Index $Index | Should -BeNullOrEmpty
+    }
+
+    It 'reports a heading whose only pointer home differs, and spares a section shared by several regions' {
+        $homes = @{
+            '42aaaaaa-0002' = @{ Repo = $null; DocRepo = 'yuruna'; Path = 'src/run.ps1'; Name = 'Resolve paths'; Label = 'yuruna/docs/notes.md'; Heading = 'src/run.ps1: Resolve paths' }
+            '42aaaaaa-0003' = @{ Repo = $null; DocRepo = 'yuruna'; Path = 'src/run.ps1'; Name = 'Old name'; Label = 'yuruna/docs/notes.md'; Heading = 'src/run.ps1: Old name' }
+            '42aaaaaa-0005' = @{ Repo = $null; DocRepo = 'yuruna'; Path = 'src/run.ps1'; Name = 'Family'; Label = 'yuruna/docs/notes.md'; Heading = 'src/run.ps1: Family' }
+            '42aaaaaa-0006' = @{ Repo = 'yuruna'; DocRepo = 'yuruna'; Path = 'src/run.ps1'; Name = 'Moved'; Label = 'yuruna/docs/notes.md'; Heading = 'Moved' }
+        }
+        $pointers = @(
+            [pscustomobject]@{ Id = '42aaaaaa-0002'; Repo = 'yuruna'; Path = 'src/run.ps1'; Line = 2; Region = 'Resolve paths' }
+            [pscustomobject]@{ Id = '42aaaaaa-0003'; Repo = 'yuruna'; Path = 'src/run.ps1'; Line = 7; Region = 'New name' }
+            [pscustomobject]@{ Id = '42aaaaaa-0005'; Repo = 'yuruna'; Path = 'src/run.ps1'; Line = 9; Region = 'Family' }
+            [pscustomobject]@{ Id = '42aaaaaa-0005'; Repo = 'yuruna'; Path = 'src/other.ps1'; Line = 4; Region = 'Family' }
+            [pscustomobject]@{ Id = '42aaaaaa-0006'; Repo = 'yuruna'; Path = 'src/elsewhere.ps1'; Line = 3; Region = 'Moved' }
+            [pscustomobject]@{ Id = '42ffffff-0001'; Repo = 'yuruna'; Path = 'src/run.ps1'; Line = 12; Region = 'Unregistered' }
+        )
+        $found = @(Find-HeadingRegionMismatch -HomeById $homes -Pointer $pointers)
+        $found.Count | Should -Be 2
+        ($found | Where-Object Id -eq '42aaaaaa-0003').Region | Should -BeExactly 'New name'
+        ($found | Where-Object Id -eq '42aaaaaa-0006').Pointer | Should -BeExactly 'yuruna/src/elsewhere.ps1:3'
+    }
+
+    It 'lists the mismatch under -HeadingRegion without changing the exit code' {
+        $fixture = Join-Path $script:Sandbox 'heading-region/yuruna'
+        foreach ($dir in @('tools', 'test/modules', 'docs', 'globalization/manifests', 'src')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $fixture $dir) -Force
+        }
+        $generator = Join-Path $fixture 'tools/Invoke-DocAnchor.ps1'
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'tools/Invoke-DocAnchor.ps1') -Destination $generator
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'test/modules/Test.Prelude.psm1') -Destination (Join-Path $fixture 'test/modules/Test.Prelude.psm1')
+        [IO.File]::WriteAllText((Join-Path $fixture 'docs/notes.md'), ((@(
+            '<a id="42aaaaaa-0001"></a>', '', '# Notes', '',
+            '<a id="42aaaaaa-0002"></a>', '', '## src/run.ps1: Resolve paths', '', 'Body.', '',
+            '<a id="42aaaaaa-0003"></a>', '', '## src/run.ps1: Old name', '', 'Body.', '',
+            '<a id="42aaaaaa-0004"></a>', '', '## src/run.ps1: Family', '', 'Body.', '') -join "`n")))
+        [IO.File]::WriteAllText((Join-Path $fixture 'src/run.ps1'), ((@(
+            '# --- REGION: Resolve paths', ('# See ' + $script:FixtureLink + '42aaaaaa-0002'), '$a = 1', '',
+            '# --- REGION: New name', '# Explains why.', ('# See ' + $script:FixtureLink + '42aaaaaa-0003'), '$b = 2', '',
+            '# --- REGION: Family', ('# See ' + $script:FixtureLink + '42aaaaaa-0004'), '',
+            'function Get-X {', ('    # See ' + $script:FixtureLink + '42aaaaaa-0002'), '}', '') -join "`n")))
+        [IO.File]::WriteAllText((Join-Path $fixture 'src/other.ps1'), ((@(
+            '# --- REGION: Family', ('# See ' + $script:FixtureLink + '42aaaaaa-0004'), '') -join "`n")))
+        $record = [ordered]@{ id = '42aaaaaa'; repo = 'yuruna'; source = 'docs/notes.md'; translations = [ordered]@{}; anchors = @() }
+        [IO.File]::WriteAllText((Join-Path $fixture 'globalization/manifests/doc-anchors.json'),
+            (([ordered]@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } | ConvertTo-Json -Depth 8) + "`n"))
+        & git init --quiet $fixture 2>&1 | Out-Null
+        $null = & pwsh -NoProfile -File $generator -Update -Quiet 2>&1
+
+        $plain = & pwsh -NoProfile -File $generator -Check -Quiet 2>&1 | Out-String
+        Assert-Equal 0 $LASTEXITCODE $plain
+        Assert-True ($plain -notmatch 'Heading check') 'the report runs only when asked for'
+
+        $output = & pwsh -NoProfile -File $generator -Check -Quiet -HeadingRegion 2>&1 | Out-String
+        Assert-Equal 0 $LASTEXITCODE "the heading report must not change the verdict: $output"
+        Assert-Match ([regex]::Escape("heading yuruna/docs/notes.md 42aaaaaa-0003 'src/run.ps1: Old name': its pointer yuruna/src/run.ps1:7 sits in region 'New name'")) $output
+        Assert-Match 'Heading check: 1 heading pointer' $output
+        Assert-True ($output -notmatch '42aaaaaa-0002''') 'a heading that names its pointer region is not reported'
+        Assert-True ($output -notmatch '42aaaaaa-0004''') 'a section shared by several regions is not judged'
     }
 }

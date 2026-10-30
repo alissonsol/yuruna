@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 420ba59c-ad78-439f-ae73-0d5bd707f1ba
@@ -32,6 +32,7 @@ esac
 # --- REGION: Load retry helpers
 # See https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
+declare -F yuruna_verify_sha256 >/dev/null || { echo "ERROR: this guest's /usr/local/lib/yuruna/yuruna-retry.sh predates pinned-digest checks; rebuild the guest." >&2; exit 1; }
 # --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
@@ -49,7 +50,13 @@ bash << 'EOF'
 set -eo pipefail
 # NVM installer is idempotent -- re-running updates an existing install
 export NVM_DIR="$HOME/.nvm"
-wget_try -qO- "https://raw.githubusercontent.com/nvm-sh/nvm/v${YURUNA_NVM_VERSION}/install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | bash
+# The installer runs only after it matches its pinned digest.
+nvm_installer="$(mktemp /tmp/yuruna-nvm-install.XXXXXX)"
+trap 'rm -f -- "$nvm_installer"' EXIT
+wget_try -qO "$nvm_installer" "https://raw.githubusercontent.com/nvm-sh/nvm/v${YURUNA_NVM_VERSION}/install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}"
+yuruna_verify_sha256 "$nvm_installer" "${YURUNA_NVM_INSTALL_SHA256:-}" "nvm v${YURUNA_NVM_VERSION} install.sh"
+bash "$nvm_installer"
+rm -f -- "$nvm_installer"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use
 [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
 

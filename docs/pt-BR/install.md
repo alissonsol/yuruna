@@ -687,7 +687,10 @@ roda a partir daquele único arquivo com um `$PSCommandPath` real e nunca
 baixa de novo. O arquivo temporário é escrito fielmente byte a byte a
 partir da resposta do IRM (não do `ScriptBlock.ToString()`, cuja fidelidade
 de ida e volta no PS 5.1 não é verificada), de modo que os bytes
-materializados correspondam ao instalador canônico.
+materializados correspondam ao instalador canônico. A busca sempre leva um
+cache-buster (`YurunaCacheContent` quando definido, caso contrário um
+carimbo de data/hora e um sufixo aleatório), de modo que uma cópia de CDN
+mais antiga que a que o console está executando nunca é a materializada.
 
 Antes de materializar, o instalador varre os temporários de materialização
 obsoletos deixados por uma execução anterior que travou -- apenas
@@ -710,9 +713,17 @@ cruzar a fronteira do UAC.
 Para o caminho de entrada `irm | iex`, o script baixado inicialmente não tem
 `$PSCommandPath`, e o próprio `iex` não repassa argumentos ao código
 invocado. A etapa de materialização estabelece um caminho de arquivo antes
-da elevação. A reexecução usa `-File` com esse mesmo instalador e repassa os
-parâmetros explicitamente vinculados com `-SkipPreflight`, para que o filho
-elevado não baixe o script nem solicite a verificação de requisitos de novo.
+da elevação. Esse arquivo fica em uma pasta que a conta não elevada pode
+gravar, então o shell elevado nunca o executa diretamente: um processo no
+mesmo nível não elevado poderia substituí-lo entre o prompt do UAC e a
+leitura elevada. O instalador calcula o hash do próprio arquivo (SHA-256)
+assim que inicia, e o shell elevado parte de um `-EncodedCommand` que cria
+uma pasta nova em `%ProgramData%\yuruna` gravável apenas por Administrators
+e SYSTEM, copia o instalador para lá, recusa-se a continuar quando o hash da
+cópia difere e executa a cópia com os parâmetros explicitamente vinculados e
+`-SkipPreflight`, para que o filho elevado não baixe o script de novo nem
+solicite a verificação de requisitos outra vez. A pasta é removida quando a
+execução termina.
 
 Se o shell elevado ainda for PS 5.x, o bloco de bootstrap do PS7 instala o
 `Microsoft.PowerShell` via winget, atualiza o PATH para que o `pwsh.exe`
@@ -792,6 +803,20 @@ a passagem para uma janela pwsh nova com as orientações de NEXT STEPS.
 Após o resumo e a espera final limitada, o instalador encerra a transcrição e
 retorna o código 1 quando a instalação não foi concluída. Chamadores
 automatizados detectam a falha, e o operador tem tempo para ler sua explicação.
+
+**Registro de resultado.** Todo instalador (os três hosts) termina gravando
+um registro JSON de como a execução correu, para que a automação (um host
+aninhado, um script de provisionamento) leia o resultado em vez de analisar
+o resumo final: `outcome` (`succeeded`, `succeeded-with-issues`,
+`restart-required` no Windows, ou `failed`), `exitCode`, a última `step`
+(macOS, Ubuntu), cada problema adiado em `issues`, a `version` instalada e o
+caminho do `log`. Ele é gravado em `~/.local/state/yuruna/install-result.json`
+no macOS e no Ubuntu (`$XDG_STATE_HOME` quando definido) ou em
+`%LOCALAPPDATA%\yuruna\install-result.json` no Windows (a conta elevada), com
+uma cópia ao lado do log da execução como `<log name>.result.json`. A
+gravação é de melhor esforço e nunca altera o código de saída do instalador;
+no Windows, um erro de término fora do `try` principal (uma recusa da
+verificação prévia) ainda grava um registro `failed`.
 
 <a id="429fb30b-0020"></a>
 
@@ -1292,6 +1317,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.26
+Última revisão: 2026.10.30
 
 Voltar para [Yuruna](../../README.md)

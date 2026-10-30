@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d3bc19-cf65-4604-a69f-39ddfab7231d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -219,9 +219,7 @@ Describe 'service VM processor policy' {
         $builder=Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "../../host/windows.hyper-v/guest.$_-service/New-VM.ps1")
         $builder | Should -Match 'New-HyperVServiceGuest\b[^\r\n]*-HostCores \$hostCores'
         $path=Join-Path $PSScriptRoot '../../host/windows.hyper-v/modules/Yuruna.Host.psm1'
-        $parseErrors=$null
-        $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$null,[ref]$parseErrors)
-        $parseErrors | Should -BeNullOrEmpty
+        $ast=Get-YurunaTestFileAst -Path $path
         $function=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'New-HyperVServiceGuest'},$true)
         $assignments=@($function.Body.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$cores'},$true))
         $set=$function.Body.Find({param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Set-VMProcessor'},$true)
@@ -648,5 +646,109 @@ Describe 'reading the live host recording' {
         $record.Vm = @{ Status = 'absent'; RunningCount = $null; VMs = @(); Reason = 'Hyper-V module unavailable' }
         (ConvertTo-YurunaVmRunSample -Record $record).Running | Should -BeNullOrEmpty
         (ConvertTo-YurunaVmRunSample -Record (New-RecordingRecord -Utc ([datetime]::UtcNow) -Guest 5 -Hypervisor 94)).Running | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'a processor the guest kernel stopped servicing' {
+    BeforeAll {
+        $script:QuietVm = 'test-guest.ubuntu.server.26-01'
+        $script:QuietNow = [datetime]::new(2026, 10, 28, 4, 30, 0, [DateTimeKind]::Utc)
+        # One reading per 15-second interval, newest last. Each processor gives
+        # its cooked run-time split and the raw virtual-interrupt count the
+        # sampler would record; the raw timestamp is the sample's own instant.
+        function New-QuietSeries {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: builds an in-memory fixture; changes no state.')]
+            param([int]$Count, [scriptblock]$Processors, [switch]$NoRaw)
+            foreach ($index in 0..($Count - 1)) {
+                $utc = $script:QuietNow.AddSeconds(-15 * ($Count - 1 - $index))
+                $readings = & $Processors $index
+                $cooked = @{}; $raw = @{}
+                foreach ($id in $readings.Keys) {
+                    $cooked[$id] = $readings[$id].Reading
+                    $raw[$id] = @{ 'Virtual Interrupts/sec' = [pscustomobject]@{ Count = [double]$readings[$id].Count; Ticks = [double]$utc.Ticks } }
+                }
+                if ($NoRaw) { [pscustomobject]@{ Utc = $utc; VMs = @{ $script:QuietVm = $cooked } } }
+                else { [pscustomobject]@{ Utc = $utc; VMs = @{ $script:QuietVm = $cooked }; RawCounters = @{ $script:QuietVm = $raw } } }
+            }
+        }
+        function New-QuietProcessor {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: builds an in-memory fixture; changes no state.')]
+            param([double]$Guest, [double]$Hypervisor, [double]$Intercepts, [double]$Count, [double]$CookedInterrupts = 0)
+            @{ Count = $Count; Reading = @{ '% Guest Run Time' = $Guest; '% Hypervisor Run Time' = $Hypervisor
+                'Total Intercepts/sec' = $Intercepts; 'Virtual Interrupts/sec' = $CookedInterrupts } }
+        }
+        function Get-QuietWindow {
+            param([object[]]$Samples)
+            (Get-YurunaVmLivelockVerdict -VMName $script:QuietVm -Sample $Samples -NowUtc $script:QuietNow).ProcessorWindow
+        }
+    }
+    It 'times a stormed processor that took no interrupt while its sibling spins on its tick' {
+        $samples = @(New-QuietSeries -Count 12 -Processors {
+            param($index)
+            # vp0 takes interrupts until sample 3, then none; vp1 takes a thousand a second throughout.
+            @{ '0' = (New-QuietProcessor -Guest 7.6 -Hypervisor 91.5 -Intercepts 3390000 -Count (3000 * [math]::Min($index, 3)))
+               '1' = (New-QuietProcessor -Guest 66 -Hypervisor 33 -Intercepts 1280000 -Count (15000 * $index)) }
+        })
+        $verdict = Get-YurunaVmLivelockVerdict -VMName $script:QuietVm -Sample $samples -NowUtc $script:QuietNow
+        $verdict.Verdict | Should -Be 'not-livelocked' -Because 'the all-processor predicate does not change'
+        $vp0 = $verdict.ProcessorWindow.Processors | Where-Object Processor -EQ '0'
+        $vp1 = $verdict.ProcessorWindow.Processors | Where-Object Processor -EQ '1'
+        $vp0.NoInterruptsServicedSeconds | Should -Be 120
+        $vp0.NoInterruptsServicedSinceUtc | Should -Be $samples[3].Utc.ToString('o')
+        $vp1.NoInterruptsServicedSeconds | Should -Be 0
+        @($verdict.ProcessorWindow.NoInterruptsServicedProcessors) | Should -Be @('0')
+    }
+    It 'does not time an idle processor, which takes no interrupts either' {
+        $window = Get-QuietWindow -Samples @(New-QuietSeries -Count 12 -Processors {
+            @{ '0' = (New-QuietProcessor -Guest 0.4 -Hypervisor 0.3 -Intercepts 40 -Count 500) }
+        })
+        $window.Processors[0].NoInterruptsServicedSeconds | Should -Be 0
+        @($window.NoInterruptsServicedProcessors).Count | Should -Be 0
+    }
+    It 'judges each interval by its raw count, not by the one-second cooked rate' {
+        # The cooked rate reads zero while 300 interrupts land in every interval.
+        $busy = Get-QuietWindow -Samples @(New-QuietSeries -Count 12 -Processors {
+            param($index)
+            @{ '0' = (New-QuietProcessor -Guest 7 -Hypervisor 91 -Intercepts 3400000 -Count (300 * $index) -CookedInterrupts 0) }
+        })
+        $busy.Processors[0].NoInterruptsServicedSeconds | Should -Be 0
+        # One interrupt a minute lifts the cooked rate in the second it lands,
+        # yet the interval averages far below one a second.
+        $quiet = Get-QuietWindow -Samples @(New-QuietSeries -Count 12 -Processors {
+            param($index)
+            @{ '0' = (New-QuietProcessor -Guest 7 -Hypervisor 91 -Intercepts 3400000 -Count ([math]::Floor($index / 4)) -CookedInterrupts $(if ($index % 4 -eq 0) { 1 } else { 0 })) }
+        })
+        $quiet.Processors[0].NoInterruptsServicedSeconds | Should -Be 165
+    }
+    It 'ends the run at a counter that went back' {
+        $window = Get-QuietWindow -Samples @(New-QuietSeries -Count 12 -Processors {
+            param($index)
+            @{ '0' = (New-QuietProcessor -Guest 7 -Hypervisor 91 -Intercepts 3400000 -Count $(if ($index -lt 6) { 90000 } else { 20 })) }
+        })
+        $window.Processors[0].NoInterruptsServicedSeconds | Should -Be 75 -Because 'the reset interval itself is not counted'
+    }
+    It 'reports not measured when the recording keeps no raw interrupt count' {
+        $window = Get-QuietWindow -Samples @(New-QuietSeries -Count 12 -NoRaw -Processors {
+            @{ '0' = (New-QuietProcessor -Guest 7 -Hypervisor 91 -Intercepts 3400000 -Count 0) }
+        })
+        $window.Processors[0].NoInterruptsServicedSeconds | Should -BeNullOrEmpty
+        $window.Processors[0].NoInterruptsServicedSinceUtc | Should -Be ''
+        @($window.NoInterruptsServicedProcessors).Count | Should -Be 0
+    }
+    It 'keeps the raw virtual-interrupt count and timestamp beside the cooked value' {
+        $instance = 'test-guest.ubuntu.server.26-01:hv vp 0'
+        $record = [ordered]@{
+            Kind = 'sample'; Utc = $script:QuietNow.ToString('o')
+            Capabilities = @([pscustomobject]@{ Object = 'Hyper-V Hypervisor Virtual Processor'; Counter = 'Virtual Interrupts/sec'; LocalCounter = 'Virtual Interrupts/sec' })
+            Counters = @([pscustomobject]@{ Path = "\\host\hyper-v hypervisor virtual processor($instance)\virtual interrupts/sec"; Instance = $instance
+                Status = 'present'; Value = 1038.9; RawValue = 97995; SecondValue = 2638068195934 })
+        }
+        $sample = ConvertTo-YurunaVmRunSample -Record $record
+        $sample.VMs['test-guest.ubuntu.server.26-01']['0']['Virtual Interrupts/sec'] | Should -Be 1038.9
+        $pair = $sample.RawCounters['test-guest.ubuntu.server.26-01']['0']['Virtual Interrupts/sec']
+        $pair.Count | Should -Be 97995
+        $pair.Ticks | Should -Be 2638068195934
     }
 }

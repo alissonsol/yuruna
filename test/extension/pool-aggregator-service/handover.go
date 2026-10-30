@@ -164,7 +164,7 @@ func (s *poolState) handoverHost(oldID, newID string) error {
 	delete(s.incident, oldID)
 	if oldFailures := s.failWindow[oldID]; len(oldFailures) != 0 {
 		s.failWindow[newID] = append(s.failWindow[newID], oldFailures...)
-		sort.Slice(s.failWindow[newID], func(i, j int) bool { return s.failWindow[newID][i].t.Before(s.failWindow[newID][j].t) })
+		sort.Slice(s.failWindow[newID], func(i, j int) bool { return s.failWindow[newID][i].At.Before(s.failWindow[newID][j].At) })
 	}
 	delete(s.failWindow, oldID)
 	delete(s.footprint, oldID)

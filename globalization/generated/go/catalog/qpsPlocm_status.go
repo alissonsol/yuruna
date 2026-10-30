@@ -124,6 +124,7 @@ const DataqpsPlocmstatus = `{
   "status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5": "[!‮ƒóřƀíďďéñ: ɱíššíñğ Ẋ-Ýúřúñá řéʠúéšţ ħéáďéř (çřóšš-šíţé řéʠúéšţ ğúářď)‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_forbidden_not_served": "[!‮Ƒóřƀíďďéñ (ñóţ á šéřṽéď ƒíļé)‬ ~~~~~~~~~~~~]",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "[!‮ƒóřƀíďďéñ: ƥřóƀé ţářğéţ ɱúšţ ƀé á ƥříṽáţé (ļóóƥƀáçķ/RFC1918/link-local) áďďřéšš óř ţħé çóñƒíğúřéď çáçħé ÍƤ‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_guest_channel_key_absent": "[!‮ţħíš ħóšţ ħóļďš ñó ğúéšţ-çħáññéļ ķéý ýéţ; íţ íš çřéáţéď ŵħéñ ţħé ħóšţ ƒířšţ řéñďéřš á ğúéšţ šééď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_host_refresh_authorization_refused": [
     "[!‮řéƒřéšħ áúţħóřížáţíóñ řéƒúšéď (",
     {
@@ -213,6 +214,21 @@ const DataqpsPlocmstatus = `{
   "status.api_project_repo_not_present_on_host_885e6338": "[!‮ƥřóĵéçţ řéƥó ñóţ ƥřéšéñţ óñ ħóšţ‬ ~~~~~~~~~~~~~]",
   "status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b": "[!‮ƥřóóƒ ɱíšɱáţçħ (ŵřóñğ óř šţáļé íñţéřñáļ áúţħéñţíçáţíóñ ķéý)‬ ~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_put_or_post_required_1f919659": "[!‮ƤÚŢ óř ƤÓŠŢ řéʠúířéď‬ ~~~~~~~~]",
+  "status.api_query_invalid": [
+    "[!‮íñṽáļíď ʠúéřý: ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "‬ ~~~~~~~~~~~~~]"
+  ],
   "status.api_request_body_invalid": [
     "[!‮íñṽáļíď řéʠúéšţ ƀóďý: ",
     {
@@ -658,6 +674,7 @@ const DataqpsPlocmstatus = `{
   "status.error_file_too_large": "[!‮Ƒíļé ţóó ļářğé‬ ~~~~~~]",
   "status.error_not_found": "[!‮Ñóţ ƒóúñď‬ ~~~~]",
   "status.every_guest_folder_under_this_host_is_already_in_the_list": "[!‮Éṽéřý ğúéšţ ƒóļďéř úñďéř ţħíš ħóšţ íš áļřéáďý íñ ţħé ļíšţ‬ ~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.explain_details": "[!‮Ďéţáíļš‬ ~~~]",
   "status.external_detail": [
     "[!‮Ţħé ţóóļ řéƥóřţéď: ",
     {
@@ -1335,6 +1352,7 @@ const DataqpsPlocmstatus = `{
   "status.perf_yuruna": "[!‮Ƥéřƒ — Ýúřúñá‬ ~~~~~~]",
   "status.performance": "[!‮Ƥéřƒóřɱáñçé‬ ~~~~~]",
   "status.performance_fit": "[!‮Ƒíţ áļļ‬ ~~~]",
+  "status.performance_select_bar": "[!‮Šéļéçţ á ďúřáţíóñ óř á ƀář ţó řéáď íţš ďéţáíļš ħéřé.‬ ~~~~~~~~~~~~~~~~~~~~~]",
   "status.performance_zoom": "[!‮Ţíɱé žóóɱ‬ ~~~~]",
   "status.pill_new_vm_resource": "[!‮Ñéŵ ṼⱮ‬ ~~~]",
   "status.pill_start_guestos": "[!‮Šţářţ ÓŠ‬ ~~~~]",

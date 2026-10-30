@@ -75,10 +75,6 @@
       "sourceHash": "972b7943130f10d82ca775d62edef184fd9d38e9d52b1c3eb1970ef00138a3a6",
       "message": "Disable-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux."
     },
-    "exceptions.host_5e82d7a32d22a269": {
-      "sourceHash": "b5b9f51b2447d4bfce7e9c3432b413bd8ae208c30b2b913c7016787334290c04",
-      "message": "HTTP {status} {reasonPhrase} para {uri}"
-    },
     "exceptions.host_5fbd4e8bd8efc5cc": {
       "sourceHash": "f7b1ac893d8b8cfc29dd03c0abf6d54b00de2f9aebedd2f01dec04608b624c4f",
       "message": "Arquitetura não suportada para a imagem base do serviço de extensão: {osArch}. Um host Hyper-V deve ser AMD64 ou ARM64."

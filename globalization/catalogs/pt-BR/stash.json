@@ -19,14 +19,6 @@
       "sourceHash": "b15605e9d1daf25606e85388ba0bb32b66477bf3db32418c323114880c1f41d5",
       "message": "não foi possível processar a forma"
     },
-    "stash.api_create_detail": {
-      "sourceHash": "11bf29c6749b924268d3f95ca50449a9565a56c24d32e4c73fd09d66b2668a61",
-      "message": "criar: {detail}"
-    },
-    "stash.api_detail": {
-      "sourceHash": "998309e9e4adad3b79a9519e4c01e5734b6c080e030b16df935415b7f54ff89a",
-      "message": "{detail}"
-    },
     "stash.api_invalid_host": {
       "sourceHash": "8666c31cf405efccba3b4ff6ad452bebff49c32075908f12b5bab462be317f0d",
       "message": "máquina inválida"
@@ -55,10 +47,6 @@
       "sourceHash": "fa504579b41465646593af289d535651c36f2dd81015964af3b9fb36eaa6b1d3",
       "message": "nada para armazenar: fornecer texto ou arquivos"
     },
-    "stash.api_open_archive_detail": {
-      "sourceHash": "78169c2132248f9dbf5edaf2c8291d8094cea3cfa8a42d54164c9e20b133cbc2",
-      "message": "arquivo aberto: {detail}"
-    },
     "stash.api_open_artifact": {
       "sourceHash": "a40326db506f38070964a52f576c6c495b1e3cd2ef01cfc3bd66dcdc8b809e6f",
       "message": "artefato aberto"
@@ -70,10 +58,6 @@
     "stash.api_open_uploads": {
       "sourceHash": "2a2ef9a00daaf6c9c8960177fca27412ca1795a7c5cd236d2edd34c505a508d1",
       "message": "abrir envios"
-    },
-    "stash.api_search_detail": {
-      "sourceHash": "f9388d6822494eb86b344580187b9de81563b671d3eab75ac18948b03a1f1ee1",
-      "message": "pesquisa: {detail}"
     },
     "stash.api_stash_not_found": {
       "sourceHash": "e1bbd266b514f6af02d4008f45c9b70058845ccc9291895d50c7107e6791f1d3",
@@ -567,6 +551,31 @@
       "sourceHash": "9fae303d1dc73a579c935787a8546a6a423c033f799ecd1660d0a4321268bd9d",
       "origin": "machine",
       "message": "outro texto grande está sendo armazenado; tente de novo em instantes"
+    },
+    "stash.api_search_failed": {
+      "sourceHash": "401ccc2451aa0f517dd77acc93ce5e007910ad541f16b460c95195d58fdec474",
+      "origin": "machine",
+      "message": "não foi possível pesquisar o índice de stashes; o log do serviço tem a causa"
+    },
+    "stash.api_resolve_failed": {
+      "sourceHash": "6e6bbb785739ed84e28c15942d1a269511dd1c0c996dfc7dfdcc665b089b2cf8",
+      "origin": "machine",
+      "message": "não foi possível localizar o stash; o log do serviço tem a causa"
+    },
+    "stash.api_open_archive_failed": {
+      "sourceHash": "a7ff5f8ac8f02fc2d9e5acdf79733830db63c4f99aad2c08dd444e56a3f7fa22",
+      "origin": "machine",
+      "message": "não foi possível abrir o arquivo compactado; o log do serviço tem a causa"
+    },
+    "stash.api_create_failed": {
+      "sourceHash": "453e0d7591fc77c3eeefcfe2d9b8df4dcd77a58803cc15db8a6abbea7310693b",
+      "origin": "machine",
+      "message": "não foi possível armazenar o stash; o log do serviço tem a causa"
+    },
+    "stash.api_delete_failed": {
+      "sourceHash": "fefd0d43a12f4eed2216633e1edc384748a69333dd11fa6e1a3ae7ee39bdaef2",
+      "origin": "machine",
+      "message": "não foi possível excluir o stash; o log do serviço tem a causa"
     }
   }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d61230-055b-4de0-972a-cf11ab30a187
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,7 +83,8 @@
 param()
 
 if (-not (Get-Variable -Name '__YurunaDeploymentKindCatalog' -Scope Global -ErrorAction SilentlyContinue)) {
-    Set-Variable -Name '__YurunaDeploymentKindCatalog' -Scope Global -Value ([ordered]@{})
+    # Process memory: built even under an entry point's -WhatIf.
+    Set-Variable -Name '__YurunaDeploymentKindCatalog' -Scope Global -Value ([ordered]@{}) -WhatIf:$false -Confirm:$false
 }
 
 function Register-YurunaDeploymentKind {

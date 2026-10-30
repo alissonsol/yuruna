@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,6 +59,10 @@
 .PARAMETER AllowPseudoLocale
     Enable developer pseudo locales for the rebuilt service VM or the host-side
     daemon. Disabled by default.
+.PARAMETER ForceRebuild
+    Rebuild the VM even when the running one serves the current build or is
+    still building it. Without it a re-run keeps such a VM (adopts it). VM path
+    only.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -68,7 +72,8 @@ param(
     [int]$Port = 8090,
     [string]$AggregatorUrl = '',
     [switch]$AllowMirrorSource,
-    [switch]$AllowPseudoLocale
+    [switch]$AllowPseudoLocale,
+    [switch]$ForceRebuild
 )
 
 # --- REGION: Confirm the service operation
@@ -251,14 +256,36 @@ $remedy
         exit $ExitFailure
     }
 
-    # --- REGION: Create the VM
-    # Each New-VM runs Get-Image auto-fetch when the base image is missing, tears down any
-    # prior VM, creates the new one, and (Hyper-V + KVM) starts it. UTM only builds the
-    # bundle; Invoke-YurunaServiceVmBuild registers and starts it.
-    Write-Information "== Bringing up '$VMName' on $HostType ==" -InformationAction Continue
-    $build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VMName $VMName -OperationContext $serviceOp -AllowPseudoLocale:$AllowPseudoLocale -Confirm:$false
-    if (-not $build.Ok) { Write-Error $build.Error -ErrorAction Continue; exit $build.ExitCode }
-    $serviceOpResult = 'confirmed'
+    # --- REGION: Adopt a running VM
+    # See https://yuruna.link/42e220c4-0008
+    # A running guest that serves the current build, or is still building it, is
+    # kept: a re-run only re-asserts what the host publishes about it.
+    Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
+    $adoption = if ($ForceRebuild) { [pscustomobject]@{ Decision = 'rebuild'; Reason = '-ForceRebuild'; Address = '' } } else {
+        Resolve-YurunaServiceVmAdoption -VMName $VMName -Port 80 -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' -SourceCheck {
+            param($Address)
+            $deployed = Test-ServiceVmFrameworkSource -Address $Address -Port 80 -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' -Expected $frameworkExpected
+            -not ($deployed.Verified -and -not $deployed.Matches -and -not $AllowMirrorSource)
+        }
+    }
+    $buildDegraded = @()
+    if ($adoption.Decision -ne 'rebuild') {
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.service_adopted' -Arguments @{ vmName = $VMName; reason = [string]$adoption.Reason; address = [string]$adoption.Address }) -InformationAction Continue
+    } else {
+        # --- REGION: Create the VM
+        # The builder's plan runs first, while the working VM and its advertisement
+        # are still in place; only an accepted plan withdraws the advertisement and
+        # lets the builder tear down the prior VM, create the new one, and
+        # (Hyper-V + KVM) start it. UTM only builds the bundle;
+        # Invoke-YurunaServiceVmBuild registers and starts it.
+        Write-Information "== Bringing up '$VMName' on $HostType ($($adoption.Reason)) ==" -InformationAction Continue
+        $plan = Test-YurunaServiceVmBuildPlan -BuilderPath $newVm -VMName $VMName -AllowPseudoLocale:$AllowPseudoLocale
+        if (-not $plan.Ok) { Write-Error $plan.Error -ErrorAction Continue; exit $ExitFailure }
+        [void](Remove-YurunaServiceVmAdvertisement -Area 'pool-control-service' -HostType $HostType -RepoRoot $repoRoot -RuntimeDir $runtimeDir -Confirm:$false)
+        $build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VMName $VMName -OperationContext $serviceOp -AllowPseudoLocale:$AllowPseudoLocale -Confirm:$false
+        if (-not $build.Ok) { Write-Error $build.Error -ErrorAction Continue; exit $build.ExitCode }
+        $buildDegraded = @($build.Degraded)
+    }
 
     # --- REGION: Resolve the VM address
     # See https://yuruna.link/42e220c4-0008
@@ -284,7 +311,7 @@ $remedy
         if ($bundleMode -eq 'Shared') {
             $pcVmIp = $vmIp
             if ($pcVmIp) {
-                $script:poolControlForwarded = Add-PortMap -VMIp $pcVmIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
+                $script:poolControlForwarded = Add-PortMap -Owner 'pool-control-service' -VMIp $pcVmIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
                 if ($script:poolControlForwarded) { Write-Information "  Shared NAT: peers reach the pool-control service UI at http://$(Get-BestHostIp):8081/ (forwarded to ${pcVmIp}:80), not at the VM's address." -InformationAction Continue }
                 else { Write-Warning "Shared NAT: could not forward host port 8081 to ${pcVmIp}:80; the pool-control service UI is reachable from this host only." }
             } else {
@@ -321,7 +348,7 @@ $remedy
             param($newAddress)
             $script:vmIp = $newAddress
             if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
-                $script:poolControlForwarded = Add-PortMap -VMIp $newAddress -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
+                $script:poolControlForwarded = Add-PortMap -Owner 'pool-control-service' -VMIp $newAddress -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
                 if ($script:poolControlForwarded) {
                     Write-Verbose "  Re-pointed host :8081 -> ${newAddress}:80."
                 }
@@ -371,7 +398,7 @@ $remedy
             $vmIp = $recoveredIp
             $endpoint = New-ServiceVmRecoveredEndpoint -Endpoint $endpoint -Address $recoveredIp -WaitedSeconds $ipWaitSeconds
             if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
-                $script:poolControlForwarded = Add-PortMap -VMIp $recoveredIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
+                $script:poolControlForwarded = Add-PortMap -Owner 'pool-control-service' -VMIp $recoveredIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
                 if ($script:poolControlForwarded) {
                     Write-Verbose "  Re-pointed host :8081 -> ${recoveredIp}:80."
                 }
@@ -433,9 +460,32 @@ To hold this script longer next time:
         }
     }
 
+    # --- REGION: Report the deployed source
+    # See https://yuruna.link/42fffc2c-0013
+    # The daemon is serving, so this is the first point where the framework it
+    # was built from can be answered from evidence rather than prediction. It is
+    # read before anything is published, so a refused build is never advertised.
+    $sourceAccepted = $true
+    if ($daemonReady) {
+        $sourceAccepted = Assert-ServiceVmFrameworkSource -Address ([string]$vmIp) -Port 80 `
+            -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' `
+            -Expected $frameworkExpected -ServiceLabel 'pool-control-service' `
+            -AllowMirrorSource:$AllowMirrorSource
+    }
+
+    # --- REGION: Decide the start outcome
+    # One record decides the census result, the advertisement and the exit. A stop
+    # requested while this start ran wins: nothing is advertised for it.
+    $stillWanted = Test-YurunaServiceOperationCurrent -Context $serviceOp
+    $startOutcome = Resolve-YurunaServiceStartOutcome -Verdict $verdict -StillWanted $stillWanted -SourceAccepted $sourceAccepted -Degraded $buildDegraded
+    if ($startOutcome.Result -eq 'confirmed') { $serviceOpResult = 'confirmed' }
+    if (-not $stillWanted) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_start_stop_requested' -Arguments @{ vmName = $VMName; stopScript = 'Stop-PoolControlServiceVM.ps1' })
+    }
+
     # --- REGION: Publish service readiness
     # See https://yuruna.link/42fffc2c-0008
-    $poolControlServiceBaseUrl = if (-not $daemonReady -or $listeningButUnreachable -or -not $vmIp) { '' }
+    $poolControlServiceBaseUrl = if (-not $startOutcome.Advertise -or $listeningButUnreachable -or -not $vmIp) { '' }
                                  elseif ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
                                      if ($script:poolControlForwarded) {
                                          $peerHostIp = Get-BestHostIp
@@ -446,12 +496,28 @@ To hold this script longer next time:
                                  elseif ($vmIp -match ':') { "http://[$vmIp]" } else { "http://$vmIp" }
     Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
     [void](Write-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir `
-        -Active $daemonReady -VMName $VMName -HostType $HostType -BaseUrl $poolControlServiceBaseUrl -HostingMode 'vm')
+        -Active $startOutcome.Advertise -VMName $VMName -HostType $HostType -BaseUrl $poolControlServiceBaseUrl -HostingMode 'vm')
     try {
         Set-Variable -Name '__YurunaHostId' -Scope Global -Value (Get-YurunaHostId)
         Import-Module (Join-Path $ModulesDir 'Test.Capability.psm1') -Global -Force
         [void](Write-HostRegistrationRecord -HostType $HostType -RepoRoot $repoRoot)
     } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
+
+    if ($startOutcome.Degraded.Count -gt 0) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_start_degraded' -Arguments @{ vmName = $VMName; names = ($startOutcome.Degraded -join ', ') })
+    }
+    if ($startOutcome.State -eq 'stop-requested') {
+        Write-Verbose "  Stop: test/service/Stop-PoolControlServiceVM.ps1"
+        exit $ExitFailure
+    }
+    if ($startOutcome.State -eq 'wrong-build') {
+        Write-Verbose ""
+        Write-Verbose "== pool-control-service start: FAILED (deployed an obsolete framework snapshot) =="
+        Write-Verbose "  VM:   $VMName ($HostType)"
+        Write-Information "  The VM is up and the daemon is serving -- it is running the WRONG BUILD, not nothing." -InformationAction Continue
+        Write-Verbose "  Stop: test/service/Stop-PoolControlServiceVM.ps1"
+        exit $ExitFailure
+    }
 
     if ($stillBuilding) {
         Write-Verbose ""
@@ -470,22 +536,6 @@ To hold this script longer next time:
     }
 
     if ($daemonReady) {
-        # --- REGION: Report the deployed source
-        # See https://yuruna.link/42fffc2c-0013
-        # The daemon is serving, so this is the first point where the framework it
-        # was built from can be answered from evidence rather than prediction.
-        if (-not (Assert-ServiceVmFrameworkSource -Address ([string]$vmIp) -Port 80 `
-                    -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' `
-                    -Expected $frameworkExpected -ServiceLabel 'pool-control-service' `
-                    -AllowMirrorSource:$AllowMirrorSource)) {
-            Write-Verbose ""
-            Write-Verbose "== pool-control-service start: FAILED (deployed an obsolete framework snapshot) =="
-            Write-Verbose "  VM:   $VMName ($HostType)"
-            Write-Information "  The VM is up and the daemon is serving -- it is running the WRONG BUILD, not nothing." -InformationAction Continue
-            Write-Verbose "  Stop: test/service/Stop-PoolControlServiceVM.ps1"
-            exit $ExitFailure
-        }
-
         # --- REGION: Sync the pool-configuration alias
         # See https://yuruna.link/42e220c4-0008
         try {
@@ -623,6 +673,17 @@ if ($AllowPseudoLocale) { $goArgs += '--allow-pseudo-locale' }
 # A stop published while the daemon was building wins: nothing is launched for
 # a request that no longer stands (the finally reports the newer one).
 if (-not (Test-YurunaServiceOperationCurrent -Context $serviceOp)) { exit $ExitFailure }
+
+# --- REGION: Stop the previous host-side daemon
+# A re-run would otherwise launch a second daemon beside the first and record
+# only the new pid: the first keeps the port, and no Stop can find it again.
+Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
+$previousDaemon = Stop-ExtensionServiceHostProcess -Area 'pool-control-service' -Confirm:$false `
+    -Deployment (Get-ExtensionServiceDeploymentIdentity -Area 'pool-control-service' -RuntimeDir $runtimeDir)
+if ($previousDaemon.LeftRunning) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.service_hostproof_previous_running' -Arguments @{ pid = [string]$previousDaemon.ProcessId; reason = [string]$previousDaemon.Reason })
+    exit $ExitFailure
+}
 if ($PSCmdlet.ShouldProcess($binPath, "launch pool-control-service on :$Port")) {
     $launch = [Diagnostics.ProcessStartInfo]::new($binPath)
     $launch.UseShellExecute = $false
@@ -630,6 +691,13 @@ if ($PSCmdlet.ShouldProcess($binPath, "launch pool-control-service on :$Port")) 
     foreach ($argument in $goArgs) { $launch.ArgumentList.Add([string]$argument) }
     $proc = [Diagnostics.Process]::Start($launch)
     Start-Sleep -Seconds 1
+    # A daemon that could not bind its port exits at once; recording its pid
+    # would advertise a service that is not there.
+    if ($proc.HasExited) {
+        [void](Remove-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir -Confirm:$false)
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.service_hostproof_exited' -Arguments @{ code = [string]$proc.ExitCode; port = [string]$Port })
+        exit $ExitFailure
+    }
     $localIp = try { [string](Get-BestHostIp) } catch { $null }
     if ([string]::IsNullOrWhiteSpace($localIp)) { $localIp = '127.0.0.1' }
     $localUrlHost = if ($localIp.Contains(':')) { "[$localIp]" } else { $localIp }

@@ -225,7 +225,12 @@ mirrored on the guest side by
 
 **Defaults:** 5 attempts, 10s initial delay, `*= 2` backoff, +/-25%
 jitter, 300s cap. That window reaches past github.com's typical 5xx blip,
-so a transient provider download does not fail the cycle.
+so a transient provider download does not fail the cycle. `tofu init` takes
+6 attempts unless `YURUNA_RETRY_MAX_ATTEMPTS` sets the count: it is the call
+that must reach the provider registry, and an attempt that cannot reach it
+fails within seconds on OpenTofu's own client timeout, so five attempts span
+only about four minutes. Six span about seven, which outlasts a registry that
+stays unreachable through the caching proxy for five minutes.
 
 **The classifier** decides whether a failed `tofu plan`, saved-planfile
 `apply`, `tofu output`, chart install (`helm upgrade --install --atomic`),
@@ -283,6 +288,73 @@ Multiple hosts sharing one Squid egress IP can fail inside a
 sub-second window -- that is a shared upstream event, not per-host
 configuration.
 
+<a id="42e568c8-000f"></a>
+
+### Deploy tool call bounds
+
+Every tool call the three phases and `yuruna clear` make that can wait on a
+service -- `tofu`, `helm`, a `kubectl`, `helm` or `shell` deployment, the Azure
+CLI subscription lookup and the image probe of the
+[deploy phase ledger](#42e568c8-0010) -- runs under a deadline
+(`Invoke-YurunaToolWithDeadline`, and `Invoke-WithYurunaRetry -TimeoutSeconds`
+for a retried call, in Yuruna.Retry.psm1). The `kubectl config` calls that read
+and switch kubeconfig contexts stay unbounded: they never contact a cluster. At the deadline the
+process tree the call started is killed, the call reports exit code 124, its
+log section ends with a line saying it was stopped, and the phase ends with the
+`tool_timeout` failure class, which the host routes as `wait_timeout`, the class
+a hang the step watchdog kills has. The component phase's commands run under
+the same kind of bound already (`commandTimeoutSeconds`).
+
+The call still runs in the phase's own process, so its output, its environment
+changes and a project's PowerShell `shell` deployments behave as before; only
+external processes can be stopped. A stopped call's outcome is unknown -- the
+tool may have acted before it was killed -- so it is a failure even when the
+killed tool exits 0. A stopped `tofu init` is retried like any other failed
+init; the classifier never matches the stopped line, so a classifier-gated call
+is not retried after a stop.
+
+Built-in bounds, in seconds: `tofu init` 600, `plan` 3600, `apply` 3600,
+`output` 300, `destroy` 3600; `helm lint` 300, `status` 300, `rollback` 600,
+`uninstall` 600, `upgrade --install` 1800; a `kubectl`, `helm` or `shell`
+deployment 1800; `az account show` 120; the image probe 60. Each is well past
+the call's normal duration. A project replaces them with
+`commandTimeoutSeconds`, an integer from 1 through 3600 on a resource or
+deployment entry, or in the file's `globalVariables`, which bounds every call
+made for that entry, as it does for a component.
+
+<a id="42e568c8-0010"></a>
+
+### Deploy phase ledger
+
+The three phases run as three processes (`Set-Resource`, `Set-Component`,
+`Set-Workload`), so a deployment script run again after its workloads phase
+failed would provision and rebuild everything before it reached the phase that
+failed. `.yuruna/<config>/deploy-ledger.json`
+([Yuruna.DeployLedger.psm1](../automation/Yuruna.DeployLedger.psm1)) records
+each phase's outcome, and a phase that passed is skipped, with a passing result
+that has `skipped` set, only when all of these hold:
+
+- A later phase failed after it passed. A run with no failure behind it runs
+  every phase as before, and a first run has no ledger.
+- The SHA-256 of its inputs is the one it passed with. The resources phase
+  hashes `resources.yml` and the project and framework template folders; the
+  components phase hashes `components.yml`, `resources.output.yml` and the
+  project's `components` folder. A phase that writes into its own inputs
+  changes their hash, and runs again.
+- Its outputs are still in place: the same `resources.output.yml`, and each
+  resource's completed work folder with its state; for components, every image
+  the pass pushed still answers by digest in its registry (`docker manifest
+  inspect`, with the image read from the `docker push` output). A push through
+  another tool records no image, and that phase always runs.
+- It has not been skipped already since it passed. A retry that skipped phases
+  and failed again forgets them, so an output no check can see costs one retry,
+  never a loop.
+
+The workloads phase always runs, and its pass deletes the ledger. Deleting the
+file runs every phase again. The ledger only saves work: one that cannot be
+read is ignored, a failure to write it leaves every phase to run, and inputs
+over 20,000 files or 512 MB are not hashed, so that phase always runs.
+
 <a id="42e568c8-000d"></a>
 
 ## Service VM memory budget
@@ -327,6 +399,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

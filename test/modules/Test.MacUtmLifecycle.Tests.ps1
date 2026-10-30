@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421bcd14-05b3-497a-86ea-db4eb3a90148
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,8 +95,7 @@ Describe 'UTM console activation result' {
         @{ Case = 'incomplete output'; Started = $true; TimedOut = $false; ExitCode = 0; OutputTruncated = $true; Expected = $false }
     ) {
         param($Case, $Started, $TimedOut, $ExitCode, $OutputTruncated, $Expected)
-        $errors = $null
-        $ast = [Management.Automation.Language.Parser]::ParseFile($script:DriverPath, [ref]$null, [ref]$errors)
+        $ast = Get-YurunaTestFileAst -Path $script:DriverPath
         $functionAst = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Restart-UtmConsole' }, $true)
         $reading = @{ Started = $Started; TimedOut = $TimedOut; ExitCode = $ExitCode; OutputTruncated = $OutputTruncated; DrainTimedOut = $false; KillFailed = $false }
         $result = & {
@@ -419,19 +418,18 @@ Describe 'Save-UtmControlSnapshot (host.macos.utm)' {
             # Crash reports live in the fake home, which the reset keeps.
             Remove-Item -LiteralPath (Join-Path $script:Fake.Home 'Library/Logs/DiagnosticReports') -Recurse -Force -ErrorAction SilentlyContinue
             $script:SavedEnvironment = @{
-                Context = $env:YURUNA_CYCLE_CONTEXT; LogDir = $env:YURUNA_LOG_DIR
-                Folder = Get-Variable -Name '__YurunaCycleFolder' -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+                Environment = Save-YurunaTestEnvironment -Name 'YURUNA_CYCLE_CONTEXT', 'YURUNA_LOG_DIR'
+                Globals = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
             }
             $env:YURUNA_CYCLE_CONTEXT = ''
             $env:YURUNA_LOG_DIR = ''
-            Set-Variable -Name '__YurunaCycleFolder' -Scope Global -Value $null -Force
+            Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $null }
         }
     }
     AfterEach {
         if ($script:CanShim) {
-            $env:YURUNA_CYCLE_CONTEXT = $script:SavedEnvironment.Context
-            $env:YURUNA_LOG_DIR = $script:SavedEnvironment.LogDir
-            Set-Variable -Name '__YurunaCycleFolder' -Scope Global -Value $script:SavedEnvironment.Folder -Force
+            Restore-YurunaTestEnvironment -Saved $script:SavedEnvironment.Environment
+            Restore-YurunaTestGlobal -Saved $script:SavedEnvironment.Globals
             Exit-MacUtmFakeHost -FakeHost $script:Fake
         }
     }
@@ -620,6 +618,23 @@ Describe 'Rename-VM on the UTM primitives (host.macos.utm)' {
         Assert-Equal 1 (Get-Call 'utmctl' | Where-Object { $_ -like 'utmctl start*' }).Count
         Assert-Equal 0 (Get-Call 'kill' | Where-Object { $_ -notlike 'kill -TERM *' }).Count -Because 'a quit that was honored is never escalated'
         Assert-True (Test-Path -LiteralPath (Join-Path $script:Fake.Home 'yuruna/guest.nosync/test-dst.utm')) 'the bundle moved'
+    }
+
+    It 'leaves a guest pinned to its promoted identity on its own address when its rename is undone' {
+        # A snapshot save that fails renames its guest back; a guest whose
+        # identity is the name it was promoted to carries, on the way back, the
+        # address the name being left derives.
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        $ledger = Get-Variable -Name 'YurunaRenameMacLedger' -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+        if ($ledger) { $ledger.Clear() }
+        $identity = Invoke-InDriver { Get-YurunaGuestMacAddress -VMName 'amisad-build' }
+        $display = Invoke-InDriver { Get-VncDisplayForVm -VMName 'amisad-build' }
+        Add-MacUtmFakeVM -FakeHost $script:Fake -Name 'test-src' -Status 'stopped' -WithBundle -MacAddress $identity -Display $display
+        Assert-True (Rename-VM -VMName 'test-src' -NewName 'amisad-build' -Confirm:$false -WarningAction SilentlyContinue) 'the promotion surfaced'
+        Set-State 'rename.from' 'amisad-build'
+        Assert-True (Rename-VM -VMName 'amisad-build' -NewName 'test-src' -Confirm:$false -WarningAction SilentlyContinue) 'the rename back surfaced'
+        $macWrites = @(Get-Call 'PlistBuddy' | Where-Object { $_ -like '*Set :Network:0:MacAddress*' })
+        Assert-Equal 0 $macWrites.Count -Because "the identity address stays on the guest both ways: $($macWrites -join '; ')"
     }
 
     It 'reverts, flushes, relaunches once and resumes once when the registry edit fails' {

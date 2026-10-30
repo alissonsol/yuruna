@@ -2,7 +2,7 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 // GUID: 42c5f7c7-7d71-4afc-830a-bd3453938cae
 
-// Flush worker for the NAS-offline buffer (section 8.4). Artifacts that arrived
+// Flush worker for the NAS-offline buffer (https://yuruna.link/429e934f-000e). Artifacts that arrived
 // while the share was offline live in the VM-local buffer with
 // locallyBuffered=true; this worker moves them to the share once it is
 // back, writes their sidecars there, clears the flag, and deletes the

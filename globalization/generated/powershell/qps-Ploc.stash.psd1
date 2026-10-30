@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42657bca-c5d4-bb2d-4f14-23543be96736
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,24 +23,8 @@
     'stash.all_hosts' = '[Áļļ ħóšţš ~~~~]'
     'stash.all_types' = '[Áļļ ţýƥéš ~~~~]'
     'stash.api_could_not_parse_form' = '[çóúļď ñóţ ƥářšé ƒóřɱ ~~~~~~~~]'
-    'stash.api_create_detail' = @(
-        '[çřéáţé: '
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' ~~~~~~~]'
-    )
-    'stash.api_detail' = @(
-        '['
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' ~~~~]'
-    )
+    'stash.api_create_failed' = '[ţħé šţášħ çóúļď ñóţ ƀé šţóřéď; ţħé šéřṽíçé ļóğ ħáš ţħé çáúšé ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'stash.api_delete_failed' = '[ţħé šţášħ çóúļď ñóţ ƀé ďéļéţéď; ţħé šéřṽíçé ļóğ ħáš ţħé çáúšé ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'stash.api_invalid_host' = '[íñṽáļíď ħóšţ ~~~~~]'
     'stash.api_invalid_json_body' = '[íñṽáļíď ĴŠÓÑ ƀóďý ~~~~~~~]'
     'stash.api_invalid_stash_path' = '[íñṽáļíď šţášħ ƥáţħ ~~~~~~~~]'
@@ -49,27 +33,12 @@
     'stash.api_not_an_archive' = '[ñóţ áñ ářçħíṽé ~~~~~~]'
     'stash.api_not_found' = '[ñóţ ƒóúñď ~~~~]'
     'stash.api_nothing_to_store_provide_text_or_files' = '[ñóţħíñğ ţó šţóřé: ƥřóṽíďé ţéẋţ óř ƒíļéš ~~~~~~~~~~~~~~~~]'
-    'stash.api_open_archive_detail' = @(
-        '[óƥéñ ářçħíṽé: '
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' ~~~~~~~~~]'
-    )
+    'stash.api_open_archive_failed' = '[ţħé ářçħíṽé çóúļď ñóţ ƀé óƥéñéď; ţħé šéřṽíçé ļóğ ħáš ţħé çáúšé ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'stash.api_open_artifact' = '[óƥéñ ářţíƒáçţ ~~~~~~]'
     'stash.api_open_upload' = '[óƥéñ úƥļóáď ~~~~~]'
     'stash.api_open_uploads' = '[óƥéñ úƥļóáďš ~~~~~]'
-    'stash.api_search_detail' = @(
-        '[šéářçħ: '
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' ~~~~~~~]'
-    )
+    'stash.api_resolve_failed' = '[ţħé šţášħ çóúļď ñóţ ƀé ļóóķéď úƥ; ţħé šéřṽíçé ļóğ ħáš ţħé çáúšé ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'stash.api_search_failed' = '[ţħé šţášħ íñďéẋ çóúļď ñóţ ƀé šéářçħéď; ţħé šéřṽíçé ļóğ ħáš ţħé çáúšé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'stash.api_stash_not_found' = '[šţášħ ñóţ ƒóúñď ~~~~~~]'
     'stash.api_stat_artifact' = '[šţáţ ářţíƒáçţ ~~~~~~]'
     'stash.api_too_many_files_in_one_upload' = '[ţóó ɱáñý ƒíļéš íñ óñé úƥļóáď ~~~~~~~~~~~~]'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 420cd1af-0555-401a-9098-1c8630bba45a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,7 @@
 
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path $here 'Test.LabHealth.psm1') -Force -DisableNameChecking
 
 # See https://yuruna.link/42e220c4-0014
@@ -143,6 +144,7 @@ Describe 'Lab-health gate' {
 
     BeforeEach {
         $script:dir = New-LhTempDir
+        $script:SavedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:dir
         Clear-LabHealthVerdictCache -Confirm:$false
         # Every hold test would otherwise sit through the real 59 s-capped
@@ -155,7 +157,7 @@ Describe 'Lab-health gate' {
         if ($script:dir -and (Test-Path -LiteralPath $script:dir)) {
             Remove-Item -Recurse -Force -LiteralPath $script:dir -ErrorAction SilentlyContinue
         }
-        $env:YURUNA_RUNTIME_DIR = $null
+        Restore-YurunaTestEnvironment -Saved $script:SavedEnvironment
     }
 
     Context 'Arming -- a hold needs a change of condition' {

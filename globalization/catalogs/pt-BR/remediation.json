@@ -63,6 +63,26 @@
       "sourceHash": "45dcd7652a737ec620fc0e33ddc30e79b3270feca67fe3c6058a406f0d701a01",
       "message": "Se ele para no mesmo URL a cada ciclo, tratá-lo como uma falha de espelho upstream em vez de uma falha convidado"
     },
+    "remediation.kernel_stall_rationale": {
+      "sourceHash": "e9aa8c942efc7b34d59aeb67acbdfd54bc6ae9645a970508b668db219d9174dc",
+      "origin": "machine",
+      "message": "wait_timeout no {vmName}: o kernel do convidado parou de progredir (relatos do kernel: {kinds}; processadores virtuais que não atenderam nenhuma interrupção: {processors}), então o script não pôde terminar. Não é um espelho de pacote lento, e executar a etapa de novo no mesmo convidado não ajuda."
+    },
+    "remediation.kernel_stall_action_evidence": {
+      "sourceHash": "5fa423c83aadf31eb0f23ca7017c22e9b04a0225bd96e29c182eb5ba32eb3d96",
+      "origin": "machine",
+      "message": "Leia causeDetail.guestKernelFault e causeDetail.guestLivelock.processorWindow em last_failure.json, e os relatos do kernel em serial-console.log na pasta do convidado"
+    },
+    "remediation.kernel_stall_action_rerun": {
+      "sourceHash": "e8d0fcfb6d2b3739e4a5083dd4fd46078ec67e9b8dd074aee86282589b74d5b9",
+      "origin": "machine",
+      "message": "Execute a sequência em uma nova VM; um convidado cujo kernel travou não se recupera"
+    },
+    "remediation.kernel_stall_action_family": {
+      "sourceHash": "e2a3feb409c0b4ce6e61bfefcf9400aa63b6d6d38cc23d4a8bf8b024f556e05b",
+      "origin": "machine",
+      "message": "No host ARM64 Hyper-V, leia a seção sobre travamentos do kernel do convidado em docs/host-hyperv.md (https://yuruna.link/42dc5bb9-0014) para datar o travamento e identificar o seu formato"
+    },
     "remediation.operator_14bd8c7afa68b453": {
       "sourceHash": "05dcbb72a698ca93ef9250896aa6ccc3db179dfa9cf9eb897abbb7e8a5175191",
       "message": "Repetir a sequência do passo em falha"

@@ -3,6 +3,45 @@
   "domain": "automation",
   "locale": "en-US",
   "messages": {
+    "automation.deploy_phase_reused": {
+      "message": "The {phase} phase is skipped: it passed with these inputs before the {failedPhase} phase failed, and its outputs are still in place. Delete {ledgerPath} to run every phase again.",
+      "description": "Write-Information in automation/Yuruna.DeployLedger.psm1 (Invoke-YurunaDeployPhase) when a retry reuses a deploy phase that passed. phase and failedPhase are the phase names resources, components or workloads, which stay in English; preserve the ledger path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "phase": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "resources"
+        },
+        "failedPhase": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "workloads"
+        },
+        "ledgerPath": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/yuruna/project/example/website/.yuruna/localhost/deploy-ledger.json"
+        }
+      }
+    },
+    "automation.deploy_tool_deadline": {
+      "message": "{label} did not finish within {seconds} seconds and was stopped. It counts as a timeout, and what it did before it was stopped is unknown.",
+      "description": "Write-Warning and closing tool-log line in automation/Yuruna.Retry.psm1 (Invoke-WithYurunaRetry, Invoke-YurunaToolWithDeadline) when a deploy tool call is killed at its deadline. label is the redacted command line; preserve it verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "label": {
+          "type": "detail",
+          "trust": "external",
+          "example": "tofu apply -input=false -auto-approve \"/work/tofu.planfile\""
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "3600"
+        }
+      }
+    },
     "automation.diagnostic_checkout_unavailable": {
       "message": "(not applicable: checkout evidence is unavailable; pass -CheckoutRoot to use an existing Yuruna checkout)",
       "description": "Standalone system diagnostic marker when no validated framework checkout exists; preserve the -CheckoutRoot parameter name.",
@@ -5483,6 +5522,28 @@
         }
       }
     },
+    "automation.memory_commit_charge": {
+      "message": "Commit : {charged} of {limit} charged, {uncharged} uncharged (a VM start is charged against this limit, not against free physical memory)",
+      "description": "Whole Write-Output message in automation/Get-SystemDiagnostic.ps1 (Windows MEMORY section), after the page-file lines; preserve the numbers and the clause that says what the limit admits.",
+      "lifecycle": "active",
+      "placeholders": {
+        "charged": {
+          "type": "detail",
+          "trust": "external",
+          "example": "35.8 GB"
+        },
+        "limit": {
+          "type": "detail",
+          "trust": "external",
+          "example": "44.9 GB"
+        },
+        "uncharged": {
+          "type": "detail",
+          "trust": "external",
+          "example": "9.1 GB"
+        }
+      }
+    },
     "automation.operator_bf1c637eb978cee4": {
       "message": "(skipped per-platform detail: unknown OS)",
       "description": "Whole Write-Output message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
@@ -6255,6 +6316,18 @@
       "description": "Whole Write-Sub message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
+    "automation.network_dhcp_lease": {
+      "message": "DHCP lease on the default route device ({device})",
+      "description": "Whole Write-Sub message in automation/Get-SystemDiagnostic.ps1 (Linux host network section), heading the nmcli DHCP4 listing for the device that carries the default route; preserve the device name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "device": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "yuruna-br0"
+        }
+      }
+    },
     "automation.operator_d9c1fd0b30efa8fb": {
       "message": "Server : (unreachable)",
       "description": "Whole Write-Output message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
@@ -6877,6 +6950,11 @@
       "description": "Whole Write-Sub message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
+    "automation.top_processes_private_bytes": {
+      "message": "Top 10 by private bytes (commit charge)",
+      "description": "Whole Write-Sub message in automation/Get-SystemDiagnostic.ps1 (TOP PROCESSES section), heading the table that ranks processes by PrivateMemorySize64; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active"
+    },
     "automation.operator_f30d376c3b6737d6": {
       "message": "Clear-Configuration: forward resources.yml validation failed; proceeding with teardown from resources.output.yml anyway (source config may have drifted since deploy).",
       "description": "Whole Write-Warning message in automation/Yuruna.Clear.psm1; preserve command names, paths, codes, and argument boundaries.",
@@ -7286,6 +7364,38 @@
       "message": "Remove the leftover .NET runtime entry of a process that is gone",
       "description": "ShouldProcess action text for Remove-YurunaOrphanedRuntimeIpc in automation/Yuruna.Common.psm1.",
       "lifecycle": "active"
+    },
+    "automation.seed_value_unsafe": {
+      "message": "The seed value for {placeholder} cannot be placed in its {context} context (template line {line}): it contains {reason}. Change the value; {count} placeholder occurrence(s) were refused in total.",
+      "description": "Seed render refusal: a substituted value would change the syntax around its placeholder (shell, YAML or env-file). The value itself is never shown because it can be a secret. Preserve the placeholder name and line number.",
+      "lifecycle": "active",
+      "placeholders": {
+        "placeholder": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "PASSWORD_PLACEHOLDER"
+        },
+        "context": {
+          "type": "token",
+          "trust": "internal",
+          "example": "single-quoted"
+        },
+        "line": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 42
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "a single quote"
+        },
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 1
+        }
+      }
     },
     "automation.setup_service_vm_reason_intended_stopped": {
       "message": "it was stopped on purpose; rebuilding because setup was asked to bring it up",

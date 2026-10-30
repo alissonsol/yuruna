@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 420753a0-884d-4f10-bd0f-fb04fea52a79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,9 +28,12 @@ param()
 # Yuruna registries through a single API, with no need for callers
 # to know each module's private $script:* anchor.
 # Anchored under a stable $global: name so a -Force re-import of this
-# module does NOT lose the cross-domain index.
+# module does NOT lose the cross-domain index. Every anchor write here passes
+# -WhatIf:$false: the stores are process memory, and an entry point that runs
+# with -WhatIf (Invoke-TestProject -WhatIf) still imports its modules before it
+# asks, so a skipped write would leave every later registration indexing $null.
 if (-not (Get-Variable -Name '__YurunaRegistryDirectory' -Scope Global -ErrorAction SilentlyContinue)) {
-    Set-Variable -Name '__YurunaRegistryDirectory' -Scope Global -Value ([ordered]@{})
+    Set-Variable -Name '__YurunaRegistryDirectory' -Scope Global -Value ([ordered]@{}) -WhatIf:$false -Confirm:$false
 }
 
 function New-YurunaRegistry {
@@ -101,7 +104,7 @@ function New-YurunaRegistry {
         } else {
             $existing = [ordered]@{}
         }
-        Set-Variable -Name $AnchorVar -Scope Global -Value $existing
+        Set-Variable -Name $AnchorVar -Scope Global -Value $existing -WhatIf:$false -Confirm:$false
     }
 
     # The case-sensitivity of the store is a policy, not a cosmetic label: an
@@ -129,7 +132,7 @@ function New-YurunaRegistry {
         # had it been built under the requested comparer from the start.
         foreach ($k in @($existing.Keys)) { $migrated[$k] = $existing[$k] }
         $existing = $migrated
-        Set-Variable -Name $AnchorVar -Scope Global -Value $existing
+        Set-Variable -Name $AnchorVar -Scope Global -Value $existing -WhatIf:$false -Confirm:$false
     }
 
     # Report the case-sensitivity of the store ACTUALLY in use, derived from its live
@@ -176,7 +179,7 @@ function New-YurunaRegistry {
             $fresh = [ordered]@{}
         }
         $storeRef[0] = $fresh
-        Set-Variable -Name $anchorName -Scope Global -Value $fresh
+        Set-Variable -Name $anchorName -Scope Global -Value $fresh -WhatIf:$false -Confirm:$false
     }.GetNewClosure()
 
     $bundle = @{

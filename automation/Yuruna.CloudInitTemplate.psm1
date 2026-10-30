@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4234ea6a-ddae-4da7-be02-26d47d418045
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -219,6 +219,88 @@ function Get-YurunaGuestScriptBase64 {
     }
 }
 
+function Get-CloudInitValueContextViolation {
+    <#
+    .SYNOPSIS
+        The placeholders whose values cannot stand where the template puts them.
+    .DESCRIPTION
+        Substitution is a literal replace, so a value carries its characters into
+        whatever syntax surrounds the token: a quote closes a shell string early,
+        a newline starts a new YAML key or shell command, and an unquoted
+        KEY=VALUE line in an env file the guest sources runs anything a value
+        spells after a space or a metacharacter. Each occurrence is judged by the
+        template line around it:
+          * a token alone on its line is a caller-built block (the apt proxy
+            block is several YAML lines) and is not restricted;
+          * every other occurrence refuses control characters;
+          * inside single quotes, a single quote;
+          * inside a YAML double-quoted value (key: "..."), a double quote or a
+            backslash; inside other double quotes (shell or JSON that a shell
+            may expand), also $ and a backtick;
+          * as the whole value of an unquoted KEY=VALUE line, whitespace and
+            the shell metacharacters ; & | < > ( ) $ ` ' ";
+          * as the whole value of a YAML key, what makes a plain scalar mean
+            something else: a leading indicator character, ": ", " #", or
+            surrounding whitespace.
+        Comment lines are held only to the control-character rule. The result
+        names placeholders, contexts and line numbers, never values, which are
+        often secrets.
+    .OUTPUTS
+        [object[]] of objects with Placeholder, Context, Line and Reason.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter(Mandatory)][string]$TemplateContent,
+        [Parameter(Mandatory)][hashtable]$Replacement
+    )
+    $violations = [System.Collections.Generic.List[object]]::new()
+    $lines = $TemplateContent -split "`r?`n"
+    $token = [regex]'\b[A-Z][A-Z0-9_]*_PLACEHOLDER\b'
+    for ($n = 0; $n -lt $lines.Count; $n++) {
+        $line = $lines[$n]
+        foreach ($m in $token.Matches($line)) {
+            $name = $m.Value
+            if (-not $Replacement.ContainsKey($name) -or $null -eq $Replacement[$name]) { continue }
+            $value = [string]$Replacement[$name]
+            if ($value.Length -eq 0) { continue }
+            $before = $line.Substring(0, $m.Index)
+            $after = $line.Substring($m.Index + $m.Length)
+            if ($line.Trim() -ceq $name) { continue }
+            $reason = ''
+            $context = 'inline'
+            if ($value -match '[\x00-\x1F\x7F]') {
+                $reason = 'a control character (such as a newline)'
+            } elseif ($line.TrimStart().StartsWith('#')) {
+                $context = 'comment'
+            } elseif ((($before.ToCharArray() | Where-Object { $_ -eq "'" }) | Measure-Object).Count % 2 -eq 1) {
+                $context = 'single-quoted'
+                if ($value.Contains("'")) { $reason = 'a single quote' }
+            } elseif ((($before.ToCharArray() | Where-Object { $_ -eq '"' }) | Measure-Object).Count % 2 -eq 1) {
+                if ($before -match '^\s*(-\s+)?[A-Za-z_][A-Za-z0-9_.-]*:\s+"[^"]*$') {
+                    $context = 'YAML double-quoted'
+                    if ($value -match '["\\]') { $reason = 'a double quote or a backslash' }
+                } else {
+                    $context = 'double-quoted'
+                    if ($value -match '["\\$`]') { $reason = 'a double quote, a backslash, $ or a backtick' }
+                }
+            } elseif ($before -match '^\s*[A-Za-z_][A-Za-z0-9_]*=$' -and $after.Trim().Length -eq 0) {
+                $context = 'unquoted KEY=VALUE'
+                if ($value -match '[\s;&|<>()$`''"]') { $reason = 'whitespace or a shell metacharacter' }
+            } elseif ($before -match '^\s*(-\s+)?[A-Za-z_][A-Za-z0-9_.-]*:\s+$' -and $after.Trim().Length -eq 0) {
+                $context = 'YAML value'
+                if ($value -ne $value.Trim() -or $value -match '^[-?:,\[\]{}#&*!|>''"%@`]' -or $value.Contains(': ') -or $value.Contains(' #') -or $value.EndsWith(':')) {
+                    $reason = 'a leading YAML indicator, ": ", " #", a trailing colon or surrounding whitespace'
+                }
+            }
+            if ($reason) {
+                $violations.Add([pscustomobject]@{ Placeholder = $name; Context = $context; Line = $n + 1; Reason = $reason })
+            }
+        }
+    }
+    return , $violations.ToArray()
+}
+
 function Resolve-CloudInitPlaceholder {
     <#
     .SYNOPSIS
@@ -259,6 +341,13 @@ function Resolve-CloudInitPlaceholder {
         [Parameter(Mandatory)][hashtable]$Replacement,
         [string[]]$AllowedUnresolved = @()
     )
+    $violations = Get-CloudInitValueContextViolation -TemplateContent $TemplateContent -Replacement $Replacement
+    if ($violations.Count -gt 0) {
+        $first = $violations[0]
+        throw (Format-YurunaOperatorMessage -Key 'automation.seed_value_unsafe' -Arguments @{
+                placeholder = "$($first.Placeholder)"; context = "$($first.Context)"; line = "$($first.Line)"; reason = "$($first.Reason)"
+                count = "$($violations.Count)" })
+    }
     $result = $TemplateContent
     # Replace longer placeholder names first. A shorter name that is a tail-substring of a
     # longer one (e.g. PASSWORD_PLACEHOLDER inside YSTASH_NAS_PASSWORD_PLACEHOLDER) would
@@ -374,7 +463,8 @@ function New-CloudInitUserData {
           YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER, YURUNA_HOST_ID_PLACEHOLDER,
           YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER, YURUNA_GITHUB_REPO_PLACEHOLDER,
           YURUNA_GITHUB_REF_PLACEHOLDER, GH_TOKEN_PLACEHOLDER,
-          YURUNA_FRAMEWORK_URL_PLACEHOLDER, YURUNA_PROJECT_URL_PLACEHOLDER.
+          YURUNA_FRAMEWORK_URL_PLACEHOLDER, YURUNA_PROJECT_URL_PLACEHOLDER,
+          YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER.
         A caller that passes any of them in -Replacement overrides the
         auto-populated value. That is right only when the caller has a better
         answer than the ambient one -- the service-VM seeds pass a hostId they
@@ -511,6 +601,18 @@ function New-CloudInitUserData {
             if ($caB64) { $caSha = Get-YurunaCertificateSha256 -Pem ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($caB64))) }
         } catch { Write-Verbose "proxy CA fingerprint: $($_.Exception.Message)" }
         $fullReplacement['YURUNA_CA_SHA256_PLACEHOLDER'] = $caSha
+    }
+    # The host's guest-channel key, created on first use: a guest built from this
+    # seed accepts a status service only when it proves the key.
+    if ($merged.Contains('YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER') -and -not $fullReplacement.ContainsKey('YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER')) {
+        $channelKey = ''
+        try {
+            if (-not (Get-Command Get-YurunaGuestChannelKey -ErrorAction SilentlyContinue)) {
+                Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -DisableNameChecking -Verbose:$false
+            }
+            $channelKey = Get-YurunaGuestChannelKey -Create -Confirm:$false
+        } catch { Write-Verbose "guest-channel key: $($_.Exception.Message)" }
+        $fullReplacement['YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER'] = $channelKey
     }
     # The caching proxy compiles Go sources it fetches file by file.
     if ($merged.Contains('YURUNA_SOURCE_MANIFEST_BASE64_PLACEHOLDER') -and -not $fullReplacement.ContainsKey('YURUNA_SOURCE_MANIFEST_BASE64_PLACEHOLDER')) {

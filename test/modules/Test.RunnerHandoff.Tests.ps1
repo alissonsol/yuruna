@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42785eb2-7793-490d-933e-6ced2c275f4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1060,17 +1060,11 @@ Describe 'Held-control barrier (Wait-YurunaHeldControlBarrier)' {
 
 Describe 'Preflight inner helpers' {
     BeforeEach {
-        $script:SavedEnv = @{}
-        foreach ($name in @('YURUNA_REFRESH_PREFLIGHT', 'YURUNA_REFRESH_HANDOFF_TOKEN', 'YURUNA_REFRESH_BARRIER')) {
-            $script:SavedEnv[$name] = [Environment]::GetEnvironmentVariable($name)
-            [Environment]::SetEnvironmentVariable($name, $null)
-        }
+        $script:SavedEnv = Save-YurunaTestEnvironment -Name @('YURUNA_REFRESH_PREFLIGHT', 'YURUNA_REFRESH_HANDOFF_TOKEN', 'YURUNA_REFRESH_BARRIER')
+        foreach ($name in $script:SavedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $null) }
     }
     AfterEach {
-        foreach ($name in $script:SavedEnv.Keys) {
-            if ($null -eq $script:SavedEnv[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
-            else { [Environment]::SetEnvironmentVariable($name, $script:SavedEnv[$name]) }
-        }
+        Restore-YurunaTestEnvironment -Saved $script:SavedEnv
         Remove-Item function:Test-VirtualizationResponsive, function:global:Initialize-YurunaHost, function:global:Write-RunnerPhase -ErrorAction SilentlyContinue
     }
     It 'reads the refresh role from the environment' {
@@ -1156,7 +1150,7 @@ Describe 'Inner cycle gate sites' {
         }
     }
     BeforeEach {
-        $script:SavedRuntime = $env:YURUNA_RUNTIME_DIR
+        $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $script:T = New-TestRoot
         $env:YURUNA_RUNTIME_DIR = $script:T.Runtime
         Mock -ModuleName Test.RunnerInnerLoop Initialize-CycleGatingState {
@@ -1165,13 +1159,13 @@ Describe 'Inner cycle gate sites' {
         }
         $global:__innerCalls = [System.Collections.Generic.List[string]]::new()
         function global:Invoke-GitPull { param($RepoRoot) $null = $RepoRoot; $global:__innerCalls.Add('Invoke-GitPull'); $true }
-        function global:Assert-HostConditionSet { param($HostType) $null = $HostType; $global:__innerCalls.Add('Assert-HostConditionSet'); $true }
+        function global:Get-HostConditionVerdict { param($HostType) $null = $HostType; $global:__innerCalls.Add('Get-HostConditionVerdict'); [pscustomobject]@{ Passed = $true; Condition = ''; Detail = ''; FailureClass = ''; Message = '' } }
         function global:Initialize-HostDisplay { param($HostType) $null = $HostType }
         function global:Initialize-HostMetricsExporter { param($HostType) $null = $HostType }
     }
     AfterEach {
-        if ($null -eq $script:SavedRuntime) { Remove-Item Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntime }
-        Remove-Item function:Invoke-GitPull, function:global:Assert-HostConditionSet, function:global:Initialize-HostDisplay, function:global:Initialize-HostMetricsExporter -ErrorAction SilentlyContinue
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
+        Remove-Item function:Invoke-GitPull, function:global:Get-HostConditionVerdict, function:global:Initialize-HostDisplay, function:global:Initialize-HostMetricsExporter -ErrorAction SilentlyContinue
         Remove-Variable __innerCalls -Scope Global -ErrorAction SilentlyContinue
     }
     It 'ends the cycle at its start, before any host work, while the gate holds; counters untouched' {
@@ -1196,7 +1190,7 @@ Describe 'Inner cycle gate sites' {
         $state = New-InnerState -Runtime $script:T.Runtime
         Invoke-RunnerInnerCycle -State $state 6>$null
         Assert-True $state.RefreshGated 'held'
-        Assert-Equal -Expected 'Assert-HostConditionSet' -Actual ($global:__innerCalls -join ',') -Because 'the pull never ran'
+        Assert-Equal -Expected 'Get-HostConditionVerdict' -Actual ($global:__innerCalls -join ',') -Because 'the pull never ran'
         Assert-Equal -Expected 'git-pull' -Actual (Get-Content -LiteralPath (Join-Path $script:T.Runtime 'runner.refresh-gated.json') -Raw | ConvertFrom-Json).site
     }
     It 'passes an open gate and writes nothing' {
@@ -1234,7 +1228,7 @@ Describe 'Inner entry script source order' {
             return $call.Extent.StartLineNumber
         }
         $barrier = & $first 'Wait-YurunaHeldControlBarrier'
-        foreach ($later in @('Update-StashServiceMarkerAddress', 'Assert-HostConditionSet', 'Invoke-CycleAdmissionStep', 'Restore-YurunaServiceVM', 'Clear-StaleControlState')) {
+        foreach ($later in @('Update-StashServiceMarkerAddress', 'Get-HostConditionVerdict', 'Invoke-CycleAdmissionStep', 'Invoke-CycleServiceVmRestore', 'Clear-StaleControlState')) {
             Assert-True ($barrier -lt (& $first $later)) "the barrier precedes $later"
         }
         $preflightExit = & $first 'Wait-YurunaRefreshRelease'

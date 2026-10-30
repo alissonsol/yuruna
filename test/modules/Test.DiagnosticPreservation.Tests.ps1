@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f4d2ce-8bea-4df2-9273-6b149f08d814
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -12,7 +12,8 @@
 #requires -version 7
 
 BeforeAll {
-    $script:PreviousRuntime = $env:YURUNA_RUNTIME_DIR
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    $script:PreviousRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.DiagnosticPreservation.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.RunnerOuterLoop.psm1') -Force -DisableNameChecking
@@ -28,7 +29,7 @@ BeforeAll {
 }
 
 AfterAll {
-    $env:YURUNA_RUNTIME_DIR = $script:PreviousRuntime
+    Restore-YurunaTestEnvironment -Saved $script:PreviousRuntime
     & $script:PreservationModule { Remove-Variable PreservationTestShutdown -Scope Script -ErrorAction SilentlyContinue }
 }
 

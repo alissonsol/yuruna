@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42331174-548a-4a2c-a2ca-a56b9374880d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
     Demonstrates the "closed access" problem with Microsoft AI/OCR on modern PowerShell.
 
 .DESCRIPTION
-    See https://yuruna.link/42010605-0002.
+    See https://yuruna.link/42010605-0066.
 .PARAMETER ImagePath
     Optional path to a PNG image file to OCR. If provided and the powershell.exe
     OCR probe succeeds, the image will be recognized and the text printed.

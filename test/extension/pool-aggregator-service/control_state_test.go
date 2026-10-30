@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"yuruna.com/test/extension/pool-aggregator-service/internal/hostpoll"
 )
 
 // TestControlTagGolden pins the cross-language control-TAG format, the way
@@ -106,7 +107,7 @@ func TestFetchControlStatus(t *testing.T) {
 
 	srv := serve(http.StatusOK, `{"ok":true,"tokenConfigured":true,"tokenTag":"TAG","utcNow":"2026-07-29T12:00:00Z"}`)
 	defer srv.Close()
-	cs, err := fetchControlStatus(srv.Client(), srv.URL)
+	cs, err := hostpoll.FetchControlStatus(srv.Client(), srv.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -119,13 +120,13 @@ func TestFetchControlStatus(t *testing.T) {
 
 	old := serve(http.StatusNotFound, "not found")
 	defer old.Close()
-	if cs, err := fetchControlStatus(old.Client(), old.URL); err != nil || cs.Present {
+	if cs, err := hostpoll.FetchControlStatus(old.Client(), old.URL); err != nil || cs.Present {
 		t.Fatalf("404 must report a definite absence without an error, got %+v err=%v", cs, err)
 	}
 
 	broken := serve(http.StatusInternalServerError, "boom")
 	defer broken.Close()
-	if _, err := fetchControlStatus(broken.Client(), broken.URL); err == nil {
+	if _, err := hostpoll.FetchControlStatus(broken.Client(), broken.URL); err == nil {
 		t.Fatal("a 500 must be an error so the caller keeps the prior verdict")
 	}
 
@@ -133,7 +134,7 @@ func TestFetchControlStatus(t *testing.T) {
 	// with UtcNow left zero for classifyControl to skip.
 	noClock := serve(http.StatusOK, `{"ok":true,"tokenConfigured":true,"tokenTag":"TAG","utcNow":"not-a-time"}`)
 	defer noClock.Close()
-	cs, err = fetchControlStatus(noClock.Client(), noClock.URL)
+	cs, err = hostpoll.FetchControlStatus(noClock.Client(), noClock.URL)
 	if err != nil || !cs.Present || !cs.UtcNow.IsZero() {
 		t.Fatalf("bad clock must leave UtcNow zero without failing the read, got %+v err=%v", cs, err)
 	}

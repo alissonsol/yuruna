@@ -113,7 +113,7 @@ only while the VM is on, under the name `Set-VMComPort` was given -- while a
 reader that connected and still saved 0 bytes points at the guest's
 `console=` setting.
 
-Two more host-side readings land beside `dhcp.capture.txt` (the pktmon
+Three more host-side readings land beside `dhcp.capture.txt` (the pktmon
 capture of the guest's DHCP exchange, which also keeps the guest's own ARP
 and ICMP frames, so a guest that stopped asking for a lease but kept
 answering ARP stays visible) when a step fails:
@@ -126,6 +126,18 @@ each reported IPv4 address, and the last 20 minutes of the
 `Microsoft-Windows-Hyper-V-*` event logs. It answers whether the guest lost
 its address or the host lost the guest.
 
+`vm-storage.state.txt` (and `.json`) records the VM's checkpoints and
+storage at failure time, while the VM is still registered: the cycle's
+teardown deletes it soon after. It lists the checkpoints the Hyper-V module
+reports and the ones Hyper-V itself records for the VM's Id, the VM's
+checkpoint type and storage paths, and every disk with its parent, where an
+`.avhdx` proves a checkpoint was taken whatever it is named. It also lists
+the folders that hold those disks and the folders under the virtual hard
+disk path changed in the last 30 minutes, plus the Hyper-V and VHDMP events
+of the last 20 minutes that name the VM. It answers whether a failed save or
+restore met a checkpoint that exists but is not listed, one under another
+name, or none at all.
+
 `network-cross-check.json` (and `.txt`) records which of the two ends a
 failed cycle gets blamed on were still reachable from the host: the caching proxy
 (`http://<cache>:5000/v2/` and `http://<cache>/cache-health`) and the guest
@@ -136,7 +148,7 @@ or an `-unknown` side when there was no address to probe -- also travels on
 the `failure_diagnostic` cycle event as `networkCrossCheck`, so a failure
 record can name the end that went silent instead of the one the console
 happened to mention. The cross-check runs on every host type; the
-`vm-network.state` files are Hyper-V only.
+`vm-network.state` and `vm-storage.state` files are Hyper-V only.
 
 Separate `cacheHttpTcp` and `cacheHttpsTcp` records check the web proxy's
 listeners, normally ports 3128 and 3129, with configured port overrides.
@@ -255,6 +267,9 @@ Compare these host readings with the guest's timestamped `/proc/interrupts`,
 `/proc/softirqs`, and retained kernel stacks. An RCU timer-wakeup warning or a
 soft-lockup stack in interrupt handling establishes a guest kernel symptom;
 it does not identify a specific host device, timer, driver, or firmware defect.
+A clock jump the size of the partition's counter offset is the one link to the
+host the recordings can check; see
+[guest kernel wedges and counter-offset jumps](#42dc5bb9-0014).
 Host external-interrupt rates and guest cumulative IRQ counts measure different
 things and must not be treated as the same counter. The
 [guest evidence recorder](system-diagnostic.md#423ef7f5-0014) preserves the first
@@ -299,6 +314,146 @@ measured this step at 2828 s and passed, so the step is budgeted at 3000 s and
 2700 s default would have killed that successful run a hundred seconds short
 of the end -- as a watchdog kill of the whole inner runner, which names
 nothing, rather than a failure naming the step.
+
+<a id="42dc5bb9-0014"></a>
+
+## ARM64 Hyper-V host: guest kernel wedges and counter-offset jumps
+
+**Symptom:** a Linux guest that has worked for many minutes stops in the middle
+of a step -- on this lab's ARM64 host, while a Kubernetes workload builds or
+pushes container images, or while the guest's update script upgrades its
+packages. The console freezes, SSH stops answering, the recorder heartbeat
+goes stale, and the step fails as `wait_timeout` with a `progress-suspect`
+advisory. While some processor is still outside the hypervisor's hold, the
+all-processor livelock verdict stays `not-livelocked`. Once every processor,
+the only one on a one-processor guest, has been held for five minutes, the
+verdict turns `livelocked` and `fetchAndExecute`'s wait ends on it, well
+before the budget. The same wait also ends once one processor has serviced no
+interrupt for three minutes and a kernel fault report reached the serial
+console after the wait began, which the first shape below shows within
+minutes; `causeDetail.guestKernelStallEnd` records that, and the remediation
+names the wedged kernel instead of a package mirror. A guest that wedges with
+neither, such as the third shape, still spends the whole budget.
+
+**Signatures.** Three shapes have been seen. In the first the guest kernel
+locks up on one processor, and the failure record carries two independent
+readings of it:
+
+- `causeDetail.guestKernelFault.serial`, the serial console read from where
+  it ended when the failing step started: a soft lockup on one CPU whose stuck
+  seconds grow with every report, usually beside RCU stall reports that name
+  another CPU as stalled. The serial console carries kernel messages at or
+  above the guest's console log level only -- errors and worse with the stock
+  Ubuntu settings, so no stack traces -- and a kernel whose CPUs are wedged can
+  hold even those and flush them much later. The reading taken when the step
+  fails may hold only the first reports; `serial-console.kernel.json`, beside
+  the saved `serial-console.log`, reads the newest 16 MiB of it again once the
+  capture closes.
+- `guestLivelock.processorWindow`: one processor in the storm shape, about 91%
+  hypervisor time on millions of external-interrupt intercepts per second,
+  that services no interrupt at all, so its `noInterruptsServicedSeconds` keeps
+  growing, while its sibling runs about two-thirds guest time and takes about a
+  thousand virtual interrupts per second -- a CPU spinning in the kernel on its
+  1 kHz tick, waiting for the one that no longer services its interrupts. The
+  run starts when the silence takes the storm shape, which can be tens of
+  seconds after the processor stopped servicing interrupts while it still spun
+  in guest code. Idle Linux processors on this host have the storm shape too
+  but keep taking tens of interrupts a second, and healthy guests showed a run
+  for one or two sample intervals at most.
+
+In the second every processor of the guest ends in that storm shape,
+servicing no interrupt, and the verdict turns `livelocked`. On two-processor
+guests the console can carry RCU stall reports whose jiffies count runs far
+beyond the guest's uptime; on a one-processor guest whose clock jump stayed,
+the storm began about a minute after the jump, with the watchdog kills the
+third shape shows.
+
+In the third, seen on a one-processor guest, the guest's clock jumps forward
+by days and stays there while the kernel keeps running. systemd's
+watchdogs see their three-minute limits pass at once and kill networkd,
+journald, logind, resolved and udevd; some of the services an upgrade restarts
+never exit, even after `SIGKILL`, while others restart normally; and the
+step's script never returns. The console holds no kernel report at all, and
+the processor goes nearly idle while it keeps servicing its timer.
+
+A jump that stays shows in the console's timestamps whatever the shape.
+`causeDetail.guestKernelFault.serial` names it as the kind `clock-jump` when a
+console timestamp runs more than a minute past the time since Hyper-V created
+the VM, which no boot of it can have exceeded. Kernel records and forwarded
+journal lines both count: journald stamps a forwarded line with the guest's
+`CLOCK_MONOTONIC` as it forwards it, a kernel record carries printk's clock,
+and a jump can move one and leave the other alone.
+`clockJump.minimumJumpSeconds` is the least the clock jumped.
+`largestForwardLeap` is the newest boot's largest step forward within one kind
+of record, from the largest timestamp of that kind before a record to that
+record's; the first record of its kind steps from the other kind's largest
+earlier timestamp not above it. When the jump happened inside that boot of the
+text, the leap that spans it is the most it jumped, and its
+`fromUptimeSeconds` dates it in guest uptime; a leap shorter than
+`minimumJumpSeconds`, or in another boot than `clockJump.boot`, is not the
+jump. A clock that jumped this way reads about the hypervisor's time, which
+restarts with the host, so the kind is never named on a VM created before the
+host last started, such as a baseline restored after a host restart or a VM
+kept for a debug run, nor on one created less than about a minute, plus the
+time the console was silent before the step failed, after the host started;
+`largestForwardLeap` still shows the leap.
+`serial-console.kernel.json` carries the leap but judges no clock, because a
+reader reconnects across the VM's restarts, so one log can hold more than
+one boot.
+
+**Counter-offset jumps.** The same host sometimes moves a guest's clock
+forward by hours or days in one step: an RCU report prints a jiffies count far
+beyond the guest's uptime (`largestStallJiffies`), or the recorder's clock
+analysis flags `cpu-idle-exceeds-boot-uptime`. The size is not arbitrary.
+Measured by those counter readings, it matches the hypervisor's time within a
+few seconds of the guest partition's start or reset in most recorded jumps.
+That fits a guest that read its counter without the offset the hypervisor gave
+its partition. Several jumps showed only in such a counter reading and left
+the console's timestamps alone, while others stayed for the rest of the boot.
+A console leap is a different measurement: the journal's clock and the jiffies
+count can jump by different amounts -- where both were recorded, the
+journal's timestamps leapt about 1000 seconds more -- and a leap also counts
+the real time between the records on either side of it. Leaps seen only in
+console timestamps ran past the hypervisor's time at the boot's start by about
+half a minute in one jump and about seven minutes in another, so compare a
+jiffies count when there is one. Hypervisor time is the base of the sampled
+`% Guest Run Time` counter (its `SecondValue`), and on this host it runs a
+constant, about 104 seconds, ahead of the performance-counter time the other
+counters carry. The host sampler's rings keep both, so a recorded jump can be
+compared with hypervisor time near the boot's start. The rings hold about the
+last 35 to 45 minutes, which reaches the boot's start only for a jump found
+soon after it, such as an early-boot crawl; for a wedge found by a step that
+waited out a half-hour budget, take a sample's hypervisor time and subtract
+the seconds since the guest booted (the recorder's `guestClockUtc` minus
+`guestClockUptimeSeconds` dates the boot, a few firmware seconds after the
+start). A jump during early boot can leave the guest crawling until a cold
+restart rescues it; a later one can end in any of the shapes above. Not every
+wedge shows a jump.
+
+**Probable cause.** This matches an erratum documented for Qualcomm's X1
+(Oryon) processors, the family of this host's Snapdragon X: the counter offset
+a hypervisor programs for a guest (`CNTVOFF_EL2`) does not work reliably, and a
+non-zero offset leaves the virtual timer interrupt firing continuously. Linux
+KVM works around it as `ARM64_WORKAROUND_QCOM_ORYON_CNTVOFF` (commit
+`0bc9a9e85fcf`, "KVM: arm64: Work around x1e's CNTVOFF_EL2 bogosity"). An
+offset that is not applied explains jumps the size of the offset, and the
+continuously firing timer matches the external-interrupt storm on idle Linux
+processors, which the Windows guest on the same host does not show. Where a
+jump stayed, one one-processor guest's storm stopped as its clock jumped,
+while another one-processor guest and a two-processor guest ended with every
+processor in the storm. It is a match, not a proof: nothing from the hypervisor's vendor
+confirms it. Upstream Linux on Hyper-V ARM64 uses only the architectural
+counter and timer
+([Hyper-V clocks](https://docs.kernel.org/virt/hyperv/clocks.html)), so no
+guest kernel parameter or newer Ubuntu kernel avoids that path.
+
+**What to do.** Nothing in the harness repairs it. The cycle's unattended retry
+rebuilds the VM, and a rebuilt guest usually passes. Report the readings above
+to the platform vendor -- above all, jump sizes from RCU jiffies counts against
+hypervisor time at each partition's start or reset -- and keep the host's
+Windows build and firmware current. Treat guest-side changes -- one vCPU,
+`nohz=off`, kernels with Hyper-V synthetic timers -- as experiments that need
+enough clean cycles to compare, not as fixes.
 
 <a id="42dc5bb9-0008"></a>
 
@@ -823,6 +978,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

@@ -488,7 +488,9 @@ portanto a interface e a linha de comando não podem divergir.
   respondem à lista monitorada, sejam membros de grupos ou não (abaixo).
 - **Diagnostics** (`/diagnostics`) &mdash; todas as dependências acessadas por uma requisição da interface,
   verificadas na ordem em que a requisição as acessa; uma verificação que falha indica o que
-  corrigir no convidado.
+  corrigir no convidado. A página é aberta, então uma credencial na URL de configuração
+  (`https://user:token@...`) aparece como `https://***@...` na URL, na linha de comando e no
+  texto de erro da CLI, e também no log de auditoria.
 
 Hosts e Pools podem ser ordenados por qualquer cabeçalho de coluna &mdash; clicar no que já está ordenado
 inverte a ordem, e as colunas que contêm um controle são ordenadas pelo valor que
@@ -1173,7 +1175,7 @@ compartilhamento". As leituras são abertas na LAN. Três ações por linha exig
 - **Prune previous** -- remover apenas a geração anterior para recuperar espaço; a
   atual continua disponível para ser servida.
 
-Cada ação é acrescentada a `<pool root>/download-agent-service/audit.jsonl`. As
+Cada ação é acrescentada a `<pool root>/download-agent-service/audit.<agent>.jsonl`, um log por agente. As
 mesmas três existem como rotas de API para automação, que também aceitam a chave de
 autenticação interna compartilhada como bearer.
 
@@ -1267,6 +1269,43 @@ Eles ainda não têm um comando dedicado -- escreva-os diretamente em `pools.yml
   grupo ser marcado como "degraded"). Informativo: controla os alertas e o painel, nunca bloqueia um
   ciclo. A entrega é configurada separadamente no hospedeiro de alertas (veja a documentação do notificador).
 
+<a id="4207d71a-0026"></a>
+
+<a id="advanced-the-framework-canary-ring"></a>
+
+## Avançado: o anel canário do framework
+
+Sem ele, cada membro de um grupo instala a ponta do framework na próxima fronteira
+de ciclo, então um commit ruim chega ao grupo inteiro de uma vez. Um bloco
+`frameworkRing` no grupo, escrito em `pools.yml` como os blocos acima, permite que
+alguns membros experimentem cada ponta primeiro:
+
+```yaml
+    frameworkRing:
+      canaryMembers:
+        - 42abcdef0123456789abcdef01234567
+      requiredPasses: 2
+```
+
+- **Membros canários**, cada um também listado em `members`, continuam instalando a ponta.
+- **Cada outro membro** instala a revisão mais nova do framework com pelo menos
+  `requiredPasses` aprovações canárias válidas: ciclos concluídos em um membro
+  canário naquela revisão que passaram e não pularam nenhum convidado planejado. O
+  agregador do grupo as conta a partir do histórico de ciclos que já consulta
+  (`/api/v1/framework-ring`).
+- Um membro que não alcança o agregador, ou para o qual nenhuma revisão se
+  qualifica ainda, **permanece na revisão que tem** e diz por quê na saída do seu
+  ciclo; ele nunca volta para a ponta. Também nunca retrocede: uma revisão
+  qualificada mais antiga que a instalada não muda nada, assim como uma que esteja
+  fora do histórico do upstream que o hospedeiro acompanha.
+- Uma lista `canaryMembers` vazia congela cada membro na sua revisão atual.
+- Um membro aprende seu papel com a configuração que o ciclo anterior obteve, então
+  uma mudança vale um ciclo depois; um hospedeiro que nunca obteve a configuração do
+  grupo executa seu primeiro ciclo como um hospedeiro independente.
+- `Remove-HostFromPool.ps1`, `Remove-PoolHost.ps1` e `Move-PoolHostIdentity.ps1`
+  mantêm `canaryMembers` em sintonia com `members`, e `Test-PoolConfiguration.ps1`
+  aponta um canário que não é membro.
+
 <a id="4207d71a-001d"></a>
 
 <a id="default-off--safety"></a>
@@ -1300,6 +1339,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Voltar para [Yuruna](../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a28f50-90bf-4aa0-a8f6-cda286b79d39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -636,6 +636,10 @@ Describe 'Service seeds accept only complete framework sources' {
         $result.Marker | Should -Match '(?m)^source=mirror$'
         $result.Calls | Should -Not -Match 'yuruna-archive\.tar\.gz'
         $result.Calls | Should -Not -Match '(?m)^tar '
+        # No archive can be accepted, so the six waits for one are skipped.
+        $result.Calls | Should -Not -Match 'livecheck'
+        $result.Calls | Should -Not -Match '(?m)^sleep '
+        $result.Process.StdErr | Should -Match 'the seed carries no framework archive digest'
     }
     It '<Service> retries a failed transfer before accepting the host' -ForEach @(
         @{ Service='stash' }, @{ Service='pool-control' }, @{ Service='download-agent' }

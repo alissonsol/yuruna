@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ade151-5e4e-4637-bbf8-67abbffea511
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,7 @@
     to the selected configuration; fresh setup must obtain the same value from
     its separately supplied setup answer file.
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'MirrorMode', Justification = 'Read inside the block handed to Use-TestConfigLock, which the rule does not follow.')]
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('Prepare', 'Capture', 'Observe', 'UpdateLegacy', 'Diverge', 'StartCaptured', 'StopFixture', 'AdvanceOrigin', 'WaitAdoption', 'Enroll', 'RunGate', 'Drain', 'VerifyCleanStop', 'WaitMirrorCycle')][string]$Action,
@@ -233,29 +234,34 @@ if ($Action -eq 'Enroll') {
     $keyExport = Get-Content -LiteralPath $MirrorKeyExportPath -Raw | ConvertFrom-Json -AsHashtable
     $keyId = [string](Get-ConfigMirrorKeyId -Value $keyExport.publicKey)
     if ($keyId -cne $keyExport.keyId) { throw 'The provisioning key export fingerprint is invalid.' }
-    $current = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Yaml -Ordered
-    $templatePath = Join-Path $TargetRoot 'test/test.config.yml.template'
-    $template = Get-Content -LiteralPath $templatePath -Raw | ConvertFrom-Yaml -Ordered
-    if (-not $template.repositories.mirror) { throw 'Install the mirror-aware template before enrollment.' }
-    $proposed = ConvertTo-MergedHashtable -Template $template -Current $current
-    if ($current.Contains('secrets')) { $proposed['secrets'] = $current.secrets }
-    $proposed.repositories.mirror.url = $endpoint.AbsoluteUri.TrimEnd('/')
-    if ($MirrorMode) { $proposed.repositories.mirror.mode = $MirrorMode }
-    $keys = @($proposed.repositories.mirror.verificationPublicKeys)
-    if ($keys -cnotcontains $keyExport.publicKey) { $proposed.repositories.mirror.verificationPublicKeys = $keys + @($keyExport.publicKey) }
-    $changes = @(Get-ConfigMirrorChange -Current $current -Proposed $proposed)
-    if (-not @($changes | Where-Object Path -CEQ repositories.mirror.verificationPublicKeys).Count) { throw 'Enrollment must exercise an explicit new key addition.' }
-    $backup = Join-Path $StatePath ('enrollment-' + [guid]::NewGuid().ToString('N') + '.yml')
-    Copy-Item -LiteralPath $ConfigPath -Destination $backup
-    if (-not $IsWindows) { [IO.File]::SetUnixFileMode($backup, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite) }
-    foreach ($change in $changes) { Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $backup)" -InformationAction Continue }
-    if (-not (Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $proposed -TemplatePath $templatePath -Confirm:$false)) { throw 'Enrollment could not write the selected configuration.' }
-    $saved = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Yaml -Ordered
-    $unrelatedChanges = @(Get-ConfigLeafChange -Current $current -Merged $saved | Where-Object Path -NotLike 'repositories.mirror.*')
-    if ($unrelatedChanges.Count -or @(Get-DroppedConfigField -Current $current -Merged $saved).Count) { throw 'Enrollment changed unrelated operator configuration.' }
-    Write-NativeInstallObservation -Name enrollment.json -Value @{
-        keyId=$keyId; reportedChanges=@($changes); backupSha256=(Get-FileHash $backup).Hash.ToLowerInvariant()
-        operatorValuesPreserved=$true; keyEnrolled=(@($saved.repositories.mirror.verificationPublicKeys) -ccontains $keyExport.publicKey)
+    # The merge reads the file and the write replaces it: under the config's
+    # write lock no other writer (a fixture runner's cycle-start reconcile, the
+    # validator) can land in between and be overwritten with values read before.
+    Use-TestConfigLock -Path $ConfigPath -Action {
+        $current = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Yaml -Ordered
+        $templatePath = Join-Path $TargetRoot 'test/test.config.yml.template'
+        $template = Get-Content -LiteralPath $templatePath -Raw | ConvertFrom-Yaml -Ordered
+        if (-not $template.repositories.mirror) { throw 'Install the mirror-aware template before enrollment.' }
+        $proposed = ConvertTo-MergedHashtable -Template $template -Current $current
+        if ($current.Contains('secrets')) { $proposed['secrets'] = $current.secrets }
+        $proposed.repositories.mirror.url = $endpoint.AbsoluteUri.TrimEnd('/')
+        if ($MirrorMode) { $proposed.repositories.mirror.mode = $MirrorMode }
+        $keys = @($proposed.repositories.mirror.verificationPublicKeys)
+        if ($keys -cnotcontains $keyExport.publicKey) { $proposed.repositories.mirror.verificationPublicKeys = $keys + @($keyExport.publicKey) }
+        $changes = @(Get-ConfigMirrorChange -Current $current -Proposed $proposed)
+        if (-not @($changes | Where-Object Path -CEQ repositories.mirror.verificationPublicKeys).Count) { throw 'Enrollment must exercise an explicit new key addition.' }
+        $backup = Join-Path $StatePath ('enrollment-' + [guid]::NewGuid().ToString('N') + '.yml')
+        Copy-Item -LiteralPath $ConfigPath -Destination $backup
+        if (-not $IsWindows) { [IO.File]::SetUnixFileMode($backup, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite) }
+        foreach ($change in $changes) { Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $backup)" -InformationAction Continue }
+        if (-not (Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $proposed -TemplatePath $templatePath -Writer 'git-mirror-enroll' -Confirm:$false)) { throw 'Enrollment could not write the selected configuration.' }
+        $saved = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Yaml -Ordered
+        $unrelatedChanges = @(Get-ConfigLeafChange -Current $current -Merged $saved | Where-Object Path -NotLike 'repositories.mirror.*')
+        if ($unrelatedChanges.Count -or @(Get-DroppedConfigField -Current $current -Merged $saved).Count) { throw 'Enrollment changed unrelated operator configuration.' }
+        Write-NativeInstallObservation -Name enrollment.json -Value @{
+            keyId=$keyId; reportedChanges=@($changes); backupSha256=(Get-FileHash $backup).Hash.ToLowerInvariant()
+            operatorValuesPreserved=$true; keyEnrolled=(@($saved.repositories.mirror.verificationPublicKeys) -ccontains $keyExport.publicKey)
+        }
     }
     return
 }
@@ -324,17 +330,26 @@ if ($Action -eq 'Drain') {
     if ($LASTEXITCODE) { throw 'Could not create the private drain origin.' }
     $backup = Join-Path $StatePath drain-config.yml
     if (Test-Path -LiteralPath $backup) { throw 'Clean-stop configuration backup already exists.' }
-    Copy-Item -LiteralPath $ConfigPath -Destination $backup
-    if (-not $IsWindows) { [IO.File]::SetUnixFileMode($backup, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite) }
-    $proposed = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Yaml -Ordered
-    $proposed.pool.enabled=$true; $proposed.pool.configurationGitUrl=[uri]::new($poolRoot).AbsoluteUri
-    $proposed.pool.localClonePath=Join-Path $RuntimeDir drain-pool
-    $proposed.pool.pullTimeoutSeconds=15
-    foreach ($change in @(Get-ConfigLeafChange -Current $current -Merged $proposed)) {
-        Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $backup)" -InformationAction Continue
-    }
+    $proposed = $null
     try {
-        $null = Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $proposed -TemplatePath (Join-Path $TargetRoot 'test/test.config.yml.template') -Confirm:$false
+        # The read that the backup, the report and the write come from runs under
+        # the config's write lock, so a write the live runner makes meanwhile is
+        # neither overwritten nor missing from the backup.
+        $drainEdit = Use-TestConfigLock -Path $ConfigPath -Action {
+            $current = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Yaml -Ordered
+            Copy-Item -LiteralPath $ConfigPath -Destination $backup
+            if (-not $IsWindows) { [IO.File]::SetUnixFileMode($backup, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite) }
+            $proposed = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Yaml -Ordered
+            $proposed.pool.enabled=$true; $proposed.pool.configurationGitUrl=[uri]::new($poolRoot).AbsoluteUri
+            $proposed.pool.localClonePath=Join-Path $RuntimeDir drain-pool
+            $proposed.pool.pullTimeoutSeconds=15
+            foreach ($change in @(Get-ConfigLeafChange -Current $current -Merged $proposed)) {
+                Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $backup)" -InformationAction Continue
+            }
+            $null = Write-DocumentedTestConfig -ConfigPath $ConfigPath -Config $proposed -TemplatePath (Join-Path $TargetRoot 'test/test.config.yml.template') -Writer 'git-mirror-drain' -Confirm:$false
+            @{ Current = $current; Proposed = $proposed }
+        }
+        $current = $drainEdit.Current; $proposed = $drainEdit.Proposed
         $deadline = [DateTimeOffset]::UtcNow.AddSeconds($AdoptionTimeoutSeconds)
         do {
             $stopped = Read-YurunaRunnerLaunchRecord -RuntimeDir $RuntimeDir
@@ -344,10 +359,18 @@ if ($Action -eq 'Drain') {
         if (-not $stopped.Valid -or (Test-NativeRunnerAlive $stopped) -or -not $stopped.Record.cleanExit -or
             $stopped.Record.runner.pid -ne $launch.Record.runner.pid) { throw 'The real runner did not exit cleanly through its pool-drain path.' }
     } finally {
-        foreach ($change in @(Get-ConfigLeafChange -Current $proposed -Merged $current)) {
-            Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $backup)" -InformationAction Continue
+        if (Test-Path -LiteralPath $backup) {
+            Use-TestConfigLock -Path $ConfigPath -Action {
+                if ($proposed) {
+                    foreach ($change in @(Get-ConfigLeafChange -Current $proposed -Merged $current)) {
+                        Write-Information "$($change.Path): $($change.Previous) -> $($change.Current) (backup: $backup)" -InformationAction Continue
+                    }
+                }
+                $restored = [IO.File]::ReadAllBytes($backup)
+                $null = Save-TestConfigJournalEntry -ConfigPath $ConfigPath -Writer 'git-mirror-drain-restore' -NewContent ([Text.Encoding]::UTF8.GetString($restored))
+                [IO.File]::WriteAllBytes($ConfigPath, $restored)
+            }
         }
-        [IO.File]::WriteAllBytes($ConfigPath, [IO.File]::ReadAllBytes($backup))
     }
     $null = Invoke-YurunaInstallerState -Action Capture -RepoRoot $TargetRoot -RuntimeDir $RuntimeDir -SnapshotPath $SnapshotPath
     Write-NativeInstallObservation -Name clean-stop.json -Value @{

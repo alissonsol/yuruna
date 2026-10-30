@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42228108-7cf2-409b-8ae4-1bb3028f378f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -154,6 +154,128 @@ function Get-RunnerInstanceState {
     return @{ status='Stale'; pid=$filePid; identityVia='none'; cmdline=[string]$cmd }
 }
 
+function Get-YurunaProcessTreeKillScript {
+    <#
+    .SYNOPSIS
+        The one process-tree kill, returned as source text.
+    .DESCRIPTION
+        Every runner path that ends a process tree runs this text: the takeover
+        and cycle kills through Stop-YurunaProcessTree, and the step watchdog,
+        a separate-process Start-Job that cannot see module functions, rebuilds
+        it with [scriptblock]::Create. One definition keeps the two from
+        drifting apart again.
+
+        The whole tree, on every platform. A wedged cycle is usually stuck
+        below the inner runner (a capture, an OCR engine, an ssh), so a kill
+        that reached only direct children left the grandchildren holding
+        handles, terminals and VM operations.
+
+        POSIX: every descendant is read from one ps snapshot before the first
+        signal, together with its start time, because a parent killed first has
+        its children re-parented and no later walk from the root finds them.
+        TERM goes deepest first, root last, then a grace period, then KILL.
+        TERM is what lets a shell-hosted child restore the terminal it was
+        drawing on; KILL still follows, because a wedged process that ignores
+        TERM is exactly the case a tree kill exists for. Before KILL the
+        survivors are walked again, so a child they spawned during the grace
+        is not missed, and a PID whose start time no longer matches the
+        snapshot (reused by an unrelated process) is skipped.
+
+        Windows: taskkill /T walks the tree itself; Stop-Process backs it up for
+        a root that survived, again only while the root's start time matches.
+
+        The calling process is never signaled, and every step is best-effort:
+        a process may exit between the snapshot and the signal.
+    .OUTPUTS
+        [string] scriptblock body: param([int]$ProcessId, [int]$GraceMilliseconds).
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return @'
+param([int]$ProcessId, [int]$GraceMilliseconds = 2000)
+if ($ProcessId -le 0 -or $ProcessId -eq $PID) { return }
+$startTicks = {
+    param([int]$Id)
+    try { return [long](Get-Process -Id $Id -ErrorAction Stop).StartTime.ToUniversalTime().Ticks } catch { return [long]0 }
+}
+if ($IsWindows) {
+    $rootTicks = & $startTicks $ProcessId
+    & taskkill.exe /PID $ProcessId /T /F 2>&1 | Out-Null
+    if ($rootTicks -ne 0 -and (& $startTicks $ProcessId) -eq $rootTicks) { Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue }
+    return
+}
+# Breadth-first from the roots, so the list runs from the roots to the leaves.
+$walk = {
+    param([int[]]$Roots)
+    $childrenOf = @{}
+    foreach ($row in @(& /bin/ps -eo pid=,ppid= 2>$null)) {
+        $cols = ([string]$row).Trim() -split '\s+'
+        if ($cols.Count -lt 2) { continue }
+        $childPid = 0; $parentPid = 0
+        if (-not [int]::TryParse($cols[0], [ref]$childPid) -or -not [int]::TryParse($cols[1], [ref]$parentPid)) { continue }
+        if (-not $childrenOf.ContainsKey($parentPid)) { $childrenOf[$parentPid] = [System.Collections.Generic.List[int]]::new() }
+        $childrenOf[$parentPid].Add($childPid)
+    }
+    $order = [System.Collections.Generic.List[int]]::new()
+    $seen = @{}
+    $queue = [System.Collections.Generic.Queue[int]]::new()
+    foreach ($root in $Roots) {
+        if ($root -le 0 -or $root -eq $PID -or $seen.ContainsKey($root)) { continue }
+        $seen[$root] = $true
+        $queue.Enqueue($root)
+    }
+    while ($queue.Count -gt 0) {
+        $current = $queue.Dequeue()
+        $order.Add($current)
+        if (-not $childrenOf.ContainsKey($current)) { continue }
+        foreach ($child in $childrenOf[$current]) {
+            if ($seen.ContainsKey($child) -or $child -eq $PID) { continue }
+            $seen[$child] = $true
+            $queue.Enqueue($child)
+        }
+    }
+    return ,$order
+}
+# A hashtable keyed by PID plus a separate order: an ordered dictionary would
+# read an [int] key as a position.
+$identity = @{}
+$tree = & $walk @($ProcessId)
+foreach ($id in $tree) { $identity[$id] = & $startTicks $id }
+# Unknown start (0) cannot prove reuse, so only a mismatch spares a PID.
+$isSame = {
+    param([int]$Id)
+    $now = & $startTicks $Id
+    if ($now -eq 0) { return $false }
+    $then = [long]$identity[$Id]
+    return ($then -eq 0 -or $now -eq $then)
+}
+# Full path for kill: `kill` is also a PowerShell alias for Stop-Process.
+$deepestFirst = @($tree)
+[array]::Reverse($deepestFirst)
+if ($deepestFirst.Count -gt 0) { & '/bin/kill' -TERM @deepestFirst 2>&1 | Out-Null }
+$waited = 0
+while ($waited -lt $GraceMilliseconds) {
+    if (-not @($deepestFirst | Where-Object { & $isSame $_ }).Count) { return }
+    Start-Sleep -Milliseconds 250
+    $waited += 250
+}
+$survivors = @($deepestFirst | Where-Object { & $isSame $_ })
+if (-not $survivors.Count) { return }
+$late = [System.Collections.Generic.List[int]]::new()
+foreach ($id in (& $walk $survivors)) {
+    if ($identity.ContainsKey($id)) { continue }
+    $identity[$id] = & $startTicks $id
+    $late.Add($id)
+}
+$targets = [System.Collections.Generic.List[int]]::new()
+for ($i = $late.Count - 1; $i -ge 0; $i--) { $targets.Add($late[$i]) }
+foreach ($id in $deepestFirst) { $targets.Add($id) }
+$targets = @($targets | Where-Object { & $isSame $_ })
+if ($targets.Count -gt 0) { & '/bin/kill' -KILL @targets 2>&1 | Out-Null }
+'@
+}
+
 function Stop-YurunaProcessTree {
     <#
     .SYNOPSIS
@@ -164,84 +286,20 @@ function Stop-YurunaProcessTree {
         the outer loop's module for one helper would drag the whole runner
         machinery into a path that runs before a runner exists.
 
-        Children first, then the parent. A parent killed first has its children
-        re-parented to init, which dissolves the process group that a group signal
-        would have reached -- so the sweep has to happen while the parent is still
-        holding them together.
-
-        TERM, a grace period, then KILL. TERM is what lets a shell-hosted child
-        restore the terminal it was drawing on; going straight to KILL leaves the
-        console in whatever mode the victim had it in, which is how a takeover
-        corrupts the terminal it is taking over. KILL still follows, because a
-        wedged process that ignores TERM is exactly the case a takeover exists for.
-
-        Best-effort throughout: every signal is advisory, a process may exit
-        between the check and the signal, and a takeover that cannot kill
-        something must still continue to the VM cleanup.
-
-        -IncludeDescendants extends the POSIX sweep from direct children to every
-        descendant, read from one ps snapshot before the first signal and
-        signaled deepest first. A cycle stopped at its ceiling is wedged
-        somewhere below the inner runner (a capture, an OCR engine, an ssh), and
-        those grandchildren would otherwise outlive the kill. The caller's own
-        process is never signaled.
+        Runs the shared kill from Get-YurunaProcessTreeKillScript (whole tree,
+        TERM, grace, KILL; see there). Best-effort throughout: a takeover that
+        cannot kill something must still continue to the VM cleanup.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][int]$ProcessId,
-        [int]$GraceMilliseconds = 2000,
-        [switch]$IncludeDescendants
+        [int]$GraceMilliseconds = 2000
     )
     if ($ProcessId -le 0 -or $ProcessId -eq $PID) { return }
     if (-not $PSCmdlet.ShouldProcess("PID $ProcessId", (Format-YurunaOperatorMessage -Key 'runner.operator_ed5c9d2fcb476c82'))) { return }
     try {
-        if ($IsWindows) {
-            # taskkill /T walks the tree itself; there is no separate TERM.
-            & taskkill /PID $ProcessId /T /F 2>&1 | Out-Null
-            return
-        }
-        # Full path for kill: `kill` is also a PowerShell alias for Stop-Process,
-        # which would target the wrong thing wherever the alias wins name
-        # resolution.
-        $descendants = @()
-        if ($IncludeDescendants) {
-            $childrenOf = @{}
-            foreach ($row in @(& /bin/ps -eo pid=,ppid= 2>$null)) {
-                $cols = ([string]$row).Trim() -split '\s+'
-                if ($cols.Count -lt 2) { continue }
-                $childPid = 0; $parentPid = 0
-                if (-not [int]::TryParse($cols[0], [ref]$childPid) -or -not [int]::TryParse($cols[1], [ref]$parentPid)) { continue }
-                if (-not $childrenOf.ContainsKey($parentPid)) { $childrenOf[$parentPid] = [System.Collections.Generic.List[int]]::new() }
-                $childrenOf[$parentPid].Add($childPid)
-            }
-            # Breadth-first from the root; reversed below so leaves are signaled first.
-            $queue = [System.Collections.Generic.Queue[int]]::new()
-            $queue.Enqueue($ProcessId)
-            $seen = @{ $ProcessId = $true }
-            while ($queue.Count -gt 0) {
-                $current = $queue.Dequeue()
-                if (-not $childrenOf.ContainsKey($current)) { continue }
-                foreach ($child in $childrenOf[$current]) {
-                    if ($seen.ContainsKey($child) -or $child -eq $PID) { continue }
-                    $seen[$child] = $true
-                    $descendants += $child
-                    $queue.Enqueue($child)
-                }
-            }
-            [array]::Reverse($descendants)
-        }
-        foreach ($descendant in $descendants) { & '/bin/kill' -TERM $descendant 2>&1 | Out-Null }
-        & pkill -TERM -P $ProcessId 2>&1 | Out-Null
-        & '/bin/kill' -TERM $ProcessId 2>&1 | Out-Null
-        $waited = 0
-        while ($waited -lt $GraceMilliseconds) {
-            if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { break }
-            Start-Sleep -Milliseconds 250
-            $waited += 250
-        }
-        foreach ($descendant in $descendants) { & '/bin/kill' -KILL $descendant 2>&1 | Out-Null }
-        & pkill -KILL -P $ProcessId 2>&1 | Out-Null
-        & '/bin/kill' -KILL $ProcessId 2>&1 | Out-Null
+        if (-not $script:ProcessTreeKill) { $script:ProcessTreeKill = [scriptblock]::Create((Get-YurunaProcessTreeKillScript)) }
+        & $script:ProcessTreeKill $ProcessId $GraceMilliseconds
     } catch {
         Write-Verbose "Stop-YurunaProcessTree($ProcessId) swallowed: $($_.Exception.Message)"
     }
@@ -4750,7 +4808,7 @@ function Start-YurunaCapturedRunner {
 }
 
 Export-ModuleMember -Function `
-    Get-RunnerInstanceState, Stop-StaleRunner, Write-RunnerPidFile, Stop-YurunaProcessTree, `
+    Get-RunnerInstanceState, Stop-StaleRunner, Write-RunnerPidFile, Get-YurunaProcessTreeKillScript, Stop-YurunaProcessTree, `
     Resolve-YurunaRunnerProcessTarget, Get-YurunaProcessTable, Get-YurunaProcessIdentityState, `
     Get-YurunaProcessStartUnixMs, Get-YurunaRunnerRecordState, Remove-YurunaRunnerRecordGeneration, `
     Write-YurunaProcessStartRecord, Read-YurunaRunnerCycleRecord, Write-YurunaRunnerCycleRecord, `

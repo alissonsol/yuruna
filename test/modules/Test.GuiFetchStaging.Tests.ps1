@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42dc2c8b-375c-4869-8113-cd1b1b7a0e53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -774,6 +774,8 @@ function Invoke-TypeDrainEnter {
     return $true
 }
 function Send-TextVNC { $script:vncCalls++; return $false }
+# The transport's fault record: this stand-in VNC fails before writing anything.
+function Get-HostInputFault { return $null }
 function Send-TextUTM {
     param($VMName,$Text,$CharDelayMs,[switch]$ShellEscape)
     $script:utmCalls.Add(@{VMName=$VMName;Text=$Text;CharDelayMs=$CharDelayMs;ShellEscape=[bool]$ShellEscape})

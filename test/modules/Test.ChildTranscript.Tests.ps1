@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427f1267-e087-42e4-ad77-aab3e3216101
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -113,13 +113,13 @@ function Invoke-TranscriptChild {
     # read from the environment, so it has to be set around the launch and put
     # back exactly as it was for whatever runs after this test.
     $hadVar   = Test-Path -LiteralPath 'Env:\YURUNA_CHILD_TRANSCRIPT_DIR'
-    $previous = $env:YURUNA_CHILD_TRANSCRIPT_DIR
+    $previous = Save-YurunaTestEnvironment -Name 'YURUNA_CHILD_TRANSCRIPT_DIR'
     try {
         $env:YURUNA_CHILD_TRANSCRIPT_DIR = $tdir
         $out = & (Get-PwshPath) -NoProfile -File $childScript -ModulePath $script:LogModule -ResultPath $resultPath 2>&1
         $code = $LASTEXITCODE
     } finally {
-        if ($hadVar) { $env:YURUNA_CHILD_TRANSCRIPT_DIR = $previous }
+        if ($hadVar) { Restore-YurunaTestEnvironment -Saved $previous }
         else { Remove-Item -LiteralPath 'Env:\YURUNA_CHILD_TRANSCRIPT_DIR' -ErrorAction SilentlyContinue }
     }
 

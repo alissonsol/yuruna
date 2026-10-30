@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c869eb-bcb1-4640-9d26-b9f3f7fbc926
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Set or clear the framework and project repositories a pool's hosts run.
 .DESCRIPTION
-    See https://yuruna.link/42010605-0004.
+    See https://yuruna.link/42010605-0096.
 .PARAMETER PoolId
     Target pool id.
 .PARAMETER FrameworkUrl
@@ -99,7 +99,7 @@ if ($Clear) {
     if ($pool.Contains('repositories')) { $pool.Remove('repositories') }
     $message = "pool: clear repositories on $PoolId"
 } else {
-    # See https://yuruna.link/42010605-0004
+    # See https://yuruna.link/42010605-0095
     $targetPoolId = if ($doc['autoEnrollment'] -is [System.Collections.IDictionary]) { [string]$doc['autoEnrollment']['targetPoolId'] } else { '' }
     if ($targetPoolId -and [string]::Equals([string]$pool['poolId'], $targetPoolId, [StringComparison]::Ordinal)) {
         Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_f1dc62bfb0f61720' -Arguments @{ poolId = "$PoolId"; frameworkUrl = "$FrameworkUrl"; projectUrl = "$ProjectUrl" }) -ErrorAction Continue

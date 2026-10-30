@@ -40,6 +40,8 @@ type fakeImages struct {
 	lastFP     imagestore.Fingerprint
 	fidoTests  []string
 	refreshErr error
+	deleteErr  error
+	pruneErr   error
 
 	refreshAllErr error
 }
@@ -102,6 +104,9 @@ func (f *fakeImages) RefreshAll() (int, error) {
 }
 
 func (f *fakeImages) Delete(id imagestore.ImageID) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	f.mu.Lock()
 	f.deleted = append(f.deleted, id)
 	f.mu.Unlock()
@@ -109,6 +114,9 @@ func (f *fakeImages) Delete(id imagestore.ImageID) error {
 }
 
 func (f *fakeImages) PrunePrevious(id imagestore.ImageID) (int, error) {
+	if f.pruneErr != nil {
+		return 0, f.pruneErr
+	}
 	f.mu.Lock()
 	f.pruned = append(f.pruned, id)
 	f.mu.Unlock()
@@ -159,7 +167,7 @@ func newServer(t *testing.T, opts Options) (*httptest.Server, *fakeImages) {
 	f := newFake(t)
 	opts.Images = f
 	if opts.Version == "" {
-		opts.Version = "2026.10.26"
+		opts.Version = "2026.10.30"
 	}
 	srv := httptest.NewServer(New(opts).Handler())
 	t.Cleanup(srv.Close)
@@ -444,7 +452,7 @@ func TestTheAdvertisedFileUrlIsFetchableVerbatim(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.10.26"}).Handler())
+	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.10.30"}).Handler())
 	t.Cleanup(srv.Close)
 
 	catalog := decodeBody(t, get(t, srv, "/api/v1/images"))
@@ -485,6 +493,27 @@ func TestRefreshRefusalRelaysTheReason(t *testing.T) {
 	}
 	if decodeBody(t, resp)["reason"] != imagestore.ReasonLeaseReadOnly {
 		t.Fatal("the refusal must carry a machine-readable reason")
+	}
+}
+
+// Delete and prune are the lease holder's, like refresh, and a follower's
+// refusal reaches the caller the same way: a 503 with the reason token, not a
+// 500 carrying the token as free text.
+func TestDeleteAndPruneRefusalsRelayTheReason(t *testing.T) {
+	srv, f := newServer(t, Options{AuthToken: internalAuthKey})
+	f.deleteErr = errLeaseReadOnly{}
+	f.pruneErr = errors.New(imagestore.ReasonDeleting)
+	for path, want := range map[string]string{
+		imgPath + "/delete" + imgQuery: imagestore.ReasonLeaseReadOnly,
+		imgPath + "/prune" + imgQuery:  imagestore.ReasonDeleting,
+	} {
+		resp := post(t, srv, path, internalAuthKey, nil)
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			t.Errorf("POST %s = %d, want 503", path, resp.StatusCode)
+		}
+		if got := decodeBody(t, resp)["reason"]; got != want {
+			t.Errorf("POST %s reason = %v, want %q", path, got, want)
+		}
 	}
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42dbfc19-bf21-4ef5-ad59-a132755a721d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -318,7 +318,7 @@ Describe 'Kubernetes bootstrap supplies its readiness probe' {
 }
 
 
-Describe 'OpenTofu bootstrap avoids apt work and enforces the requested signed release' -Skip:(-not $script:CanRunOpenTofu) {
+Describe 'OpenTofu bootstrap avoids apt work and installs only the pinned, verified release' -Skip:(-not $script:CanRunOpenTofu) {
     It 'Ubuntu <Version> handles <Mode> without accepting a stale or failed installation' -ForEach @(
         @{ Version='24'; Mode='healthy' }, @{ Version='26'; Mode='healthy' },
         @{ Version='24'; Mode='missing' }, @{ Version='26'; Mode='missing' },
@@ -338,12 +338,16 @@ Describe 'OpenTofu bootstrap avoids apt work and enforces the requested signed r
         $shadow = Join-Path $fixture 'shadow'
         $legacy = Join-Path $fixture 'legacy'
         $install = Join-Path $fixture 'install'
-        $null = New-Item -ItemType Directory -Path $bin, $shadow, $legacy, $install
+        $release = Join-Path $fixture 'release'
+        $null = New-Item -ItemType Directory -Path $bin, $shadow, $legacy, $install, $release
         $source = $script:K8sSources[$Version]
-        $begin = $source.IndexOf('# The signed standalone release avoids')
+        $begin = $source.IndexOf('# The standalone release tarball avoids')
         $end = $source.IndexOf('# --- REGION: Install mkcert', $begin)
         $block = $source.Substring($begin, $end - $begin).
             Replace('/opt/opentofu', $install).Replace('/usr/local/bin', $bin)
+        $retryLib = Get-Content (Join-Path $script:RepoRoot 'automation/yuruna-retry.sh') -Raw
+        $verifier = [regex]::Match($retryLib, '(?ms)^yuruna_verify_sha256\(\) \{.*?^\}').Value
+        $verifier | Should -Not -BeNullOrEmpty
         $initial = switch ($Mode) {
             'healthy' { "#!/bin/bash`nprintf 'OpenTofu v1.13.1\non linux_amd64\n'`n" }
             'zero' { '' }
@@ -359,33 +363,17 @@ Describe 'OpenTofu bootstrap avoids apt work and enforces the requested signed r
             [IO.File]::WriteAllText($initialPath, $initial)
             & chmod +x $initialPath
         }
-        $installer = @'
-#!/bin/bash
-set -euo pipefail
-printf 'installer %s\n' "$*" >> "$YURUNA_TOFU_CALLS"
-install_path=''; symlink_path=''; version=''
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-        --install-method) [ "$2" = standalone ] || exit 61; shift 2 ;;
-        --opentofu-version) version="$2"; shift 2 ;;
-        --install-path) install_path="$2"; shift 2 ;;
-        --symlink-path) symlink_path="$2"; shift 2 ;;
-        *) echo 'unexpected installer flag' >&2; exit 62 ;;
-    esac
-done
-[ "$version" = 1.13.1 ] && [ -n "$install_path" ] && [ -n "$symlink_path" ] || exit 63
-case "$YURUNA_TOFU_MODE" in
-    install-failed) echo 'upstream install fixture failed' >&2; exit 41 ;;
-    verify-failed) echo 'Signature verification failed: fixture' >&2; exit 42 ;;
-    wrong-after-install) version=1.12.9 ;;
-esac
-mkdir -p "$install_path" "$symlink_path"
-printf '#!/bin/bash\nprintf "OpenTofu v%s\\non linux_amd64\\n"\n' "$version" > "$install_path/tofu"
-chmod +x "$install_path/tofu"
-ln -sf "$install_path/tofu" "$symlink_path/tofu"
-'@
-        $installerSource = Join-Path $fixture 'installer.sh'
-        Set-Content $installerSource $installer
+        # The release tarball the download serves: the binary prints the version it is.
+        $releasedVersion = if ($Mode -eq 'wrong-after-install') { '1.12.9' } else { '1.13.1' }
+        [IO.File]::WriteAllText((Join-Path $release 'tofu'), "#!/bin/bash`nprintf 'OpenTofu v$releasedVersion\non linux_amd64\n'`n")
+        & chmod +x (Join-Path $release 'tofu')
+        $tarball = Join-Path $fixture 'tofu.tar.gz'
+        if ($Mode -eq 'install-failed') {
+            [IO.File]::WriteAllText($tarball, 'not a tar archive')
+        } else {
+            & tar -czf $tarball -C $release tofu
+        }
+        $digest = if ($Mode -eq 'verify-failed') { '0' * 64 } else { (Get-FileHash -Algorithm SHA256 -LiteralPath $tarball).Hash.ToLowerInvariant() }
         $prefix = @'
 set -euo pipefail
 export PATH="$YURUNA_TOFU_SHADOW:$YURUNA_TOFU_BIN:$YURUNA_TOFU_LEGACY:$PATH"
@@ -402,25 +390,23 @@ command() {
     builtin command "$@"
 }
 export YURUNA_OPENTOFU_VERSION=1.13.1
+export YURUNA_OPENTOFU_SHA256_AMD64="$YURUNA_TOFU_DIGEST"
+dpkg() { echo amd64; }
+sudo() { printf 'sudo %s\n' "$*" >> "$YURUNA_TOFU_CALLS"; "$@"; }
 curl_retry() {
     printf 'download %s\n' "$*" >> "$YURUNA_TOFU_CALLS"
     if [ "$YURUNA_TOFU_MODE" = download-failed ]; then return 15; fi
     while [ "$#" -gt 0 ]; do
-        if [ "$1" = -o ]; then cp "$YURUNA_TOFU_INSTALLER" "$2"; return; fi
+        if [ "$1" = -o ]; then cp "$YURUNA_TOFU_TARBALL" "$2"; return; fi
         shift
     done
     return 64
-}
-_yuruna_retry() {
-    printf 'retry %s\n' "$1" >> "$YURUNA_TOFU_CALLS"
-    shift
-    "$@"
 }
 # A cached old path must be refreshed before checking the installed link.
 if command -v tofu >/dev/null 2>&1; then tofu version >/dev/null 2>&1 || true; fi
 '@
         $entryPoint = Join-Path $fixture 'opentofu.sh'
-        Set-Content $entryPoint ($prefix + "`n" + $block + @'
+        Set-Content $entryPoint ($prefix + "`n" + $verifier + "`n" + $block + @'
 
 tofu version
 "$YURUNA_TOFU_PWSH" -NoProfile -Command '& tofu version; if ($LASTEXITCODE -ne 0) { exit 1 }'
@@ -429,7 +415,7 @@ printf 'downstream-resource\n'
         $callsPath = Join-Path $fixture 'calls.txt'
         $result = Invoke-BoundedNativeCommand -FilePath bash -ArgumentList @($entryPoint) -TimeoutSeconds 12 -Environment @{
             YURUNA_TOFU_MODE=$Mode; YURUNA_TOFU_BIN=$bin; YURUNA_TOFU_SHADOW=$shadow; YURUNA_TOFU_LEGACY=$legacy
-            YURUNA_TOFU_INSTALLER=$installerSource; YURUNA_TOFU_CALLS=$callsPath
+            YURUNA_TOFU_TARBALL=$tarball; YURUNA_TOFU_DIGEST=$digest; YURUNA_TOFU_CALLS=$callsPath
             YURUNA_TOFU_PWSH=(Get-Process -Id $PID).Path
         }
         $calls = if (Test-Path $callsPath) { @(Get-Content $callsPath) } else { @() }
@@ -438,10 +424,13 @@ printf 'downstream-resource\n'
             $result.ExitCode | Should -Be 1 -Because $result.StdErr
             $result.StdOut | Should -Not -Match 'downstream-resource'
             switch ($Mode) {
-                'download-failed' { $result.StdErr | Should -Match 'Could not download the OpenTofu installer' }
-                'install-failed' { $result.StdErr | Should -Match 'upstream install fixture failed' }
-                'verify-failed' { $result.StdErr | Should -Match 'Signature verification failed: fixture' }
+                'download-failed' { $result.StdErr | Should -Match 'OpenTofu 1\.13\.1 could not be downloaded, verified or installed' }
+                'install-failed' { $result.StdErr | Should -Match 'OpenTofu 1\.13\.1 could not be downloaded, verified or installed' }
+                'verify-failed' { $result.StdErr | Should -Match 'sha256 verify: tofu_1\.13\.1_linux_amd64\.tar\.gz has SHA-256' }
                 default { $result.StdErr | Should -Match '1\.13\.1 is not runnable on PATH after installation' }
+            }
+            if ($Mode -in 'download-failed', 'verify-failed') {
+                $calls -join "`n" | Should -Not -Match '(?m)^sudo ' -Because 'nothing is unpacked or linked before the digest matches'
             }
         } else {
             $result.ExitCode | Should -Be 0 -Because $result.StdErr
@@ -452,15 +441,15 @@ printf 'downstream-resource\n'
             $calls.Count | Should -Be 0
             $result.StdOut | Should -Match 'already installed and runnable'
         } else {
-            @($calls | Where-Object { $_ -like 'download *' }).Count | Should -Be 1
-            if ($Mode -ne 'download-failed') {
-                $calls | Should -Contain 'retry opentofu_standalone'
-                $calls[-1] | Should -Be "installer --install-method standalone --opentofu-version 1.13.1 --install-path $install --symlink-path $bin"
+            $downloads = @($calls | Where-Object { $_ -like 'download *' })
+            $downloads.Count | Should -Be 1
+            $downloads[0] | Should -Match ([regex]::Escape('https://github.com/opentofu/opentofu/releases/download/v1.13.1/tofu_1.13.1_linux_amd64.tar.gz'))
+            if ($Mode -notin 'download-failed', 'verify-failed', 'install-failed') {
+                $calls | Should -Contain "sudo ln -sf $install/tofu $bin/tofu"
             }
-            $calls -join "`n" | Should -Not -Match 'apt-get|--skip-verify|--install-method deb'
-            $download = @($calls | Where-Object { $_ -like 'download *' })[0]
-            $temporaryInstaller = ($download -split ' -o ', 2)[1]
-            Test-Path -LiteralPath $temporaryInstaller | Should -BeFalse
+            $calls -join "`n" | Should -Not -Match 'apt-get|install-opentofu|--install-method'
+            $work = Split-Path -Parent (($downloads[0] -split ' -o ', 2)[1])
+            Test-Path -LiteralPath $work | Should -BeFalse
         }
     }
 }

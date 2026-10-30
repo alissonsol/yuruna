@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a0d2cf-242d-40a3-a0db-67424cfde2ac
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,7 +82,17 @@ Describe 'recent OCR history preserves the configured engine combination' {
         $frames = @{}
         $engines = @{ first = @{ Text = 'login:' }; second = @{ Text = 'booting' } }
         Test-RecentOcrFramesMatch -Frames $frames -EngineResults $engines -EnabledEngines first, second -Pattern 'login:' -CombineMode And | Should -BeFalse
-        Test-RecentOcrFramesMatch -Frames @{} -EngineResults $engines -EnabledEngines first, second -Pattern 'login:' -CombineMode Or | Should -BeTrue
+        # In Or mode one provider's words spread over lines are enough.
+        $spread = @{ first = @{ Text = "amisad-core`nlogin: _" }; second = @{ Text = 'booting' } }
+        Test-RecentOcrFramesMatch -Frames @{} -EngineResults $spread -EnabledEngines first, second -Pattern 'amisad-core login:' -CombineMode Or | Should -BeTrue
+        Test-RecentOcrFramesMatch -Frames @{} -EngineResults $spread -EnabledEngines first, second -Pattern 'amisad-core login:' -CombineMode And | Should -BeFalse
+    }
+    It 'leaves a line one frame holds to that frame''s own poll in Or mode' {
+        # Every strategy but the segment match reads one line at a time, and a
+        # line of the join is a line of one frame, which its own poll tested
+        # and, in Or mode, would already have ended the wait on.
+        Test-RecentOcrFramesMatch -Frames @{} -EngineResults @{ first = @{ Text = 'login:' } } -EnabledEngines first -Pattern 'login:' -CombineMode Or | Should -BeFalse
+        Test-RecentOcrFramesMatch -Frames @{} -EngineResults @{ first = @{ Text = 'amisad-core login: _' } } -EnabledEngines first -Pattern 'amisad-core login:' -CombineMode Or -NoSegmentMatch | Should -BeFalse
     }
     It 'requires evidence from every enabled provider, including short-circuited providers' {
         Test-RecentOcrFramesMatch -Frames @{} -EngineResults @{ first = @{ Text = 'login:' } } -EnabledEngines first, second -Pattern 'login:' -CombineMode And | Should -BeFalse
@@ -105,7 +115,9 @@ Describe 'recent OCR history preserves the configured engine combination' {
         $configuration = @{ Text = 'sed -i ... /target/etc/login.defs' }
         Test-RecentOcrFramesMatch @arguments -EngineResults @{ first = $account; second = $account } | Should -BeFalse
         Test-RecentOcrFramesMatch @arguments -EngineResults @{ first = $configuration; second = $configuration } | Should -BeFalse
-        Test-RecentOcrFramesMatch @arguments -EngineResults @{ first = @{ Text = 'amisad-core logln: _' }; second = @{ Text = 'amisad-core login: _' } } | Should -BeTrue
+        # The bounded prompt on one line: And mode combines both providers'
+        # lines here; in Or mode the frame's own poll already matched it.
+        Test-RecentOcrFramesMatch @arguments -EngineResults @{ first = @{ Text = 'amisad-core logln: _' }; second = @{ Text = 'amisad-core login: _' } } | Should -Be ($Mode -eq 'And')
     }
     It 'requires bounded evidence from each enabled provider in And mode' {
         $engines = @{
@@ -113,7 +125,8 @@ Describe 'recent OCR history preserves the configured engine combination' {
             second = @{ Text = "passwd --expire amisad-core-admin`nsed -i ... /target/etc/login.defs" }
         }
         Test-RecentOcrFramesMatch -Frames @{} -EngineResults $engines -EnabledEngines first, second -Pattern 'amisad-core login:' -CombineMode And -NoSegmentMatch | Should -BeFalse
-        Test-RecentOcrFramesMatch -Frames @{} -EngineResults $engines -EnabledEngines first, second -Pattern 'amisad-core login:' -CombineMode Or -NoSegmentMatch | Should -BeTrue
+        # Or mode adds nothing a single frame's poll did not decide.
+        Test-RecentOcrFramesMatch -Frames @{} -EngineResults $engines -EnabledEngines first, second -Pattern 'amisad-core login:' -CombineMode Or -NoSegmentMatch | Should -BeFalse
         Test-RecentOcrFramesMatch -Frames @{} -EngineResults @{ first = $engines.first } -EnabledEngines first, second -Pattern 'amisad-core login:' -CombineMode And -NoSegmentMatch | Should -BeFalse
     }
 }

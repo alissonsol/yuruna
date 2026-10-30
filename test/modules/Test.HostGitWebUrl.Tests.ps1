@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42dd4c19-b2ea-45c5-930f-d248ded193bb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -199,17 +199,15 @@ Describe 'Get-ProjectGitCommitReference -- the checked-out project as cycle prov
         # The enclosing framework has its own HEAD, so an unguarded git -C
         # into an in-tree project would falsely report that framework commit.
         foreach ($checkout in @($script:ProjectRefRoot, $project, $script:NoProjectGitRoot)) {
-            & git -C $checkout init --quiet
-            & git -C $checkout -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false `
-                commit --allow-empty --quiet --no-verify -m ("fixture " + (Split-Path -Leaf $checkout))
+            $null = New-YurunaTestGitRepository -Path $checkout -CommitMessage ("fixture " + (Split-Path -Leaf $checkout))
         }
         $script:ProjectRefCommit = (& git -C $project rev-parse --short HEAD).Trim()
         $script:FrameworkRefCommit = (& git -C $script:ProjectRefRoot rev-parse --short HEAD).Trim()
         & git -C (Join-Path $script:EmptyProjectRoot 'project') init --quiet
         $gitFileProject = Join-Path $script:GitFileProjectRoot 'project'
         & git -C $gitFileProject init --quiet --separate-git-dir (Join-Path $script:GitFileProjectRoot 'metadata')
-        & git -C $gitFileProject -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false `
-            commit --allow-empty --quiet --no-verify -m fixture
+        Set-YurunaTestGitIdentity -Path $gitFileProject
+        & git -C $gitFileProject commit --allow-empty --quiet -m fixture
         $script:GitFileProjectCommit = (& git -C $gitFileProject rev-parse --short HEAD).Trim()
     }
 

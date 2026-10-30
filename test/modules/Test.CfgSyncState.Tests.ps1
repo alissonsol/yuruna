@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4241d9f0-ad34-48bf-acbd-de2cff3f7bf7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -108,11 +108,11 @@ Describe 'Get-YurunaHostId persists a stable host UUID atomically' {
     BeforeEach {
         $script:root  = Join-Path ([System.IO.Path]::GetTempPath()) ('hostid-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
         New-Item -ItemType Directory -Path $script:root -Force | Out-Null
-        $script:saved = $env:YURUNA_RUNTIME_DIR
+        $script:saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:root
     }
     AfterEach {
-        $env:YURUNA_RUNTIME_DIR = $script:saved
+        Restore-YurunaTestEnvironment -Saved $script:saved
         if (Test-Path -LiteralPath $script:root) { [System.IO.Directory]::Delete($script:root, $true) }
     }
     It 'generates a 42-prefixed id, persists it, and is idempotent' {

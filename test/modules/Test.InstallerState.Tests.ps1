@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d9d074-28e8-46bf-a0d7-68b45ee5ec8c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,6 +18,7 @@
     the launch format used by installed public runners.
 #>
 BeforeAll {
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     Import-Module (Join-Path $PSScriptRoot 'Test.CriticalRecord.psm1') -Force -DisableNameChecking
     $source = Get-Content (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -Raw
@@ -101,13 +102,13 @@ Describe 'Standalone installer recovery state' {
 
     It 'discovers a selected external config in a recorded custom runtime' {
         $f = New-InstallerStateFixture -ExternalConfig -CustomRuntime
-        $savedRuntime = $env:YURUNA_RUNTIME_DIR
+        $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = $null
             $capture = Invoke-YurunaInstallerState -Action Capture -RepoRoot $f.Repo -PrivateRoot $f.Private -SnapshotPath $f.Snapshot
             $capture.configPath | Should -BeExactly $f.Config
             $capture.launchRecord.runtimeDir | Should -BeExactly $f.Runtime
-        } finally { $env:YURUNA_RUNTIME_DIR = $savedRuntime }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedRuntime }
     }
 
     It 'allows reading frozen options after setup deliberately enrolls a new key' {

@@ -21,6 +21,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"yuruna.com/test/extension/pool-aggregator-service/internal/incident"
 )
 
 // lokiPushLog is a proxy in front of a real Loki that keeps every push it passes
@@ -273,7 +274,7 @@ func TestBackfillAgainstRealLokiAndPrometheus(t *testing.T) {
 	}
 	burst := sc.burst(t)
 	incLines, _ := pushed.lines(map[string]string{"src": "incident", "hostId": idB})
-	if len(incLines) != 2 || !strings.Contains(incLines[0], incidentID(idB, burst[0].end)) {
+	if len(incLines) != 2 || !strings.Contains(incLines[0], incident.ID(idB, burst[0].end)) {
 		t.Errorf("host B's incident: %v", incLines)
 	}
 

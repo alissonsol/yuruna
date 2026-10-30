@@ -6,7 +6,7 @@
 // (pasted text or uploaded files) and deletes its own host's stashes. Both
 // routes go through the SAME storage pipeline as SCP/SFTP -- chooseTarget ->
 // staging -> FinalizeStaging -> commit -- so a UI-created stash is
-// indistinguishable from an SCP one (a stash is a stash, section 1). The only
+// indistinguishable from an SCP one (a stash is a stash, https://yuruna.link/429e934f-0002). The only
 // difference is the recorded source = config.SourceUI.
 package sshsrv
 
@@ -26,21 +26,21 @@ import (
 	"stash-service/internal/store"
 )
 
-// IngestResult is returned to the HTTP create handler (section 5.4).
+// IngestResult is returned to the HTTP create handler (https://yuruna.link/429e934f-0015).
 type IngestResult struct {
 	ID       string
 	Buffered bool
 }
 
-// NamedReader is one file in a multi-file UI upload (section 5.2).
+// NamedReader is one file in a multi-file UI upload (https://yuruna.link/429e934f-0015).
 type NamedReader struct {
 	Name string
 	Body io.Reader
 }
 
 // IngestSingle stores one artifact -- a pasted text blob or a single
-// uploaded file -- through the shared pipeline (section 5.1, section 5.2). name is the
-// client-supplied filename (the section 6.3 extension rules apply); an empty name
+// uploaded file -- through the shared pipeline (https://yuruna.link/429e934f-0015). name is the
+// client-supplied filename (the extension rules of https://yuruna.link/429e934f-000b apply); an empty name
 // falls back to the bare ID. pathMeta is empty for the UI (no SCP
 // destination path). source is normally config.SourceUI.
 func (s *Server) IngestSingle(name, username, clientIP, pathMeta, source string, content io.Reader) (*IngestResult, error) {
@@ -61,9 +61,9 @@ func (s *Server) IngestSingle(name, username, clientIP, pathMeta, source string,
 	return s.finishIngest(id, target, dayDir, stagingDir, buffered, username, false, []string{origName}, "", truncated)
 }
 
-// IngestText stores a pasted text blob (section 5.1). When title is empty the
-// artifact's originalFilename defaults to paste-<id>.txt (section 5.3); a title
-// with a usable extension drives the section 6.3 extension rules like any name.
+// IngestText stores a pasted text blob (https://yuruna.link/429e934f-0015). When title is empty the
+// artifact's originalFilename defaults to paste-<id>.txt (https://yuruna.link/429e934f-0015); a title
+// with a usable extension drives the extension rules (https://yuruna.link/429e934f-000b) like any name.
 func (s *Server) IngestText(text, title, username, clientIP string) (*IngestResult, error) {
 	id, target, buffered, dayDir, stagingDir, err := s.beginIngest(username, clientIP, "", config.SourceUI)
 	if err != nil {
@@ -83,7 +83,7 @@ func (s *Server) IngestText(text, title, username, clientIP string) (*IngestResu
 }
 
 // IngestMulti stores several uploaded files as ONE ZIP archive, mirroring the
-// legacy multi-file grouping (section 5.2 / stash-service section 5.3): one ID,
+// legacy multi-file grouping (https://yuruna.link/429e934f-0015, https://yuruna.link/429e934f-0007): one ID,
 // one record. A single-element slice uses IngestSingle's single-file path;
 // callers should route accordingly.
 func (s *Server) IngestMulti(files []NamedReader, username, clientIP, pathMeta, source string) (*IngestResult, error) {
@@ -166,7 +166,7 @@ func (s *Server) finishIngest(id string, target *store.Store, dayDir, stagingDir
 }
 
 // writeCapped streams content into path, enforcing the 100 MB per-file cap
-// (section 5.5 / stash-service section 5.5): bytes past the cap are discarded,
+// (https://yuruna.link/429e934f-0008): bytes past the cap are discarded,
 // and truncated=true is returned, but the read is drained so the request completes.
 func writeCapped(path string, content io.Reader) (truncated bool, err error) {
 	f, err := os.Create(path)
@@ -193,11 +193,10 @@ func writeCapped(path string, content io.Reader) (truncated bool, err error) {
 	return truncated, nil
 }
 
-// DeleteLocal hard-deletes a stash OWNED BY THIS HOST (section 8.1, section 8.2): it
+// DeleteLocal hard-deletes a stash OWNED BY THIS HOST (https://yuruna.link/429e934f-0018): it
 // removes the artifact (share or buffer), its on-share sidecar, and the
-// local index row. The HTTP layer enforces the local-host-only boundary
-// (foreign hostId -> 403, section 8.3) before calling this; here we operate purely
-// on the local index by ID. Returns sql.ErrNoRows when the id is unknown.
+// local index row. A stash another host owns is removed on the share by the
+// HTTP layer instead; here we operate purely on the local index by ID. Returns sql.ErrNoRows when the id is unknown.
 func (s *Server) DeleteLocal(id string) error {
 	// Serialize against the flush worker so we never act on a record whose
 	// buffered/share location is changing under us (orphan-on-flush race).

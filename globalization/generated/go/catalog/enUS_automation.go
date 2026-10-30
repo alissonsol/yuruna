@@ -7,6 +7,41 @@ package catalog
 // DataenUSautomation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataenUSautomation = `{
+  "automation.deploy_phase_reused": [
+    "The ",
+    {
+      "arg": "phase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " phase is skipped: it passed with these inputs before the ",
+    {
+      "arg": "failedPhase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " phase failed, and its outputs are still in place. Delete ",
+    {
+      "arg": "ledgerPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    " to run every phase again."
+  ],
+  "automation.deploy_tool_deadline": [
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    },
+    " did not finish within ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " seconds and was stopped. It counts as a timeout, and what it did before it was stopped is unknown."
+  ],
   "automation.diagnostic_checkout_unavailable": "(not applicable: checkout evidence is unavailable; pass -CheckoutRoot to use an existing Yuruna checkout)",
   "automation.diagnostic_phase_log_limits": "Phase log scan is limited to 100 files, 12 directory levels, and 10 seconds; each log shows at most its last 64 KiB.",
   "automation.host_setup_module_install_skipped": [
@@ -22,6 +57,27 @@ const DataenUSautomation = `{
       "trust": "internal"
     },
     " -Scope CurrentUser"
+  ],
+  "automation.memory_commit_charge": [
+    "Commit : ",
+    {
+      "arg": "charged",
+      "type": "detail",
+      "trust": "external"
+    },
+    " of ",
+    {
+      "arg": "limit",
+      "type": "detail",
+      "trust": "external"
+    },
+    " charged, ",
+    {
+      "arg": "uncharged",
+      "type": "detail",
+      "trust": "external"
+    },
+    " uncharged (a VM start is charged against this limit, not against free physical memory)"
   ],
   "automation.memory_plan": {
     "kind": "plural",
@@ -121,6 +177,15 @@ const DataenUSautomation = `{
       ]
     }
   },
+  "automation.network_dhcp_lease": [
+    "DHCP lease on the default route device (",
+    {
+      "arg": "device",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")"
+  ],
   "automation.operator_00010ebe540ede32": "this host does not report its installed memory",
   "automation.operator_0006b705ae0abd93": [
     "!! ",
@@ -5044,6 +5109,39 @@ const DataenUSautomation = `{
     }
   ],
   "automation.runtime_ipc_remove_action": "Remove the leftover .NET runtime entry of a process that is gone",
+  "automation.seed_value_unsafe": [
+    "The seed value for ",
+    {
+      "arg": "placeholder",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " cannot be placed in its ",
+    {
+      "arg": "context",
+      "type": "token",
+      "trust": "internal"
+    },
+    " context (template line ",
+    {
+      "arg": "line",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "): it contains ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". Change the value; ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " placeholder occurrence(s) were refused in total."
+  ],
   "automation.setup_service_vm_reason_intended_stopped": "it was stopped on purpose; rebuilding because setup was asked to bring it up",
   "automation.setup_service_vm_reason_lock_unavailable": "its operation lock could not be taken",
   "automation.setup_service_vm_reason_operation_busy": "another start or stop of this service is still running",
@@ -5203,6 +5301,7 @@ const DataenUSautomation = `{
       "trust": "internal"
     },
     " seconds; the listing above may be incomplete (UTM may not be answering Apple Events)."
-  ]
+  ],
+  "automation.top_processes_private_bytes": "Top 10 by private bytes (commit charge)"
 }
 `

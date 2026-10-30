@@ -704,14 +704,16 @@ def _helm_arguments(command: str) -> tuple[list[str], dict[str, str]] | None:
                      '--key-file', '--kube-context', '--kubeconfig', '--kube-apiserver',
                      '--kube-token', '--kube-ca-file', '--kube-tls-server-name', '--kube-as-user',
                      '--kube-as-group', '--qps', '--burst-limit', '--registry-config',
-                     '--repository-config', '--repository-cache', '--output', '-o'}
+                     '--repository-config', '--repository-cache', '--output', '-o',
+                     '--destination', '-d', '--untardir'}
     switches = {'--install', '-i', '--atomic', '--wait', '--wait-for-jobs', '--debug',
                 '--create-namespace', '--dependency-update', '--dry-run', '--devel',
                 '--generate-name', '-g', '--force', '--force-update', '--no-hooks',
                 '--skip-crds', '--skip-schema-validation', '--disable-openapi-validation',
                 '--render-subchart-notes', '--take-ownership', '--cleanup-on-fail',
                 '--reset-values', '--reuse-values', '--reset-then-reuse-values',
-                '--pass-credentials', '--insecure-skip-tls-verify', '--plain-http', '--verify'}
+                '--pass-credentials', '--insecure-skip-tls-verify', '--plain-http', '--verify',
+                '--untar', '--prov'}
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=';&|')
         lexer.whitespace_split = True
@@ -782,10 +784,12 @@ def _helm(c: _Collector) -> None:
                 for alias in args[2:]:
                     repositories.pop(alias, None)
                 continue
-            if not args or args[0] not in {'install', 'upgrade'}:
+            # A pull names its chart first: it downloads the archive a later
+            # install of the local file deploys.
+            if not args or args[0] not in {'install', 'upgrade', 'pull'}:
                 continue
             generate = options.get('--generate-name', options.get('-g')) == 'true'
-            chart_position = 1 if generate and args[0] == 'install' else 2
+            chart_position = 1 if args[0] == 'pull' or (generate and args[0] == 'install') else 2
             if len(args) != chart_position + 1:
                 omitted(number, 'release/chart arguments are ambiguous')
                 continue

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42697c34-7060-4995-8ce1-baeb7bd4bbd6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -311,12 +311,12 @@ Describe 'Get-YurunaPoolStorageConfig (feature on/off)' {
     It 'returns null (never hangs on a Mandatory-param prompt) with no -Config and no YURUNA_CONFIG_PATH' {
         # Regression: the no-Config fallback must resolve a concrete path before
         # calling Read-TestConfig, never invoke it by-name with $Path omitted.
-        $saved = $env:YURUNA_CONFIG_PATH
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_CONFIG_PATH'
         try {
             $env:YURUNA_CONFIG_PATH = ''
             Assert-Null (Get-YurunaPoolStorageConfig) 'no path -> off, not a prompt'
         } finally {
-            $env:YURUNA_CONFIG_PATH = $saved
+            Restore-YurunaTestEnvironment -Saved $saved
         }
     }
     It 'ignores a legacy poolStorage node (clean break)' {
@@ -406,11 +406,13 @@ Describe 'Test-PoolStorageServerIsLocal (is this storage served by this machine?
 
 Describe 'Get-PoolStorageLinuxSudoHint (Linux sudo precondition hint)' {
     It 'returns the sudoers rule + install commands for the given user/paths' {
-        $h = @(Get-PoolStorageLinuxSudoHint -User 'test' -MkdirPath '/usr/bin/mkdir' -MountPath '/usr/bin/mount' -UmountPath '/usr/bin/umount')
+        $tier = [pscustomobject]@{ NetworkPath = '//nas/pool'; LocalPath = '/mnt/pool' }
+        $h = @(Get-PoolStorageLinuxSudoHint -User 'test' -MkdirPath '/usr/bin/mkdir' -MountPath '/usr/bin/mount' -UmountPath '/usr/bin/umount' -Tier @($tier))
         Assert-True ($h.Count -ge 2) 'at least the two command lines'
         $joined = $h -join "`n"
-        Assert-True ($joined -match 'test ALL=\(root\) NOPASSWD: /usr/bin/mkdir, /usr/bin/mount, /usr/bin/umount') 'rule line present'
+        Assert-True ($joined -match 'test ALL=\(root\) NOPASSWD: /usr/bin/mkdir -p /mnt/pool, /usr/bin/mount -t cifs //nas/pool /mnt/pool') 'rule line present'
         Assert-True ($joined -match '/etc/sudoers\.d/yuruna-poolstorage') 'drop-in path present'
+        Assert-True ($joined -match [regex]::Escape("printf '%s\n' '")) 'the rule is written with printf, which leaves its backslashes alone'
         Assert-True ($joined -match 'sudo tee') 'install command present'
     }
     It 'returns an empty array for a blank user (nothing actionable)' {
@@ -419,23 +421,64 @@ Describe 'Get-PoolStorageLinuxSudoHint (Linux sudo precondition hint)' {
 }
 
 Describe 'Get-PoolStorageSudoSpec (shared rule/file spec)' {
-    It 'builds the file, rule, and command list the installer and hint both use' {
-        $spec = Get-PoolStorageSudoSpec -User 'ytest' -MkdirPath '/usr/bin/mkdir' -MountPath '/usr/bin/mount' -UmountPath '/usr/bin/umount'
-        Assert-Equal -Expected '/etc/sudoers.d/yuruna-poolstorage' -Actual $spec.File
-        Assert-Equal -Expected 'ytest ALL=(root) NOPASSWD: /usr/bin/mkdir, /usr/bin/mount, /usr/bin/umount' -Actual $spec.Rule
-        Assert-Equal -Expected 3 -Actual (@($spec.Commands).Count) -Because 'mkdir + mount + umount'
+    BeforeAll {
+        $script:SudoTier = @(
+            [pscustomobject]@{ NetworkPath = '\\192.168.1.10\pool'; LocalPath = '/mnt/yuruna.pool' }
+            [pscustomobject]@{ NetworkPath = '//nas/stash'; LocalPath = '/mnt/yuruna.stash' }
+        )
+        $script:SudoArgs = @{ User = 'ytest'; MkdirPath = '/usr/bin/mkdir'; MountPath = '/usr/bin/mount'; UmountPath = '/usr/bin/umount'
+            TruePath = '/usr/bin/true'; Uid = '1000'; Gid = '1001'; RuntimeDirectory = '/home/ytest/yuruna/test/status/runtime' }
     }
+
+    It 'grants the exact mkdir, mount and umount lines of each tier and no bare binary' {
+        $spec = Get-PoolStorageSudoSpec @script:SudoArgs -Tier $script:SudoTier
+        $grants = @(($spec.Rule -replace '^ytest ALL=\(root\) NOPASSWD: ', '') -split '(?<!\\), ')
+        $grants | Should -Contain '/usr/bin/mkdir -p /mnt/yuruna.pool'
+        $grants | Should -Contain '/usr/bin/umount /mnt/yuruna.stash'
+        @($grants | Where-Object { $_ -like '/usr/bin/mount -t cifs //192.168.1.10/pool /mnt/yuruna.pool -o credentials\=/home/ytest/yuruna/test/status/runtime/poolstorage.*.cifs.cred\,vers\=3.0\,uid\=1000\,gid\=1001\,iocharset\=utf8\,nofail' }) | Should -HaveCount 1
+        foreach ($bare in @('/usr/bin/mkdir', '/usr/bin/mount', '/usr/bin/umount')) {
+            $grants | Should -Not -Contain $bare -Because 'a bare binary grant lets the account mount anything anywhere'
+        }
+        $grants | Should -Contain '/usr/bin/mount --version'
+        $spec.File | Should -Be '/etc/sudoers.d/yuruna-poolstorage'
+    }
+
+    It 'grants word for word the mount command line the mount path runs' {
+        $spec = Get-PoolStorageSudoSpec @script:SudoArgs -Tier $script:SudoTier
+        $command = Get-PoolStorageMountCommand -Config $script:SudoTier[0] -Uid '1000' -Gid '1001' -RuntimeDirectory '/home/ytest/yuruna/test/status/runtime'
+        $line = '/usr/bin/mount ' + (($command.Argument | ForEach-Object { $_ -replace '([\\,:=])', '\$1' }) -join ' ')
+        $spec.Rule.Contains($line) | Should -BeTrue
+        $command.Argument[2] | Should -Be '//192.168.1.10/pool'
+        $command.CredentialFile | Should -BeExactly (Get-PoolStorageMountCommand -Config $script:SudoTier[0] -Uid 1 -Gid 1 -RuntimeDirectory '/home/ytest/yuruna/test/status/runtime').CredentialFile -Because 'the file depends on the mount point alone'
+    }
+
+    It 'proves the rule with a marker that changes with the configuration' {
+        $a = Get-PoolStorageSudoSpec @script:SudoArgs -Tier $script:SudoTier
+        $b = Get-PoolStorageSudoSpec @script:SudoArgs -Tier $script:SudoTier
+        $moved = @([pscustomobject]@{ NetworkPath = '//nas/pool'; LocalPath = '/srv/pool' })
+        $c = Get-PoolStorageSudoSpec @script:SudoArgs -Tier $moved
+        ($a.Marker -join ' ') | Should -Be ($b.Marker -join ' ')
+        ($a.Marker -join ' ') | Should -Not -Be ($c.Marker -join ' ')
+        $a.Rule | Should -Match ([regex]::Escape(($a.Marker -join ' ')) + '$')
+        @($a.Probe | ForEach-Object { $_ -join ' ' }) | Should -Be @('/usr/bin/mkdir --version', '/usr/bin/mount --version', '/usr/bin/umount --version', ($a.Marker -join ' '))
+    }
+
+    It 'refuses a path sudoers cannot match exactly' {
+        $spaced = @([pscustomobject]@{ NetworkPath = '//nas/pool'; LocalPath = '/mnt/my pool' })
+        { Get-PoolStorageSudoSpec @script:SudoArgs -Tier $spaced } | Should -Throw -ExpectedMessage "*'/mnt/my pool' cannot be written into the sudoers rule exactly*"
+    }
+
     It 'is the single source of truth behind the operator hint (rule text matches)' {
-        # The hint must not drift from the spec -- the hint should quote the exact rule.
-        $spec = Get-PoolStorageSudoSpec -User 'ytest'
-        $hint = (Get-PoolStorageLinuxSudoHint -User 'ytest') -join "`n"
+        $spec = Get-PoolStorageSudoSpec -User 'ytest' -Tier $script:SudoTier
+        $hint = (Get-PoolStorageLinuxSudoHint -User 'ytest' -Tier $script:SudoTier) -join "`n"
         Assert-True ($hint -match [regex]::Escape($spec.Rule)) 'the hint quotes the spec rule verbatim'
         Assert-True ($hint -match [regex]::Escape($spec.File)) 'the hint quotes the spec drop-in path'
     }
+
     It 'yields an empty rule for a blank user' {
         $spec = Get-PoolStorageSudoSpec -User ''
         Assert-Equal -Expected '' -Actual $spec.Rule
-        Assert-Equal -Expected 0 -Actual (@($spec.Commands).Count)
+        Assert-Equal -Expected 0 -Actual (@($spec.Probe).Count)
     }
 }
 
@@ -474,6 +517,13 @@ Describe 'pool storage requires durable sudo authorization' -Skip:(-not $IsLinux
             $ArgumentList[-1] -eq '--version' -and $TimeoutSeconds -eq 15
         }
     }
+    It 'runs whole probe lines, the drop-in marker included, without the timestamp' {
+        Mock Invoke-PoolStorageProcess -ModuleName Test.PoolStorage { 0 }
+        Test-PoolStorageSudoReady -Probe (@(, @('/usr/bin/mount', '--version')) + @(, @('/usr/bin/true', 'yuruna-poolstorage-0123456789abcdef'))) | Should -BeTrue
+        Should -Invoke Invoke-PoolStorageProcess -ModuleName Test.PoolStorage -Times 1 -Exactly -ParameterFilter {
+            ($ArgumentList -join ' ') -eq '-n -k /usr/bin/true yuruna-poolstorage-0123456789abcdef'
+        }
+    }
     It 'stops as soon as one required command lacks passwordless permission' {
         Mock Invoke-PoolStorageProcess -ModuleName Test.PoolStorage {
             param($ArgumentList)
@@ -495,7 +545,11 @@ Describe 'noninteractive pool sudo repair uses existing authorization' -Skip:(-n
         $script:PoolSudoRuleSource = ''
         $script:PoolSudoRuleText = ''
         Mock Get-PoolStorageSudoCommandPath -ModuleName Test.PoolStorage {
-            @{ Mkdir = '/fixture/mkdir'; Mount = '/fixture/mount'; Umount = '/fixture/umount' }
+            @{ Mkdir = '/fixture/mkdir'; Mount = '/fixture/mount'; Umount = '/fixture/umount'; True = '/fixture/true' }
+        }
+        Mock Get-PoolStorageMountTier -ModuleName Test.PoolStorage { , @([pscustomobject]@{ NetworkPath = '//nas/pool'; LocalPath = '/mnt/pool' }) }
+        Mock Get-PoolStorageMountCommand -ModuleName Test.PoolStorage {
+            @{ Remote = '//nas/pool'; LocalPath = '/mnt/pool'; CredentialFile = '/run/c.cred'; Argument = @('-t', 'cifs', '//nas/pool', '/mnt/pool', '-o', 'credentials=/run/c.cred,vers=3.0') }
         }
         # Only the native boundary is replaced: readiness, the installer and
         # its final permission proof all execute their production behavior.
@@ -528,14 +582,15 @@ Describe 'noninteractive pool sudo repair uses existing authorization' -Skip:(-n
     It 'installs and proves durable permissions without another password prompt' {
         $r = Set-PoolStorageSudoers -User fixture -NonInteractive -Confirm:$false
         $r.Action | Should -Be 'installed'
-        $script:PoolSudoRuleText | Should -Be "fixture ALL=(root) NOPASSWD: /fixture/mkdir, /fixture/mount, /fixture/umount`n"
+        $script:PoolSudoRuleText | Should -Match ('^fixture ALL=\(root\) NOPASSWD: /fixture/mkdir -p /mnt/pool, /fixture/mount -t cifs //nas/pool /mnt/pool -o credentials\\=/run/c\.cred\\,vers\\=3\.0, /fixture/umount /mnt/pool, ' +
+            '/fixture/mkdir --version, /fixture/mount --version, /fixture/umount --version, /fixture/true yuruna-poolstorage-[0-9a-f]{16}\n$')
         Test-Path -LiteralPath $script:PoolSudoRuleSource | Should -BeFalse
         Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 1 -Exactly -ParameterFilter {
             $ArgumentList[0] -eq '-n' -and $ArgumentList[1] -eq 'install' -and
             $ArgumentList[2] -eq '-m' -and $ArgumentList[3] -eq '0440' -and $ArgumentList[-1] -eq '/etc/sudoers.d/yuruna-poolstorage'
         }
         Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 0 -Exactly -ParameterFilter { $ArgumentList[0] -ne '-n' }
-        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 4 -Exactly -ParameterFilter { $ArgumentList -contains '-k' }
+        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 5 -Exactly -ParameterFilter { $ArgumentList -contains '-k' }
     }
     It 'reports the manual remedy when the credential cache is cold' {
         $script:PoolSudoCold = $true
@@ -593,7 +648,7 @@ Describe 'noninteractive pool sudo repair uses existing authorization' -Skip:(-n
         Should -Invoke sudo -ModuleName Test.PoolStorage -Times 1 -Exactly -ParameterFilter {
             ($args -join ' ') -eq 'tee /etc/sudoers.d/yuruna-poolstorage'
         }
-        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 4 -Exactly -ParameterFilter { $ArgumentList -contains '-k' }
+        Should -Invoke Invoke-PoolStorageProcessResult -ModuleName Test.PoolStorage -Times 5 -Exactly -ParameterFilter { $ArgumentList -contains '-k' }
     }
 }
 

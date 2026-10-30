@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42f7b3b7-64ca-41c6-96ad-88a15026c482
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,11 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
+# --- REGION: Failure records
+# A failure this script can name is recorded for the runner before it exits:
+# https://yuruna.link/42820e91-000a
+Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.HostProvision.psm1') -DisableNameChecking
+
 # --- REGION: Platform guard
 if (-not $IsWindows) {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_f403b438cea77392')
@@ -67,7 +72,9 @@ switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
     'X64'   { $hostArch = 'amd64'; $platformDir = 'hyperv';    $downloadExtension = 'zip' }
     'Arm64' { $hostArch = 'arm64'; $platformDir = 'kvm-arm64'; $downloadExtension = 'qcow2' }
     default {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_1f5a3a41f93d6b9f' -Arguments @{ oSArchitecture = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" })
+        $message = Format-YurunaOperatorMessage -Key 'host.operator_1f5a3a41f93d6b9f' -Arguments @{ oSArchitecture = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" }
+        Write-YurunaProvisionResult -Kind unsupported -Message $message
+        Write-Error $message
         exit 1
     }
 }
@@ -95,7 +102,9 @@ $downloadFile = Join-Path $downloadDir "downloaded.$downloadExtension"
 
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e30f6e2006f710fa' -Arguments @{ downloadDir = "$downloadDir" })
 if (!(Test-Path -Path $downloadDir)) {
-    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_84177e952e2487af' -Arguments @{ downloadDir = "$downloadDir" })
+    $message = Format-YurunaOperatorMessage -Key 'host.operator_84177e952e2487af' -Arguments @{ downloadDir = "$downloadDir" }
+    Write-YurunaProvisionResult -Kind unsupported -Message $message
+    Write-Output $message
     exit 1
 }
 
@@ -206,7 +215,9 @@ if ($hostArch -eq 'amd64') {
             $stream.Close()
         }
     } else {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_a987e4f99dc9ede6')
+        $message = Format-YurunaOperatorMessage -Key 'host.operator_a987e4f99dc9ede6'
+        Write-YurunaProvisionResult -Kind integrity -Message $message
+        Write-Error $message
         $zip.Dispose()
         exit 1
     }
@@ -218,7 +229,9 @@ if ($hostArch -eq 'amd64') {
     # refuses while the guest partition still spans the disk.
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_90754900d1242d57')
     if (-not (Convert-Qcow2ToVhdx -SourcePath $downloadFile -DestPath $extractedFile -SizeBytes 0)) {
-        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_9eb8129c37e792c7' -Arguments @{ downloadFile = "$downloadFile" })
+        $message = Format-YurunaOperatorMessage -Key 'host.operator_9eb8129c37e792c7' -Arguments @{ downloadFile = "$downloadFile" }
+        Write-YurunaProvisionResult -Kind tool -Message $message
+        Write-Error $message
         Remove-Item $extractedFile -Force -ErrorAction SilentlyContinue
         exit 1
     }
@@ -232,7 +245,9 @@ try {
     $extractedSize = (Get-Item -LiteralPath $extractedFile -ErrorAction Stop).Length
     $keptPrevious = Publish-YurunaBaseImage -DownloadFile $extractedFile -BaseImageFile $baseImageFile -PreviousFile $previousFile -ExpectedSize $extractedSize -Confirm:$false
 } catch {
-    Write-Error (Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" })
+    $message = Format-YurunaOperatorMessage -Key 'host.base_image_publish_failed' -Arguments @{ baseImageFile = "$baseImageFile"; message = "$($_.Exception.Message)" }
+    Write-YurunaProvisionResult -Kind tool -Message $message
+    Write-Error $message
     exit 1
 }
 if ($keptPrevious) {

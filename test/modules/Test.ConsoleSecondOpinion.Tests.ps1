@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42c1aae0-6851-429a-a359-f13d409e76c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -113,7 +113,7 @@ Describe 'Get-VMConsoleSecondOpinion (host.macos.utm)' {
 
     It 'is published by the driver so the sequence engine can feature-detect it' {
         Assert-NotNull $script:FnAst "Get-VMConsoleSecondOpinion must exist in $($script:DriverPath)"
-        $source = Get-Content -Raw -LiteralPath $script:DriverPath
+        $source = Get-YurunaTestSourceText -Path $script:DriverPath
         $export = [regex]::Match($source, '(?s)Export-ModuleMember\s+-Function\s+(?<names>.+?)\r?\n\r?\n')
         Assert-True $export.Success 'the driver must carry an Export-ModuleMember block'
         Assert-Match 'Get-VMConsoleSecondOpinion' $export.Groups['names'].Value `

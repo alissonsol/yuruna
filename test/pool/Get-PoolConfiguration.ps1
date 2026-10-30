@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 421c914b-b896-456f-9955-33d362db4fd8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,7 @@ try {
     if (-not $open.Ok) { Write-JsonResult ([ordered]@{ ok = $false; error = $open.Error }); exit $ExitFailure }
     # --- REGION: Report
     $doc = Read-YurunaPoolsDoc -ConfigurationDir $t.ConfigurationDir
-    # See https://yuruna.link/42010605-0004
+    # See https://yuruna.link/42010605-0092
     $autoEnrollment = if ($doc -is [System.Collections.IDictionary] -and $doc['autoEnrollment']) { $doc['autoEnrollment'] } else { [ordered]@{} }
     Write-JsonResult ([ordered]@{ ok = $true; pools = @($doc['pools']); autoEnrollment = $autoEnrollment })
     exit $ExitOk

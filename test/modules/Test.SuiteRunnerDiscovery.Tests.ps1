@@ -1,0 +1,427 @@
+<#PSScriptInfo
+.VERSION 2026.10.30
+.GUID 426885fa-49ed-4e47-8e22-c7994fa575f8
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test pester runner
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES Pester
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Behavior of tools/Invoke-TestSuite.ps1: discovery, new-suite registration, and the result reporting that keeps diagnostics and evidence.
+.DESCRIPTION
+    Every case drives the real runner against a throwaway fixture tree through
+    its -Root parameter (Test.SuiteRunnerFixture.psm1), so nothing depends on
+    the state of this repository's own suites. A test runner that reports green
+    when it should not is worse than none, because it is trusted, which is why
+    failure cases outnumber success cases across the Test.SuiteRunner* suites.
+#>
+
+BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.SuiteRunnerFixture.psm1') -Force -DisableNameChecking
+    $script:Runner = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../tools/Invoke-TestSuite.ps1'))
+    $script:PassingSuite = "Describe 'ok' { It 'a' { 1 | Should -Be 1 }; It 'b' { 2 | Should -Be 2 } }"
+    $script:ThisPlatform = if ($IsWindows) { 'windows' } elseif ($IsMacOS) { 'macos' } else { 'linux' }
+    $script:OtherPlatform = if ($script:ThisPlatform -eq 'windows') { 'linux' } else { 'windows' }
+}
+
+Describe 'discovery' {
+    It 'checks only selected baseline suites while retaining missing-suite detection' {
+        $root = New-FixtureTree
+        try {
+            Set-FixtureSuite -Root $root -Name 'Alpha' -Body $script:PassingSuite
+            Set-FixtureSuite -Root $root -Name 'Beta' -Body $script:PassingSuite
+            $hostDir = Join-Path $root 'host/modules'
+            $null = New-Item -ItemType Directory -Path $hostDir -Force
+            Set-Content -LiteralPath (Join-Path $hostDir 'Host.Tests.ps1') -Value $script:PassingSuite
+            (Invoke-Runner -Root $root -UpdateBaseline).ExitCode | Should -Be 0
+            (Invoke-Runner -Root $root -Filter 'Alpha*').ExitCode | Should -Be 0
+            (Invoke-Runner -Root $root -Path 'test/modules').ExitCode | Should -Be 0
+            Remove-Item -LiteralPath (Join-Path $root 'test/modules/Beta.Tests.ps1') -Force
+            $missing = Invoke-Runner -Root $root -Filter '*.Tests.ps1' -Path 'test/modules'
+            $missing.ExitCode | Should -Not -Be 0
+            ($missing.Result.problems -join ' ') | Should -Match 'Beta.Tests.ps1.*not in this run'
+            ($missing.Result.problems -join ' ') | Should -Not -Match 'Host.Tests.ps1'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'honors -Filter on the suite file name' {
+        $root = New-FixtureTree
+        try {
+            Set-FixtureSuite -Root $root -Name 'Alpha' -Body $script:PassingSuite
+            Set-FixtureSuite -Root $root -Name 'Beta'  -Body $script:PassingSuite
+            $fixtureRunner = New-FixtureRunner -Root $root
+            $null = & (Get-Process -Id $PID).Path -NoProfile -File $fixtureRunner -Root $root -Filter 'Alpha*' -Quiet 2>&1
+            $json = Get-Content -LiteralPath (Join-Path $root '.test-results/suite-results.json') -Raw | ConvertFrom-Json
+            $json.totals.suites | Should -Be 1
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'finds every tracked suite in this repo' {
+        # Discovery only (-ListOnly), so this neither re-runs the suite set nor
+        # reads a previous run's artifact -- an artifact written before the last
+        # suite was added would race against the git listing below.
+        $here     = Split-Path -Parent $PSCommandPath
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
+        Push-Location $repoRoot
+        try {
+            # The runner's own selector: tracked PLUS new-but-uncommitted,
+            # minus anything .gitignore covers. A suite must be runnable the
+            # moment it is written, not the moment it is committed, so a bare
+            # `git ls-files` here would under-count by exactly the new files.
+            $tracked = @(git ls-files --cached --others --exclude-standard |
+                    Where-Object { $_ -match '\.Tests\.ps1$' } |
+                    Where-Object { $_ -like 'test/modules/*' -or $_ -like 'host/modules/*' } |
+                    Sort-Object -Unique)
+            $found = @(& (Get-Process -Id $PID).Path -NoProfile -File $script:Runner -ListOnly)
+            $tracked.Count | Should -BeGreaterThan 100
+            $found.Count   | Should -Be $tracked.Count
+            (Compare-Object $tracked $found) | Should -BeNullOrEmpty
+        } finally { Pop-Location }
+    }
+}
+
+Describe 'new suite registration preserves the historical protection floor' {
+    BeforeEach {
+        $script:RegistrationRoot = New-FixtureTree
+        Set-FixtureSuite -Root $script:RegistrationRoot -Name Alpha -Body $script:PassingSuite
+        $script:RegistrationBaseline = Join-Path $script:RegistrationRoot 'test/modules/suite-baseline.json'
+        $historical = [ordered]@{
+            schemaVersion=1; recordedUtc='2026-09-01T00:00:00Z'; pesterVersion='6.2.0'
+            totals=[ordered]@{suites=1;tests=2;failed=0;skipped=0}
+            suites=[ordered]@{'test/modules/Alpha.Tests.ps1'=[ordered]@{total=2;skipped=0;seconds=7.25}}
+        }
+        $script:RegistrationBefore = $historical | ConvertTo-Json -Depth 6
+        [IO.File]::WriteAllText($script:RegistrationBaseline, $script:RegistrationBefore)
+    }
+    AfterEach {
+        Remove-Item -LiteralPath $script:RegistrationRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    It 'registers every new passing suite without rewriting old rows or claiming a full run' {
+        Set-FixtureSuite -Root $script:RegistrationRoot -Name Alpha -Body "Describe 'old failure' { It 'still fails' { throw 'existing failure' } }"
+        Set-FixtureSuite -Root $script:RegistrationRoot -Name Beta -Body $script:PassingSuite
+        Set-FixtureSuite -Root $script:RegistrationRoot -Name Gamma -Body $script:PassingSuite
+        $result = Invoke-Runner -Root $script:RegistrationRoot -RegisterNewSuites
+        $result.ExitCode | Should -Be 0
+        $result.Result.scope | Should -Be 'new-suite-registration'
+        $result.Result.totals.suites | Should -Be 2
+        $result.Result.totals.tests | Should -Be 4
+        $after = Get-Content -Raw $script:RegistrationBaseline | ConvertFrom-Json
+        $before = $script:RegistrationBefore | ConvertFrom-Json
+        ($after.suites.'test/modules/Alpha.Tests.ps1' | ConvertTo-Json) | Should -Be ($before.suites.'test/modules/Alpha.Tests.ps1' | ConvertTo-Json)
+        $after.recordedUtc | Should -Be $before.recordedUtc
+        $after.totals.suites | Should -Be 3
+        $after.totals.tests | Should -Be 6
+        $after.totals.skipped | Should -Be 0
+        $after.registrations.Count | Should -Be 1
+        $after.registrations[0].suites | Should -Be @('test/modules/Beta.Tests.ps1','test/modules/Gamma.Tests.ps1')
+        $after.registrations[0].sourceSha256.'test/modules/Beta.Tests.ps1' | Should -Be (Get-FileHash (Join-Path $script:RegistrationRoot 'test/modules/Beta.Tests.ps1')).Hash
+        $full = Invoke-Runner -Root $script:RegistrationRoot
+        $full.ExitCode | Should -Be 1
+        ($full.Result.problems -join ' ') | Should -Match 'Alpha.Tests.ps1.*failed'
+        ($full.Result.problems -join ' ') | Should -Match 'tests disappeared'
+    }
+    It 'preserves the file byte for byte when any new suite is <Kind>' -TestCases @(
+        @{Kind='failing';Body="Describe 'bad' { It 'fails' { throw 'fixture failure' } }"}
+        @{Kind='skipped';Body="Describe 'skip' { It 'not verified' -Skip { } }"}
+        @{Kind='empty';Body="Describe 'empty' { }"}
+        @{Kind='crashed';Body="throw 'discovery crash'"}
+    ) {
+        param($Kind, $Body)
+        Set-FixtureSuite -Root $script:RegistrationRoot -Name Good -Body $script:PassingSuite
+        Set-FixtureSuite -Root $script:RegistrationRoot -Name Unverified -Body $Body
+        $result = Invoke-Runner -Root $script:RegistrationRoot -RegisterNewSuites
+        $result.ExitCode | Should -Be 1 -Because $Kind
+        Get-Content -Raw $script:RegistrationBaseline | Should -BeExactly $script:RegistrationBefore
+    }
+    It 'refuses deleted historical suites before running new suites' {
+        Remove-Item (Join-Path $script:RegistrationRoot 'test/modules/Alpha.Tests.ps1')
+        Set-FixtureSuite -Root $script:RegistrationRoot -Name Beta -Body $script:PassingSuite
+        (Invoke-Runner -Root $script:RegistrationRoot -RegisterNewSuites).ExitCode | Should -Be 1
+        Test-Path (Join-Path $script:RegistrationRoot '.test-results') | Should -BeFalse
+        Get-Content -Raw $script:RegistrationBaseline | Should -BeExactly $script:RegistrationBefore
+    }
+    It 'refuses restricted discovery and incompatible update modes' -TestCases @(
+        @{Extra=@{Filter='Beta*'}}, @{Extra=@{Path='test/modules'}},
+        @{Extra=@{ListOnly=$true}}, @{Extra=@{UpdateBaseline=$true}}
+    ) {
+        param($Extra)
+        Set-FixtureSuite -Root $script:RegistrationRoot -Name Beta -Body $script:PassingSuite
+        (Invoke-Runner -Root $script:RegistrationRoot -RegisterNewSuites @Extra).ExitCode | Should -Be 2
+        Get-Content -Raw $script:RegistrationBaseline | Should -BeExactly $script:RegistrationBefore
+    }
+    It 'requires an existing valid baseline' {
+        Remove-Item $script:RegistrationBaseline
+        (Invoke-Runner -Root $script:RegistrationRoot -RegisterNewSuites).ExitCode | Should -Be 2
+        Test-Path $script:RegistrationBaseline | Should -BeFalse
+        Set-Content $script:RegistrationBaseline '{invalid json'
+        (Invoke-Runner -Root $script:RegistrationRoot -RegisterNewSuites).ExitCode | Should -Be 2
+        (Get-Content -Raw $script:RegistrationBaseline).Trim() | Should -Be '{invalid json'
+    }
+    It 'does nothing when every suite is already registered' {
+        (Invoke-Runner -Root $script:RegistrationRoot -RegisterNewSuites).ExitCode | Should -Be 0
+        Get-Content -Raw $script:RegistrationBaseline | Should -BeExactly $script:RegistrationBefore
+        Test-Path (Join-Path $script:RegistrationRoot '.test-results') | Should -BeFalse
+    }
+    It 'refuses source changes made by the suite while it is running' {
+        Set-FixtureSuite -Root $script:RegistrationRoot -Name Beta -Body @'
+Describe 'changing source' {
+    It 'passes' { 1 | Should -Be 1 }
+    AfterAll { Add-Content -LiteralPath $PSCommandPath -Value '# modified during execution' }
+}
+'@
+        $result = Invoke-Runner -Root $script:RegistrationRoot -RegisterNewSuites
+        $result.ExitCode | Should -Be 1
+        ($result.Result.problems -join ' ') | Should -Match 'Suite source changed'
+        Get-Content -Raw $script:RegistrationBaseline | Should -BeExactly $script:RegistrationBefore
+    }
+    It 'refuses discovery changes made by the suite while it is running' {
+        Set-FixtureSuite -Root $script:RegistrationRoot -Name Beta -Body @'
+Describe 'changing discovery' {
+    It 'passes' { 1 | Should -Be 1 }
+    AfterAll { Set-Content (Join-Path $PSScriptRoot 'Extra.Tests.ps1') "Describe 'extra' { It 'unverified' { } }" }
+}
+'@
+        $result = Invoke-Runner -Root $script:RegistrationRoot -RegisterNewSuites
+        $result.ExitCode | Should -Be 1
+        ($result.Result.problems -join ' ') | Should -BeLike '*discovery changed*'
+        Get-Content -Raw $script:RegistrationBaseline | Should -BeExactly $script:RegistrationBefore
+    }
+    It 'preserves a concurrent baseline edit instead of overwriting it' {
+        Set-FixtureSuite -Root $script:RegistrationRoot -Name Beta -Body @'
+Describe 'changing baseline' {
+    It 'passes' { 1 | Should -Be 1 }
+    AfterAll { Add-Content (Join-Path $PSScriptRoot 'suite-baseline.json') ' ' }
+}
+'@
+        $result = Invoke-Runner -Root $script:RegistrationRoot -RegisterNewSuites
+        $result.ExitCode | Should -Be 1
+        ($result.Result.problems -join ' ') | Should -BeLike '*Baseline changed*'
+        (Get-Content -Raw $script:RegistrationBaseline | ConvertFrom-Json).totals.suites | Should -Be 1
+    }
+}
+
+Describe 'result reporting failures preserve diagnostics and evidence' {
+    BeforeEach {
+        $script:ReportingRoot = New-FixtureTree
+        $script:ReportingDirectory = Join-Path $script:ReportingRoot '.test-results'
+        $script:ReportingBaseline = Join-Path $script:ReportingRoot 'test/modules/suite-baseline.json'
+        $script:ReportingXml = Join-Path $script:ReportingDirectory 'nunit-test_modules_Alpha.Tests.ps1.xml'
+        $baseline = [ordered]@{
+            schemaVersion = 1; recordedUtc = '2026-09-01T00:00:00Z'; pesterVersion = '6.2.0'
+            totals = [ordered]@{ suites = 1; tests = 45; failed = 0; skipped = 0 }
+            suites = [ordered]@{ 'test/modules/Alpha.Tests.ps1' = [ordered]@{ total = 45; skipped = 0; seconds = 1 } }
+        }
+        [IO.File]::WriteAllText($script:ReportingBaseline, ($baseline | ConvertTo-Json -Depth 6))
+        $script:ReportingBaselineHash = (Get-FileHash -LiteralPath $script:ReportingBaseline).Hash
+    }
+
+    AfterEach {
+        Remove-Item -LiteralPath $script:ReportingRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'publishes a passing result and baseline while releasing its result-directory lock' {
+        Remove-Item -LiteralPath $script:ReportingBaseline
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body "Describe 'new passing producer' { It 'passes' { 3 | Should -Be 3 } }"
+        $run = Invoke-Runner -Root $script:ReportingRoot -UpdateBaseline
+        $run.ExitCode | Should -Be 0 -Because $run.Output
+        $run.Result.totals.tests | Should -Be 1
+        $run.Result.totals.failed | Should -Be 0
+        $run.Result.totals.incomplete | Should -Be 0
+        $run.Result.problems | Should -BeNullOrEmpty
+        $row = @($run.Result.suites)[0]
+        $row.rc | Should -Be 0
+        $row.haveXml | Should -BeTrue
+        $baseline = Get-Content -LiteralPath $script:ReportingBaseline -Raw | ConvertFrom-Json
+        $baseline.totals.suites | Should -Be 1
+        $baseline.totals.tests | Should -Be 1
+        $baseline.suites.'test/modules/Alpha.Tests.ps1'.total | Should -Be 1
+        Test-Path -LiteralPath $row.stdoutLog -PathType Leaf | Should -BeTrue
+        Test-Path -LiteralPath $row.stderrLog -PathType Leaf | Should -BeTrue
+        $archive = Join-Path (Split-Path -Parent $row.stdoutLog) 'suite-results.json'
+        $current = Join-Path $script:ReportingDirectory 'suite-results.json'
+        (Get-FileHash -LiteralPath $archive).Hash | Should -BeExactly (Get-FileHash -LiteralPath $current).Hash
+        $lockPath = Join-Path $script:ReportingDirectory '.runner.lock'
+        $released = [IO.File]::Open($lockPath, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        try {
+            $released.CanWrite | Should -BeTrue
+        } finally {
+            $released.Dispose()
+        }
+    }
+
+    It 'retains both diagnostic streams and refuses a baseline update when a suite returns without XML' {
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body @'
+[Console]::Out.WriteLine('fixture stdout: result export never completed')
+[Console]::Error.WriteLine('fixture stderr: writer detail')
+'@
+        $run = Invoke-Runner -Root $script:ReportingRoot -UpdateBaseline
+        $run.ExitCode | Should -Be 1 -Because $run.Output
+        $row = @($run.Result.suites)[0]
+        $row.rc | Should -Be 2
+        $row.haveXml | Should -BeFalse
+        $run.Result.totals.incomplete | Should -Be 1
+        $run.Output | Should -Match '1 incomplete'
+        $row.message | Should -Match 'fixture stdout: result export never completed'
+        $row.message | Should -Match 'fixture stderr: writer detail'
+        Get-Content -LiteralPath $row.stdoutLog -Raw | Should -Match 'fixture stdout: result export never completed'
+        Get-Content -LiteralPath $row.stderrLog -Raw | Should -Match 'fixture stderr: writer detail'
+        ($run.Result.problems -join ' ') | Should -Match 'fixture stdout: result export never completed'
+        ($run.Result.problems -join ' ') | Should -Not -Match 'tests disappeared'
+        (Get-FileHash -LiteralPath $script:ReportingBaseline).Hash | Should -BeExactly $script:ReportingBaselineHash
+    }
+
+    It 'retains Pester export diagnostics when the assertion passes but the result path is a directory' {
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body @'
+$null = [IO.Directory]::CreateDirectory($PesterPreference.TestResult.OutputPath.Value)
+Describe 'result export failure' {
+    It 'finishes its assertion before result export' {
+        1 | Should -Be 1
+        [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'assertion-completed'), 'assertion completed')
+    }
+}
+'@
+        $run = Invoke-Runner -Root $script:ReportingRoot -UpdateBaseline
+        $run.ExitCode | Should -Be 1 -Because $run.Output
+        Get-Content -LiteralPath (Join-Path $script:ReportingRoot 'test/modules/assertion-completed') -Raw |
+            Should -BeExactly 'assertion completed'
+        $row = @($run.Result.suites)[0]
+        $row.rc | Should -Be 2
+        $row.haveXml | Should -BeFalse
+        $run.Result.totals.incomplete | Should -Be 1
+        $diagnosticPattern = [regex]::Escape($script:ReportingXml) + '|UnauthorizedAccess|denied|directory'
+        Get-Content -LiteralPath $row.stdoutLog -Raw | Should -Match $diagnosticPattern
+        $row.message | Should -Match $diagnosticPattern
+        ($run.Result.problems -join ' ') | Should -Not -Match 'tests disappeared'
+        (Get-FileHash -LiteralPath $script:ReportingBaseline).Hash | Should -BeExactly $script:ReportingBaselineHash
+    }
+
+    It 'rejects a process that exits zero before the child can validate its result' {
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body @'
+[Console]::Out.WriteLine('fixture abrupt zero exit')
+[Environment]::Exit(0)
+'@
+        $run = Invoke-Runner -Root $script:ReportingRoot -UpdateBaseline
+        $run.ExitCode | Should -Be 1 -Because $run.Output
+        $row = @($run.Result.suites)[0]
+        $row.rc | Should -Be 0
+        $row.haveXml | Should -BeFalse
+        $run.Result.totals.incomplete | Should -Be 1
+        ($run.Result.problems -join ' ') | Should -Match 'fixture abrupt zero exit'
+        ($run.Result.problems -join ' ') | Should -Not -Match 'tests disappeared'
+        (Get-FileHash -LiteralPath $script:ReportingBaseline).Hash | Should -BeExactly $script:ReportingBaselineHash
+    }
+
+    It 'rejects <Kind> XML without accepting missing test counts' -TestCases @(
+        @{ Kind = 'malformed'; Xml = '<broken' }
+        @{ Kind = 'a non-NUnit root in'; Xml = '<unrelated total="45" failures="0" errors="0" />' }
+    ) {
+        param($Kind, $Xml)
+        $body = "[IO.File]::WriteAllText(`$PesterPreference.TestResult.OutputPath.Value, '" + $Xml.Replace("'", "''") + "')"
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body $body
+        $run = Invoke-Runner -Root $script:ReportingRoot -UpdateBaseline
+        $run.ExitCode | Should -Be 1 -Because "$Kind XML: $($run.Output)"
+        @($run.Result.suites)[0].rc | Should -Be 2
+        @($run.Result.suites)[0].haveXml | Should -BeFalse
+        $run.Result.totals.incomplete | Should -Be 1
+        ($run.Result.problems -join ' ') | Should -Not -Match 'tests disappeared'
+        (Get-FileHash -LiteralPath $script:ReportingBaseline).Hash | Should -BeExactly $script:ReportingBaselineHash
+    }
+
+    It 'refuses an occupied result directory before replacing any existing evidence' {
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body "throw 'occupied result directory must prevent suite launch'"
+        $null = New-Item -ItemType Directory -Path $script:ReportingDirectory
+        [IO.File]::WriteAllText($script:ReportingXml, '<test-results total="45" failures="0" />')
+        $reportPath = Join-Path $script:ReportingDirectory 'suite-results.json'
+        [IO.File]::WriteAllText($reportPath, '{"previous":"result evidence"}')
+        $xmlHash = (Get-FileHash -LiteralPath $script:ReportingXml).Hash
+        $reportHash = (Get-FileHash -LiteralPath $reportPath).Hash
+        $lockPath = Join-Path $script:ReportingDirectory '.runner.lock'
+        $held = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        try {
+            $run = Invoke-Runner -Root $script:ReportingRoot -UpdateBaseline
+            $run.ExitCode | Should -Be 1 -Because $run.Output
+            $run.Output | Should -Match 'lock|already.*use|already.*running'
+            $run.Output | Should -Not -Match 'must prevent suite launch'
+            (Get-FileHash -LiteralPath $script:ReportingXml).Hash | Should -BeExactly $xmlHash
+            (Get-FileHash -LiteralPath $reportPath).Hash | Should -BeExactly $reportHash
+            (Get-FileHash -LiteralPath $script:ReportingBaseline).Hash | Should -BeExactly $script:ReportingBaselineHash
+        } finally {
+            $held.Dispose()
+        }
+    }
+
+    It 'clears only selected stale XML and preserves results for suites excluded by a filter' {
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body "[Console]::Out.WriteLine('selected suite has no new XML')"
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Beta -Body "throw 'excluded suite must not execute'"
+        $null = New-Item -ItemType Directory -Path $script:ReportingDirectory
+        [IO.File]::WriteAllText($script:ReportingXml, '<test-results total="45" failures="0" errors="0" />')
+        $otherXml = Join-Path $script:ReportingDirectory 'nunit-test_modules_Beta.Tests.ps1.xml'
+        [IO.File]::WriteAllText($otherXml, '<test-results total="7" failures="0" errors="0" />')
+        $otherHash = (Get-FileHash -LiteralPath $otherXml).Hash
+        $run = Invoke-Runner -Root $script:ReportingRoot -Filter 'Alpha*'
+        $run.ExitCode | Should -Be 1 -Because $run.Output
+        $run.Result.totals.suites | Should -Be 1
+        $run.Result.totals.incomplete | Should -Be 1
+        @($run.Result.suites)[0].haveXml | Should -BeFalse
+        Test-Path -LiteralPath $script:ReportingXml | Should -BeFalse
+        (Get-FileHash -LiteralPath $otherXml).Hash | Should -BeExactly $otherHash
+    }
+
+    It 'keeps valid XML and the zero process status for ordinary assertion failures' {
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body "Describe 'reported assertion failure' { It 'fails' { 1 | Should -Be 2 } }"
+        $run = Invoke-Runner -Root $script:ReportingRoot
+        $run.ExitCode | Should -Be 1 -Because $run.Output
+        $row = @($run.Result.suites)[0]
+        $row.rc | Should -Be 0
+        $row.haveXml | Should -BeTrue
+        $row.failed | Should -Be 1
+        $row.total | Should -Be 1
+        $run.Result.totals.incomplete | Should -Be 0
+        ($run.Result.problems -join ' ') | Should -Match '1 failed'
+        ($run.Result.problems -join ' ') | Should -Not -Match 'no result file'
+        $row.message | Should -Match 'FAIL  reported assertion failure.fails'
+        $row.message | Should -Match 'Expected 2, but got 1'
+        $row.message | Should -Match 'Alpha.Tests.ps1:1'
+        $row.message | Should -Match 'NUnit results:.*nunit-test_modules_Alpha.Tests.ps1.xml'
+        $row.message | Should -Match 'Worker logs:'
+        $run.Output | Should -Match 'Expected 2, but got 1'
+    }
+
+    It 'reports unexecuted tests when setup fails' {
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body "BeforeAll { throw 'fixture setup failed' }; Describe 'setup' { It 'cannot run' { 1 | Should -Be 1 } }"
+        $run = Invoke-Runner -Root $script:ReportingRoot
+        $run.ExitCode | Should -Be 1
+        $row = @($run.Result.suites)[0]
+        $row.haveXml | Should -BeTrue
+        $row.message | Should -Match 'FAIL  setup.cannot run'
+        $row.message | Should -Match 'Most likely a setup in some parent block failed'
+        $run.Output | Should -Match 'FAIL  setup.cannot run'
+    }
+
+    It 'bounds console diagnostics while retaining every failure in NUnit' {
+        $body = "Describe 'many failures' { " + ((1..12 | ForEach-Object { "It 'case $_' { throw ('oversized detail ' + ('x' * 3000)) }" }) -join '; ') + ' }'
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body $body
+        $run = Invoke-Runner -Root $script:ReportingRoot
+        $run.ExitCode | Should -Be 1
+        $row = @($run.Result.suites)[0]
+        $row.failed | Should -Be 12
+        ([regex]::Matches($row.message, '(?m)^FAIL  ')).Count | Should -Be 10
+        $row.message | Should -Match '2 more failure'
+        $row.message | Should -Match 'truncated; see NUnit results'
+        $row.message.Length | Should -BeLessThan 30000
+        $xml = [xml]([IO.File]::ReadAllText($script:ReportingXml))
+        @($xml.SelectNodes('//test-case[failure]')).Count | Should -Be 12
+        $xml.SelectSingleNode('//test-case/failure/message').InnerText.Length | Should -BeGreaterThan 3000
+    }
+}

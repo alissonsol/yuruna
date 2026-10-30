@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42ea6545-e599-4ca8-a31d-79584a62e9e0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Migrate the pool configuration store to pools.yml schemaVersion 4, once.
 .DESCRIPTION
-    See https://yuruna.link/42010605-0004.
+    See https://yuruna.link/42010605-009a.
 .PARAMETER ConfigurationGitUrl
     Writable URL/path of the bare configuration repo. Defaults to pool.configurationGitUrl from
     test.config.yml.

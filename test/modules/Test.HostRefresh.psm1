@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42b6904c-f865-423b-822a-edb5cb5994fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2511,6 +2511,36 @@ function Test-HostRefreshRungApplicable {
     }
 }
 
+function Test-HostRefreshOneShotActive {
+    <#
+    .SYNOPSIS
+        True while another live process holds this runtime's one-shot lease.
+    .DESCRIPTION
+        A one-shot run (Invoke-TestProject, Debug-TestSequence) drives VMs on
+        the same hypervisor and owns its own runner processes, so no rung may
+        disrupt it. A lease whose holder cannot be proven is reported once
+        per attempt and does not refuse, as at runner start: refusing on it
+        would block every repair until someone removed the file by hand.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][hashtable]$State)
+    if (-not (Get-HostRefreshCommand -Name 'Get-YurunaOneShotLeaseState')) { return $false }
+    $lease = $null
+    try { $lease = Get-YurunaOneShotLeaseState -RuntimeDir $State.Context.RuntimeDir } catch {
+        Write-Verbose "Test-HostRefreshOneShotActive: the lease could not be read: $($_.Exception.Message)"
+        return $false
+    }
+    $arguments = @{ pid = "$($lease.Pid)"; leasePath = "$($lease.PidFile)"; reason = "$($lease.Reason)" }
+    if ([string]$lease.State -eq 'Unknown' -and -not $State.OneShotUnconfirmedReported) {
+        $State.OneShotUnconfirmedReported = $true
+        Write-HostRefreshLog -Key 'runner.host_refresh_oneshot_unconfirmed' -Arguments $arguments -Level Warning
+    }
+    if ([string]$lease.State -ne 'Held') { return $false }
+    Write-HostRefreshLog -Key 'runner.host_refresh_oneshot_active' -Arguments @{ pid = $arguments.pid; leasePath = $arguments.leasePath } -Level Warning
+    return $true
+}
+
 function Test-HostRefreshRunnerQuiescent {
     <#
     .SYNOPSIS
@@ -2592,7 +2622,11 @@ function Invoke-HostRefreshLadder {
             if (-not $identity.GuiAllowed) { Add-HostRefreshRungResult -State $State -Rung $rung -Outcome skipped -Reason 'no-session'; continue }
         }
         if (-not (Close-HostRefreshGate -State $State -Confirm:$false)) { Add-HostRefreshRungResult -State $State -Rung $rung -Outcome skipped -Reason 'gate-unavailable'; continue }
-        $arm = [string[]]@(Get-HostRefreshRungObligation -State $State -Rung $rung.Name)
+        # Read after the gate closes, the reverse of a one-shot entry point's
+        # order (lease, then gate), so of the two starting together at least
+        # one sees the other.
+        if (Test-HostRefreshOneShotActive -State $State) { Add-HostRefreshRungResult -State $State -Rung $rung -Outcome skipped -Reason 'oneshot-active'; break }
+        $arm =[string[]]@(Get-HostRefreshRungObligation -State $State -Rung $rung.Name)
         if ($arm.Count -gt 0 -and -not (Set-HostRefreshWorkerObligation -State $State -ObligationId $arm -Status armed -Confirm:$false)) {
             Add-HostRefreshRungResult -State $State -Rung $rung -Outcome skipped -Reason 'recovery-record-unwritable'; continue
         }

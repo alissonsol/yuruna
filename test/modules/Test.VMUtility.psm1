@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42cfa437-bd81-47fb-8d48-e2ca1335fa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -280,8 +280,9 @@ function Get-CachingProxyServiceExposedPort {
     9302 (caching-proxy-parser-service live tail), 9400 (pool-aggregator-service: /metrics,
     /api/v1/pool-status, the /go/* dashboard redirects, and the bearer-gated
     /ingest) -- plus the client-facing squid HTTP/HTTPS ports (each defaulting
-    to Get-CachingProxyServicePort). Add-PortMap is clear-all-first on Windows, so any
-    port dropped from this set goes dark on the next map; owning the set here
+    to Get-CachingProxyServicePort). Add-PortMap replaces the cache's own forwarders
+    with the set it is given, so any port dropped from this set goes dark on the
+    next map; owning the set here
     keeps the callers in lockstep. A caller that re-maps a reduced set on a
     platform (e.g. macOS, where only Grafana is re-mapped) keeps that branch and
     does not call this.

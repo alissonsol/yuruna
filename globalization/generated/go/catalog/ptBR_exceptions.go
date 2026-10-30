@@ -203,26 +203,6 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.host_56dd0a83b1740c20": "Disable-TestAutomation.ps1 (host/ubuntu.kvm) só é executado no Linux.",
-  "exceptions.host_5e82d7a32d22a269": [
-    "HTTP ",
-    {
-      "arg": "status",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ",
-    {
-      "arg": "reasonPhrase",
-      "type": "detail",
-      "trust": "external"
-    },
-    " para ",
-    {
-      "arg": "uri",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
   "exceptions.host_5fbd4e8bd8efc5cc": [
     "Arquitetura não suportada para a imagem base do serviço de extensão: ",
     {

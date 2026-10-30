@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42062799-0e48-4933-8b5e-2bac650d1408
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,6 +59,9 @@ Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScript
 try {
     $image = Get-UbuntuExtensionImageInfo -HostType 'windows.hyper-v'
 } catch {
+    # The host cannot say where the image goes (its architecture or disk
+    # folder), so no retry of this stage can succeed.
+    Write-YurunaProvisionResult -Kind unsupported -Message $_.Exception.Message
     Write-Error $_.Exception.Message
     exit 1
 }

@@ -3,8 +3,8 @@
   "recordedUtc": "2026-10-21T13:44:45.0925658Z",
   "pesterVersion": "6.2.0",
   "totals": {
-    "suites": 437,
-    "tests": 10774,
+    "suites": 458,
+    "tests": 11121,
     "failed": 0,
     "skipped": 36
   },
@@ -43,6 +43,11 @@
       "total": 5,
       "skipped": 0,
       "seconds": 6.3
+    },
+    "test/modules/Test.A11yGateProfiles.Tests.ps1": {
+      "total": 11,
+      "skipped": 0,
+      "seconds": 22.24
     },
     "test/modules/Test.AffectedSliceMap.Tests.ps1": {
       "total": 30,
@@ -113,6 +118,11 @@
       "total": 25,
       "skipped": 0,
       "seconds": 2.05
+    },
+    "test/modules/Test.CachingProxyGalleryPackage.Tests.ps1": {
+      "total": 10,
+      "skipped": 0,
+      "seconds": 1.36
     },
     "test/modules/Test.CachingProxyGitToken.Tests.ps1": {
       "total": 23,
@@ -287,6 +297,11 @@
       "skipped": 0,
       "seconds": 2.34
     },
+    "test/modules/Test.ConfigWriteSerialization.Tests.ps1": {
+      "total": 12,
+      "skipped": 0,
+      "seconds": 16.24
+    },
     "test/modules/Test.ConsoleSecondOpinion.Tests.ps1": {
       "total": 15,
       "skipped": 0,
@@ -331,6 +346,11 @@
       "total": 20,
       "skipped": 0,
       "seconds": 1.4
+    },
+    "test/modules/Test.DeployPhaseLedger.Tests.ps1": {
+      "total": 17,
+      "skipped": 0,
+      "seconds": 7.14
     },
     "test/modules/Test.DetachedProcess.Tests.ps1": {
       "total": 16,
@@ -427,6 +447,11 @@
       "skipped": 0,
       "seconds": 13.46
     },
+    "test/modules/Test.DriverSource.Tests.ps1": {
+      "total": 9,
+      "skipped": 0,
+      "seconds": 11.01
+    },
     "test/modules/Test.EksResourceContract.Tests.ps1": {
       "total": 4,
       "skipped": 0,
@@ -492,6 +517,11 @@
       "skipped": 0,
       "seconds": 1.94
     },
+    "test/modules/Test.FaultInjection.Tests.ps1": {
+      "total": 15,
+      "skipped": 0,
+      "seconds": 3.38
+    },
     "test/modules/Test.FetchExecuteFastFail.Tests.ps1": {
       "total": 17,
       "skipped": 0,
@@ -506,6 +536,11 @@
       "total": 6,
       "skipped": 0,
       "seconds": 1.8
+    },
+    "test/modules/Test.FrameworkRing.Tests.ps1": {
+      "total": 24,
+      "skipped": 0,
+      "seconds": 9.85
     },
     "test/modules/Test.GitMirrorConfiguration.Tests.ps1": {
       "total": 33,
@@ -615,6 +650,11 @@
       "skipped": 0,
       "seconds": 7.37
     },
+    "test/modules/Test.GuestCredentialSeed.Tests.ps1": {
+      "total": 23,
+      "skipped": 0,
+      "seconds": 3.37
+    },
     "test/modules/Test.GuestDhcpIdentity.Tests.ps1": {
       "total": 21,
       "skipped": 0,
@@ -635,6 +675,11 @@
       "skipped": 0,
       "seconds": 31.37
     },
+    "test/modules/Test.GuestInstallerPins.Tests.ps1": {
+      "total": 67,
+      "skipped": 0,
+      "seconds": 2.56
+    },
     "test/modules/Test.GuestK8sCertificate.Tests.ps1": {
       "total": 47,
       "skipped": 0,
@@ -643,6 +688,11 @@
         "linux": 43,
         "macos": 43
       }
+    },
+    "test/modules/Test.GuestKernelFault.Tests.ps1": {
+      "total": 15,
+      "skipped": 0,
+      "seconds": 2.84
     },
     "test/modules/Test.GuestLeaseRelease.Tests.ps1": {
       "total": 14,
@@ -703,6 +753,11 @@
       "total": 114,
       "skipped": 0,
       "seconds": 10.91
+    },
+    "test/modules/Test.GuestSshHostKeys.Tests.ps1": {
+      "total": 5,
+      "skipped": 0,
+      "seconds": 1.1
     },
     "test/modules/Test.GuestStartWait.Tests.ps1": {
       "total": 5,
@@ -773,6 +828,11 @@
       "total": 21,
       "skipped": 0,
       "seconds": 2.59
+    },
+    "test/modules/Test.HostConditionVerdict.Tests.ps1": {
+      "total": 27,
+      "skipped": 0,
+      "seconds": 9.61
     },
     "test/modules/Test.HostConditionVhdxFilter.Tests.ps1": {
       "total": 16,
@@ -983,6 +1043,11 @@
       "total": 38,
       "skipped": 0,
       "seconds": 3.02
+    },
+    "test/modules/Test.HyperVThumbnailCapture.Tests.ps1": {
+      "total": 4,
+      "skipped": 0,
+      "seconds": 1.86
     },
     "test/modules/Test.HyperVVirtualizationResponsive.Tests.ps1": {
       "total": 117,
@@ -1292,6 +1357,11 @@
       "skipped": 0,
       "seconds": 3.3
     },
+    "test/modules/Test.OrchestratorWarmResume.Tests.ps1": {
+      "total": 11,
+      "skipped": 0,
+      "seconds": 9.02
+    },
     "test/modules/Test.OuterLog.Tests.ps1": {
       "total": 8,
       "skipped": 0,
@@ -1301,6 +1371,11 @@
       "total": 6,
       "skipped": 0,
       "seconds": 1.94
+    },
+    "test/modules/Test.PerfPhase.Tests.ps1": {
+      "total": 12,
+      "skipped": 0,
+      "seconds": 4.62
     },
     "test/modules/Test.PerfRecord.Tests.ps1": {
       "total": 20,
@@ -1655,6 +1730,11 @@
       "skipped": 2,
       "seconds": 5.32
     },
+    "test/modules/Test.RunnerEntryPointContract.Tests.ps1": {
+      "total": 20,
+      "skipped": 0,
+      "seconds": 10.14
+    },
     "test/modules/Test.RunnerHandoff.Tests.ps1": {
       "total": 47,
       "skipped": 0,
@@ -1832,6 +1912,11 @@
       "total": 22,
       "skipped": 0,
       "seconds": 3.37
+    },
+    "test/modules/Test.ServiceVmBuildPlan.Tests.ps1": {
+      "total": 43,
+      "skipped": 0,
+      "seconds": 10.56
     },
     "test/modules/Test.ServiceVmIntegrity.Tests.ps1": {
       "total": 22,
@@ -2075,10 +2160,25 @@
       "skipped": 0,
       "seconds": 30.12
     },
-    "test/modules/Test.SuiteRunner.Tests.ps1": {
-      "total": 49,
+    "test/modules/Test.SuiteRunnerBaselineRow.Tests.ps1": {
+      "total": 7,
       "skipped": 0,
-      "seconds": 139.26
+      "seconds": 48.12
+    },
+    "test/modules/Test.SuiteRunnerContainment.Tests.ps1": {
+      "total": 9,
+      "skipped": 0,
+      "seconds": 45.0
+    },
+    "test/modules/Test.SuiteRunnerDiscovery.Tests.ps1": {
+      "total": 29,
+      "skipped": 0,
+      "seconds": 62.3
+    },
+    "test/modules/Test.SuiteRunnerVerdict.Tests.ps1": {
+      "total": 12,
+      "skipped": 0,
+      "seconds": 37.81
     },
     "test/modules/Test.SvcStatus.Tests.ps1": {
       "total": 2,
@@ -2124,6 +2224,11 @@
       "total": 14,
       "skipped": 0,
       "seconds": 26.45
+    },
+    "test/modules/Test.ToolCallDeadline.Tests.ps1": {
+      "total": 14,
+      "skipped": 0,
+      "seconds": 17.47
     },
     "test/modules/Test.TranscriptStructure.Tests.ps1": {
       "total": 11,
@@ -2356,6 +2461,95 @@
         "test/modules/Test.RecoveryProbe.Tests.ps1": "D719D86E9EC0FB19441EC677EEC574649C4D75D6D88D7EEECD6D5D0DE4B77EAE",
         "test/modules/Test.SymbolReference.Tests.ps1": "8F763C6A3946009A52639A2219D02B5E211E57C8A7D46256EFD177ED473EE62C",
         "test/modules/Test.TestPrograms.Tests.ps1": "C299CB33C4E3F9FA86A3BB84A8008C4BE4B25DB8200A98C1CC90891EFAA1F90B"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-27T00:33:52.6995015Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.A11yGateProfiles.Tests.ps1",
+        "test/modules/Test.ConfigWriteSerialization.Tests.ps1",
+        "test/modules/Test.DeployPhaseLedger.Tests.ps1",
+        "test/modules/Test.FaultInjection.Tests.ps1",
+        "test/modules/Test.FrameworkRing.Tests.ps1",
+        "test/modules/Test.GuestCredentialSeed.Tests.ps1",
+        "test/modules/Test.GuestInstallerPins.Tests.ps1",
+        "test/modules/Test.HostConditionVerdict.Tests.ps1",
+        "test/modules/Test.HyperVThumbnailCapture.Tests.ps1",
+        "test/modules/Test.OrchestratorWarmResume.Tests.ps1",
+        "test/modules/Test.PerfPhase.Tests.ps1",
+        "test/modules/Test.RunnerEntryPointContract.Tests.ps1",
+        "test/modules/Test.ServiceVmBuildPlan.Tests.ps1",
+        "test/modules/Test.SuiteRunnerBaselineRow.Tests.ps1",
+        "test/modules/Test.SuiteRunnerContainment.Tests.ps1",
+        "test/modules/Test.SuiteRunnerDiscovery.Tests.ps1",
+        "test/modules/Test.SuiteRunnerVerdict.Tests.ps1",
+        "test/modules/Test.ToolCallDeadline.Tests.ps1"
+      ],
+      "tests": 357,
+      "sourceSha256": {
+        "test/modules/Test.A11yGateProfiles.Tests.ps1": "04A6036136CF93D2AE5E49EF510D9474E1AD8D91F55C2EC862E5EF8A6617CF41",
+        "test/modules/Test.ConfigWriteSerialization.Tests.ps1": "0F2E32716769F4998B5C1880D9145E3476CA48E1F85494104B0335E0C523A31C",
+        "test/modules/Test.DeployPhaseLedger.Tests.ps1": "0C4BE09ADD27C4F25D3DAFCE95FB0D37BFAD415B753B0FE601D1EF9040EE10BA",
+        "test/modules/Test.FaultInjection.Tests.ps1": "D21E5D032954901EAFB9F562031872DDB04C77AE5A034377E868A8BF6A6A564B",
+        "test/modules/Test.FrameworkRing.Tests.ps1": "185035A472D22AC9188C5B363512F471DF3AE7D14A906AB89078EEFFFC70AB40",
+        "test/modules/Test.GuestCredentialSeed.Tests.ps1": "695E552915DAE7C517EAAC9D8037554935ED8B5ADDC8DDC726F9949174C6A206",
+        "test/modules/Test.GuestInstallerPins.Tests.ps1": "24C29D3FB77C9238DB56FD98B78D8C4B98E1C81B1FE5E5D927535B29F213D4D5",
+        "test/modules/Test.HostConditionVerdict.Tests.ps1": "19ED81E2DF7C51D9662A71F5F36B24AFA80CFD6B9B4F97D09711B131DDB64D81",
+        "test/modules/Test.HyperVThumbnailCapture.Tests.ps1": "40F206BB996AAC6FB4B7E175A4681BB314547CA3F05F6033988778A7FAE5BD64",
+        "test/modules/Test.OrchestratorWarmResume.Tests.ps1": "5875B3F5C1E20B255D2C02338EA9893B7BF512021BEDF57A95ACFCE5E26A5DA9",
+        "test/modules/Test.PerfPhase.Tests.ps1": "3813ECC24BC65A995034D8FCED7F2544D034BF33A5C4BC76548B09B31D0D5697",
+        "test/modules/Test.RunnerEntryPointContract.Tests.ps1": "EA1CAA90E86576FF42723B2E0316712B3E34833649FB6959FAA8E2DA990FFAFD",
+        "test/modules/Test.ServiceVmBuildPlan.Tests.ps1": "2142BC3D32F08AA342B652F88AF5A602BC4765452D94BC55C36ADBC8C2A432B3",
+        "test/modules/Test.SuiteRunnerBaselineRow.Tests.ps1": "6E96D16134651C2B71054039E864E175A90A80566E30029DB98E935D673656FC",
+        "test/modules/Test.SuiteRunnerContainment.Tests.ps1": "8B6E91F2A995F01D29D0E7E01841569B4556AE2C324FE0F3C671D638AABDB5BF",
+        "test/modules/Test.SuiteRunnerDiscovery.Tests.ps1": "7DA408A8B41B9A3731C8DA8CE6FF66F8B961164749DED6DB37CC2F8A0D7BAB23",
+        "test/modules/Test.SuiteRunnerVerdict.Tests.ps1": "295FFFB8281C124DC581F61564B8054F7C551573545EF6933180F1000CDCC4F6",
+        "test/modules/Test.ToolCallDeadline.Tests.ps1": "B143BC9F808F4DA79A93187257BDFD8B7B5A0C503D69CD591923FC768D1D9D6F"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-27T03:40:32.9019871Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.DriverSource.Tests.ps1"
+      ],
+      "tests": 9,
+      "sourceSha256": {
+        "test/modules/Test.DriverSource.Tests.ps1": "2322E6BE7E69DB2FC9A34EB8033C526E95580666C9D9A3F0BFDEBE5068CBE71D"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-27T18:03:59.5283125Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.CachingProxyGalleryPackage.Tests.ps1"
+      ],
+      "tests": 10,
+      "sourceSha256": {
+        "test/modules/Test.CachingProxyGalleryPackage.Tests.ps1": "1A08877DE32C71BE40C111E5FCF6D7B6B6B8FC4AABDB80190A65057D92CFCABB"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-28T12:53:33.8456810Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.GuestKernelFault.Tests.ps1"
+      ],
+      "tests": 15,
+      "sourceSha256": {
+        "test/modules/Test.GuestKernelFault.Tests.ps1": "1468783332BC5047A9D472D087AB5BB34017EF2D6CE0BA6D20B5BF6AF4F56B46"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-28T20:43:12.8537172Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.GuestSshHostKeys.Tests.ps1"
+      ],
+      "tests": 5,
+      "sourceSha256": {
+        "test/modules/Test.GuestSshHostKeys.Tests.ps1": "CD3C638D9427CC6AA73C0A6359B7EE96804E7717BD29EB3798E2644BB43D13BB"
       }
     }
   ]

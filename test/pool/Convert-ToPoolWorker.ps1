@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 423d3dd4-8e4d-441b-9914-81735aaf24c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
     credentials on the reference host, and verify the result.
 
 .DESCRIPTION
-    See https://yuruna.link/42010605-0004.
+    See https://yuruna.link/42010605-0091.
 .PARAMETER ReferenceHost
     Network name or IP of the pool host to copy the configuration from. Any host
     type -- converting between them is the point.
@@ -116,7 +116,7 @@ $InformationPreference = $global:InformationPreference
 $elapsed = [System.Diagnostics.Stopwatch]::StartNew()
 
 # --- REGION: Modules
-# See https://yuruna.link/42010605-0004
+# See https://yuruna.link/42010605-0090
 $PreviousWhatIf = $WhatIfPreference
 try {
     $WhatIfPreference = $false
@@ -136,7 +136,7 @@ try {
     Import-Module (Join-Path $ModulesDir 'Test.PoolWorker.psm1')            -Global -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot '../extension/authentication/default.psm1') -Global -Force -DisableNameChecking
     Import-Module (Join-Path $ModulesDir 'Test.ConfigServiceSync.psm1')     -Global -Force -DisableNameChecking
-    # See https://yuruna.link/42010605-0004
+    # See https://yuruna.link/42010605-008f
     Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1')          -Global -Force
 } finally {
     $WhatIfPreference = $PreviousWhatIf
@@ -149,7 +149,7 @@ try {
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # --- REGION: Elevation check
-# See https://yuruna.link/42010605-0004
+# See https://yuruna.link/42010605-008e
 if ($IsWindows -and -not $WhatIfPreference -and -not (Test-IsAdministrator)) {
     Write-Error ((Format-YurunaOperatorMessage -Key 'runner.operator_b42ca86b5468a010'))
     exit 1
@@ -223,7 +223,7 @@ if ($refUsers.Count -gt 0) {
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_005f0cdc10b5b3bf' -Arguments @{ referenceHost = "$ReferenceHost" }) -InformationAction Continue
 }
 
-# See https://yuruna.link/42010605-0004
+# See https://yuruna.link/42010605-008d
 $PreviousWhatIf = $WhatIfPreference
 try {
     $WhatIfPreference = $false
@@ -277,7 +277,7 @@ if ($adPlan.Count -eq 0) {
     }
 }
 
-# See https://yuruna.link/42010605-0004
+# See https://yuruna.link/42010605-008c
 $preflightConfig = $null
 $PreviousWhatIf = $WhatIfPreference
 try {
@@ -334,10 +334,10 @@ if (-not $Force -and -not $NonInteractive -and -not $WhatIfPreference) {
 }
 
 # --- REGION: 2. Sync configuration from the reference host
-# See https://yuruna.link/42010605-0004
+# See https://yuruna.link/42010605-008b
 Write-ConvertStep -Title "Sync configuration from $ReferenceHost"
 $syncScript = Join-Path $TestRoot 'lab/Sync-HostConfiguration.ps1'
-# See https://yuruna.link/42010605-0004
+# See https://yuruna.link/42010605-008a
 $syncArgs = @{
     ReferenceHost              = $ReferenceHost
     StatusPort                 = $StatusPort
@@ -359,7 +359,7 @@ if ($syncExit -ne 0) {
     exit 1
 }
 
-# See https://yuruna.link/42010605-0004
+# See https://yuruna.link/42010605-0089
 $PreviousWhatIf = $WhatIfPreference
 try {
     $WhatIfPreference = $false
@@ -417,7 +417,7 @@ $tiers = @(Get-PoolWorkerStorageTier -Config $config)
 if ($tiers.Count -eq 0) {
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d37c37886aaefc65') -InformationAction Continue
 } else {
-    # See https://yuruna.link/42010605-0004
+    # See https://yuruna.link/42010605-0088
     $released = @(Clear-PoolWorkerSupersededMount -Tier $tiers)
     if ($released.Count -eq 0) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_a1491541b62120ad') -InformationAction Continue
@@ -509,7 +509,7 @@ if ($SkipValidation) {
         Write-Warning "Test-Config.ps1 reported failures (exit $validationExit); review its output above."
     }
 }
-# See https://yuruna.link/42010605-0004
+# See https://yuruna.link/42010605-0087
 $unconverged = @()
 $syncCredentials = @(Sync-ConfigSyncVaultCredential -RepoRoot $RepoRoot -NetworkStorage `
     $(if ($config -is [System.Collections.IDictionary] -and $config['networkStorage'] -is [System.Collections.IDictionary]) { $config['networkStorage'] } else { @{} }) `

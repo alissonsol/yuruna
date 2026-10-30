@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1072,6 +1072,41 @@ function Get-GitRepositoryUpdateTarget {
     return $result
 }
 
+function Resolve-GitRingRevision {
+    <#
+    .SYNOPSIS
+        Choose what a canary-ring follower installs: the qualifying revision when it
+        is in the fetched tip's history and newer than what is installed, otherwise
+        the installed revision.
+    .DESCRIPTION
+        The tip was selected and fetched through the host's own trusted source, so a
+        revision in its history is authenticated by the commit chain; the pool only
+        chooses among those ancestors and can never introduce other code. A follower
+        never moves back: a qualifying revision that the installed one already
+        contains leaves the checkout as it is. A revision the fetched history does
+        not contain (another upstream, rewritten history) cannot be installed from
+        this source and also leaves it as it is.
+    .OUTPUTS
+        [hashtable] Revision, and Outcome: 'installed' (Revision is the qualifying
+        revision), 'current' (already installed), 'held-newer' or 'held-not-in-history'.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$TipRevision,
+        [Parameter(Mandatory)][string]$CurrentRevision,
+        [Parameter(Mandatory)][string]$RingRevision
+    )
+    if ($RingRevision -cnotmatch '^[0-9a-f]{40}$') { return @{ Revision = $CurrentRevision; Outcome = 'held-not-in-history' } }
+    if ($RingRevision -ceq $CurrentRevision) { return @{ Revision = $CurrentRevision; Outcome = 'current' } }
+    $inTip = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('merge-base', '--is-ancestor', $RingRevision, $TipRevision)
+    if ($inTip.ExitCode -ne 0) { return @{ Revision = $CurrentRevision; Outcome = 'held-not-in-history' } }
+    $older = Invoke-GitUpdateCommand -RepoRoot $RepoRoot -ArgumentList @('merge-base', '--is-ancestor', $RingRevision, $CurrentRevision)
+    if ($older.ExitCode -eq 0) { return @{ Revision = $CurrentRevision; Outcome = 'held-newer' } }
+    return @{ Revision = $RingRevision; Outcome = 'installed' }
+}
+
 function Invoke-GitRepositoryUpdate {
     <#
     .SYNOPSIS
@@ -1093,9 +1128,12 @@ function Invoke-GitRepositoryUpdate {
         [System.Collections.IDictionary]$SourceSelection,
         [System.Collections.IDictionary]$InstalledProvenance,
         [DateTimeOffset]$DeadlineUtc = [DateTimeOffset]::UtcNow.AddSeconds(280),
-        [DateTimeOffset]$SelectionAcceptedAt = [DateTimeOffset]::MinValue
+        [DateTimeOffset]$SelectionAcceptedAt = [DateTimeOffset]::MinValue,
+        # A canary-ring follower installs this revision instead of the tip, within
+        # the rules of Resolve-GitRingRevision; empty installs the tip.
+        [string]$RingRevision = ''
     )
-    $result = @{ Success = $false; Skipped = $false; Changed = $false; PreviousRevision = ''; Revision = ''; BackupRef = ''; ErrorMessage = ''; SourceSelection = $null; FailureClass = '' }
+    $result = @{ Success = $false; Skipped = $false; Changed = $false; PreviousRevision = ''; Revision = ''; BackupRef = ''; ErrorMessage = ''; SourceSelection = $null; FailureClass = ''; RingOutcome = '' }
     if (-not $PSCmdlet.ShouldProcess($RepoRoot, 'Update clean framework sources to the configured upstream snapshot')) {
         $result.Success = $true; $result.Skipped = $true
         return $result
@@ -1136,6 +1174,15 @@ function Invoke-GitRepositoryUpdate {
         if ($target.ContainsKey('SourceSelection')) { $result.SourceSelection = $target.SourceSelection; $result.FailureClass = $target.FailureClass }
         $result.PreviousRevision = $target.PreviousRevision; $result.Revision = $target.Revision
         if (-not $target.Success) { throw $target.ErrorMessage }
+        if ($RingRevision -and -not $target.Skipped) {
+            $ring = Resolve-GitRingRevision -RepoRoot $RepoRoot -TipRevision $target.Revision -CurrentRevision $target.PreviousRevision -RingRevision $RingRevision
+            $result.RingOutcome = $ring.Outcome
+            if ($ring.Revision -cne $target.Revision) {
+                # The selection attests the tip, not the revision installed here, so
+                # it is not retained as this checkout's provenance.
+                $target.Revision = $ring.Revision; $result.Revision = $ring.Revision; $result.SourceSelection = $null
+            }
+        }
         if ($target.Skipped -or $target.Revision -eq $target.PreviousRevision) {
             $result.Success = $true; $result.Skipped = $target.Skipped
             return $result
@@ -2319,12 +2366,98 @@ function Get-HostRepositoryAccess {
     return [pscustomobject]@{ Access = ''; AccessState = 'denied'; Source = $result.Reason; Url = $link }
 }
 
+# PSGallery modules the host installs, pinned by version and by the SHA-512 of the
+# package the gallery publishes for that version (its OData PackageHash, base64).
+# Installing "whatever PSGallery resolves to" lets a new upload, or anything that
+# answers for the gallery, change the code every runner imports. To move a pin,
+# read the new version's PackageHash from
+#   https://www.powershellgallery.com/api/v2/Packages(Id='<name>',Version='<version>')
+# and compare it with the SHA-512 of the downloaded .nupkg. install/macos.utm.sh
+# carries its own copy of the powershell-yaml pin (it runs before any checkout).
+$script:YurunaGalleryModulePin = @{
+    'powershell-yaml'  = @{ Version = '0.4.12'; Sha512 = 'Vc5DLyw7hLsCL6yFlSvzsdUUWmgfqoM35XmRavtKOz37GHBg3p+vWxaO/9wS8MbptzWspdUBcVRGSqAdlJmtUg==' }
+    'PSScriptAnalyzer' = @{ Version = '1.25.0'; Sha512 = '5/tXMmLmBLqymRSuYpIdJLl8L4i1GbQSd7QD72zhY/FLfRs23HNEmmjlrlqNlQKJGxDCZBMf0YE63ym/ExwWYw==' }
+}
+
+function Get-YurunaUserModuleRoot {
+    # PowerShell's CurrentUser module directory: Documents on Windows, the XDG data
+    # directory elsewhere. .NET's LocalApplicationData is not used because on macOS
+    # it names Library/Application Support, which PowerShell does not search.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if ($IsWindows) { return (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell/Modules') }
+    $data = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { Join-Path $HOME '.local/share' }
+    return (Join-Path $data 'powershell/Modules')
+}
+
+function Get-YurunaGalleryPackage {
+    # Downloads one gallery package. Separate so tests can hand the installer a
+    # local file instead of the network.
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][string]$OutFile
+    )
+    $uri = "https://www.powershellgallery.com/api/v2/package/$([uri]::EscapeDataString($Name))/$([uri]::EscapeDataString($Version))"
+    Invoke-WebRequest -Uri $uri -OutFile $OutFile -TimeoutSec 300 -MaximumRedirection 5 -ErrorAction Stop | Out-Null
+}
+
+function Install-YurunaGalleryPackage {
+    # Installs a verified .nupkg the way PowerShellGet lays a module out
+    # (<root>/<Name>/<Version>/...), without the NuGet packaging entries. The
+    # files land in a sibling staging directory first and move into place in
+    # one rename, so an interrupted install never leaves a half module that
+    # Get-Module -ListAvailable would report as installed.
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$PackagePath,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][string]$ModuleRoot
+    )
+    $nameDir = Join-Path $ModuleRoot $Name
+    $target = Join-Path $nameDir $Version
+    if (-not $PSCmdlet.ShouldProcess($target, (Format-YurunaOperatorMessage -Key 'runner.operator_d1cad15ad73fa685'))) { return }
+    [void][IO.Directory]::CreateDirectory($nameDir)
+    $staging = Join-Path $nameDir (".$Version." + [guid]::NewGuid().ToString('N') + '.staging')
+    $stagingFull = [IO.Path]::GetFullPath($staging) + [IO.Path]::DirectorySeparatorChar
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead($PackagePath)
+    try {
+        foreach ($entry in $zip.Entries) {
+            $relative = [uri]::UnescapeDataString($entry.FullName)
+            if (-not $entry.Name) { continue }
+            if ($relative -eq '[Content_Types].xml' -or $relative -like '_rels/*' -or $relative -like 'package/*' -or
+                ($relative -notmatch '/' -and $relative -like '*.nuspec')) { continue }
+            $destination = [IO.Path]::GetFullPath((Join-Path $staging $relative))
+            if (-not $destination.StartsWith($stagingFull, [StringComparison]::Ordinal)) {
+                throw "package entry '$($entry.FullName)' escapes the module directory"
+            }
+            [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination))
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destination, $false)
+        }
+    } catch {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+        throw
+    } finally { $zip.Dispose() }
+    if (-not (Test-Path -LiteralPath (Join-Path $staging "$Name.psd1") -PathType Leaf)) {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+        throw "package carries no $Name.psd1 manifest"
+    }
+    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+    [IO.Directory]::Move($staging, $target)
+}
+
 # Shared PSGallery module-install policy for the two dependency bootstrappers below:
-# return $true when already discoverable, honor -WhatIf via ShouldProcess, else
-# Install-Module at CurrentUser scope with -Force -AllowClobber (-Force suppresses the
-# untrusted-repository prompt that would otherwise hang an unattended run), and warn +
-# return $false on failure. Every message derives from $Name, so the two public
-# wrappers below need no message text of their own.
+# return $true when the module is already discoverable (whatever version the
+# operator installed stays), honor -WhatIf via ShouldProcess, else download the
+# pinned version, refuse it unless its SHA-512 matches the pin, and install it at
+# CurrentUser scope; warn + return $false on failure. Every message derives from
+# $Name, so the two public wrappers below need no message text of their own.
 function Install-YurunaGalleryModuleIfMissing {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -2334,17 +2467,32 @@ function Install-YurunaGalleryModuleIfMissing {
         Write-Verbose "$Name already installed."
         return $true
     }
+    $pin = $script:YurunaGalleryModulePin[$Name]
+    $spec = "$Name -RequiredVersion $($pin.Version)"
     if (-not $PSCmdlet.ShouldProcess($Name, (Format-YurunaOperatorMessage -Key 'runner.operator_d1cad15ad73fa685'))) {
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_edb2828b379baee5' -Arguments @{ name = "$Name" }) -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_edb2828b379baee5' -Arguments @{ name = "$spec" }) -InformationAction Continue
         return $false
     }
+    $package = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-$Name-$($pin.Version)-" + [guid]::NewGuid().ToString('N') + '.nupkg')
     try {
-        Install-Module -Name $Name -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_28dfcee33e40b77b' -Arguments @{ name = "$Name" }) -InformationAction Continue
+        Get-YurunaGalleryPackage -Name $Name -Version $pin.Version -OutFile $package
+        $sha = [System.Security.Cryptography.SHA512]::Create()
+        try {
+            $stream = [IO.File]::OpenRead($package)
+            try { $actual = [Convert]::ToBase64String($sha.ComputeHash($stream)) } finally { $stream.Dispose() }
+        } finally { $sha.Dispose() }
+        if ($actual -cne $pin.Sha512) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.gallery_package_digest_mismatch' -Arguments @{ name = "$Name"; version = "$($pin.Version)"; expected = "$($pin.Sha512)"; actual = "$actual" })
+            return $false
+        }
+        Install-YurunaGalleryPackage -PackagePath $package -Name $Name -Version $pin.Version -ModuleRoot (Get-YurunaUserModuleRoot) -Confirm:$false
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_28dfcee33e40b77b' -Arguments @{ name = "$Name $($pin.Version)" }) -InformationAction Continue
         return $true
     } catch {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_67a649b2f9792d49' -Arguments @{ name = "${Name}"; message = "$($_.Exception.Message)"; name2 = "$Name" })
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_67a649b2f9792d49' -Arguments @{ name = "${Name}"; message = "$($_.Exception.Message)"; name2 = "$spec" })
         return $false
+    } finally {
+        if (Test-Path -LiteralPath $package) { Remove-Item -LiteralPath $package -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -2501,4 +2649,4 @@ function Get-YurunaGitArchiveDigest {
     }
 }
 
-Export-ModuleMember -Function Get-YurunaFrameworkArchiveExcludePath, Export-YurunaGitArchive, Get-YurunaGitArchiveDigest, Get-GitMirrorRepository, Get-GitMirrorVerificationKey, Resolve-GitSourceSelection, Test-GitSourceSelection, Test-GitMirrorReceipt, Invoke-GitPull, Invoke-GitRepositoryUpdate, Get-GitRepositoryUpdateTarget, Get-LastGitUpdateFailure, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-ProjectGitCommitReference, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList
+Export-ModuleMember -Function Get-YurunaFrameworkArchiveExcludePath, Export-YurunaGitArchive, Get-YurunaGitArchiveDigest, Get-GitMirrorRepository, Get-GitMirrorVerificationKey, Resolve-GitSourceSelection, Test-GitSourceSelection, Test-GitMirrorReceipt, Invoke-GitPull, Invoke-GitRepositoryUpdate, Resolve-GitRingRevision, Get-GitRepositoryUpdateTarget, Get-LastGitUpdateFailure, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Restore-ProjectCloneSwap, Test-ProjectCloneHealth, Remove-ProjectCloneDirectory, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-ProjectGitCommitReference, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

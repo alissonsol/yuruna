@@ -17,6 +17,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"yuruna.com/test/extension/pool-aggregator-service/internal/incident"
 )
 
 // gateHost registers a pool member with a fixed reachability + overall status so a
@@ -34,7 +35,7 @@ func gateHost(s *poolState, hid, pool, status string, reachable bool) {
 func fw(class string, ts ...time.Time) []failRec {
 	out := make([]failRec, 0, len(ts))
 	for _, t := range ts {
-		out = append(out, failRec{t: t, class: class})
+		out = append(out, failRec{At: t, Class: class})
 	}
 	return out
 }
@@ -57,25 +58,25 @@ func TestEvaluateIncidents(t *testing.T) {
 	}
 
 	// 3rd fail -> opens exactly one incident, carrying the failure class.
-	s.failWindow[hid] = append(s.failWindow[hid], failRec{t: now.Add(-5 * time.Minute), class: "script_error"})
+	s.failWindow[hid] = append(s.failWindow[hid], failRec{At: now.Add(-5 * time.Minute), Class: "script_error"})
 	ev := s.evaluateIncidents(now)
-	if len(ev) != 1 || !ev[0].open || ev[0].count != 3 || s.incident[hid] == nil {
+	if len(ev) != 1 || !ev[0].Open || ev[0].Count != 3 || s.incident[hid] == nil {
 		t.Fatalf("3 fails must open one incident with count 3; got events=%+v incident=%v", ev, s.incident[hid])
 	}
-	if ev[0].dominantClass != "script_error" || ev[0].classHist["script_error"] != 3 {
-		t.Fatalf("open event must carry the class histogram; got dominant=%q hist=%v", ev[0].dominantClass, ev[0].classHist)
+	if ev[0].DominantClass != "script_error" || ev[0].ClassHist["script_error"] != 3 {
+		t.Fatalf("open event must carry the class histogram; got dominant=%q hist=%v", ev[0].DominantClass, ev[0].ClassHist)
 	}
-	openID := s.incident[hid].id
+	openID := s.incident[hid].ID
 
 	// 4th fail -> still open, no new event, peak rises, id stable.
-	s.failWindow[hid] = append(s.failWindow[hid], failRec{t: now.Add(-1 * time.Minute), class: "script_error"})
+	s.failWindow[hid] = append(s.failWindow[hid], failRec{At: now.Add(-1 * time.Minute), Class: "script_error"})
 	if ev := s.evaluateIncidents(now); len(ev) != 0 {
 		t.Fatalf("a further fail must not emit a new event; got %+v", ev)
 	}
-	if s.incident[hid].peak != 4 {
-		t.Fatalf("peak want 4 got %d", s.incident[hid].peak)
+	if s.incident[hid].Peak != 4 {
+		t.Fatalf("peak want 4 got %d", s.incident[hid].Peak)
 	}
-	if s.incident[hid].id != openID {
+	if s.incident[hid].ID != openID {
 		t.Fatalf("incident id must not change mid-incident")
 	}
 
@@ -95,14 +96,14 @@ func TestEvaluateIncidents(t *testing.T) {
 	// resolve line carries the PEAK histogram (window has aged to 0 by now).
 	later := now.Add(3 * time.Hour)
 	ev = s.evaluateIncidents(later)
-	if len(ev) != 1 || ev[0].open {
+	if len(ev) != 1 || ev[0].Open {
 		t.Fatalf("aged-out fails must resolve the incident once; got %+v", ev)
 	}
-	if ev[0].peak != 4 {
-		t.Fatalf("resolve event peak want 4 got %d", ev[0].peak)
+	if ev[0].Peak != 4 {
+		t.Fatalf("resolve event peak want 4 got %d", ev[0].Peak)
 	}
-	if ev[0].dominantClass != "script_error" || ev[0].classHist["script_error"] != 4 {
-		t.Fatalf("resolve event must carry the peak class histogram; got dominant=%q hist=%v", ev[0].dominantClass, ev[0].classHist)
+	if ev[0].DominantClass != "script_error" || ev[0].ClassHist["script_error"] != 4 {
+		t.Fatalf("resolve event must carry the peak class histogram; got dominant=%q hist=%v", ev[0].DominantClass, ev[0].ClassHist)
 	}
 	if s.incident[hid] != nil {
 		t.Fatalf("incident must be cleared after resolve")
@@ -130,31 +131,31 @@ func TestIncidentRestartResolve(t *testing.T) {
 	hid := "4253419c1f0b45a08260f36a1521a857"
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	origStart := now.Add(-90 * time.Minute) // original open predates the current window
-	origID := incidentID(hid, origStart)
+	origID := incident.ID(hid, origStart)
 
 	// As restored from {src=incident}: original id/startedAt + one surviving
 	// in-window fail (below N).
-	s.incident[hid] = &incidentState{id: origID, startedAt: origStart, peak: 4, peakClassHist: map[string]int{"script_error": 4}, dominantClass: "script_error"}
+	s.incident[hid] = &incidentState{ID: origID, StartedAt: origStart, Peak: 4, PeakClassHist: map[string]int{"script_error": 4}, DominantClass: "script_error"}
 	s.failWindow[hid] = fw("script_error", now.Add(-10*time.Minute))
 
 	// Below threshold but already open -> stays open, emits nothing.
 	if ev := s.evaluateIncidents(now); len(ev) != 0 {
 		t.Fatalf("restored sub-threshold incident must stay open silently; got %+v", ev)
 	}
-	if s.incident[hid] == nil || s.incident[hid].id != origID {
+	if s.incident[hid] == nil || s.incident[hid].ID != origID {
 		t.Fatalf("restored incident must persist with its original id")
 	}
 
 	// Window empties -> resolve once, carrying the ORIGINAL id + startedAt.
 	ev := s.evaluateIncidents(now.Add(2 * time.Hour))
-	if len(ev) != 1 || ev[0].open {
+	if len(ev) != 1 || ev[0].Open {
 		t.Fatalf("emptied window must resolve the restored incident once; got %+v", ev)
 	}
-	if ev[0].id != origID {
-		t.Fatalf("resolve must carry the original incidentId %q; got %q", origID, ev[0].id)
+	if ev[0].ID != origID {
+		t.Fatalf("resolve must carry the original incidentId %q; got %q", origID, ev[0].ID)
 	}
-	if !ev[0].startedAt.Equal(origStart) {
-		t.Fatalf("resolve must carry the original startedAt %v; got %v", origStart, ev[0].startedAt)
+	if !ev[0].StartedAt.Equal(origStart) {
+		t.Fatalf("resolve must carry the original startedAt %v; got %v", origStart, ev[0].StartedAt)
 	}
 	if s.incident[hid] != nil {
 		t.Fatalf("incident must be cleared after resolve")
@@ -164,7 +165,7 @@ func TestIncidentRestartResolve(t *testing.T) {
 func poolEvents(evs []incidentEvent) []incidentEvent {
 	var out []incidentEvent
 	for _, e := range evs {
-		if e.pool {
+		if e.Pool {
 			out = append(out, e)
 		}
 	}
@@ -190,11 +191,11 @@ func TestPoolWideIncident(t *testing.T) {
 	// per-host incidents, pinned to that class.
 	ev := s.evaluateIncidents(now)
 	pool := poolEvents(ev)
-	if len(pool) != 1 || !pool[0].open || pool[0].count != 3 {
+	if len(pool) != 1 || !pool[0].Open || pool[0].Count != 3 {
 		t.Fatalf("3 hosts in crossWin must open one pool-wide incident (count 3); got %+v", ev)
 	}
-	if pool[0].class != "network_timeout" || s.poolIncident.class != "network_timeout" {
-		t.Fatalf("pool incident must pin the same class; got event=%q state=%q", pool[0].class, s.poolIncident.class)
+	if pool[0].Class != "network_timeout" || s.poolIncident.Class != "network_timeout" {
+		t.Fatalf("pool incident must pin the same class; got event=%q state=%q", pool[0].Class, s.poolIncident.Class)
 	}
 	if s.poolIncident == nil {
 		t.Fatalf("poolIncident must be set")
@@ -202,22 +203,22 @@ func TestPoolWideIncident(t *testing.T) {
 	if len(s.incident) != 0 {
 		t.Fatalf("per-host incidents must not open at one fail each; got %d", len(s.incident))
 	}
-	if len(pool[0].hosts) != 3 {
-		t.Fatalf("pool open event must carry the 3 affected hosts; got %v", pool[0].hosts)
+	if len(pool[0].Hosts) != 3 {
+		t.Fatalf("pool open event must carry the 3 affected hosts; got %v", pool[0].Hosts)
 	}
-	poolID := s.poolIncident.id
+	poolID := s.poolIncident.ID
 
 	// Re-eval while open -> no new pool event, same id.
 	if p := poolEvents(s.evaluateIncidents(now.Add(time.Minute))); len(p) != 0 {
 		t.Fatalf("re-eval must not emit a new pool event while open; got %+v", p)
 	}
-	if s.poolIncident == nil || s.poolIncident.id != poolID {
+	if s.poolIncident == nil || s.poolIncident.ID != poolID {
 		t.Fatalf("pool incident must persist with the same id")
 	}
 
 	// Window empties -> resolve once, original id, state cleared.
 	pool = poolEvents(s.evaluateIncidents(now.Add(2 * time.Hour)))
-	if len(pool) != 1 || pool[0].open || pool[0].id != poolID {
+	if len(pool) != 1 || pool[0].Open || pool[0].ID != poolID {
 		t.Fatalf("emptied window must resolve the pool incident once with its original id; got %+v", pool)
 	}
 	if s.poolIncident != nil {
@@ -240,7 +241,7 @@ func TestPoolIncidentStickyResolve(t *testing.T) {
 	for _, h := range []string{"a", "b", "c"} {
 		s.failWindow[h] = fw("network_timeout", now)
 	}
-	if p := poolEvents(s.evaluateIncidents(now)); len(p) != 1 || !p[0].open {
+	if p := poolEvents(s.evaluateIncidents(now)); len(p) != 1 || !p[0].Open {
 		t.Fatalf("3-host burst must open the pool incident; got %+v", p)
 	}
 
@@ -251,9 +252,9 @@ func TestPoolIncidentStickyResolve(t *testing.T) {
 	tcur := now
 	for i := 0; i < 12; i++ {
 		tcur = tcur.Add(10 * time.Minute)
-		s.failWindow["a"] = append(s.failWindow["a"], failRec{t: tcur, class: "network_timeout"})
+		s.failWindow["a"] = append(s.failWindow["a"], failRec{At: tcur, Class: "network_timeout"})
 		ev := poolEvents(s.evaluateIncidents(tcur))
-		if len(ev) == 1 && !ev[0].open {
+		if len(ev) == 1 && !ev[0].Open {
 			resolved = true
 			if d := tcur.Sub(now); d > 30*time.Minute {
 				t.Fatalf("pool incident resolved too late (%v) -- still sticky", d)
@@ -291,13 +292,13 @@ func TestApplyIncidentLines(t *testing.T) {
 	if n := s.applyIncidentLines([][][2]string{poolStream, hostA, hostB}, now); n != 2 {
 		t.Fatalf("expected 2 restored (pool + hostA); got %d", n)
 	}
-	if s.poolIncident == nil || s.poolIncident.id != "inc-pool-42" || s.poolIncident.peakHosts != 4 {
+	if s.poolIncident == nil || s.poolIncident.ID != "inc-pool-42" || s.poolIncident.PeakHosts != 4 {
 		t.Fatalf("pool incident must restore the latest open with id+peakHosts; got %+v", s.poolIncident)
 	}
-	if !s.poolIncident.startedAt.Equal(time.Date(2026, 6, 10, 11, 30, 0, 0, time.UTC)) {
-		t.Fatalf("pool startedAt must come from the open line; got %v", s.poolIncident.startedAt)
+	if !s.poolIncident.StartedAt.Equal(time.Date(2026, 6, 10, 11, 30, 0, 0, time.UTC)) {
+		t.Fatalf("pool startedAt must come from the open line; got %v", s.poolIncident.StartedAt)
 	}
-	if s.incident["hostA"] == nil || s.incident["hostA"].id != "inc-A-9" {
+	if s.incident["hostA"] == nil || s.incident["hostA"].ID != "inc-A-9" {
 		t.Fatalf("hostA incident must restore with its original id; got %+v", s.incident["hostA"])
 	}
 	if s.incident["hostB"] != nil {
@@ -314,7 +315,7 @@ func TestApplyIncidentLines(t *testing.T) {
 	if p := poolEvents(s.evaluateIncidents(now)); len(p) != 0 {
 		t.Fatalf("restored pool incident must not re-announce on the next poll; got %+v", p)
 	}
-	if s.poolIncident == nil || s.poolIncident.id != "inc-pool-42" {
+	if s.poolIncident == nil || s.poolIncident.ID != "inc-pool-42" {
 		t.Fatalf("restored pool incident id must be preserved")
 	}
 }
@@ -354,7 +355,7 @@ func TestPoolWideSameClass(t *testing.T) {
 	// A 3rd host fails script_error -> that class reaches 3 -> opens, pinned to it.
 	s.failWindow["e"] = fw("script_error", now.Add(-1*time.Minute))
 	p := poolEvents(s.evaluateIncidents(now))
-	if len(p) != 1 || !p[0].open || p[0].class != "script_error" || p[0].count != 3 {
+	if len(p) != 1 || !p[0].Open || p[0].Class != "script_error" || p[0].Count != 3 {
 		t.Fatalf("3 hosts of one class must open a pool incident pinned to it; got %+v", p)
 	}
 }
@@ -367,33 +368,33 @@ func TestIncidentDominantClass(t *testing.T) {
 	s.incidentWin = time.Hour
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	s.failWindow["h"] = []failRec{
-		{t: now.Add(-9 * time.Minute), class: "wait_timeout"},
-		{t: now.Add(-8 * time.Minute), class: "script_error"},
-		{t: now.Add(-7 * time.Minute), class: "wait_timeout"},
+		{At: now.Add(-9 * time.Minute), Class: "wait_timeout"},
+		{At: now.Add(-8 * time.Minute), Class: "script_error"},
+		{At: now.Add(-7 * time.Minute), Class: "wait_timeout"},
 	}
 	ev := s.evaluateIncidents(now)
-	if len(ev) != 1 || ev[0].dominantClass != "wait_timeout" {
+	if len(ev) != 1 || ev[0].DominantClass != "wait_timeout" {
 		t.Fatalf("dominant must be the most-frequent class; got %+v", ev)
 	}
-	if ev[0].classHist["wait_timeout"] != 2 || ev[0].classHist["script_error"] != 1 {
-		t.Fatalf("histogram counts wrong; got %v", ev[0].classHist)
+	if ev[0].ClassHist["wait_timeout"] != 2 || ev[0].ClassHist["script_error"] != 1 {
+		t.Fatalf("histogram counts wrong; got %v", ev[0].ClassHist)
 	}
 }
 
 // TestClassHistogramHelpers covers the pure histogram/argmax helpers: empty-class
 // normalization, the lexical tiebreak, the argmax, and the empty case.
 func TestClassHistogramHelpers(t *testing.T) {
-	h := classHistogram([]failRec{{class: "b"}, {class: "a"}, {class: ""}})
+	h := incident.ClassHistogram([]failRec{{Class: "b"}, {Class: "a"}, {Class: ""}})
 	if h["b"] != 1 || h["a"] != 1 || h["unknown"] != 1 {
 		t.Fatalf("classHistogram miscount (empty class -> unknown); got %v", h)
 	}
-	if d := dominantClass(map[string]int{"b": 1, "a": 1}); d != "a" {
+	if d := incident.DominantClass(map[string]int{"b": 1, "a": 1}); d != "a" {
 		t.Fatalf("dominantClass tiebreak must be lexical; got %q", d)
 	}
-	if d := dominantClass(map[string]int{"x": 1, "y": 3}); d != "y" {
+	if d := incident.DominantClass(map[string]int{"x": 1, "y": 3}); d != "y" {
 		t.Fatalf("dominantClass must be the argmax; got %q", d)
 	}
-	if d := dominantClass(map[string]int{}); d != "" {
+	if d := incident.DominantClass(map[string]int{}); d != "" {
 		t.Fatalf("empty histogram dominant must be empty; got %q", d)
 	}
 }
@@ -417,13 +418,13 @@ func TestApplyIncidentLinesClass(t *testing.T) {
 	if n := s.applyIncidentLines([][][2]string{poolStream, hostA, hostLegacy}, now); n != 3 {
 		t.Fatalf("expected 3 restored; got %d", n)
 	}
-	if s.poolIncident == nil || s.poolIncident.class != "network_timeout" {
+	if s.poolIncident == nil || s.poolIncident.Class != "network_timeout" {
 		t.Fatalf("pool incident must restore its pinned class; got %+v", s.poolIncident)
 	}
-	if s.incident["hostA"] == nil || s.incident["hostA"].dominantClass != "script_error" {
+	if s.incident["hostA"] == nil || s.incident["hostA"].DominantClass != "script_error" {
 		t.Fatalf("hostA must restore dominantClass; got %+v", s.incident["hostA"])
 	}
-	if s.incident["hostL"] == nil || s.incident["hostL"].dominantClass != "unknown" {
+	if s.incident["hostL"] == nil || s.incident["hostL"].DominantClass != "unknown" {
 		t.Fatalf("legacy line must default dominantClass to unknown; got %+v", s.incident["hostL"])
 	}
 }
@@ -440,10 +441,10 @@ func TestApplyIncidentLinesReconcile(t *testing.T) {
 	s.incidentWin = time.Hour
 	// Live window (as rehydrateFromLoki would have seeded it): 4 fails, zeta-dominated.
 	s.failWindow["hostA"] = []failRec{
-		{t: now.Add(-9 * time.Minute), class: "zeta"},
-		{t: now.Add(-8 * time.Minute), class: "zeta"},
-		{t: now.Add(-7 * time.Minute), class: "zeta"},
-		{t: now.Add(-6 * time.Minute), class: "alpha"},
+		{At: now.Add(-9 * time.Minute), Class: "zeta"},
+		{At: now.Add(-8 * time.Minute), Class: "zeta"},
+		{At: now.Add(-7 * time.Minute), Class: "zeta"},
+		{At: now.Add(-6 * time.Minute), Class: "alpha"},
 	}
 	// Restored open line is an older, smaller snapshot dominated by alpha.
 	hostA := [][2]string{
@@ -453,14 +454,14 @@ func TestApplyIncidentLinesReconcile(t *testing.T) {
 		t.Fatalf("expected 1 restored; got %d", n)
 	}
 	inc := s.incident["hostA"]
-	if inc == nil || inc.peak != 4 {
+	if inc == nil || inc.Peak != 4 {
 		t.Fatalf("peak must reconcile to the larger live window (4); got %+v", inc)
 	}
-	if inc.dominantClass != "zeta" {
-		t.Fatalf("dominantClass must be recomputed from the live window (zeta), not the stale snapshot (alpha); got %q", inc.dominantClass)
+	if inc.DominantClass != "zeta" {
+		t.Fatalf("dominantClass must be recomputed from the live window (zeta), not the stale snapshot (alpha); got %q", inc.DominantClass)
 	}
-	if inc.peakClassHist["zeta"] != 3 || inc.peakClassHist["alpha"] != 1 {
-		t.Fatalf("peakClassHist must reflect the live window; got %v", inc.peakClassHist)
+	if inc.PeakClassHist["zeta"] != 3 || inc.PeakClassHist["alpha"] != 1 {
+		t.Fatalf("peakClassHist must reflect the live window; got %v", inc.PeakClassHist)
 	}
 }
 
@@ -683,7 +684,7 @@ func TestGitCommitsTolerantDecode(t *testing.T) {
 // two deep-links resolve.
 func TestHostInfoCommitLabels(t *testing.T) {
 	s := newPoolState("default", 8080)
-	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.10.26", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
+	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.10.30", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleStartUtc: "c1", OverallStatus: "pass"}
 	hv.Status.GitCommits = append(hv.Status.GitCommits,
 		gitCommitRef{Sha: "1583275bcafef00d", RepoURL: "https://github.com/org/yuruna"})
@@ -860,8 +861,8 @@ func TestFetchRegistration(t *testing.T) {
 	partial := serve(http.StatusOK, `{"poolId":"lab","gating":{"quorum":{"healthyThreshold":0.9}}}`)
 	defer partial.Close()
 	if _, _, g, _, _, err := fetchRegistration(client, partial.URL); err != nil || g == nil ||
-		g.FailuresBeforeAlert != defaultFailuresBeforeAlert || g.SuccessesBeforeRearm != defaultSuccessesBeforeRearm ||
-		g.HealthyThreshold != 0.9 || g.DegradedAfter != defaultDegradedAfter {
+		g.FailuresBeforeAlert != incident.DefaultFailuresBeforeAlert || g.SuccessesBeforeRearm != incident.DefaultSuccessesBeforeRearm ||
+		g.HealthyThreshold != 0.9 || g.DegradedAfter != incident.DefaultDegradedAfter {
 		t.Fatalf("partial gating: got (%+v,%v)", g, err)
 	}
 }
@@ -882,7 +883,7 @@ func TestEvaluatePoolGate(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		s.evaluatePoolGate(base.Add(time.Duration(i) * time.Hour))
 	}
-	if s.poolGate["lab"].degraded || s.poolGate["lab"].alertFired {
+	if s.poolGate["lab"].Degraded || s.poolGate["lab"].AlertFired {
 		t.Fatalf("(a) frac at threshold must not degrade/alert: %+v", s.poolGate["lab"])
 	}
 
@@ -895,19 +896,19 @@ func TestEvaluatePoolGate(t *testing.T) {
 	// (b) below but < degradedAfter -> not degraded yet.
 	s.evaluatePoolGate(base)                      // belowSince = base
 	s.evaluatePoolGate(base.Add(5 * time.Minute)) // 5m < 10m
-	if s.poolGate["lab"].degraded {
+	if s.poolGate["lab"].Degraded {
 		t.Fatalf("(b) below for 5m (<10m) must not be degraded")
 	}
 	// (c) sustained >= window -> degraded; (d) the alert needs 2 consecutive degraded polls.
 	s.evaluatePoolGate(base.Add(11 * time.Minute)) // degraded poll #1
-	if !s.poolGate["lab"].degraded {
+	if !s.poolGate["lab"].Degraded {
 		t.Fatalf("(c) sustained >=10m must be degraded")
 	}
-	if s.poolGate["lab"].alertFired {
+	if s.poolGate["lab"].AlertFired {
 		t.Fatalf("(d) one degraded poll must not fire (needs 2)")
 	}
 	s.evaluatePoolGate(base.Add(12 * time.Minute)) // degraded poll #2 -> fires
-	if !s.poolGate["lab"].alertFired {
+	if !s.poolGate["lab"].AlertFired {
 		t.Fatalf("(d) alert must fire after 2 consecutive degraded polls")
 	}
 
@@ -915,14 +916,14 @@ func TestEvaluatePoolGate(t *testing.T) {
 	// degraded clears immediately; the alert re-arms only after 2 non-degraded polls.
 	s.hosts["42a"].Status.OverallStatus = "pass"
 	s.evaluatePoolGate(base.Add(13 * time.Minute)) // non-degraded poll #1
-	if s.poolGate["lab"].degraded {
+	if s.poolGate["lab"].Degraded {
 		t.Fatalf("(f) degraded must clear immediately on recovery")
 	}
-	if !s.poolGate["lab"].alertFired {
+	if !s.poolGate["lab"].AlertFired {
 		t.Fatalf("(e) alert must stay fired until 2 non-degraded polls")
 	}
 	s.evaluatePoolGate(base.Add(14 * time.Minute)) // non-degraded poll #2 -> re-arm
-	if s.poolGate["lab"].alertFired {
+	if s.poolGate["lab"].AlertFired {
 		t.Fatalf("(e) alert must re-arm after 2 non-degraded polls")
 	}
 
@@ -935,10 +936,10 @@ func TestEvaluatePoolGate(t *testing.T) {
 		s.evaluatePoolGate(base.Add(time.Duration(i*10) * time.Minute)) // 0..60m at 10m steps
 	}
 	g := s.poolGate["wild"]
-	if !g.degraded {
+	if !g.Degraded {
 		t.Fatalf("(g) unauthored pool should still compute degraded for the gauge")
 	}
-	if g.authored || g.alertFired {
+	if g.Authored || g.AlertFired {
 		t.Fatalf("(g) unauthored pool must never alert: %+v", g)
 	}
 
@@ -951,7 +952,7 @@ func TestEvaluatePoolGate(t *testing.T) {
 	s.evaluatePoolGate(base)                       // belowSince = base
 	s.evaluatePoolGate(base.Add(11 * time.Minute)) // degraded #1
 	s.evaluatePoolGate(base.Add(12 * time.Minute)) // degraded #2 -> fired
-	if !s.poolGate["lab"].alertFired {
+	if !s.poolGate["lab"].AlertFired {
 		t.Fatalf("(h) precondition: alert should be firing")
 	}
 	delete(s.hosts, "42a")
@@ -962,7 +963,7 @@ func TestEvaluatePoolGate(t *testing.T) {
 	}
 	gotRearm := false
 	for _, e := range ev {
-		if e.alert && e.rearm && e.poolLabel == "lab" {
+		if e.Alert && e.Rearm && e.PoolLabel == "lab" {
 			gotRearm = true
 		}
 	}

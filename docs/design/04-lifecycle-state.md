@@ -131,7 +131,7 @@ The policy check admits only Windows Hyper-V, Ubuntu KVM, and macOS UTM hosts, a
 
 A failed hard-severity attempt saves its frames, the observed VM state, and the console second opinion before power is touched. A restart then requires that evidence, a login-wait OCR timeout without a matched failure pattern or console flood, and, when the OCR tail still shows the live installer, a driver that can put the installer media first; only the [Hyper-V driver](../../host/windows.hyper-v/modules/Yuruna.Host.psm1) implements that. Otherwise `retry_suppressed` ends the block without replaying input. `Invoke-SequenceColdPowerCycle` force-stops the VM, confirms that it stopped, optionally reselects installer media, starts it, confirms that it runs, and refreshes the console; any failed or ambiguous phase ends the block, and `retry_vm_restart` records the phase and outcome.
 
-The login waits inside such a block end early on a guest livelock instead of spending their whole budget. `Wait-ForText` in [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1) takes that verdict from the Hyper-V host recording or, where QEMU paints `Display output is not active`, from a 300-second run of such frames confirmed by a `guest-wedged` console second opinion, which only the [UTM driver](../../host/macos.utm/modules/Yuruna.Host.psm1) reports. Any frame with other content restarts that run. The `arm64HyperVColdPowerCycle` and `arm64HyperVInstallerBoot` modes keep their native ARM64 Hyper-V restriction, and a plain `retry` runs the same attempt loop without the policy check or restart.
+The login waits inside such a block end early on a guest livelock instead of spending their whole budget. `Wait-ForText` in [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1) takes that verdict from the Hyper-V host recording or, where QEMU paints `Display output is not active`, from a 300-second run of such frames confirmed by a `guest-wedged` console second opinion, which only the [UTM driver](../../host/macos.utm/modules/Yuruna.Host.psm1) reports. Any frame with other content restarts that run. On Hyper-V, `Wait-ForText` also ends once one processor has serviced no interrupt for 180 seconds and the serial console holds a kernel fault report written after the wait began; a silent processor alone, or a report alone, keeps waiting. The `arm64HyperVColdPowerCycle` and `arm64HyperVInstallerBoot` modes keep their native ARM64 Hyper-V restriction, and a plain `retry` runs the same attempt loop without the policy check or restart.
 
 ## Validation and cleanup
 
@@ -168,7 +168,7 @@ runner state; the [exchange diagram](03-data-flows.md) shows its evidence path.
 
 Passing guests release DHCP, force-stop, and remove the VM. Teardown forces deliberately because the disk is deleted next; the graceful `Stop-VM` path serves steps that keep the disk. If a VM still runs after retrying removal, cleanup fails and the runner refuses to start the next guest. Failed guests are removed when `stopOnFailure` is false. When true, the guest loop breaks, the cycle result is finalized, and the inner exits before its normal boundary sweep and delay.
 
-`Complete-CycleRun` seals the transcript and overall result; when rebuilt guests received different addresses, it fails an otherwise passing cycle as `dhcp_identity_unbounded`. Failure evidence includes the Hyper-V `serial-console.log` captured from COM1 during the cycle. The `failuresBeforeAlert` threshold, the armed latch, and successful rearm streaks gate notifications; the crash streak drives only backoff and the abort. Bounded artifact capture can fail without replacing the original error. Authentication vault keys are reused across cycles and retained after passing and failing results, through `Initialize-CycleAuthVault`.
+`Complete-CycleRun` seals the transcript and overall result; when rebuilt guests received different addresses, it fails an otherwise passing cycle as `dhcp_identity_unbounded`. Failure evidence includes the Hyper-V `serial-console.log` captured from COM1 during the cycle. The step's failure record reads that capture from the step's start mark through [Test.Diagnostic.psm1](../../test/modules/Test.Diagnostic.psm1) for the guest kernel's own fault reports and for a console clock past the VM's age, keeps the guest recorder's frozen first stall beside them, and lists the host's own address moves between the step start and the failure from the [host address beacon](../../test/modules/Test.HostAddressBeacon.psm1) records; the events carry them as `causeGuestKernelFault` and `causeHostAddressChange`. When such a record lists kernel faults or processors that serviced no interrupt, the `wait_timeout` handler in [Test.Remediation.psm1](../../test/modules/Test.Remediation.psm1) names the wedged kernel rather than a slow package mirror and still recommends a retry with backoff. The `failuresBeforeAlert` threshold, the armed latch, and successful rearm streaks gate notifications; the crash streak drives only backoff and the abort. Bounded artifact capture can fail without replacing the original error. Authentication vault keys are reused across cycles and retained after passing and failing results, through `Initialize-CycleAuthVault`.
 
 Before guest diagnostics attempt SSH, failure capture runs
 [Test.GuestNetworkCrossCheck.psm1](../../test/modules/Test.GuestNetworkCrossCheck.psm1)
@@ -176,8 +176,9 @@ to record the host's reachability of the caching service and guest. It adds that
 verdict and available SSH-readiness evidence to `failure_diagnostic` events.
 The [Hyper-V driver](../../host/windows.hyper-v/modules/Yuruna.Host.psm1)
 additionally saves adapter, address, neighbor, TCP, and worker-event evidence
-through `Save-VMNetworkState`. These captures explain a failure without changing
-its original verdict.
+through `Save-VMNetworkState`, and checkpoint, disk-chain and storage-folder
+evidence through `Save-VMStorageState`. These captures explain a failure
+without changing its original verdict.
 
 ## Durable diagnostic preservation
 
@@ -367,6 +368,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 [Architecture](../architecture.md) | [Design overview](README.md)

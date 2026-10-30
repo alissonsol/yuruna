@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 426e19c5-9718-4a13-b5d3-7b13bd7d1d65
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,5 +94,39 @@ Describe 'Invoke-WithYurunaRetry -ShouldRetry predicate control flow' {
              -ScriptBlock { $script:runs++; throw 'boom' }
         Assert-Equal -Expected 3 -Actual $r.Attempts -Because 'no predicate => retry on any non-zero exit'
         Assert-Equal -Expected 3 -Actual $script:runs
+    }
+}
+
+Describe 'Invoke-TofuInitWithRetry attempt budget' {
+    BeforeEach {
+        Mock -ModuleName 'Yuruna.Retry' Start-Sleep { }
+        $script:savedAttempts = Save-YurunaTestEnvironment -Name 'YURUNA_RETRY_MAX_ATTEMPTS'
+        $env:YURUNA_RETRY_MAX_ATTEMPTS = ''
+        # An init that cannot reach the provider registry, as OpenTofu reports it.
+        Set-Item -Path Function:global:tofu -Value {
+            'Error: Failed to resolve provider packages: could not query provider registry: Client.Timeout exceeded while awaiting headers'
+            $global:LASTEXITCODE = 1
+        }
+    }
+
+    AfterEach {
+        Remove-Item -Path Function:global:tofu -ErrorAction SilentlyContinue
+        Restore-YurunaTestEnvironment -Saved $script:savedAttempts
+    }
+
+    It 'runs init six times, one more than the shared default, before it gives up' {
+        $log = Join-Path $TestDrive 'six.stderr.log'
+        $r = Invoke-TofuInitWithRetry -ResourceName 'sample' -LogPath $log
+        Assert-Equal -Expected $false -Actual $r.Success
+        Assert-Equal -Expected 6 -Actual $r.MaxAttempts -Because 'five attempts span only about four minutes of backoff, shorter than a registry stall the proxy has passed through'
+        Assert-Equal -Expected 6 -Actual @(Select-String -LiteralPath $log -Pattern '^== .* attempt \d+/6 \(exit=1\) ==$').Count -Because 'each attempt the tool ran writes its own section'
+    }
+
+    It 'keeps the operator''s YURUNA_RETRY_MAX_ATTEMPTS over its own default' {
+        $env:YURUNA_RETRY_MAX_ATTEMPTS = '2'
+        $log = Join-Path $TestDrive 'two.stderr.log'
+        $r = Invoke-TofuInitWithRetry -ResourceName 'sample' -LogPath $log
+        Assert-Equal -Expected 2 -Actual $r.MaxAttempts
+        Assert-Equal -Expected 2 -Actual @(Select-String -LiteralPath $log -Pattern '^== .* attempt \d+/2 \(exit=1\) ==$').Count
     }
 }

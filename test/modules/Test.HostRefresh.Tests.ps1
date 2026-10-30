@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4253a1e0-9103-4f16-8461-710adf91da65
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -552,12 +552,12 @@ Describe 'Resolve-HostRefreshContext' {
             $body = @{ sourcePath = $Source; publisherPid = $PublisherPid; config = @{ testCycle = @{}; statusService = @{ enabled = $false } } } | ConvertTo-Json -Depth 5 -Compress
             [IO.File]::WriteAllText((Join-Path $Runtime $name), $body)
         }
-        $script:SavedRuntimeDir = @{ Present = (Test-Path Env:YURUNA_RUNTIME_DIR); Value = $env:YURUNA_RUNTIME_DIR }
+        $script:SavedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue
         $script:Deadline = New-YurunaDeadline -TotalMilliseconds 60000
     }
     AfterAll {
-        if ($script:SavedRuntimeDir.Present) { $env:YURUNA_RUNTIME_DIR = $script:SavedRuntimeDir.Value } else { Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeDir
     }
 
     It 'falls back to the default runtime and configuration, creating nothing in preview' {
@@ -582,6 +582,7 @@ Describe 'Resolve-HostRefreshContext' {
 
     It 'uses one snapshot envelope, refuses several distinct sources and a recorded source that is gone' {
         $fixture = New-ContextFixture
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $fixture.Runtime
         try {
             $other = Join-Path $fixture.Root 'other.yml'
@@ -600,26 +601,28 @@ Describe 'Resolve-HostRefreshContext' {
             Get-ChildItem -LiteralPath $fixture.Runtime -Force -Filter '.test.config.snapshot.*' | Remove-Item -Force
             Add-Envelope -Runtime $fixture.Runtime -Source (Join-Path $fixture.Root 'gone.yml')
             Assert-Equal 'config-missing' (Resolve-HostRefreshContext -Paths $fixture.Paths -HostType host.ubuntu.kvm -Preview -Deadline $script:Deadline).Reason
-        } finally { Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
     }
 
     It 'refuses a missing runtime, a runtime other than the request''s, and one other than the registered owner' {
         $fixture = New-ContextFixture
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = Join-Path $fixture.Root 'nope'
         try {
             Assert-Equal 'runtime-missing' (Resolve-HostRefreshContext -Paths $fixture.Paths -HostType host.ubuntu.kvm -Preview -Deadline $script:Deadline).Reason
             $env:YURUNA_RUNTIME_DIR = $fixture.Runtime
             Assert-Equal 'runtime-mismatch' (Resolve-HostRefreshContext -Paths $fixture.Paths -HostType host.ubuntu.kvm -RequestRuntimeDir (Join-Path $fixture.Root 'home') -Preview -Deadline $script:Deadline).Reason
-        } finally { Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
         $journal = Get-YurunaHostRefreshRequestPath
         $payload = [ordered]@{ schemaVersion = 2; writtenUtc = ''; owner = @{ runtimeDir = (Join-Path $fixture.Root 'home') }; requests = @(); reservations = @(); tombstones = @() }
         $null = Write-YurunaCriticalRecord -Path $journal -Kind 'host-refresh.request-journal' -Payload $payload -ExpectedGeneration 0 -Confirm:$false
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $fixture.Runtime
         try {
             $mismatch = Resolve-HostRefreshContext -Paths $fixture.Paths -HostType host.ubuntu.kvm -Preview -Deadline $script:Deadline
             Assert-Equal 'runtime-owner-mismatch' $mismatch.Reason
             Assert-Equal (Join-Path $fixture.Root 'home') $mismatch.RegisteredRuntimeDir
-        } finally { Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
         Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue
         $registered = Resolve-HostRefreshContext -Paths $fixture.Paths -HostType host.ubuntu.kvm -Preview -Deadline $script:Deadline
         Assert-Equal 'owner-registration' $registered.RuntimeSource
@@ -656,6 +659,7 @@ Describe 'Resolve-HostRefreshContext' {
 
     It 'resolves the runtime and private state without any configuration for a disposition' {
         $fixture = New-ContextFixture
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $fixture.Runtime
         try {
             $other = Join-Path $fixture.Root 'other.yml'
@@ -671,7 +675,7 @@ Describe 'Resolve-HostRefreshContext' {
             Get-ChildItem -LiteralPath $fixture.Runtime -Force -Filter '.test.config.snapshot.*' | Remove-Item -Force
             Add-Envelope -Runtime $fixture.Runtime -Source (Join-Path $fixture.Root 'gone.yml')
             Assert-True (Resolve-HostRefreshContext -Paths $fixture.Paths -HostType host.ubuntu.kvm -NoConfig -Deadline $script:Deadline).Resolved 'a deleted configuration does not block it either'
-        } finally { Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
     }
 }
 
@@ -796,7 +800,7 @@ Describe 'Write-HostRefreshLog' {
     It 'writes outer.log when executing, and not for a preview or a console-only line' {
         $runtime = New-ScratchDir -Prefix 'log'
         Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.OuterLog.psm1') -Global -DisableNameChecking
-        $saved = @{ Present = (Test-Path Env:YURUNA_RUNTIME_DIR); Value = $env:YURUNA_RUNTIME_DIR }
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $runtime
         try {
             Write-HostRefreshLog -Key 'runner.host_refresh_verified_noop' -InformationAction SilentlyContinue
@@ -805,7 +809,7 @@ Describe 'Write-HostRefreshLog' {
             $lines = @(Get-Content -LiteralPath (Join-Path $runtime 'outer.log'))
             Assert-Equal 1 $lines.Count
         } finally {
-            if ($saved.Present) { $env:YURUNA_RUNTIME_DIR = $saved.Value } else { Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
+            Restore-YurunaTestEnvironment -Saved $saved
         }
     }
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 422627df-cd08-4fa3-84f7-b73848bfdc46
@@ -332,9 +332,6 @@ if [ -n "$(apt-cache madison deborphan 2>/dev/null)" ]; then
   fi
 fi
 
-REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
-
 # --- REGION: Ensure Git is installed
 echo ""
 echo -e "\e[1;36m==== Ensure Git is installed ====\e[0m"
@@ -360,7 +357,6 @@ if yuruna_host_env; then
   fi
 fi
 
-# See https://yuruna.link/42fa6f45-000c
 # host.env keeps clone URLs available while the status service is unreachable.
 : "${FRAMEWORK_URL:=${YURUNA_FRAMEWORK_URL:-}}"
 : "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"

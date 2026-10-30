@@ -10,6 +10,15 @@ const DataqpsPlocmdownload = `{
   "download.actions": "[!‮Áçţíóñš‬ ~~~]",
   "download.actions_need_the_internal_authentication_key_as_a_bearer": "[!‮Áçţíóñš ñééď ţħé íñţéřñáļ áúţħéñţíçáţíóñ ķéý áš á ƀéářéř‬ ~~~~~~~~~~~~~~~~~~~~~~~]",
   "download.api_arch_query_parameter_is_required_amd64_or_arm64": "[!‮ářçħ ʠúéřý ƥářáɱéţéř íš řéʠúířéď (áɱď64 óř ářɱ64)‬ ~~~~~~~~~~~~~~~~~~~~]",
+  "download.api_delete_refused_reason": [
+    "[!‮ďéļéţé řéƒúšéď: ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "‬ ~~~~~~~~~~]"
+  ],
   "download.api_detail": [
     "[!‮",
     {
@@ -39,6 +48,15 @@ const DataqpsPlocmdownload = `{
       "trust": "external"
     },
     "‬ ~~~~~~~~~~~~]"
+  ],
+  "download.api_prune_refused_reason": [
+    "[!‮ƥřúñé řéƒúšéď: ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "‬ ~~~~~~~~~~]"
   ],
   "download.api_refresh_refused_reason": [
     "[!‮řéƒřéšħ řéƒúšéď: ",

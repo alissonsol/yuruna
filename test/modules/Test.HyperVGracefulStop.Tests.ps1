@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42a3f399-960c-4d30-9108-c415e558a708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 
 # Parse once; each test reads the function bodies out of the AST so that comments
 # and strings can never be mistaken for calls.
-$ast = [System.Management.Automation.Language.Parser]::ParseFile($hostFile, [ref]$null, [ref]$null)
+$ast = Get-YurunaTestFileAst -Path $hostFile
 
 function Get-FunctionAst {
     param([string]$Name)
@@ -94,8 +94,12 @@ Describe 'hyper-v-graceful-stop' {
             'the force-stop may only be an escalation, never the first move'
     }
     It 'Save-VMDiskSnapshot stops the VM through the graceful path' {
-        $fn = Get-FunctionAst -Name 'Save-VMDiskSnapshot'
-        Assert-True ($null -ne $fn) 'Save-VMDiskSnapshot must exist'
+        $save = Get-FunctionAst -Name 'Save-VMDiskSnapshot'
+        Assert-True ($null -ne $save) 'Save-VMDiskSnapshot must exist'
+        Assert-True ((Get-CommandNameList -FunctionAst $save) -contains 'Stop-HyperVVMForSnapshot') `
+            'the save hands the shared snapshot save its stop primitive'
+        $fn = Get-FunctionAst -Name 'Stop-HyperVVMForSnapshot'
+        Assert-True ($null -ne $fn) 'Stop-HyperVVMForSnapshot must exist'
         $names = Get-CommandNameList -FunctionAst $fn
         Assert-True ($names -contains 'Stop-VM') `
             'the snapshot path must go through Stop-VM (graceful), not straight to a force-stop'

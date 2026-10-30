@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42d58adc-cab7-4fe8-b412-b22f9af0785c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,14 +20,12 @@
 BeforeAll {
     $script:RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     Import-Module (Join-Path $script:RepoRoot 'host/Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
+    Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.DriverSource.psm1') -Force -DisableNameChecking
     $script:Contract = (Get-YurunaHostContractVerb) + @('Resolve-HostTag', 'Resolve-CacheHostIp', 'Save-CachedHttpUri')
     $script:ProviderSources = @{}
     foreach ($provider in 'windows.hyper-v', 'macos.utm', 'ubuntu.kvm') {
-        $path = Join-Path $script:RepoRoot "host/$provider/modules/Yuruna.Host.psm1"
-        $errors = $null
-        $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors)
-        if ($errors) { throw "$path does not parse: $($errors[0].Message)" }
-        $script:ProviderSources[$provider] = @{ Text = [IO.File]::ReadAllText($path); Ast = $ast }
+        # The whole driver, part files included where the root loads them.
+        $script:ProviderSources[$provider] = @{ Text = (Get-YurunaDriverText -Driver $provider); Ast = (Get-YurunaDriverAst -Driver $provider) }
     }
 }
 
@@ -117,6 +115,73 @@ Describe 'UTM shared service template' {
             [xml]$text | Should -Not -BeNullOrEmpty
             if ($null -eq $expected) { $expected = $text }
             $text | Should -BeExactly $expected -Because 'VM identity, memory, CPU and network values are injected by the common service builder'
+        }
+    }
+}
+
+BeforeDiscovery {
+    Import-Module (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'host/Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
+    # The contract returns its verb list as one array object.
+    $verbs = Get-YurunaHostContractVerb
+    $script:ContractVerbCase = @($verbs | ForEach-Object { @{ Name = $_ } })
+}
+
+Describe 'Host contract signatures agree across providers' {
+    BeforeAll {
+        # Optional parameters only some providers take, each with why. A
+        # shared caller must not pass one unconditionally; a new divergence
+        # fails until it is listed here with its reason.
+        $script:PlatformParameter = @{
+            'Stop-VMForce|Deadline'                         = 'UTM: a shared deadline across its utmctl stop and poll'
+            'Add-PortMap|RuntimeDir'                        = 'Hyper-V: the runtime folder its port-map record lives in'
+            'Remove-PortMap|RuntimeDir'                     = 'Hyper-V: the runtime folder its port-map record lives in'
+            'Get-GuestReachableHostIp|SettleTimeoutSeconds' = 'Hyper-V: a just-created External vSwitch needs time to take an address'
+            'Get-GuestReachableHostIp|NetworkMode'          = 'UTM: shared NAT and bridged guests reach the host at different addresses'
+            'Set-HostProxy|NetworkService'                  = 'UTM: macOS proxy settings are per network service'
+            'Remove-HostProxy|NetworkService'               = 'UTM: macOS proxy settings are per network service'
+            'Test-VirtualizationResponsive|Corroborate'     = 'UTM: the lifecycle-verb probe the pre-cycle gate asks for'
+            'Test-VirtualizationResponsive|DialogWindowSeconds' = 'UTM: the consent-dialog window of the lifecycle probe'
+            'Test-VirtualizationResponsive|RecordedAutomationSubject' = 'UTM: the Apple Events subject recorded at setup'
+            'Test-VirtualizationResponsive|IncludeInventory' = 'UTM: the VM listing the probe can return'
+            'Test-VirtualizationResponsive|LifecycleProbe'  = 'UTM: the lifecycle-verb probe the pre-cycle gate asks for'
+            'Test-VirtualizationResponsive|LifecycleProbePrefix' = 'UTM: the VM names the lifecycle probe may use'
+            'Test-VirtualizationResponsive|LifecycleRetryWindowSeconds' = 'UTM: the retry window of the lifecycle probe'
+        }
+        $script:Signature = @{}
+        $verbs = Get-YurunaHostContractVerb
+        foreach ($provider in $script:ProviderSources.Keys) {
+            foreach ($name in $verbs) {
+                $definition = $script:ProviderSources[$provider].Ast.Find({ param($node)
+                        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+                $parameters = @{}
+                foreach ($parameter in @($definition.Body.ParamBlock.Parameters | Where-Object { $_ })) {
+                    $mandatory = [bool]($parameter.Attributes | Where-Object {
+                            $_.TypeName.Name -eq 'Parameter' -and @($_.NamedArguments.ArgumentName) -contains 'Mandatory' })
+                    $parameters[$parameter.Name.VariablePath.UserPath] = @{ Mandatory = $mandatory; Type = [string]$parameter.StaticType.FullName }
+                }
+                $script:Signature["$provider|$name"] = $parameters
+            }
+        }
+    }
+    It '<Name> takes the same mandatory parameters, of the same types, on every provider' -ForEach $script:ContractVerbCase {
+        $providers = @($script:ProviderSources.Keys | Sort-Object)
+        $all = @($providers | ForEach-Object { $script:Signature["$_|$Name"].Keys } | Sort-Object -Unique)
+        foreach ($parameter in $all) {
+            $rows = @($providers | ForEach-Object { $script:Signature["$_|$Name"][$parameter] })
+            $present = @($rows | Where-Object { $_ })
+            if ($present.Count -lt $providers.Count) {
+                $script:PlatformParameter.ContainsKey("$Name|$parameter") | Should -BeTrue -Because "-$parameter of $Name exists on only some providers and is not a listed platform parameter"
+                @($present | Where-Object { $_.Mandatory }).Count | Should -Be 0 -Because "a parameter only some providers take cannot be mandatory ($Name -$parameter)"
+                continue
+            }
+            @($present | ForEach-Object { $_.Mandatory } | Sort-Object -Unique).Count | Should -Be 1 -Because "$Name -$parameter is mandatory on some providers only"
+            @($present | ForEach-Object { $_.Type } | Sort-Object -Unique).Count | Should -Be 1 -Because "$Name -$parameter has different types across providers"
+        }
+    }
+    It 'lists only platform parameters that still exist' {
+        foreach ($key in $script:PlatformParameter.Keys) {
+            $name, $parameter = $key -split '\|'
+            @($script:ProviderSources.Keys | Where-Object { $script:Signature["$_|$name"].ContainsKey($parameter) }).Count | Should -BeGreaterThan 0 -Because "$key is listed but no provider takes it"
         }
     }
 }

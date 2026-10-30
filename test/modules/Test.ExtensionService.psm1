@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42eeeb9d-fb5a-4c19-9424-9b112f3e3721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -542,6 +542,74 @@ function Get-ExtensionServiceHostProcessState {
     return [pscustomobject]$state
 }
 
+function Stop-ExtensionServiceHostProcess {
+    <#
+    .SYNOPSIS
+        Stop the host-side daemon a deployment record names, only while its
+        identity still matches: {ProcessId; Stopped; LeftRunning; Reason;
+        IdentityVerified; StopError}.
+    .DESCRIPTION
+        A pid outlives its process and can be handed to an unrelated one, so
+        the name and the recorded start time must both match, and the start
+        time is read again from the captured handle immediately before the
+        kill. A record without a pid, or a daemon that is already gone, leaves
+        nothing running. A process that cannot be verified is left alone and
+        reported as left running, so the caller refuses instead of guessing.
+        IdentityVerified tells that case from a verified process whose stop
+        did not complete; StopError carries the error a verified stop raised,
+        even when the process turned out to have exited.
+    .PARAMETER Deployment
+        A Get-ExtensionServiceDeploymentIdentity record.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Deployment,
+        [Parameter(Mandatory)][string]$Area
+    )
+    $result = [ordered]@{ ProcessId = 0; Stopped = $false; LeftRunning = $false; Reason = 'no-process'; IdentityVerified = $false; StopError = '' }
+    if ($null -eq $Deployment -or -not $Deployment.Pid) { return [pscustomobject]$result }
+    $result.ProcessId = [int]$Deployment.Pid
+    $state = Get-ExtensionServiceHostProcessState -ProcessId ([int]$Deployment.Pid) `
+        -ProcessStartUnixMs ([long]$Deployment.ProcessStartUnixMs) -ExpectedName $Area
+    if (-not $state.IdentityVerified) {
+        $result.Reason = [string]$state.Reason
+        $result.LeftRunning = ($state.Alive -or $state.Reason -ne 'not-running')
+        return [pscustomobject]$result
+    }
+    $result.IdentityVerified = $true
+    if (-not $PSCmdlet.ShouldProcess("pid $($Deployment.Pid)", "Stop host-side $Area")) {
+        $result.LeftRunning = $true
+        $result.Reason = 'declined'
+        return [pscustomobject]$result
+    }
+    $target = $null
+    try {
+        $target = Get-Process -Id ([int]$Deployment.Pid) -ErrorAction Stop
+        $null = $target.SafeHandle
+        $startMs = [DateTimeOffset]::new($target.StartTime).ToUnixTimeMilliseconds()
+        if ([long]$Deployment.ProcessStartUnixMs -le 0 -or
+            [Math]::Abs([decimal]$startMs - [decimal]$Deployment.ProcessStartUnixMs) -gt 2000) {
+            $result.LeftRunning = $true
+            $result.Reason = 'start-time-mismatch'
+        } else {
+            Stop-Process -InputObject $target -Force -ErrorAction Stop
+            $result.Stopped = $target.WaitForExit(5000)
+            $result.LeftRunning = -not $result.Stopped
+            $result.Reason = if ($result.Stopped) { 'stopped' } else { 'still-running' }
+        }
+    } catch {
+        $result.LeftRunning = $true
+        $result.Reason = [string]$_.Exception.Message
+        $result.StopError = [string]$_.Exception.Message
+        try { if ($target -and $target.HasExited) { $result.LeftRunning = $false; $result.Stopped = $true; $result.Reason = 'stopped' } }
+        catch { Write-Verbose "Process exit state unavailable: $_" }
+    } finally {
+        if ($target) { $target.Dispose() }
+    }
+    return [pscustomobject]$result
+}
+
 <#
 .SYNOPSIS
     Remove runtime/<area>.json so this host stops claiming the area.
@@ -647,6 +715,6 @@ function Get-ExtensionServiceReadyTimeoutSeconds {
 
 Export-ModuleMember -Function Get-ExtensionServiceManifest, Get-ExtensionServiceManifestAll, `
     Get-ExtensionServiceVmRoster, Get-ExtensionServiceMarkerPath, Write-ExtensionServiceMarker, `
-    Read-ExtensionServiceMarker, Get-ExtensionServiceMarkerBaseUrl, Remove-ExtensionServiceMarker, `
+    Read-ExtensionServiceMarker, Get-ExtensionServiceMarkerBaseUrl, Remove-ExtensionServiceMarker, Stop-ExtensionServiceHostProcess, `
     Get-ActiveExtensionService, Get-ExtensionServiceReadyTimeoutSeconds, `
     Get-ExtensionServiceDeploymentIdentity, Get-ExtensionServiceHostProcessState

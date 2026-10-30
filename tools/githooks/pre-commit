@@ -228,8 +228,10 @@ fi
 if [ -n "$staged_test_files" ] && [ -f "$pester_check" ]; then
     check_start pester env NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$pester_check" -Check
 fi
+# -Staged: the gate reads the suites and the baseline from the commit's index,
+# so a suite or a baseline edit left unstaged neither fails nor passes it.
 if [ -n "$staged_tests" ] && [ -f "$baseline_gate" ]; then
-    check_start baseline pwsh -NoProfile -ExecutionPolicy Bypass -File "$baseline_gate" -Quiet
+    check_start baseline pwsh -NoProfile -ExecutionPolicy Bypass -File "$baseline_gate" -Staged -Quiet
 fi
 if [ -f "$private_name_check" ]; then
     check_start private_name env NO_COLOR=1 pwsh -NoProfile -ExecutionPolicy Bypass -File "$private_name_check" -Quiet
@@ -778,7 +780,7 @@ if [ -f "$catalog_compile" ] && [ -f "$catalog_embed" ] &&
     sed -n -e 's/^PASS  *//p' -e 's/^WROTE  *//p' -e 's/^REMOVED  *//p' "$catalog_tmp/compile.out" \
         > "$catalog_tmp/owned"
     : > "$catalog_tmp/runtimes"
-    sed -n -e 's/^\(.*\): current$/\1/p' -e 's/^\(.*\): updated$/\1/p' "$catalog_tmp/embed.out" |
+    sed -n -e 's/^\(.*\): current$/\1/p' -e 's/^\(.*\): updated$/\1/p' -e 's/^\(.*\): removed$/\1/p' "$catalog_tmp/embed.out" |
         while IFS= read -r path; do
             case $path in
                 *.js)

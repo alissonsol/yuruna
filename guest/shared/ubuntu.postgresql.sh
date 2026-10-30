@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.26
+# Version: 2026.10.30
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 424712a7-3104-4390-9942-41ae7bd703bf
@@ -52,6 +52,7 @@ apt_retry sudo apt-get update -y
 apt_retry sudo apt-get install -y postgresql-18 postgresql-contrib-18
 
 # --- REGION: Ensure PostgreSQL cluster
+# See https://yuruna.link/42e220c4-0005
 # Package installation normally creates the cluster. Preserve its data on retries;
 # stopping the aggregate unit does not make a subsequent drop/recreate atomic.
 clusters=$(sudo pg_lsclusters --no-header)

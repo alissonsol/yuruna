@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4271255a-d0dd-4c45-8932-15f35ae51cf4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     Ubuntu).
 
 .DESCRIPTION
-    See https://yuruna.link/42010605-0002.
+    See https://yuruna.link/42010605-002c.
 .PARAMETER AccountName
     OS account / login name (matches the logical username used in
     users.yml). Defaults to `yurunatest`. Must start with a letter or
@@ -93,7 +93,7 @@
 
 .EXAMPLE
     .\New-LocalTestUser.ps1 -Admin -Force
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0029
 
 .NOTES
     Requires Administrator (Windows) or sudo (macOS / Ubuntu).
@@ -189,7 +189,7 @@ function Read-NewPassword {
     return $a
 }
 
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0028
 $WantsPassword = -not $NoPassword
 
 # The must-change-at-first-login flag is opt-in. A password set here is
@@ -407,13 +407,13 @@ function Get-OsUserFact {
 
 # --- REGION: Remove-OsUserHome
 function Remove-OsUserHome {
-    <# See https://yuruna.link/42010605-0002. #>
+    <# See https://yuruna.link/42010605-002b. #>
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$Path)
 
     if ([string]::IsNullOrWhiteSpace($Path)) { return }
     if (-not (Test-Path -LiteralPath $Path))  { return }
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0027
     $parent = $null
     try { $parent = ([System.IO.DirectoryInfo]::new($Path)).Parent } catch { $parent = $null }
     if ($null -eq $parent -or $null -eq $parent.Parent) {
@@ -690,7 +690,7 @@ if ($IsMacOS -and $HasPassword -and $Password.StartsWith('-')) {
 
 # Complete every non-mutating refusal before offering to replace the account.
 if ($existing) {
-    # See https://yuruna.link/42010605-0002
+    # See https://yuruna.link/42010605-0026
     $consentTarget = if ($existing.Home) { "'$AccountName' and $($existing.Home)" } else { "'$AccountName'" }
     Write-Information ""
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_42dcde04bb769692' -Arguments @{ accountName = "$AccountName"; homeNote = "$homeNote" })
@@ -753,7 +753,7 @@ function New-WindowsLocalUser {
             throw "Could not resolve the built-in Administrators group (SID S-1-5-32-544) on this host."
         }
         Add-LocalGroupMember -Group $adminGroup.Name -Member $Name -ErrorAction Stop
-        # See https://yuruna.link/42010605-0002
+        # See https://yuruna.link/42010605-0025
         $isMember = $null
         try {
             $members  = @(Get-LocalGroupMember -Group $adminGroup.Name -ErrorAction Stop)
@@ -891,7 +891,7 @@ elseif ($IsMacOS)   { New-MacLocalUser     @osArgs }
 elseif ($IsLinux)   { New-LinuxLocalUser   @osArgs }
 
 # --- REGION: Let the new Windows account run scripts
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0024
 # The read-back is the verdict: `exit 3` says the write did not land. The
 # closing `exit 0` is what keeps a successful run from reading as a failure
 # -- a PowerShell host returns 1 whenever anything reached the error stream,
@@ -935,7 +935,7 @@ function Test-PathUnderDirectory {
 
 # --- REGION: Get-WindowsShellCandidate
 function Get-WindowsShellCandidate {
-    <# See https://yuruna.link/42010605-0002. #>
+    <# See https://yuruna.link/42010605-002a. #>
     [OutputType([hashtable[]])]
     param()
 
@@ -1002,7 +1002,7 @@ function Set-WindowsUserExecutionPolicy {
     $encoded = ConvertTo-EncodedCommand -Command $Command
 
     foreach ($entry in $Shell) {
-        # See https://yuruna.link/42010605-0002
+        # See https://yuruna.link/42010605-0023
         $launch = @{
             FilePath         = $entry.Path
             Credential       = $cred
@@ -1150,7 +1150,7 @@ if ($IsWindows) {
 }
 
 # --- REGION: Register in the runtime users.yml
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0022
 $YamlEntry = @"
 
   ${AccountName}:

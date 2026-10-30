@@ -34,6 +34,8 @@ perf/
     sha256-1c7a....json                 # small per-guest fingerprint
   checkpoints/                          # guest-pushed fetch-and-execute phase timings (control/perf-checkpoints)
     ...
+  phases/
+    2026-05-21.jsonl                    # one row per timed stretch that is not a step, per UTC day
   sequences/
     sha256-a039....yml                  # snapshot of the sequence YAML body
 ```
@@ -262,6 +264,9 @@ Field reference:
 | `checkpointSourceStepInvocationId` | string, optional | Original execution ID when SSH reattaches to work begun by an earlier step. Original phase offsets are not rescaled into the new observer interval. |
 | `attempts` | int | Number of attempts this row represents (>=1). |
 | `retryCount` | int | Number of failures before the recorded outcome. |
+| `waitPolls` | int, optional | Passes of `Wait-ForText`'s poll loop during this step (`Add-PerfWaitPoll`). |
+| `waitWorkMs` | int, optional | Summed time of those passes less the poll sleep: capture, OCR and matching. The pass that ends a wait is counted but not timed. |
+| `waitPollMaxMs` | int, optional | The slowest such pass. |
 
 What is **not** in the row (intentional):
 
@@ -275,6 +280,29 @@ What is **not** in the row (intentional):
   under `perf/sequences/<hash>.yml`), not in every row.
 
 ---
+
+<a id="42185285-0010"></a>
+
+### Phase rows
+
+Steps are not the whole cycle. `Write-PerfPhaseRow` appends a row to
+`perf/phases/<UTC day>.jsonl` for every other timed stretch: each preamble
+phase of the inner runner (`scope: preamble`, timed by `Write-RunnerPhase`
+from one phase to the next and to `Clear-RunnerPhase`), the cycle-end
+`teardown` and the `inter-cycle-delay` (`scope: cycle`), and in the resident
+runner the `failure-pause` and each dispatched `cycle` (`scope: resident`,
+outcome `pass`, `fail` or the dispatch outcome). The folder sits beside the
+runtime folder of the writing process (`Get-PerfPhaseRootDir`), and the rows
+stay out of `perf/cycles/`, whose readers expect step rows. Fields: `schema`
+(1), `recordKind` (`phase`), `phase`, `scope`, `outcome`, `cycleGeneration`,
+`hostUuid`, `hostname`, `processId`, `startedAtUtc`, `endedAtUtc`,
+`durationMs`, and on a `cycle` row `budgetMs` and `overBudget`.
+
+A passing cycle is checked against a budget learned from this host's last 20
+passing cycles (`Get-PerfCycleBudget`: 1.5 times their 90th percentile, once
+there are 5). Over it, the resident warns (`runner.cycle_over_budget`), writes
+the line to `outer.log` and marks the row; the cycle still counts as a pass.
+Failing a cycle on the budget would be a new gate and is not done.
 
 <a id="42185285-000a"></a>
 
@@ -417,7 +445,12 @@ The emitter is wired into the runner at three points:
    that follow.
 3. **`Test.SequenceEngine.psm1`**, inside `$invokeStepBlock`, calls
    `Write-PerfStepRow` at the end of every step iteration, including retry wrappers
-   -- one atomic `AppendAllText` per step.
+   -- one atomic `AppendAllText` per step -- and `Wait-ForText` calls
+   `Add-PerfWaitPoll` at the top of every poll pass.
+
+Phase rows (above) come from `Write-RunnerPhase`/`Clear-RunnerPhase`
+(`Test.RunnerHeartbeat`), the cycle end of `Test.RunnerInnerLoop`, and
+`Write-OuterCyclePhase` and the failure pause in `Test.RunnerOuterLoop`.
 
 Every entry point is defensive: a missing module, missing
 `YURUNA_RUNTIME_DIR`, or a sequence with no frontmatter all degrade to
@@ -450,6 +483,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Back to [Yuruna](../README.md)

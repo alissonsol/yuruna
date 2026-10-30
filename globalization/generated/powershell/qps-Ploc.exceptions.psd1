@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42bb7615-cee4-a88b-8802-0ac4f598abc0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -223,27 +223,6 @@
         ' ~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'exceptions.host_56dd0a83b1740c20' = '[Disable-TestAutomation.ps1 (ħóšţ/ubuntu.kvm) óñļý řúñš óñ Ļíñúẋ. ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'exceptions.host_5e82d7a32d22a269' = @(
-        '[ĦŢŢƤ '
-        @{
-            'arg' = 'status'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' '
-        @{
-            'arg' = 'reasonPhrase'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' ƒóř '
-        @{
-            'arg' = 'uri'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' ~~~~~~~~~~~~~~~~]'
-    )
     'exceptions.host_5fbd4e8bd8efc5cc' = @(
         '[Úñšúƥƥóřţéď ářçħíţéçţúřé ƒóř ţħé éẋţéñšíóñ-šéřṽíçé ƀášé íɱáğé: '
         @{

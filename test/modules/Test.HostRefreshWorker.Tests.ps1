@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42be3895-85a7-48d1-b55d-aeffcd674ec0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -167,7 +167,7 @@ function global:Get-YurunaRefreshGateState { param([string]$RuntimeDir, [string]
             ServiceLocksHeld = $ServiceLocksHeld; ResumeOutcome = $ResumeOutcome; GateWritable = $GateWritable; Quiescent = $Quiescent
             Gate = @{ State = 'open'; RequestId = $null; Generation = '' }; Intent = @{}; StartResult = $null; RestartThrows = $false
             SessionKind = 'Aqua'; RestartOutcome = 'restarted'; Healthy = $true; EndpointState = 'verified'; ListenerEnabled = $false
-            ListenerOutcome = 'existing-ready'
+            ListenerOutcome = 'existing-ready'; OneShot = 'Missing'
         }
     }
 
@@ -222,6 +222,10 @@ function global:Get-YurunaRefreshGateState { param([string]$RuntimeDir, [string]
             $script:Log.Add('stop-runner')
             foreach ($root in @($Plan.Roots)) { $script:Scenario.Runner[$root.Role] = 'DeadOrRecycled' }
             [pscustomobject]@{ Converged = $true; Targets = [object[]]@($Plan.Roots | ForEach-Object { [pscustomobject]@{ Pid = $_.Pid; Action = 'exited-after-term' } }); Survivors = @(); DeadlineExhausted = $false }
+        }
+        Mock -ModuleName Test.HostRefresh Get-YurunaOneShotLeaseState {
+            $script:Log.Add("oneshot:$($script:Scenario.OneShot)")
+            [pscustomobject]@{ State = $script:Scenario.OneShot; Pid = 4242; Reason = 'test'; Fingerprint = 'fp-4242'; PidFile = (Join-Path $RuntimeDir 'oneshot.pid'); StartFile = (Join-Path $RuntimeDir 'oneshot.start') }
         }
         Mock -ModuleName Test.HostRefresh Remove-YurunaRunnerRecordGeneration { $script:Log.Add('remove-record'); [pscustomobject]@{ Removed = $true; Reason = 'removed' } }
         Mock -ModuleName Test.HostRefresh Get-YurunaRefreshGateState {
@@ -590,11 +594,11 @@ Describe 'hypervisor rungs on KVM' {
         $script:Scenario.StartResult = [pscustomobject]@{ outcome = 'refused'; reason = 'elevation-refused'; layout = 'monolithic'
             actions = @([pscustomobject]@{ target = 'libvirtd.service'; reason = 'elevation-refused'; result = 'refused'; command = @('systemctl', '--no-ask-password', 'start', 'libvirtd.service') }) }
         $context = New-TestContext
-        $runtimeBackup = @{ Present = (Test-Path Env:YURUNA_RUNTIME_DIR); Value = $env:YURUNA_RUNTIME_DIR }
+        $runtimeBackup = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $context.RuntimeDir
         Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.OuterLog.psm1') -Global -DisableNameChecking
         try { $result = Invoke-TestWorker -Context $context } finally {
-            if ($runtimeBackup.Present) { $env:YURUNA_RUNTIME_DIR = $runtimeBackup.Value } else { Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
+            Restore-YurunaTestEnvironment -Saved $runtimeBackup
         }
         Assert-Equal 'elevate' $result.operatorAction
         Assert-Equal 'skipped' (@($result.rungs | Where-Object { $_.name -eq 'start-if-stopped' })[0].outcome)
@@ -612,6 +616,30 @@ Describe 'hypervisor rungs on KVM' {
         New-TestScenario -Probe @(@{ State = 'Unresponsive'; Reason = 'app-stopped' }) -Outer AliveOwned
         $unqualified = Invoke-TestWorker -Context (New-TestContext -LockQualified $false)
         Assert-Equal 'lock-unqualified' (@($unqualified.rungs | Where-Object { $_.name -eq 'start-if-stopped' })[0].reason)
+    }
+
+    It 'runs no rung while a one-shot run holds the lease, and reads the lease only after closing the gate' {
+        New-TestScenario -Probe @(@{ State = 'Unresponsive'; Reason = 'app-stopped' }) -Outer AliveOwned
+        $script:Scenario.OneShot = 'Held'
+        $result = Invoke-TestWorker -Context (New-TestContext)
+        Assert-False ($script:Log.Contains('start-service')) 'a one-shot run is never disrupted'
+        Assert-Equal 'oneshot-active' (@($result.rungs | Where-Object { $_.name -eq 'start-if-stopped' })[0].reason)
+        Assert-True (@($result.reasonCodes) -contains 'oneshot-active')
+        Assert-True ((Get-LogIndex 'gate:closed') -lt (Get-LogIndex 'oneshot:Held')) 'the gate closes before the lease is read'
+        Assert-True ($script:Log.Contains('gate:released')) 'the gate is not left closed'
+        Assert-Equal 'still-unresponsive' $result.verdict
+    }
+
+    It 'repairs under a one-shot lease whose holder cannot be proven, and says so' {
+        New-TestScenario -Probe @(@{ State = 'Unresponsive'; Reason = 'app-stopped' }, @{ State = 'Responsive'; Reason = 'responsive' }) -Outer AliveOwned
+        $script:Scenario.OneShot = 'Unknown'
+        $warnings = @()
+        $context = New-TestContext
+        $result = Invoke-HostRefreshWorker -Context $context -Budget (New-HostRefreshBudget) -Identity (New-TestIdentity) -Mode New -RungDeclaration (Get-KvmRung) `
+            -Policy @{ tier = 'restart' } -Confirm:$false -InformationAction SilentlyContinue -WarningVariable warnings -WarningAction SilentlyContinue
+        Assert-True ($script:Log.Contains('start-service')) 'an unproven lease does not block the repair'
+        Assert-Equal 'repaired' $result.verdict
+        Assert-Equal 1 @($warnings | Where-Object { "$_" -like '*4242*' }).Count 'one warning names the unproven holder'
     }
 
     It 'skips a mutating rung when the runner gate cannot be closed' {

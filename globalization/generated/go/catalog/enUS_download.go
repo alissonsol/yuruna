@@ -10,6 +10,14 @@ const DataenUSdownload = `{
   "download.actions": "Actions",
   "download.actions_need_the_internal_authentication_key_as_a_bearer": "Actions need the internal authentication key as a bearer",
   "download.api_arch_query_parameter_is_required_amd64_or_arm64": "arch query parameter is required (amd64 or arm64)",
+  "download.api_delete_refused_reason": [
+    "delete refused: ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "download.api_detail": [
     {
       "arg": "detail",
@@ -30,6 +38,14 @@ const DataenUSdownload = `{
   "download.api_no_image_store_configured": "no image store configured",
   "download.api_pool_refresh_refused_reason": [
     "pool refresh refused: ",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "download.api_prune_refused_reason": [
+    "prune refused: ",
     {
       "arg": "reason",
       "type": "detail",

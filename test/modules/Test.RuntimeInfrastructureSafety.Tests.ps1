@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 42756b16-4f56-4574-9bb7-56d74bcfe44f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -10,6 +10,7 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     foreach ($name in @('Test.PoolNotifier', 'Test.PoolStorage', 'Test.PoolSync', 'Test.CachingProxyServiceLock', 'Test.ConfigServiceCA', 'Test.LocalizationExchange')) {
         Import-Module (Join-Path $PSScriptRoot ($name + '.psm1')) -Force -Global -DisableNameChecking
     }
@@ -65,7 +66,7 @@ Describe 'pool runtime safety' {
 
 Describe 'private configuration and confined localization paths' {
     It 'renews an expiring server leaf while preserving the trusted CA' {
-        $prior = $env:YURUNA_RUNTIME_DIR
+        $prior = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $existing = $null; $renewed = $null; $ca = $null; $key = $null
         try {
             $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive 'certificate-runtime'
@@ -81,7 +82,7 @@ Describe 'private configuration and confined localization paths' {
             $renewed.NotAfter.ToUniversalTime() | Should -BeGreaterThan ([DateTime]::UtcNow.AddDays(30))
             (Initialize-YurunaConfigCA -Confirm:$false).Thumbprint | Should -Be $caThumb
         } finally {
-            $env:YURUNA_RUNTIME_DIR = $prior
+            Restore-YurunaTestEnvironment -Saved $prior
             foreach ($item in @($existing, $renewed, $ca, $key)) { if ($item) { $item.Dispose() } }
         }
     }

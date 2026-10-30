@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4271842b-e024-4afd-9528-b8212179e1c4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -9,13 +9,12 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
     $script:Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Import-Module (Join-Path $script:Root 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
     function Invoke-NativeRouteGit {
         param([string]$Directory, [string[]]$Arguments)
-        $output = @(& git -C $Directory @Arguments 2>&1)
-        if ($LASTEXITCODE) { throw "Fixture Git failed: $($output -join ' ')" }
-        return ($output -join "`n").Trim()
+        return ((Invoke-YurunaTestGit -Path $Directory -Argument $Arguments) -join "`n").Trim()
     }
     $outageAst = [Management.Automation.Language.Parser]::ParseFile(
         (Join-Path $script:Root 'tools/Invoke-GitMirrorNativeOutage.ps1'), [ref]$null, [ref]$null)
@@ -32,12 +31,7 @@ Describe 'Native route evidence is measured from the frozen origin' {
         $script:Work = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $script:Origin = Join-Path $script:Work origin
         [IO.Directory]::CreateDirectory($script:Origin) | Out-Null
-        $null = Invoke-NativeRouteGit $script:Origin @('init', '-q', '-b', 'main')
-        $null = Invoke-NativeRouteGit $script:Origin @('config', 'user.name', 'Fixture')
-        $null = Invoke-NativeRouteGit $script:Origin @('config', 'user.email', 'fixture@example.invalid')
-        [IO.File]::WriteAllText((Join-Path $script:Origin VERSION), 'frozen candidate')
-        $null = Invoke-NativeRouteGit $script:Origin @('add', '.')
-        $null = Invoke-NativeRouteGit $script:Origin @('commit', '-qm', 'fixture')
+        $null = New-YurunaTestGitRepository -Path $script:Origin -File @{ VERSION = 'frozen candidate' } -CommitMessage 'fixture'
         $script:Sha = Invoke-NativeRouteGit $script:Origin @('rev-parse', 'HEAD')
         $script:Tree = Invoke-NativeRouteGit $script:Origin @('rev-parse', 'HEAD^{tree}')
         $script:Config = Join-Path $script:Work config.yml

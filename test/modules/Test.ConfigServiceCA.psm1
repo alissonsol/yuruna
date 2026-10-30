@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 4233151b-e2c8-4ea3-ba1b-6cdcb3e630f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,6 +97,61 @@ function ConvertTo-YurunaPem {
     return $sb.ToString()
 }
 
+<#
+.SYNOPSIS
+    Write signing material so it is never readable by another account, then
+    move it into place in one rename.
+.DESCRIPTION
+    The bytes go to a temporary file in the target directory that is created
+    owner-only (mode 0600, or a protected ACL naming only the current account on
+    Windows) before anything is written, and the rename replaces the target
+    whole. Writing the file first and restricting it afterward leaves a window in
+    which the key is readable under the umask, and a failure between the two
+    steps (or a missing chmod) leaves it readable for good; an interrupted write
+    would otherwise leave a truncated PFX the next start cannot load.
+#>
+function Write-YurunaConfigPrivateFile {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Private helper; its callers own ShouldProcess for the material they mint.')]
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][byte[]]$Bytes
+    )
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $dir = [System.IO.Path]::GetDirectoryName($full)
+    $temp = [System.IO.Path]::Combine($dir, '.' + [System.IO.Path]::GetFileName($full) + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $options = [System.IO.FileStreamOptions]::new()
+    $options.Mode = [System.IO.FileMode]::CreateNew
+    $options.Access = [System.IO.FileAccess]::Write
+    $options.Share = [System.IO.FileShare]::None
+    if (-not $IsWindows) { $options.UnixCreateMode = [System.IO.UnixFileMode]'UserRead, UserWrite' }
+    try {
+        $stream = [System.IO.FileStream]::new($temp, $options)
+        try {
+            if ($IsWindows) {
+                $acl = Get-Acl -LiteralPath $temp
+                $acl.SetAccessRuleProtection($true, $false)
+                foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRule($rule) }
+                $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+                        [System.Security.Principal.WindowsIdentity]::GetCurrent().User, 'FullControl', 'Allow'))
+                Set-Acl -LiteralPath $temp -AclObject $acl -ErrorAction Stop -WhatIf:$false -Confirm:$false
+            } elseif (([int][System.IO.File]::GetUnixFileMode($temp) -band 0x3F) -ne 0) {
+                # A filesystem that ignores the requested mode would otherwise
+                # receive the key readable by others.
+                throw [System.IO.IOException]::new("private file mode was not retained for $full")
+            }
+            $stream.Write($Bytes, 0, $Bytes.Length)
+            $stream.Flush($true)
+        } finally { $stream.Dispose() }
+        [System.IO.File]::Move($temp, $full, $true)
+    } finally {
+        if ([System.IO.File]::Exists($temp)) { [System.IO.File]::Delete($temp) }
+    }
+}
+
 # A 16-byte positive serial (high bit cleared so it is never read as negative).
 function New-YurunaConfigSerial {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
@@ -160,10 +215,8 @@ function Initialize-YurunaConfigCA {
         $notAfter  = [DateTimeOffset]::UtcNow.AddYears($script:ConfigCaYears)
         $caCert    = $req.CreateSelfSigned($notBefore, $notAfter)
         $pfxBytes  = $caCert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pkcs12)
-        [System.IO.File]::WriteAllBytes($caPfx, $pfxBytes)
+        Write-YurunaConfigPrivateFile -Path $caPfx -Bytes $pfxBytes
         [System.IO.File]::WriteAllText($caCrt, (ConvertTo-YurunaPem -Label 'CERTIFICATE' -Bytes $caCert.RawData), $utf8)
-        # Lock the signing material to the owner where chmod exists.
-        if (-not $IsWindows) { & chmod 600 $caPfx 2>$null }
         return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
             $pfxBytes, '', $script:ConfigCaPfxLoadFlags)
     } finally {
@@ -271,8 +324,7 @@ function New-YurunaConfigServerCertificate {
     $san.AddIpAddress([System.Net.IPAddress]::IPv6Loopback)
     $leaf      = New-YurunaConfigLeaf -Subject "CN=$($script:ConfigServerSan)" -EkuOid $script:OidServerAuth -San $san -Ca $ca
     $pfxBytes  = $leaf.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pkcs12)
-    [System.IO.File]::WriteAllBytes($serverPfx, $pfxBytes)
-    if (-not $IsWindows) { & chmod 600 $serverPfx 2>$null }
+    Write-YurunaConfigPrivateFile -Path $serverPfx -Bytes $pfxBytes
     return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($pfxBytes, '', $flags)
 }
 

@@ -45,7 +45,14 @@ verificação de codificação de todo o repositório fica em `tools/Test-AsciiN
 `Invoke-TestRunnerInnerLoop`, `Debug-TestSequence` e `Invoke-TestProject`
 tenham sempre os mesmos caminhos, e um futuro ponto de entrada não precise
 copiar o código repetitivo de `$PSScriptRoot`/`Split-Path`/`Join-Path` para
-calculá-los. **Contrato dos códigos de saída:** `0` significa sucesso; falhas na
+calculá-los. Sem `-ConfigPath`, `$ConfigPath` é o caminho que o ponto de entrada
+que iniciou este publicou em `YURUNA_CONFIG_PATH` ou, na falta dele,
+`<TestRoot>/test.config.yml`, para que um processo filho (o status service, a
+inicialização de uma VM de serviço, a barreira de configuração) leia o arquivo
+que foi entregue ao pai. `Initialize-YurunaEntryPointModuleSet` se recusa a
+iniciar um ponto de entrada cujo conjunto de módulos esteja incompleto
+(`runner.entry_point_module_missing`) e, nesse caso, não importa nada.
+**Contrato dos códigos de saída:** `0` significa sucesso; falhas na
 verificação prévia usam `1`; `2` significa que uma barreira não conseguiu produzir
 um veredito (a admissão de VMs não consegue determinar se há outros convidados em execução),
 e `Invoke-TestProject` informa o código de saída do ciclo que despachou, ou `2`
@@ -210,6 +217,7 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.RunnerInnerLoop` | Auxiliares por ciclo conduzidos ao longo de um ciclo pelo executor interno |
 | `Test.RunnerWatchdog`  | Watchdog de heartbeat de etapas em processo separado; encerra um processo interno travado |
 | `Test.RunnerHeartbeat` | Heartbeat do processo por temporizador de threadpool, que continua avançando enquanto o runspace está bloqueado |
+| `Test.FaultInjection` | Pontos de falha nomeados que os testes de caos disparam dentro do laço composto, armados apenas por `YURUNA_FAULT_POINTS` mais um marcador na pasta de runtime |
 | `Test.RunnerState`     | Máquina de estados explícita do executor externo, com estado persistido + eventos de transição NDJSON |
 | `Test.RunnerAttemptHistory` | Diretórios de evidências por tentativa em `runner-attempts/`, artefatos de falha do laço externo e o índice limitado do histórico, reconstruído a partir das evidências retidas (`Update-RunnerAttemptHistory`) |
 | `Test.RunnerElevation` | Contrato de elevação no lançamento: resolvê-la uma vez enquanto um operador está presente, ou recusar o início |
@@ -246,7 +254,7 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.Message`         | O envelope de mensagem versionado que atravessa um limite de processo, persistência ou rede: um código com namespace, argumentos tipados seguros para JSON e um detalhe limitado e com dados sensíveis ocultados (`New-MessageEnvelope`, `Test-MessageEnvelope`), mais o único conversor para campos legados |
 | `Test.Locale`          | Decisões de localidade: o manifesto de localidades suportadas, tags canônicas, seleção por `Accept-Language` e o contexto imutável de um ciclo, comando ou solicitação (`New-LocaleContext`) |
 | `Test.Catalog`         | Renderiza uma chave de mensagem a partir dos catálogos compilados em uma localidade resolvida, com categorias de plural e formatação numérica da localidade (`Format-CatalogMessage`) |
-| `Test.Perf`            | Uma linha JSONL de desempenho por execução de etapa, um arquivo por ciclo |
+| `Test.Perf`            | Uma linha JSONL de desempenho por execução de etapa, um arquivo por ciclo; linhas de fase (fases do preâmbulo, encerramento, atrasos, pausa após falha, ciclos inteiros) por dia UTC, e o orçamento de tempo de ciclo aprendido |
 | `Test.PerfAggregate`   | Agrupa linhas de desempenho por invocação de sequência, contando uma única vez o trabalho envolvente, e associa um checkpoint à sua execução (`ConvertTo-PerfSequenceAggregate`, `Find-PerfCheckpoint`) |
 | `Test.Provenance`      | Lê o arquivo auxiliar de proveniência da imagem base gravado por `Get-Image.ps1` |
 | `Test.FrameworkSource` | De qual snapshot do framework uma VM de serviço foi construída e se o convidado recorreu ao espelho público |
@@ -649,6 +657,30 @@ além deles é exibida como um aviso, começando pelas cinco maiores, e listada 
 existe para que um ciclo de retorno que fica mais lento seja notado antes que
 uma suíte atinja seu limite de encerramento.
 
+Uma suíte que falha na execução paralela executa mais uma vez, sozinha, depois
+dela (até dez suítes; não com `-FailFast` nem com limite de concorrência 1). Sua
+linha registra `alone` como `passed` ou `failed`, sua linha de problema diz qual
+dos dois, e uma suíte aprovada sozinha é listada em `loadSensitive`: suas margens
+de tempo não se mantêm sob a carga de uma execução paralela. O veredito é o da
+primeira execução em qualquer caso, e o resultado da execução isolada é mantido
+ao lado dele como `nunit-<suite>.alone.xml`.
+
+Um processo que uma suíte deixou em execução depois que o próprio processo dela
+terminou é encerrado, exibido como aviso e listado em `leftovers` no
+`suite-results.json` (e na linha da suíte); o veredito da suíte não muda. No
+Linux e no macOS, esses processos remanescentes são encontrados pela pasta
+temporária da própria suíte em seu ambiente. Um trabalhador que falha informa sua
+suíte como incompleta (rc 126), e a execução conclui as demais suítes, em vez de
+interrompê-las no meio com seus processos ainda em execução. O shim de suíte
+única (`tools/_InvokeOneSuite.ps1`) deixa para a suíte apenas sua
+`$PesterPreference`; as variáveis do próprio shim são privadas, portanto um mock
+que lê um nome não definido encontra o mesmo vazio, quer o shim execute sozinho,
+quer sob o executor.
+
+O hook de pre-commit executa o gate do baseline com `-Staged`: ele compara as
+suítes e o baseline no índice do commit, portanto uma edição de suíte ou do
+baseline que não foi preparada para o commit não reprova nem aprova o commit.
+
 `test/modules/suite-baseline.json` é essa referência e é versionado. Registre novamente
 todas as linhas com `-UpdateBaseline` apenas a partir de uma execução completa aprovada, como uma alteração
 deliberada e revisada. A atualização recusa suítes perdidas, contagens de teste menores e novas
@@ -699,6 +731,38 @@ Null/NotNull/Match/Throw/NoFinding`, além de `Get-YurunaTestRepoRoot`,
 faz falhar uma suíte que redeclara qualquer um deles; sem essa proteção, a contagem cresceu de
 234 para 296 definições feitas manualmente, com três significados mutuamente incompatíveis para
 `Assert-Equal`.
+
+Um repositório git de fixture vem de `New-YurunaTestGitRepository` (e um clone
+recebe `Set-YurunaTestGitIdentity`): uma identidade fixa, assinatura de commits e
+tags desligada, nenhuma conversão de fim de linha e hooks apontados para um
+diretório vazio, tudo na configuração do próprio repositório, com um primeiro
+commit semeado opcional (`-File`, ou `-AddExisting` para o que o diretório já
+contém), um `origin` opcional (`-Remote`) e as falhas do git lançadas em vez de
+descartadas. As chamadas git de fixture passam por `Invoke-YurunaTestGit`, que
+lança uma exceção com a saída do git quando ele falha e devolve suas linhas; uma
+suíte pode manter seu próprio nome `Invoke-*Git` como um wrapper. Os canais
+`$global:__Yuruna*` que os pontos de entrada publicam (id do host, id da
+execução, pasta do ciclo, arquivo de log, início do ciclo) só mudam por
+`Save-YurunaTestGlobal`, `Set-YurunaTestGlobal` e `Restore-YurunaTestGlobal`,
+que distinguem um canal ausente de um que contém `$null`. Uma entrada do
+ambiente do processo que um teste altera é salva com `Save-YurunaTestEnvironment`
+e restaurada com `Restore-YurunaTestEnvironment`, que remove uma entrada que
+estava ausente e mantém vazia uma entrada vazia; as cópias feitas à mão apagavam
+a entrada ou descartavam o valor externo, de modo que sete suítes deixavam
+`YURUNA_RUNTIME_DIR`, e uma `YURUNA_LOG_DIR`, apontando para uma pasta de fixture
+ou sem valor para o que rodasse em seguida no processo. A mesma proteção faz
+falhar uma suíte que define um `user.email` à mão, mantém um executor git que
+roda o git por conta própria, grava um desses globais à mão fora de um runspace
+próprio ou restaura `YURUNA_RUNTIME_DIR` ou `YURUNA_LOG_DIR` à mão em uma
+finalização.
+
+O código-fonte dos drivers de host é lido da mesma forma. `Get-YurunaTestFileAst`
+e `Get-YurunaTestSourceText` leem `host/<driver>/modules/Yuruna.Host.psm1` como o
+driver inteiro, com cada arquivo de parte inserido onde a raiz o carrega, e
+[`Test.DriverSource.psm1`](../../test/modules/Test.DriverSource.psm1) lista os
+arquivos de um driver, extrai uma função de qualquer arquivo que a defina e lê
+qualquer caminho da mesma forma. Uma suíte nunca abre só o arquivo raiz, então o
+código pode mudar entre a raiz e suas partes sem quebrar as suítes que o leem.
 
 `Assert-Equal` compara **por valor**; `Assert-StringEqual` compara representações
 em string. São exportações separadas porque de fato diferem -- em zeros
@@ -993,11 +1057,12 @@ exige uma chamada a `Register-HostConditionProvider`. Os chamadores mantêm
 
 | Função | Usada por |
 |---|---|
-| `Register-HostConditionProvider -HostType -Assert -AssertMinimum [-RequiresElevation] [-Display] [-DisplayTeardown] [-ClockSync] [-NetworkHealth] [-MetricsExporter]` | Carregador da fachada; plugins externos de hospedeiro |
+| `Register-HostConditionProvider -HostType -Assert -AssertMinimum [-RequiresElevation] [-Display] [-DisplayTeardown] [-ClockSync] [-NetworkHealth] [-MetricsExporter] [-Failure]` | Carregador da fachada; plugins externos de hospedeiro |
 | `Get-HostConditionProvider -HostType` | Despachadores; introspecção |
 | `Get-HostConditionProviderMatrix` | Matriz de capacidades na inicialização |
 | `Clear-HostConditionProvider` | Somente testes |
-| `Assert-HostConditionSet -HostType` | Barreira por ciclo do executor externo |
+| `Get-HostConditionVerdict -HostType` | Preâmbulo e barreira por ciclo do executor interno: `Passed`, a `Condition` recusada e `Detail`, a `FailureClass` e a `Message` do registro de falha |
+| `Assert-HostConditionSet -HostType` | Apenas o `Passed` do veredito (`Debug-TestSequence`) |
 | `Get-HostClockSkew` / `Get-HostClockSkewLimit` | Medição do relógio do hospedeiro (NTP direto por UDP) |
 | `Write-HostClockDriftWarning -HostType` | `Assert` de cada plataforma -- mede uma vez por processo e avisa |
 | `Reset-HostClockReport` | Somente testes (rearma a trava que permite uma execução por processo) |
@@ -1011,7 +1076,7 @@ exige uma chamada a `Register-HostConditionProvider`. Os chamadores mantêm
 
 ### Estrutura do registro de provedor
 
-Cada registro contém um dicionário ordenado de nove campos:
+Cada registro contém um dicionário ordenado de dez campos:
 
 ```
 @{
@@ -1024,10 +1089,16 @@ Cada registro contém um dicionário ordenado de nove campos:
     ClockSync         = { param() ... @{ Succeeded; Message } }   # optional: put this host's clock back under NTP discipline. Invoked by Sync-HostClock from the operator-facing paths only -- it needs privileges an unattended cycle cannot obtain.
     NetworkHealth     = { param([string]$HostType) ... }   # optional: can this host still put a guest on a working network? $null for a host with no way to answer. Invoked by Test-HostGuestNetworkHealth.
     MetricsExporter   = { param() ... @{ Status; Reason } }   # optional: per-cycle convergence of this host's metrics exporter; $null for a host where that repair would have to ask for its privilege. Invoked by Initialize-HostMetricsExporter.
+    Failure           = { param() ... @{ Condition; Detail } }   # optional: the condition the last Assert refused on, $null after a pass. Read by Get-HostConditionVerdict; a refusal it cannot attribute is filed as 'unnamed'.
 }
 ```
 
-`Assert` recebe `-HostType` e pode ser chamado várias vezes por ciclo. `AssertMinimum` é mais leve que
+`Assert` recebe `-HostType` e pode ser chamado várias vezes por ciclo. Suas
+sondagens são limitadas, e uma sondagem que não conseguiu responder é uma recusa
+que nomeia a sondagem, nunca uma aprovação: o registro de falha de um ciclo
+recusado traz a condição (`elevation` é registrada como `elevation_required`, e
+qualquer outra condição como `unknown`, já que nenhuma é corrigida por uma nova
+tentativa não assistida). `AssertMinimum` é mais leve que
 `Assert` (sem verificações de tempo limite da tela / bloqueio de tela /
 concessões TCC), para auxiliares de limpeza que legitimamente são executados
 durante a manutenção interativa.
@@ -1522,6 +1593,27 @@ em minutos não pagam pelo tempo adicional. O custo de um limite generoso é o
 tempo para detectar uma etapa realmente travada, e preambleTimeoutSeconds
 continua limitando a fase em que uma parada nunca é legítima.
 
+<a id="fault-points-for-chaos-tests"></a>
+
+<a id="42d38664-0025"></a>
+
+### Pontos de falha para testes de caos
+
+`Test.FaultInjection.psm1` nomeia os pontos em que um teste pode disparar uma
+falha dentro do laço composto: `cycle-import` (o processo por ciclo, com os
+módulos carregados), `inner-import` e `before-inner-pid` (o processo interno),
+`step-heartbeat`, `capture` (antes de cada captura de tela de `Wait-ForText`),
+`ocr`, `ledger-read` e `status-write`. Um ponto só dispara quando
+`YURUNA_FAULT_POINTS` o nomeia (`name[:throw|exit|hang|kill]`, separados por
+vírgula) E a pasta de runtime contém o marcador exclusivo de testes
+`fault-injection.enabled`, que o runtime do próprio executor nunca tem; cada
+ponto disparado primeiro acrescenta uma linha a `fault-injection.log`. Todo
+ponto de chamada testa a variável antes de qualquer outra coisa, portanto um
+ciclo sem ela paga uma única leitura do ambiente. Os casos de caos em
+`Test.RunnerThreeProcess.Tests.ps1` disparam pontos dentro dos processos reais
+residente, de ciclo e interno e verificam o estado final: uma não aprovação
+contabilizada e um residente ainda em execução.
+
 <a id="42d38664-0024"></a>
 
 <a id="exit-codes"></a>
@@ -1540,6 +1632,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.26
+Last review: 2026.10.30
 
 Voltar para [Yuruna](../../README.md)

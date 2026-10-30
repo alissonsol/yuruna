@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 427d5433-30b3-40c0-aa3e-59e31c0c828b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
     Purge a stale host from the pool: delete its NAS records (identity +
     replicated cycles) and strip it from every pool's members[].
 .DESCRIPTION
-    See https://yuruna.link/42010605-0004.
+    See https://yuruna.link/42010605-0094.
 .PARAMETER HostId
     Stable hostId to purge -- the record's hostUuid / runtime/host.uuid:
     '42' + 30 hex. The GUID-dashed spelling every panel and UI reveals a full id
@@ -197,8 +197,11 @@ if ([string]::IsNullOrWhiteSpace($t.ConfigurationGitUrl)) {
         foreach ($pool in @($doc['pools'])) {
             if ($pool -isnot [System.Collections.IDictionary]) { continue }
             $members = @($pool['members'])
+            $ringChanged = Update-YurunaPoolRingCanary -Pool $pool -HostId $HostId
             if ($members -contains $HostId) {
                 $pool['members'] = @($members | Where-Object { $_ -ne $HostId })
+                [void]$changedPools.Add([string]$pool['poolId'])
+            } elseif ($ringChanged) {
                 [void]$changedPools.Add([string]$pool['poolId'])
             }
         }
@@ -212,7 +215,7 @@ if ([string]::IsNullOrWhiteSpace($t.ConfigurationGitUrl)) {
 }
 
 # --- REGION: Evict from the live dashboard view (aggregator forget-host, best-effort)
-# See https://yuruna.link/42010605-0004
+# See https://yuruna.link/42010605-0093
 try {
     if ($PSCmdlet.ShouldProcess('pool-aggregator-service :9400', (Format-YurunaOperatorMessage -Key 'runner.operator_243d23ca0fc2d079' -Arguments @{ hostId = "$HostId" }))) {
         if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {

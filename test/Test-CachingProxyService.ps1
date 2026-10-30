@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.26
+.VERSION 2026.10.30
 .GUID 429d2507-81f3-45bf-89aa-1a0471f4641c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,7 +55,7 @@ $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
 # --- REGION: Resolve paths
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0041
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
 $paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
 $ModulesDir = $paths.ModulesDir
@@ -80,11 +80,11 @@ function Write-Fail { param([string]$msg) Write-Output "  [FAIL] $msg"; $script:
 function Write-Warn { param([string]$msg) Write-Output "  [WARN] $msg"; $script:WarnCount++ }
 
 # --- REGION: Resolve the cache IP
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-0040
 Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_cd8ce1605493d871')
 
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-003f
 if ($SetHostProxy -and $IsMacOS) {
     [void](Initialize-SudoCache -Reasons @('reset the macOS system HTTP/HTTPS proxy (networksetup)'))
 }
@@ -158,7 +158,7 @@ Write-Output "  Target: $resolvedIp  (source: $resolvedFrom)"
 Write-Output ""
 
 # --- REGION: Port probes + CA cert fetch
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-003e
 # Re-import so Invoke-CachingProxyServiceProbe resolves after the local-discovery
 # branch above ran Initialize-YurunaHost; see https://yuruna.link/42aaf735-0006.
 # No-op for the -CacheIp and env-var branches, which never load the host module.
@@ -183,7 +183,7 @@ switch ($zotReport.Level) {
 }
 
 # --- REGION: Host system-proxy check
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-003d
 Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_72ff9744d8398906')
 
@@ -217,7 +217,7 @@ if ($IsMacOS) {
 }
 
 # --- REGION: Effective proxy for outbound calls
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-003c
 $envHttp  = $env:HTTP_PROXY
 $envHttps = $env:HTTPS_PROXY
 $envNo    = $env:NO_PROXY
@@ -285,7 +285,7 @@ if ($script:FailCount -gt 0) {
 }
 
 # --- REGION: Optional: promote to machine-wide host proxy
-# See https://yuruna.link/42010605-0002
+# See https://yuruna.link/42010605-003b
 if ($SetHostProxy) {
     Write-Output ""
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_a84aa3e0623290e1')

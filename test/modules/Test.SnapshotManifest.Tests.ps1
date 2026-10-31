@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42fe1ae4-05a9-49ae-b073-a5c31573254d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,8 +89,7 @@ function Write-RawManifest {
     return $path
 }
 
-    $runtimeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-snapman-" + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+    $runtimeRoot = New-YurunaTestTempDir -Prefix 'yuruna-snapman'
     $savedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     $env:YURUNA_RUNTIME_DIR = $runtimeRoot
     $snapshotDir = Join-Path $runtimeRoot 'snapshots'
@@ -103,9 +102,7 @@ function Write-RawManifest {
 AfterAll {
     Restore-YurunaTestEnvironment -Saved $savedRuntimeDir
     Restore-YurunaTestGlobal -Saved $script:SavedProvenanceGlobals
-    if ($runtimeRoot -and (Test-Path -LiteralPath $runtimeRoot)) {
-        Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Remove-YurunaTestTempDir $runtimeRoot
 }
 
 Describe 'Get-SnapshotManifestDir / Get-SnapshotManifestPath' {
@@ -304,7 +301,8 @@ Describe 'Remove-SnapshotManifest' {
 
 Describe 'Runtime-directory resolution' {
     It 'honors YURUNA_RUNTIME_DIR and creates the tree under it' {
-        $alt = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-snapman-alt-" + [guid]::NewGuid().ToString('N'))
+        $altBase = New-YurunaTestTempDir -Prefix 'yuruna-snapman-alt'
+        $alt = Join-Path $altBase 'runtime'
         $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         try {
             $env:YURUNA_RUNTIME_DIR = $alt
@@ -313,15 +311,14 @@ Describe 'Runtime-directory resolution' {
             Assert-True (Test-Path -LiteralPath $dir) 'the whole path is created, not just the last segment'
         } finally {
             Restore-YurunaTestEnvironment -Saved $saved
-            if (Test-Path -LiteralPath $alt) { Remove-Item -LiteralPath $alt -Recurse -Force -ErrorAction SilentlyContinue }
+            Remove-YurunaTestTempDir $altBase
         }
     }
     It 'falls back to the platform temp directory when YURUNA_RUNTIME_DIR is unset' {
         # Yuruna runs its cycles on host.macos.utm and host.ubuntu.kvm as well as
         # on Windows, and POSIX PowerShell does not define $env:TEMP. Clearing it
         # here reproduces exactly what the module sees on those hosts.
-        $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
-        $savedTemp    = $env:TEMP
+        $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'TEMP'
         $dir = $null
         $existedBefore = Test-Path -LiteralPath (Join-Path ([System.IO.Path]::GetTempPath()) 'snapshots')
         try {
@@ -332,7 +329,6 @@ Describe 'Runtime-directory resolution' {
             Assert-True (Test-Path -LiteralPath $dir) 'and it must be usable'
             Assert-Equal -Expected 'snapshots' -Actual (Split-Path -Leaf $dir)
         } finally {
-            $env:TEMP = $savedTemp
             Restore-YurunaTestEnvironment -Saved $savedRuntime
             # The module created it for this call; one that was there already
             # belongs to someone else.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b063c4-f3bc-4a1f-885e-8a2c257e7130
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,8 +44,7 @@ function New-RegFixture {
     [OutputType([hashtable])]
     param()
     $saved = @{ Globals = (Save-YurunaTestGlobal -Name '__YurunaHostId', '__YurunaRunId'); Environment = (Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR') }
-    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-reg-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+    $tmp = New-YurunaTestTempDir -Prefix 'yrn-reg'
     $env:YURUNA_RUNTIME_DIR = $tmp
     Set-YurunaTestGlobal -Value @{ __YurunaHostId = '42' + ('b' * 30); __YurunaRunId = [guid]::NewGuid().ToString() }
     return @{ Tmp = $tmp; Saved = $saved }
@@ -57,7 +56,7 @@ function Remove-RegFixture {
     param([Parameter(Mandatory)][hashtable]$Fixture)
     Restore-YurunaTestGlobal -Saved $Fixture.Saved.Globals
     Restore-YurunaTestEnvironment -Saved $Fixture.Saved.Environment
-    Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-YurunaTestTempDir $Fixture.Tmp
 }
 
 }

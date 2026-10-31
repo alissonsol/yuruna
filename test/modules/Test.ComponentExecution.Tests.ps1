@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 428f620a-6793-4a91-af55-61a1a07b3e6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,8 +54,7 @@ Describe 'component command execution' {
     BeforeEach {
         $script:originalLocation = (Get-Location).Path
         $script:originalExit = $global:LASTEXITCODE
-        $script:originalEnvironment = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
-        foreach ($item in Get-ChildItem Env:) { $script:originalEnvironment[$item.Name] = $item.Value }
+        $script:originalEnvironment = Save-YurunaTestEnvironment -All
         $global:LASTEXITCODE = 0
         $env:componentPasswordCapture = Join-Path $TestDrive ('password-' + [guid]::NewGuid().ToString('N'))
         $env:componentPushMarker = Join-Path $TestDrive ('pushed-' + [guid]::NewGuid().ToString('N'))
@@ -82,10 +81,7 @@ if ($global:LASTEXITCODE -eq 0) { 'Login Succeeded' } else { 'Login denied' }
     AfterEach {
         Set-Location -LiteralPath $script:originalLocation
         $global:LASTEXITCODE = $script:originalExit
-        foreach ($item in Get-ChildItem Env:) {
-            if (-not $script:originalEnvironment.ContainsKey($item.Name)) { Remove-Item -LiteralPath "Env:$($item.Name)" }
-        }
-        foreach ($name in $script:originalEnvironment.Keys) { Set-Item -LiteralPath "Env:$name" -Value $script:originalEnvironment[$name] }
+        Restore-YurunaTestEnvironment -Saved $script:originalEnvironment -RemoveOthers
     }
 
     It 'passes credential data to login without interpreting or logging it for <Registry>' -ForEach @(

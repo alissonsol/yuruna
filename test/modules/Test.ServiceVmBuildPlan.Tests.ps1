@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42861ba7-21b4-45b8-96e4-6615fceded8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,7 @@ BeforeAll {
     $here = Split-Path -Parent $PSCommandPath
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $here)
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    Import-Module (Join-Path $here 'Test.ServiceStartSource.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.ServiceVm.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.ExtensionService.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.SeedMedia.psm1') -Force -DisableNameChecking
@@ -329,8 +330,10 @@ Describe 'service Start scripts adopt, plan, withdraw and build in that order' {
         @{ Name = 'Start-StashServiceVM.ps1' }, @{ Name = 'Start-PoolControlServiceVM.ps1' }, @{ Name = 'Start-DownloadAgentServiceVM.ps1' }
     ) {
         $path = Join-Path $script:RepoRoot "test/service/$Name"
-        $ast = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
-        Assert-True ($null -ne ($ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'ForceRebuild' })) "$Name takes -ForceRebuild"
+        $wrapper = [Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
+        Assert-True ($null -ne ($wrapper.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'ForceRebuild' })) "$Name takes -ForceRebuild"
+        # The order is what the start runs: the shared pipeline with the service's readiness part.
+        $ast = Get-YurunaServiceStartAst -Path $path
         $order = foreach ($step in 'Resolve-YurunaServiceVmAdoption', 'Test-YurunaServiceVmBuildPlan', 'Remove-YurunaServiceVmAdvertisement', 'Invoke-YurunaServiceVmBuild') {
             $calls = @(Get-BuilderCommand -Ast $ast -Name $step)
             Assert-Equal -Expected 1 -Actual $calls.Count -Because "$Name calls $step once"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4264d5c7-e082-4c67-a5f9-915f2f84141e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -338,8 +338,7 @@ Describe 'Start-CachingProxyServiceVM.ps1 clears the inherited proxy environment
         $null = New-Item -ItemType Directory -Path $runtime -Force
         $leftover = Join-Path $runtime '.caching-proxy-service.env.json'
         Set-Content -LiteralPath $leftover -Value '{"HTTP_PROXY":"http://operator:fixture-secret@192.0.2.9:3128"}'
-        $priorProxy = $env:HTTP_PROXY
-        $priorRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $priorEnvironment = Save-YurunaTestEnvironment -Name 'HTTP_PROXY', 'YURUNA_RUNTIME_DIR'
         try {
             $env:HTTP_PROXY = 'http://operator:fixture-secret@192.0.2.9:3128'
             $env:YURUNA_RUNTIME_DIR = $runtime
@@ -352,8 +351,7 @@ Describe 'Start-CachingProxyServiceVM.ps1 clears the inherited proxy environment
             $verbose | Should -Match 'HTTP_PROXY'
             $verbose | Should -Not -Match 'fixture-secret'
         } finally {
-            if ($null -eq $priorProxy) { Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue } else { $env:HTTP_PROXY = $priorProxy }
-            Restore-YurunaTestEnvironment -Saved $priorRuntime
+            Restore-YurunaTestEnvironment -Saved $priorEnvironment
         }
     }
 }

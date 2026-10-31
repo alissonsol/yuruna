@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4253a1e0-9103-4f16-8461-710adf91da65
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,8 +93,9 @@ AfterAll {
 }
 
 BeforeDiscovery {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:SymlinkPermitted = $false
-    $probeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-link-probe-' + [guid]::NewGuid().ToString('N'))
+    $probeRoot = New-YurunaTestTempDir -Prefix 'yuruna-link-probe'
     try {
         $null = New-Item -ItemType Directory -Path (Join-Path $probeRoot 'target') -Force
         $null = New-Item -ItemType SymbolicLink -Path (Join-Path $probeRoot 'link') -Target (Join-Path $probeRoot 'target') -ErrorAction Stop
@@ -102,7 +103,7 @@ BeforeDiscovery {
     } catch {
         $script:SymlinkPermitted = $false
     } finally {
-        Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $probeRoot
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d1e8b3-6c4f-4a29-8e5b-3f7a9c0d2b61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -412,6 +412,7 @@ Describe 'Get-QemuImgPrecedenceNote (Windows installer)' {
                 $node -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $node.Value -match 'Resolve-QemuImgCommand -Detailed' }, $true)
         Assert-NotNull $command 'the installer still asks the resolver in a child pwsh'
         $root = Enter-FakeHost -PathDirectory @('bin')
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_IMAGE_MODULE'
         try {
             $only = New-FakeQemuImg -Path (Join-Path $root 'bin/qemu-img') -Banner $script:Current
             $env:YURUNA_IMAGE_MODULE = Join-Path $script:RepoRoot 'host/modules/Yuruna.Image.psm1'
@@ -424,7 +425,7 @@ Describe 'Get-QemuImgPrecedenceNote (Windows installer)' {
             Assert-Match ([regex]::Escape($only)) $note.Step
             Assert-Null $note.Warning
         } finally {
-            Remove-Item -LiteralPath 'Env:YURUNA_IMAGE_MODULE' -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $saved
             Exit-FakeHost
         }
     }

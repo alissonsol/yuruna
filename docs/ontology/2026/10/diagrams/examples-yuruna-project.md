@@ -22,8 +22,6 @@ circled class.
 %%{init: {"flowchart": {"useMaxWidth": 0}}}%%
 graph LR
 classDef Datatype fill:#9c6,stroke:#9c6;
-examples:AgentTimeline((examples:AgentTimeline)) -- subClassOf --> examples:TextSQLDomainEntity((examples:TextSQLDomainEntity))
-examples:AgentTimeline((examples:AgentTimeline)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 examples:CallerCancellation((examples:CallerCancellation)) -- subClassOf --> y:Situation[y:Situation]
 examples:DependencyFailure((examples:DependencyFailure)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
 examples:EstimatedRowCount((examples:EstimatedRowCount)) -- subClassOf --> examples:TextSQLDomainEntity((examples:TextSQLDomainEntity))
@@ -32,8 +30,6 @@ examples:ExampleProject((examples:ExampleProject)) -- subClassOf --> software:Pr
 examples:ExplainCardinalityGate((examples:ExplainCardinalityGate)) -- subClassOf --> examples:TextSQLDomainEntity((examples:TextSQLDomainEntity))
 examples:ExplainCardinalityGate((examples:ExplainCardinalityGate)) -- subClassOf --> y:Process[y:Process]
 examples:ForeignKey((examples:ForeignKey)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-examples:LanguageModelClient((examples:LanguageModelClient)) -- subClassOf --> examples:TextSQLDomainEntity((examples:TextSQLDomainEntity))
-examples:LanguageModelClient((examples:LanguageModelClient)) -- subClassOf --> y:SystemElement[y:SystemElement]
 examples:LanguageModelToken((examples:LanguageModelToken)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 examples:NaturalLanguageQuestion((examples:NaturalLanguageQuestion)) -- subClassOf --> examples:TextSQLDomainEntity((examples:TextSQLDomainEntity))
 examples:NaturalLanguageQuestion((examples:NaturalLanguageQuestion)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
@@ -44,9 +40,8 @@ examples:QueryExecution((examples:QueryExecution)) -- subClassOf --> y:Process[y
 examples:QueryResult((examples:QueryResult)) -- subClassOf --> examples:TextSQLDomainEntity((examples:TextSQLDomainEntity))
 examples:QueryResult((examples:QueryResult)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 examples:RateLimitFailure((examples:RateLimitFailure)) -- subClassOf --> examples:DependencyFailure((examples:DependencyFailure))
-examples:ReadOnlyRole((examples:ReadOnlyRole)) -- subClassOf --> software:Policy[software:Policy]
-examples:ResponseParseFailure((examples:ResponseParseFailure)) -- subClassOf --> examples:DependencyFailure((examples:DependencyFailure))
-examples:RetryBudget((examples:RetryBudget)) -- subClassOf --> software:Policy[software:Policy]
+examples:ReadOnlyRole((examples:ReadOnlyRole)) -- subClassOf --> y:Policy[y:Policy]
+examples:RetryBudget((examples:RetryBudget)) -- subClassOf --> y:Policy[y:Policy]
 examples:RuleBasedSQLGenerator((examples:RuleBasedSQLGenerator)) -- subClassOf --> examples:TextSQLDomainEntity((examples:TextSQLDomainEntity))
 examples:RuleBasedSQLGenerator((examples:RuleBasedSQLGenerator)) -- subClassOf --> y:SystemElement[y:SystemElement]
 examples:SQLDecision((examples:SQLDecision)) -- subClassOf --> examples:TextSQLDomainEntity((examples:TextSQLDomainEntity))
@@ -54,9 +49,6 @@ examples:SQLDecision((examples:SQLDecision)) -- subClassOf --> y:InformationArti
 examples:SQLGeneration -- examples:generatesDecision --> examples:SQLDecision
 examples:SQLGeneration((examples:SQLGeneration)) -- subClassOf --> examples:TextSQLDomainEntity((examples:TextSQLDomainEntity))
 examples:SQLGeneration((examples:SQLGeneration)) -- subClassOf --> y:Process[y:Process]
-examples:SQLRefusal((examples:SQLRefusal)) -- subClassOf --> examples:SQLDecision((examples:SQLDecision))
-examples:SchemaCatalog((examples:SchemaCatalog)) -- subClassOf --> examples:TextSQLDomainEntity((examples:TextSQLDomainEntity))
-examples:SchemaCatalog((examples:SchemaCatalog)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 examples:SchemaRetrieval -- examples:retrievesSchema --> examples:SchemaSlice
 examples:SchemaRetrieval((examples:SchemaRetrieval)) -- subClassOf --> examples:TextSQLDomainEntity((examples:TextSQLDomainEntity))
 examples:SchemaRetrieval((examples:SchemaRetrieval)) -- subClassOf --> y:Process[y:Process]
@@ -122,6 +114,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

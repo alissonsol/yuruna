@@ -1292,27 +1292,29 @@ next call to restart.
 
 <a id="42f52e37-0020"></a>
 
-## test/service/Start-StashServiceVM.ps1: Phase order across the service VM family
+## test/service/Start-ExtensionService.ps1: Phase order across the service VM family
 
 Related topic: https://yuruna.link/42e220c4-0008
 
-**`test/service/Start-CachingProxyServiceVM.ps1`, `Start-DownloadAgentServiceVM.ps1`,
-`Start-PoolControlServiceVM.ps1` and `Start-StashServiceVM.ps1`.**
+**`test/service/Start-CachingProxyServiceVM.ps1`, `Start-ExtensionService.ps1`,
+`Start-ExtensionService.stash.ps1` and `Start-PoolControlServiceVM.ps1`.**
 
-The three guest-service scripts (download-agent, pool-control and stash) keep
-one pinned order: Confirm the service operation, Initialize service runtime,
-Storage preflight, Resolve the VM builder, Start the host status service,
-Verify the framework source, Create the VM, Configure Shared NAT forwarding,
-Probe service readiness, Recover the VM address, Evaluate service readiness,
-Publish service readiness, Collect failure diagnostics. The phases around that
-skeleton differ on purpose.
+The three guest-service starts (download-agent, pool-control and stash) run
+one pipeline, `Start-ExtensionService.ps1`, in one pinned order: Confirm the
+service operation, Initialize service runtime, Storage preflight, Resolve the
+VM builder, Start the host status service, Verify the framework source, Create
+the VM. Each service's part, `Start-ExtensionService.<key>.ps1`, continues it:
+Configure Shared NAT forwarding, Probe service readiness, Recover the VM
+address, Evaluate service readiness, Publish service readiness, Collect failure
+diagnostics. The phases around that skeleton differ on purpose.
 
-Runtime directory. Download-agent initializes it after the elevation check, so
-a refusal changes nothing. Pool-control initializes it first, ahead of the
-elevation check, because the VM path and -HostSideProof both need it and only
-the VM path checks elevation. Stash initializes it right before the readiness
-probe and treats a failure as non-fatal: the only loss is the marker it would
-have published, so the bring-up does not depend on it.
+Runtime directory. Download-agent and pool-control initialize it in the shared
+pipeline after the elevation check, so a refusal changes nothing, and stop when
+it cannot be initialized: the withdrawal before a rebuild and the marker name
+it. Pool-control's -HostSideProof initializes it in its own script, which
+checks no elevation. Stash initializes it in its part, right before the
+readiness probe, and treats a failure as non-fatal: the only loss is the
+marker it would have published, so the bring-up does not depend on it.
 
 Address recovery. All three probe readiness, recover the guest address behind
 an inline verdict check when the probe failed, and evaluate readiness once.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42fff0b4-1eb3-4eba-8efc-bcdaf457e9b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,16 +110,14 @@ try { Initialize-YurunaEntryPointModuleSet -For Refresh -ModulesDir '$modules'; 
 
 Describe 'the operator''s -ConfigPath and -logLevel reach the processes the runner starts' {
     It 'resolves an inherited config path when none is passed, and a passed one wins' {
-        $saved = $env:YURUNA_CONFIG_PATH
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_CONFIG_PATH'
         try {
             $env:YURUNA_CONFIG_PATH = '/srv/operator/test.config.yml'
             Assert-Equal -Expected '/srv/operator/test.config.yml' -Actual (Initialize-YurunaEntryPoint -ScriptRoot $script:TestRoot).ConfigPath
             Assert-Equal -Expected '/other.yml' -Actual (Initialize-YurunaEntryPoint -ScriptRoot $script:TestRoot -ConfigPath '/other.yml').ConfigPath
             Remove-Item -LiteralPath Env:YURUNA_CONFIG_PATH
             Assert-Equal -Expected (Join-Path $script:TestRoot 'test.config.yml') -Actual (Initialize-YurunaEntryPoint -ScriptRoot $script:TestRoot).ConfigPath
-        } finally {
-            if ($null -eq $saved) { Remove-Item -LiteralPath Env:YURUNA_CONFIG_PATH -ErrorAction SilentlyContinue } else { $env:YURUNA_CONFIG_PATH = $saved }
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 
     It '<Script> applies the level to itself before it captures the environment its children inherit' -TestCases @(
@@ -153,7 +151,7 @@ Describe 'the operator''s -ConfigPath and -logLevel reach the processes the runn
     }
 
     It 'publishes the level a resolve picked for the children of the process' {
-        $saved = $env:YURUNA_LOG_LEVEL
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_LEVEL'
         $savedVerbose = $global:VerbosePreference
         try {
             Import-Module (Join-Path $here 'Test.LogLevel.psm1') -Force -Global
@@ -162,7 +160,7 @@ Describe 'the operator''s -ConfigPath and -logLevel reach the processes the runn
             $null = Resolve-LogLevel -CmdLineLevel 'Warning' -ConfigLevel 'Verbose'
             Assert-Equal -Expected 'Warning' -Actual $env:YURUNA_LOG_LEVEL -Because '-logLevel wins over the config'
         } finally {
-            $env:YURUNA_LOG_LEVEL = $saved
+            Restore-YurunaTestEnvironment -Saved $saved
             $global:VerbosePreference = $savedVerbose
         }
     }

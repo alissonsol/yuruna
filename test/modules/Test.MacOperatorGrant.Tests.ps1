@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d41f07-9c3b-4a15-8e62-5b0f3ca9d7e1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,15 +89,13 @@ Describe 'the operator-grant registry' {
 
     It 'reports the skip variable as an override rather than as a grant' {
         $sr = @(Get-MacOperatorGrant -Id 'ScreenRecording')[0]
-        $saved = [Environment]::GetEnvironmentVariable($sr.SkipEnvVar)
+        $saved = Save-YurunaTestEnvironment -Name $sr.SkipEnvVar
         try {
             [Environment]::SetEnvironmentVariable($sr.SkipEnvVar, '1')
             $state = @(Get-MacOperatorGrantState -Id 'ScreenRecording')[0]
             Assert-StringEqual 'overridden' $state.State `
                 'a forced check has to stay distinguishable from a real grant, or the report claims a permission the host does not have'
-        } finally {
-            [Environment]::SetEnvironmentVariable($sr.SkipEnvVar, $saved)
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 }
 
@@ -177,7 +175,7 @@ Describe 'the instruction renderer' {
 
 Describe 'the terminal-application hint' {
     It 'never tells the operator to enable pwsh' {
-        $saved = $env:TERM_PROGRAM
+        $saved = Save-YurunaTestEnvironment -Name 'TERM_PROGRAM'
         try {
             foreach ($case in @{ In = 'Apple_Terminal'; Out = 'Terminal.app' },
                               @{ In = 'iTerm.app';      Out = 'iTerm.app' },
@@ -187,9 +185,7 @@ Describe 'the terminal-application hint' {
             }
             $env:TERM_PROGRAM = ''
             Assert-True ((Get-MacTccSubjectName) -notmatch 'pwsh') 'the fallback must not name the shell'
-        } finally {
-            $env:TERM_PROGRAM = $saved
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 }
 
@@ -261,7 +257,7 @@ Describe 'the host-settings sweep' {
     It 'raises no dialog, opens no pane and waits for nothing under -NoPrompt, yet still counts what is missing' {
         if ($IsWindows) { Set-ItResult -Skipped -Because 'the stand-in tools are POSIX shell scripts'; return }
         Import-Module (Join-Path $here 'Test.MacUtmFakeHost.psm1') -Force -Global -DisableNameChecking
-        $fake = New-MacUtmFakeHost -Root (Join-Path ([IO.Path]::GetTempPath()) ("yrn-macgrant-" + [guid]::NewGuid().ToString('N')))
+        $fake = New-MacUtmFakeHost -Root (New-YurunaTestTempDir -Prefix 'yrn-macgrant')
         $savedNonInteractive = Save-YurunaTestEnvironment -Name 'YURUNA_NONINTERACTIVE'
         Enter-MacUtmFakeHost -FakeHost $fake
         try {

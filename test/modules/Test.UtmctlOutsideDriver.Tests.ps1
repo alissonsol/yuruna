@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 429aa498-3e96-4845-88b0-cbeb890aeb90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,7 +93,7 @@ cat "$last"
         if (-not $IsWindows) { [System.IO.File]::SetUnixFileMode($path, [System.IO.UnixFileMode]'UserRead, UserWrite, UserExecute') }
     }
     $script:SavedPath = $env:PATH
-    $script:SavedFakeDir = $env:UTMCTL_FAKE_DIR
+    $script:SavedEnvironment = Save-YurunaTestEnvironment -Name 'PATH', 'UTMCTL_FAKE_DIR'
 
     function New-FakeState {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -125,8 +125,7 @@ cat "$last"
 }
 
 AfterAll {
-    $env:PATH = $script:SavedPath
-    if ($null -eq $script:SavedFakeDir) { Remove-Item -LiteralPath 'Env:UTMCTL_FAKE_DIR' -ErrorAction SilentlyContinue } else { $env:UTMCTL_FAKE_DIR = $script:SavedFakeDir }
+    Restore-YurunaTestEnvironment -Saved $script:SavedEnvironment
     foreach ($stub in 'Invoke-UtmctlProbe', 'Invoke-UtmctlLifecycle') { Remove-Item -LiteralPath "Function:\$stub" -ErrorAction SilentlyContinue }
     Remove-YurunaTestTempDir $script:Temp
 }
@@ -237,17 +236,14 @@ Describe 'Remove-OrphanedVMFiles.ps1 -- the sweep end to end against a stand-in 
                 [System.IO.File]::WriteAllText((Join-Path $bundleDir 'config.plist'), $uuid)
             }
             $state = New-FakeState -File $File
-            $savedHome = $env:HOME
+            $savedHome = Save-YurunaTestEnvironment -Name 'HOME', 'PATH'
             try {
                 $env:HOME = $homeDir
                 $env:PATH = "$($script:Bin)$([System.IO.Path]::PathSeparator)$($script:SavedPath)"
                 $pwsh = (Get-Process -Id $PID).Path
                 $out = & $pwsh -NoLogo -NoProfile -NonInteractive -File $script:OrphanScript -Force 2>&1
                 $code = $LASTEXITCODE
-            } finally {
-                $env:HOME = $savedHome
-                $env:PATH = $script:SavedPath
-            }
+            } finally { Restore-YurunaTestEnvironment -Saved $savedHome }
             [pscustomobject]@{
                 ExitCode = $code
                 Output   = (($out | ForEach-Object { "$_" }) -join "`n") -replace '\x1b\[[0-9;]*[A-Za-z]', ''
@@ -350,9 +346,12 @@ Describe 'Test.Ssh -- the utmctl ip-address fallback is bounded' -Skip:$IsWindow
         Import-Module $script:SshModule -Force -Global -DisableNameChecking
         $script:AskUtmctl = { param([string]$VMName, [int]$TimeoutSeconds) & (Get-Module Test.Ssh) { param($n, $t) Get-GuestAddressFromUtmctl -VMName $n -TimeoutSeconds $t } $VMName $TimeoutSeconds }
     }
-    BeforeEach { $env:PATH = "$($script:Bin)$([System.IO.Path]::PathSeparator)$($script:SavedPath)" }
+    BeforeEach {
+        $script:EachPath = Save-YurunaTestEnvironment -Name 'PATH'
+        $env:PATH = "$($script:Bin)$([System.IO.Path]::PathSeparator)$($script:SavedPath)"
+    }
     AfterEach {
-        $env:PATH = $script:SavedPath
+        Restore-YurunaTestEnvironment -Saved $script:EachPath
         Remove-Item -LiteralPath 'Function:\Invoke-UtmctlProbe' -ErrorAction SilentlyContinue
     }
 
@@ -399,9 +398,12 @@ Describe 'Get-SystemDiagnostic.ps1 -- utmctl list is bounded' -Skip:$IsWindows {
             . ([scriptblock]::Create($definition))
         }
     }
-    BeforeEach { $env:PATH = "$($script:Bin)$([System.IO.Path]::PathSeparator)$($script:SavedPath)" }
+    BeforeEach {
+        $script:EachPath = Save-YurunaTestEnvironment -Name 'PATH'
+        $env:PATH = "$($script:Bin)$([System.IO.Path]::PathSeparator)$($script:SavedPath)"
+    }
     AfterEach {
-        $env:PATH = $script:SavedPath
+        Restore-YurunaTestEnvironment -Saved $script:EachPath
         Remove-Item -LiteralPath 'Function:\Invoke-UtmctlProbe' -ErrorAction SilentlyContinue
     }
 

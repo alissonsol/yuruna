@@ -30,15 +30,12 @@ func TestForgetHostRemovesAllState(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.authToken = "sekret"
 	hid := "42cafe0000000000000000000000dead"
-	s.hosts[hid] = &hostView{HostId: hid, LastSeenUnixMs: time.Now().UnixMilli()}
-	s.pass[hid] = 3
-	s.fail[hid] = 1
-	s.failWindow[hid] = []failRec{{At: time.Now(), Class: "script_error"}}
-	s.incident[hid] = &incidentState{}
-	s.seen[hid+"|cyc1"] = "pass"
-	s.seenAt[hid+"|cyc1"] = time.Now()
-	s.counted[hid+"|cyc1"] = true
-	s.announce[announceKey(hid, "stash")] = &announceView{}
+	s.view().Hosts[hid] = &hostView{HostId: hid, LastSeenUnixMs: time.Now().UnixMilli()}
+	s.seedCycle(hid, "cyc1", "pass", time.Now(), true)
+	s.countCycles(hid, 2, 1)
+	s.view().FailWindow[hid] = []failRec{{At: time.Now(), Class: "script_error"}}
+	s.view().Incident[hid] = &incidentState{}
+	s.view().Announce[announceKey(hid, "stash")] = &announceView{}
 
 	rec := httptest.NewRecorder()
 	s.handleForgetHost(rec, forgetReq(hid, "sekret", ""))
@@ -57,16 +54,18 @@ func TestForgetHostRemovesAllState(t *testing.T) {
 	if !out.Forgotten || !out.WasPresent || out.HostId != hid {
 		t.Fatalf("unexpected result: %+v", out)
 	}
+	passTotals, failTotals := s.view().CycleTotals()
+	cycle, cycleHeld := s.view().Cycle(hid + "|cyc1")
 	for name, present := range map[string]bool{
-		"hosts":      mapHas(s.hosts, hid),
-		"pass":       mapHas(s.pass, hid),
-		"fail":       mapHas(s.fail, hid),
-		"failWindow": mapHas(s.failWindow, hid),
-		"incident":   mapHas(s.incident, hid),
-		"seen":       mapHas(s.seen, hid+"|cyc1"),
-		"seenAt":     mapHas(s.seenAt, hid+"|cyc1"),
-		"counted":    mapHas(s.counted, hid+"|cyc1"),
-		"announce":   mapHas(s.announce, announceKey(hid, "stash")),
+		"hosts":      mapHas(s.view().Hosts, hid),
+		"pass":       mapHas(passTotals, hid),
+		"fail":       mapHas(failTotals, hid),
+		"failWindow": mapHas(s.view().FailWindow, hid),
+		"incident":   mapHas(s.view().Incident, hid),
+		"seen":       cycleHeld && cycle.Status != "",
+		"seenAt":     cycleHeld && !cycle.ObservedAt.IsZero(),
+		"counted":    cycle.Counted,
+		"announce":   mapHas(s.view().Announce, announceKey(hid, "stash")),
 	} {
 		if present {
 			t.Errorf("%s map still holds the forgotten host", name)

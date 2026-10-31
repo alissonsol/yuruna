@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b8c3e5-1f7a-4d96-a2c8-6e0b9d4f1a37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -406,7 +406,7 @@ Describe 'Default transcripts are kept in a bounded folder' {
 
     It 'still honors a caller-named path and puts an unnamed one in the folder' {
         $named = Join-Path $TestDrive 'named-transcript.log'
-        $saved = $env:YURUNA_TRANSCRIPT_PATH
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_TRANSCRIPT_PATH'
         try {
             $env:YURUNA_TRANSCRIPT_PATH = $named
             Assert-StringEqual $named (Resolve-YurunaTranscriptPath)
@@ -414,7 +414,7 @@ Describe 'Default transcripts are kept in a bounded folder' {
             $default = Resolve-YurunaTranscriptPath
             Assert-StringEqual 'yuruna-transcripts' (Split-Path -Leaf (Split-Path -Parent $default))
             Assert-True ((Split-Path -Leaf $default) -notmatch '^tmp') 'no anonymous tmp file'
-        } finally { $env:YURUNA_TRANSCRIPT_PATH = $saved }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 }
 
@@ -565,13 +565,13 @@ Describe 'leaks on purpose' {
     }
 }
 "@
-        $saved = $env:YURUNA_TEST_TEMP_ROOT
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_TEST_TEMP_ROOT'
         try {
             # Run as an operator would: outside any suite runner.
             $env:YURUNA_TEST_TEMP_ROOT = ''
             $null = & ([Environment]::ProcessPath) -NoProfile -File (Join-Path $script:RepoRoot 'tools/_InvokeOneSuite.ps1') -Suite $fixture -Xml $xml 2>&1
             Assert-Equal 0 $LASTEXITCODE -Because 'the shim ran the fixture'
-        } finally { $env:YURUNA_TEST_TEMP_ROOT = $saved }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
         $seen = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
         $folder = $seen.Temp.TrimEnd([IO.Path]::DirectorySeparatorChar)
         Assert-Match '^yrn-suite-[0-9a-f]{12}$' (Split-Path -Leaf $folder) 'the suite saw a folder of its own'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 420a1aa7-8b02-47f6-a89d-1a0d0b35585e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,7 @@
 #requires -version 7
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Diagnostic.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -Force
     Import-Module (Join-Path $PSScriptRoot 'Test.EventSchema.psm1') -Global -Force
@@ -239,9 +240,9 @@ exec bash -c "${@: -1}"
         Mock Test-Path -ModuleName Test.Diagnostic -ParameterFilter { $LiteralPath -like '*yuruna_ed25519' } { return $true }
         Mock Save-HyperVCpuRestartHostContext -ModuleName Test.Diagnostic { return @{status='complete';settings=@{processorCount=2}} }
         Mock Test-GuestSshPortProbe -ModuleName Test.Diagnostic { return @{connected=$false;error='separate advisory probe'} }
-        $oldPath=$env:PATH
+        $oldPath = Save-YurunaTestEnvironment -Name 'PATH'
         try {
-            $env:PATH=$bin+[IO.Path]::PathSeparator+$oldPath
+            $env:PATH=$bin+[IO.Path]::PathSeparator+$oldPath.PATH
             $clock=[Diagnostics.Stopwatch]::StartNew()
             $capture=Save-GuestCpuRestartEvidence -VMName clock-vm -GuestKey guest.ubuntu.server.26 -OutputFolder $TestDrive -Phase after-cpu-restart
             $clock.Elapsed.TotalSeconds | Should -BeLessThan 10
@@ -249,7 +250,7 @@ exec bash -c "${@: -1}"
             $capture.analysis.validSampleCount | Should -Be 2
             $capture.analysis.warnings.Count | Should -Be 0
             $capture.samples[1].uptimeSeconds | Should -BeGreaterThan $capture.samples[0].uptimeSeconds
-        } finally { $env:PATH=$oldPath }
+        } finally { Restore-YurunaTestEnvironment -Saved $oldPath }
     }
 
     It 'uses the existing address only and retains raw and structured evidence alongside effective host settings' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f71118-c871-4ce5-99f5-744301324e82
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Ssh.psm1') -Force -DisableNameChecking
     $script:Pwsh = (Get-Process -Id $PID).Path
     # Compile outside tight timing assertions; compilation is charged to the
@@ -26,7 +27,7 @@ BeforeAll {
 Describe 'Native SSH subprocess lifecycle' {
     It 'removes selected child variables before explicit overrides without changing the parent' {
         $names = @('YURUNA_NATIVE_REMOVE', 'YURUNA_NATIVE_OVERRIDE', 'YURUNA_NATIVE_KEEP')
-        $saved = @{}; foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+        $saved = Save-YurunaTestEnvironment -Name $names
         try {
             foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, 'parent') }
             $reader = '[ordered]@{ removedExists=[Environment]::GetEnvironmentVariables().Contains("YURUNA_NATIVE_REMOVE"); removed=[Environment]::GetEnvironmentVariable("YURUNA_NATIVE_REMOVE"); overridden=$env:YURUNA_NATIVE_OVERRIDE; retained=$env:YURUNA_NATIVE_KEEP } | ConvertTo-Json -Compress'
@@ -40,7 +41,7 @@ Describe 'Native SSH subprocess lifecycle' {
             $answer.overridden | Should -BeExactly child
             $answer.retained | Should -BeExactly parent
             foreach ($name in $names) { [Environment]::GetEnvironmentVariable($name) | Should -BeExactly parent }
-        } finally { foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) } }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 
     It 'accepts long provisioning budgets without changing successful command completion' {

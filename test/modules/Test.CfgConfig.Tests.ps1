@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42306286-6637-4762-aa48-42757ab30e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,8 +79,7 @@ Describe 'Read-TestConfig cache is case-sensitive (Ordinal) and FIFO-bounded' {
 
     It 'evicts the oldest entries first (FIFO) and holds the cache at the cap' {
         $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
-        $root = Join-Path ([System.IO.Path]::GetTempPath()) ("cfgc-fifo-" + [System.Guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $root = New-YurunaTestTempDir -Prefix 'cfgc-fifo'
         try {
             # Point the snapshot writes at the disposable dir too, so the whole run cleans up.
             $env:YURUNA_RUNTIME_DIR = $root
@@ -110,7 +109,7 @@ Describe 'Read-TestConfig cache is case-sensitive (Ordinal) and FIFO-bounded' {
         } finally {
             Restore-YurunaTestEnvironment -Saved $saved
             & (Get-Module Test.Config) { Clear-TestConfigCache -Confirm:$false }
-            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $root
         }
     }
 
@@ -209,8 +208,7 @@ Describe 'Test-AgainstSchema parses through the hardened Read-TestConfig' {
 Describe 'Test-AgainstSchema names a nested schema violation' {
     BeforeAll { Import-Module $script:validatorMod -Force }
     It 'reports where a property three levels down breaks the schema' {
-        $root = Join-Path ([System.IO.Path]::GetTempPath()) ("cfgc-nested-" + [System.Guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $root = New-YurunaTestTempDir -Prefix 'cfgc-nested'
         try {
             $yaml = Join-Path $root 'nested.yml'
             Set-Content -LiteralPath $yaml -Encoding utf8 -Value "outer:`n  middle:`n    inner:`n      keep: x`n      extra: y"
@@ -222,7 +220,7 @@ Describe 'Test-AgainstSchema names a nested schema violation' {
             Test-AgainstSchema -Label 'x' -YamlPath $yaml -SchemaPath $schema
             Should -Invoke -ModuleName Test.ConfigValidator Write-Pass -Times 0 -Exactly
             Should -Invoke -ModuleName Test.ConfigValidator Write-Fail -Times 1 -Exactly -ParameterFilter { $Message -match '/outer/middle/inner' }
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -233,12 +231,11 @@ Describe 'Test-AgainstSchema keeps its fail-soft contract through the reader swa
             Should -Not -Throw
     }
     It 'does not let a non-mapping root escape (Read-TestConfig -ThrowOnError is caught)' {
-        $root = Join-Path ([System.IO.Path]::GetTempPath()) ("cfgc-bad-" + [System.Guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $root = New-YurunaTestTempDir -Prefix 'cfgc-bad'
         try {
             $bad    = Join-Path $root 'scalar.yml';  Set-Content -LiteralPath $bad    -Value 'just-a-scalar-string' -Encoding utf8
             $schema = Join-Path $root 'schema.yml';  Set-Content -LiteralPath $schema -Value "type: object"          -Encoding utf8
             { Test-AgainstSchema -Label 'x' -YamlPath $bad -SchemaPath $schema } | Should -Not -Throw
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }

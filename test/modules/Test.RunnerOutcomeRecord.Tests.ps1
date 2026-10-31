@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f816f3-f8fb-4c0a-84b9-8070c8990937
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,11 +52,10 @@ function Write-OutcomeFixture {
 
 Describe 'Read-CycleOutcomeRecord' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('outrec-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'outrec'
         $script:File = Join-Path $script:Dir 'runner.cycle.outcome.json'
     }
-    AfterEach { Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:Dir }
 
     It 'accepts a record that names its outcome, exit code and the issued generation' {
         Write-OutcomeFixture $script:File ('{"outcome":"completed","exitCode":0,"cycleGeneration":"' + $script:Generation + '"}')
@@ -134,8 +133,7 @@ Describe 'Read-CycleOutcomeRecord' {
 
 Describe 'Invoke-OuterCycleDispatch scores a cycle only from a valid outcome record' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('outdisp-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'outdisp'
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
         $script:CycleScript = Join-Path $script:Dir 'cycle.ps1'
@@ -160,7 +158,7 @@ Describe 'Invoke-OuterCycleDispatch scores a cycle only from a valid outcome rec
     AfterEach {
         Remove-Item Env:OUTREC_FIXTURE_TEXT, Env:OUTREC_FIXTURE_EXIT -ErrorAction SilentlyContinue
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
 
     It 'scores a valid record by what it says, and reports its generation' {
@@ -256,12 +254,11 @@ Describe 'Invoke-OuterCycleDispatch scores a cycle only from a valid outcome rec
 
 Describe 'Publish-CycleOutcomeRecord' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('outpub-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'outpub'
         $script:File = Join-Path $script:Dir 'runner.cycle.outcome.json'
         Mock -ModuleName Test.RecoveryContract Write-Warning { }
     }
-    AfterEach { Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:Dir }
 
     # The resident never syncs the pool, so a pool's switch for automatic
     # recovery reached it only through this record.

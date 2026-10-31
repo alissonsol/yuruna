@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 428a18ad-e004-4555-8e23-53931d6f3ead
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,32 +42,6 @@ BeforeAll {
         $state = [ordered]@{ poolId = $PoolId; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'; configuredState = 'run'; configurationOk = $true; gating = $null }
         if ($null -ne $Ring) { $state.frameworkRing = $Ring }
         Set-Content -LiteralPath (Join-Path $RuntimeDir 'pool.state.json') -Value ($state | ConvertTo-Json -Depth 5)
-    }
-
-    # One request against a loopback listener: answers a fixed qualifying revision
-    # and returns the request line the client sent.
-    function Start-RingAggregatorStub {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
-            Justification = 'The listener arrives through -ArgumentList into the job param() block; the analyzer does not follow that path.')]
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-            Justification = 'Test fixture: answers one request on a loopback listener the caller owns.')]
-        param([System.Net.Sockets.TcpListener]$Listener)
-        return Start-ThreadJob -ScriptBlock {
-            param($Server)
-            try {
-                $client = $Server.AcceptTcpClient()
-                try {
-                    $stream = $client.GetStream()
-                    $buffer = [byte[]]::new(8192)
-                    $read = $stream.Read($buffer, 0, $buffer.Length)
-                    $request = [Text.Encoding]::ASCII.GetString($buffer, 0, $read).Split("`r`n")[0]
-                    $payload = [Text.Encoding]::UTF8.GetBytes('{"qualifyingRevision":"' + ('b' * 40) + '","qualifyingPasses":2,"revisions":[]}')
-                    $head = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Type: application/json`r`nContent-Length: $($payload.Length)`r`nConnection: close`r`n`r`n")
-                    $stream.Write($head, 0, $head.Length); $stream.Write($payload, 0, $payload.Length); $stream.Flush()
-                    $request
-                } finally { $client.Close() }
-            } finally { $Server.Stop() }
-        } -ArgumentList $Listener
     }
 
     function Invoke-RingGit {
@@ -170,18 +144,16 @@ Describe 'the pools.yml frameworkRing block' {
 
 Describe 'the aggregator lookup' {
     It 'asks with this host''s canary list and pass count and returns the qualifying revision' {
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
-        $base = "http://127.0.0.1:$(([System.Net.IPEndPoint]$listener.LocalEndpoint).Port)"
-        $job = Start-RingAggregatorStub -Listener $listener
+        # The aggregator answers a fixed qualifying revision.
+        $stub = Start-YurunaTestHttpResponder -Reply (New-YurunaTestHttpReply -ContentType 'application/json' `
+                -Body ('{"qualifyingRevision":"' + ('b' * 40) + '","qualifyingPasses":2,"revisions":[]}'))
         try {
-            $answer = Get-YurunaFrameworkRingQualification -BaseUrl $base -CanaryMembers @($script:Canary.ToUpperInvariant(), $script:Other) -RequiredPasses 2 -TimeoutSeconds 5
-            $request = $job | Wait-Job -Timeout 10 | Receive-Job
-            Assert-True $answer.Ok $answer.Detail
-            Assert-Equal ('b' * 40) $answer.Revision
-            Assert-Equal 2 $answer.Passes
-            Assert-Match ([regex]::Escape("GET /api/v1/framework-ring?canary=$($script:Canary)%2C$($script:Other)&passes=2 ")) $request
-        } finally { $listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+            $answer = Get-YurunaFrameworkRingQualification -BaseUrl $stub.BaseUrl -CanaryMembers @($script:Canary.ToUpperInvariant(), $script:Other) -RequiredPasses 2 -TimeoutSeconds 5
+        } finally { $requests = @(Stop-YurunaTestHttpResponder $stub) }
+        Assert-True $answer.Ok $answer.Detail
+        Assert-Equal ('b' * 40) $answer.Revision
+        Assert-Equal 2 $answer.Passes
+        Assert-Match ([regex]::Escape("GET /api/v1/framework-ring?canary=$($script:Canary)%2C$($script:Other)&passes=2 ")) ($requests -join "`n")
     }
 
     It 'treats an answer naming no full commit, an HTTP error and a closed port as no answer' {
@@ -426,9 +398,10 @@ function Publish-YurunaPoolDocChange {
                     frameworkRing = [ordered]@{ canaryMembers = @('42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'); requiredPasses = 3 } }) }
         Set-Content -LiteralPath (Join-Path $dir 'pools.yml') -Value (ConvertTo-Yaml $doc)
         # NO_COLOR: a failure message quoting the child's output must stay valid XML.
+        $color = Save-YurunaTestEnvironment -Name 'NO_COLOR'
         $env:NO_COLOR = '1'
         try { $output = & pwsh -NoProfile -NonInteractive -File $child @Arguments -ConfigurationDir $dir 2>&1 }
-        finally { Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue }
+        finally { Restore-YurunaTestEnvironment -Saved $color }
         Assert-Equal 0 $LASTEXITCODE ($output -join "`n")
         $saved = Get-Content -Raw (Join-Path $dir 'pools.yml') | ConvertFrom-Yaml
         Assert-Equal $Want (@($saved.pools[0].frameworkRing.canaryMembers) -join ',')
@@ -457,9 +430,10 @@ function Open-YurunaPoolAdminStore { param($ConfigurationGitUrl, $ConfigurationD
             $doc = [ordered]@{ schemaVersion = 4; pools = @([ordered]@{ poolId = 'lab'; poolGuid = '42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071'
                         members = @('42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'); frameworkRing = [ordered]@{ canaryMembers = @($case.Canary); requiredPasses = 1 } }) }
             Set-Content -LiteralPath (Join-Path $dir 'pools.yml') -Value (ConvertTo-Yaml $doc)
+            $color = Save-YurunaTestEnvironment -Name 'NO_COLOR'
             $env:NO_COLOR = '1'
             try { $output = & pwsh -NoProfile -NonInteractive -File $child -ConfigurationDir $dir 2>&1 }
-            finally { Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue }
+            finally { Restore-YurunaTestEnvironment -Saved $color }
             Assert-Equal $case.Exit $LASTEXITCODE ($output -join "`n")
             if ($case.Exit -ne 0) { Assert-Match ([regex]::Escape($case.Canary)) ($output -join "`n") }
         }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4208b036-072e-4d6f-8fd5-e970879b1912
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -209,10 +209,12 @@ Describe 'the rules a resolver is easy to get wrong' {
     It 'resolves a locale even where no catalogs have been compiled' {
         # A command that renders nothing still resolves a locale. Failing over
         # provenance it was never going to use would take it down for nothing.
-        $missing = Join-Path ([IO.Path]::GetTempPath()) ('no-catalog-' + [Guid]::NewGuid().ToString('N') + '.json')
-        $p = Get-CatalogProvenance -Path $missing
-        Assert-StringEqual -Expected '' -Actual $p.Hash 'an absent catalog set should read as empty, not raise'
-        Assert-StringEqual -Expected '' -Actual $p.Version 'an absent catalog set should read as empty, not raise'
+        $dir = New-YurunaTestTempDir -Prefix 'no-catalog'
+        try {
+            $p = Get-CatalogProvenance -Path (Join-Path $dir 'catalog-set.json')
+            Assert-StringEqual -Expected '' -Actual $p.Hash 'an absent catalog set should read as empty, not raise'
+            Assert-StringEqual -Expected '' -Actual $p.Version 'an absent catalog set should read as empty, not raise'
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'reads the set version and hash from a manifest that carries comments and trailing commas' {

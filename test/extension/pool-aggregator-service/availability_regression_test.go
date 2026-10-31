@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 func TestPoolStatsRejectsEitherFailedLegWithoutCaching(t *testing.T) {
@@ -72,15 +74,15 @@ func TestReapedAndForgottenHostsLoseFootprint(t *testing.T) {
 	s := newPoolState("default", 8080)
 	now := time.Now()
 	s.hostTtl = time.Hour
-	s.hosts["old"] = &hostView{HostId: "old", LastSeenUnixMs: now.Add(-2 * time.Hour).UnixMilli()}
-	s.footprint["old"] = &addressFootprintView{distinct: 4}
-	s.pass["old"] = 3
+	s.view().Hosts["old"] = &hostView{HostId: "old", LastSeenUnixMs: now.Add(-2 * time.Hour).UnixMilli()}
+	s.view().SetFootprint("old", addressFootprintView{Distinct: 4})
+	s.countCycles("old", 3, 0)
 	s.pollOnce(nil, "missing-squid-log", "", now)
-	if s.footprint["old"] != nil {
+	if _, held := s.view().Footprint("old"); held {
 		t.Fatal("reaped footprint retained")
 	}
 	// Even a stale footprint loaded separately cannot restore a departed host.
-	s.footprint["old"] = &addressFootprintView{distinct: 4}
+	s.view().SetFootprint("old", addressFootprintView{Distinct: 4})
 	w := httptest.NewRecorder()
 	s.handleMetricsBody(w)
 	body := w.Body.String()
@@ -93,7 +95,7 @@ func TestReapedAndForgottenHostsLoseFootprint(t *testing.T) {
 		}
 	}
 	s.forgetHost("old")
-	if s.footprint["old"] != nil {
+	if _, held := s.view().Footprint("old"); held {
 		t.Fatal("forgotten footprint retained")
 	}
 }
@@ -109,7 +111,7 @@ func TestBlockedArchiveProbeLeavesStateAvailable(t *testing.T) {
 	}()
 	<-entered
 	unlocked := make(chan struct{})
-	go func() { s.mu.Lock(); s.mu.Unlock(); close(unlocked) }()
+	go func() { s.st.Do(func(*poolstate.View) {}); close(unlocked) }()
 	select {
 	case <-unlocked:
 	case <-time.After(time.Second):

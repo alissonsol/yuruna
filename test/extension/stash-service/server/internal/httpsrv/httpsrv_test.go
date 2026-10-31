@@ -36,7 +36,7 @@ const testHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 hex, hostId-shaped
 // testVersion stands in for the framework version the guest build stamps in
 // through -ldflags. A daemon that loses that wiring reports the zero value and
 // the UI footer shows nothing, which no other assertion here would notice.
-const testVersion = "2026.10.30"
+const testVersion = "2026.10.31"
 
 func newTestUI(t *testing.T) (*httptest.Server, *Server, string) {
 	return newTestUIHost(t, testHostID)
@@ -937,8 +937,12 @@ func TestACrossSiteCreateIsRefused(t *testing.T) {
 // is refused with a retry hint, a small paste is not held up, and a body that
 // stalls is cut off so the next one can be read.
 func TestLargeTextBodiesAreReadOneAtATime(t *testing.T) {
+	// The refusal can only be observed while the server still holds the
+	// stalled body, so the read timeout is the whole window the probes below
+	// have: it must outlast the scheduling delays of a loaded host (a gate run
+	// with browsers and suites beside it), where half a second was missed.
 	saved := textBodyReadTimeout
-	textBodyReadTimeout = 500 * time.Millisecond
+	textBodyReadTimeout = 4 * time.Second
 	t.Cleanup(func() { textBodyReadTimeout = saved })
 	ts, _, _ := newTestUI(t)
 	form := "application/x-www-form-urlencoded"
@@ -966,14 +970,25 @@ func TestLargeTextBodiesAreReadOneAtATime(t *testing.T) {
 	if r := postCreate(t, ts, form, "text=small", int64(len("text=small")), nil); r.StatusCode != http.StatusOK {
 		t.Fatalf("a small paste behind a large one = %d, want 200", r.StatusCode)
 	}
-	_ = stalled.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = stalled.SetReadDeadline(time.Now().Add(3 * textBodyReadTimeout))
 	answer, err := http.ReadResponse(bufio.NewReader(stalled), nil)
 	if err != nil {
 		t.Fatalf("the stalled body was not cut off: %v", err)
 	}
 	answer.Body.Close()
-	if r := postCreate(t, ts, form, "text=after", -1, nil); r.StatusCode != http.StatusOK {
-		t.Fatalf("a large text after the stalled one was cut off = %d, want 200", r.StatusCode)
+	// The cut-off answer is written before the handler returns and releases
+	// the slot, so the next large text can still meet the refusal for a
+	// moment; it must be accepted once the slot is free, never stay refused.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		r := postCreate(t, ts, form, "text=after", -1, nil)
+		if r.StatusCode == http.StatusOK {
+			break
+		}
+		if r.StatusCode != http.StatusServiceUnavailable || time.Now().After(deadline) {
+			t.Fatalf("a large text after the stalled one was cut off = %d, want 200", r.StatusCode)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

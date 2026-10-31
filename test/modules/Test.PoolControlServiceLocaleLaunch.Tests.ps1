@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42fe2557-d61c-421d-b8c0-e41640d44f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,8 +87,11 @@ Describe 'pool-control locale deployment wiring' {
             'the host-side proof never passes --language to the daemon'
         Assert-True ($text.Contains("if (`$AllowPseudoLocale) { `$goArgs += '--allow-pseudo-locale' }")) `
             'the host-side proof has no explicit pseudo switch'
-        Assert-True ($text.Contains('Invoke-YurunaServiceVmBuild') -and $text.Contains('-AllowPseudoLocale:$AllowPseudoLocale')) `
-            'the VM launcher does not propagate the operator pseudo switch'
+        Assert-True ($text.Contains("'Start-ExtensionService.ps1'") -and $text.Contains('-AllowPseudoLocale:$AllowPseudoLocale')) `
+            'the VM launcher does not hand the operator pseudo switch to the shared start'
+        $shared = [IO.File]::ReadAllText((Join-Path (Split-Path -Parent $script:StartPath) 'Start-ExtensionService.ps1'))
+        Assert-True ($shared -match 'Invoke-YurunaServiceVmBuild [^\n]*-AllowPseudoLocale:\$AllowPseudoLocale') `
+            'the shared start does not propagate the operator pseudo switch to the builder'
     }
 
     It 'carries the seed values through the guest env file and systemd command' {

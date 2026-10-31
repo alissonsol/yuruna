@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42dd4c19-b2ea-45c5-930f-d248ded193bb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,7 @@ Import-Module $modulePath -Force
 #   loopRepo  -- origin points at itself (self-cycle; must not spin)
 # git config edits are local-only (no network); repos need no commits because
 # only remote.origin.url is read.
-$script:tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-weburl-tests-" + [guid]::NewGuid().ToString('N'))
+$script:tmpRoot = New-YurunaTestTempDir -Prefix 'yuruna-weburl-tests'
 $webRepo  = Join-Path $script:tmpRoot 'web-origin-repo'
 $midRepo  = Join-Path $script:tmpRoot 'mid-hop-repo'
 $loopRepo = Join-Path $script:tmpRoot 'self-loop-repo'
@@ -270,7 +270,5 @@ Describe 'Get-ProjectGitCommitReference -- the checked-out project as cycle prov
 }
 
 AfterAll {
-if ($script:tmpRoot -and (Test-Path -LiteralPath $script:tmpRoot)) {
-    Remove-Item -LiteralPath $script:tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
-}
+Remove-YurunaTestTempDir $script:tmpRoot
 }

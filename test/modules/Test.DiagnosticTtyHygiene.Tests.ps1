@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4277d76d-71f9-4057-a9d2-4d6341c5dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,13 +45,10 @@ Import-Module $modPath -Force
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-# Fixtures live at FILE scope, above the first Describe: a Describe body runs
-# during discovery and its variables are thrown away before any It executes.
-# The temp folder is named from $PID rather than a fresh GUID -- the file body
-# executes once per Pester pass, and a per-pass GUID would point the module at
-# one folder while the assertions read another.
-$TtyTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-ttyhygiene-$PID"
-Remove-Item -LiteralPath $TtyTestRoot -Recurse -Force -ErrorAction SilentlyContinue
+# Fixtures live in this BeforeAll, above the first Describe: a Describe body
+# runs during discovery and its variables are thrown away before any It
+# executes.
+$TtyTestRoot = New-YurunaTestTempDir -Prefix 'yrn-ttyhygiene'
 New-Item -ItemType Directory -Force -Path (Join-Path $TtyTestRoot 'cyclebase/vm1') | Out-Null
 $script:TtyFolder = Join-Path $TtyTestRoot 'cyclebase/vm1'
 
@@ -430,7 +427,7 @@ AfterAll {
     # Cleanup belongs here, not at end of file: file-level code runs during
     # discovery, before any It, so a trailing Remove-Item would delete the
     # folder the tests are about to use.
-    Remove-Item -LiteralPath $TtyTestRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-YurunaTestTempDir $TtyTestRoot
     Remove-Item -LiteralPath Function:\Send-Key  -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath Function:\Send-Text -ErrorAction SilentlyContinue
 }

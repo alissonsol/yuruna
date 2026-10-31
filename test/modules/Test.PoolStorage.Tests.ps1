@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42697c34-7060-4995-8ce1-baeb7bd4bbd6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -883,18 +883,20 @@ Describe 'Get-PoolStorageHealthWarning (loud-fail surfacing logic)' {
 
 
 Describe 'Remove-PoolStorageTree (retry-tolerant recursive delete)' {
+    BeforeAll { $script:RmTreeBase = New-YurunaTestTempDir -Prefix 'yrn-rmtree' }
+    AfterAll { Remove-YurunaTestTempDir $script:RmTreeBase }
     It 'deletes a nested tree and reports success' {
-        $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-rmtree-' + [guid]::NewGuid().ToString('N'))
+        $root = Join-Path $script:RmTreeBase 'nested'
         try {
             $leaf = Join-Path $root 'a/b/c'
             $null = New-Item -ItemType Directory -Force -Path $leaf
             Set-Content (Join-Path $leaf 'f.txt') 'x'
             Assert-True (Remove-PoolStorageTree -Path $root -Confirm:$false) 'deep tree deleted'
             Assert-True (-not (Test-Path -LiteralPath $root)) 'root is gone'
-        } finally { Remove-Item -Recurse -Force -LiteralPath $root -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'treats an already-absent path as success (idempotent)' {
-        $gone = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-rmtree-' + [guid]::NewGuid().ToString('N'))
+        $gone = Join-Path $script:RmTreeBase 'absent'
         Assert-True (Remove-PoolStorageTree -Path $gone -Confirm:$false) 'missing path -> true'
     }
     It 'gives up on its budget and returns false rather than throwing' {
@@ -904,7 +906,7 @@ Describe 'Remove-PoolStorageTree (retry-tolerant recursive delete)' {
         # share mode of an open handle, while POSIX unlinks a file that still has
         # open handles and instead refuses when the CONTAINING directory is not
         # writable -- so an open handle alone leaves the tree deletable here.
-        $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-rmtree-' + [guid]::NewGuid().ToString('N'))
+        $root = Join-Path $script:RmTreeBase 'held'
         $hold = Join-Path $root 'held'
         $null = New-Item -ItemType Directory -Force -Path $hold
         $held = Join-Path $hold 'locked.bin'
@@ -922,16 +924,16 @@ Describe 'Remove-PoolStorageTree (retry-tolerant recursive delete)' {
         } finally {
             if ($fs) { $fs.Dispose() }
             if (-not $IsWindows) { & chmod 'u+w' $hold }
-            Remove-Item -Recurse -Force -LiteralPath $root -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $root
         }
     }
     It 'honors -WhatIf' {
-        $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-rmtree-' + [guid]::NewGuid().ToString('N'))
+        $root = Join-Path $script:RmTreeBase 'whatif'
         try {
             $null = New-Item -ItemType Directory -Force -Path $root
             $null = Remove-PoolStorageTree -Path $root -WhatIf
             Assert-True (Test-Path -LiteralPath $root) '-WhatIf deletes nothing'
-        } finally { Remove-Item -Recurse -Force -LiteralPath $root -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -984,8 +986,7 @@ Describe 'Select-PoolStorageSeedAddress' {
 
 Describe 'Test-PoolStorageWriteProbe (a mount-table entry is not proof the mount works)' {
     It 'passes on a writable directory and leaves nothing behind' {
-        $dir = Join-Path ([IO.Path]::GetTempPath()) ('yrn-probe-' + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $dir
+        $dir = New-YurunaTestTempDir -Prefix 'yrn-probe'
         try {
             $before = @(Get-ChildItem -LiteralPath $dir -Force).Count
             $r = Test-PoolStorageWriteProbe -Path $dir
@@ -994,15 +995,17 @@ Describe 'Test-PoolStorageWriteProbe (a mount-table entry is not proof the mount
             # The probe file must not survive: this share is replicated, so litter
             # from a health check would be copied around the pool.
             Assert-Equal $before @(Get-ChildItem -LiteralPath $dir -Force).Count -Because 'probe file removed'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
     It 'fails, with a reason, when the mount point is not there' {
         # The shape a dead mount leaves once its point is gone; also the shape a
         # never-created localPath has.
-        $missing = Join-Path ([IO.Path]::GetTempPath()) ('yrn-probe-absent-' + [guid]::NewGuid().ToString('N'))
-        $r = Test-PoolStorageWriteProbe -Path $missing
-        Assert-True (-not $r.Ok) 'an absent mount point is not usable'
-        Assert-True ([bool]"$($r.Error)") 'carries a reason the caller can surface'
+        $base = New-YurunaTestTempDir -Prefix 'yrn-probe-absent'
+        try {
+            $r = Test-PoolStorageWriteProbe -Path (Join-Path $base 'mount')
+            Assert-True (-not $r.Ok) 'an absent mount point is not usable'
+            Assert-True ([bool]"$($r.Error)") 'carries a reason the caller can surface'
+        } finally { Remove-YurunaTestTempDir $base }
     }
     It 'reports a blank path rather than probing the current directory' {
         foreach ($bad in @('', '   ')) {

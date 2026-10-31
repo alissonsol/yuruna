@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 424533be-1c51-4584-9728-27ea5064d2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,7 +141,7 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
         @{ Name = 'Start-DownloadAgentServiceVM.ps1'; FirstMutation = @('Remove-YurunaServiceVmAdvertisement', 'Invoke-YurunaServiceVmBuild') }
     ) {
         $target = Resolve-LifecycleScript $Name
-        $ast = Get-ScriptAst $target.Path
+        $ast = $target.Ast
         $enter = @(Get-CommandCallAst -Ast $ast -Name 'Enter-YurunaServiceOperation')
         Assert-True ($enter.Count -ge 1) "$Name records its intent"
         $relaunch = @(Get-CommandCallAst -Ast $ast -Name 'Invoke-LibvirtGroupReExecIfNeeded')
@@ -154,7 +154,13 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
         if ($target.Shared) {
             $wrapperText = Get-Content -Raw -LiteralPath $target.Wrapper
             Assert-True ($wrapperText.Contains("-ServiceKey '$expectedKey'") -and $wrapperText.Contains('-CallerScript $PSCommandPath')) `
-                "$Name hands the shared stop script its '$expectedKey' roster key and its own name"
+                "$Name hands the shared script its '$expectedKey' roster key and its own name"
+            # A wrapper with an operation of its own (pool-control's host-side
+            # proof) records it under its own key and name.
+            foreach ($call in @(Get-CommandCallAst -Ast $target.WrapperAst -Name 'Enter-YurunaServiceOperation')) {
+                Assert-StringEqual -Expected "'$expectedKey'" -Actual (Get-NamedArgumentText -CommandAst $call -ParameterName 'Key')
+                Assert-StringEqual -Expected "'$Name'" -Actual (Get-NamedArgumentText -CommandAst $call -ParameterName 'Script')
+            }
         }
         foreach ($call in $enter) {
             $wantedKey = if ($target.Shared) { '$ServiceKey' } else { "'$expectedKey'" }
@@ -172,31 +178,34 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
         @{ Name = 'Stop-DownloadAgentServiceVM.ps1' }, @{ Name = 'Start-CachingProxyServiceVM.ps1' }, @{ Name = 'Start-StashServiceVM.ps1' }
         @{ Name = 'Start-PoolControlServiceVM.ps1' }, @{ Name = 'Start-DownloadAgentServiceVM.ps1' }
     ) {
-        $ast = Get-ScriptAst (Resolve-LifecycleScript $Name).Path
-        $enter = @(Get-CommandCallAst -Ast $ast -Name 'Enter-YurunaServiceOperation') | Sort-Object { $_.Extent.StartOffset }
-        $guards = @($ast.FindAll({ param($n)
-                    $n -is [System.Management.Automation.Language.TryStatementAst] -and $n.Finally -and
-                    @($n.Finally.FindAll({ param($m) $m -is [System.Management.Automation.Language.CommandAst] -and $m.GetCommandName() -eq 'Exit-YurunaServiceOperation' }, $true)).Count -gt 0
-                }, $true))
-        Assert-Equal -Expected $enter.Count -Actual $guards.Count -Because "$Name closes each operation it opens"
-        $refusals = @($ast.FindAll({ param($n)
-                    $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -match 'serviceOp\.Proceed'
-                }, $true))
-        $leaked = @()
-        foreach ($ex in @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true))) {
-            if ($ex.Extent.StartOffset -le $enter[0].Extent.EndOffset) { continue }
-            $covered = $false
-            foreach ($g in @($guards) + @($refusals)) {
-                if ($g.Extent.StartOffset -le $ex.Extent.StartOffset -and $g.Extent.EndOffset -ge $ex.Extent.EndOffset) { $covered = $true }
-            }
-            if (-not $covered) { $leaked += $ex.Extent.StartLineNumber }
-        }
-        Assert-NoFinding -Finding @($leaked | ForEach-Object { "$Name line $_" }) -Because 'an exit outside the finally would leave the operation lock held and the intent pending'
-        foreach ($g in $guards) {
-            $confirmed = @($g.Body.FindAll({ param($n)
-                        $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$serviceOpResult' -and $n.Right.Extent.Text -eq "'confirmed'"
+        $target = Resolve-LifecycleScript $Name
+        $opening = @($target.Ast) + @($target.WrapperAst | Where-Object { $target.Shared -and @(Get-CommandCallAst -Ast $_ -Name 'Enter-YurunaServiceOperation').Count -gt 0 })
+        foreach ($ast in $opening) {
+            $enter = @(Get-CommandCallAst -Ast $ast -Name 'Enter-YurunaServiceOperation') | Sort-Object { $_.Extent.StartOffset }
+            $guards = @($ast.FindAll({ param($n)
+                        $n -is [System.Management.Automation.Language.TryStatementAst] -and $n.Finally -and
+                        @($n.Finally.FindAll({ param($m) $m -is [System.Management.Automation.Language.CommandAst] -and $m.GetCommandName() -eq 'Exit-YurunaServiceOperation' }, $true)).Count -gt 0
                     }, $true))
-            Assert-True ($confirmed.Count -ge 1) "$Name confirms its operation somewhere inside the guarded section"
+            Assert-Equal -Expected $enter.Count -Actual $guards.Count -Because "$Name closes each operation it opens"
+            $refusals = @($ast.FindAll({ param($n)
+                        $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -match 'serviceOp\.Proceed'
+                    }, $true))
+            $leaked = @()
+            foreach ($ex in @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true))) {
+                if ($ex.Extent.StartOffset -le $enter[0].Extent.EndOffset) { continue }
+                $covered = $false
+                foreach ($g in @($guards) + @($refusals)) {
+                    if ($g.Extent.StartOffset -le $ex.Extent.StartOffset -and $g.Extent.EndOffset -ge $ex.Extent.EndOffset) { $covered = $true }
+                }
+                if (-not $covered) { $leaked += $ex.Extent.StartLineNumber }
+            }
+            Assert-NoFinding -Finding @($leaked | ForEach-Object { "$Name line $_" }) -Because 'an exit outside the finally would leave the operation lock held and the intent pending'
+            foreach ($g in $guards) {
+                $confirmed = @($g.Body.FindAll({ param($n)
+                            $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$serviceOpResult' -and $n.Right.Extent.Text -eq "'confirmed'"
+                        }, $true))
+                Assert-True ($confirmed.Count -ge 1) "$Name confirms its operation somewhere inside the guarded section"
+            }
         }
     }
 
@@ -204,7 +213,7 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
         @{ Name = 'Start-StashServiceVM.ps1'; Mutation = 'Invoke-YurunaServiceVmBuild' }, @{ Name = 'Start-PoolControlServiceVM.ps1'; Mutation = 'Invoke-YurunaServiceVmBuild' }
         @{ Name = 'Start-DownloadAgentServiceVM.ps1'; Mutation = 'Invoke-YurunaServiceVmBuild' }, @{ Name = 'Start-CachingProxyServiceVM.ps1'; Mutation = 'Initialize-YurunaHost' }
     ) {
-        $ast = Get-ScriptAst (Join-Path $script:serviceDir $Name)
+        $ast = (Resolve-LifecycleScript $Name).Ast
         $enter = @(Get-CommandCallAst -Ast $ast -Name 'Enter-YurunaServiceOperation')[0]
         if ($Mutation -eq 'Invoke-YurunaServiceVmBuild') {
             # The shared builder invocation owns the recheck: it is handed the operation context and asks
@@ -317,6 +326,7 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.CatalogSource.psm1') -DisableNameChecking
+    Import-Module (Join-Path $PSScriptRoot 'Test.ServiceStartSource.psm1') -DisableNameChecking
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here   # .../test
 
@@ -606,17 +616,22 @@ function Invoke-PoolControlStopFixture {
     }
 }
 
-# The three extension-service stop scripts are wrappers that name their service and run the shared
-# Stop-ExtensionService.ps1; the lifecycle contract is judged on the shared script, and the wrapper is
-# checked for the service key it hands over.
+# The three extension-service stop and start scripts are wrappers that name their service and run the
+# shared Stop-ExtensionService.ps1 or Start-ExtensionService.ps1; the lifecycle contract is judged on
+# what the shared script runs for that service (a start's readiness part read in place), and the
+# wrapper is checked for the service key it hands over.
 function Resolve-LifecycleScript {
     param([string]$Name)
     $path = Join-Path $script:serviceDir $Name
-    $shared = $Name -in @('Stop-StashServiceVM.ps1', 'Stop-PoolControlServiceVM.ps1', 'Stop-DownloadAgentServiceVM.ps1')
+    $stop = $Name -in @('Stop-StashServiceVM.ps1', 'Stop-PoolControlServiceVM.ps1', 'Stop-DownloadAgentServiceVM.ps1')
+    $start = $Name -in @('Start-StashServiceVM.ps1', 'Start-PoolControlServiceVM.ps1', 'Start-DownloadAgentServiceVM.ps1')
+    $shared = if ($stop) { Join-Path $script:serviceDir 'Stop-ExtensionService.ps1' } elseif ($start) { Join-Path $script:serviceDir 'Start-ExtensionService.ps1' } else { $path }
     [pscustomobject]@{
         Wrapper = $path
-        Path = if ($shared) { Join-Path $script:serviceDir 'Stop-ExtensionService.ps1' } else { $path }
-        Shared = $shared
+        WrapperAst = Get-ScriptAst $path
+        Path = $shared
+        Ast = if ($start) { Get-YurunaServiceStartAst -Path $path } else { Get-ScriptAst $shared }
+        Shared = $stop -or $start
     }
 }
 

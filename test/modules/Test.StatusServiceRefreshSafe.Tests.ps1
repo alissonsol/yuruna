@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 424389c7-e56a-4c48-9b73-1d24e21c6aa1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -224,10 +224,8 @@ Describe 'the refresh-safe start in its own process' {
             for ($attempt = 0; $attempt -lt 100; $attempt++) {
                 $port = Get-Random -Minimum 20000 -Maximum 30000
                 try {
-                    foreach ($address in @([System.Net.IPAddress]::Loopback, [System.Net.IPAddress]::Any)) {
-                        $probe = [System.Net.Sockets.TcpListener]::new($address, $port)
-                        try { $probe.Start() } finally { $probe.Stop() }
-                    }
+                    (New-YurunaTestTcpListener -Port $port).Stop()
+                    (New-YurunaTestTcpListener -Port $port -AnyAddress).Stop()
                     return $port
                 } catch [System.Net.Sockets.SocketException] { continue }
             }
@@ -293,7 +291,7 @@ Describe 'the refresh-safe start in its own process' {
     It 'reports a port another process holds as port-conflict and leaves that process and every control file alone' {
         $scratch = New-RefreshSafeScratch
         $port = Get-FreePort
-        $holder = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $port)
+        $holder = New-YurunaTestTcpListener -Port $port -AnyAddress -NoStart
         try {
             $holder.ExclusiveAddressUse = $true
             $holder.Start()

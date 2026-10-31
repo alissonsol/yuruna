@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 424d0135-9a4f-40da-a735-010d52f5a269
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -191,8 +191,7 @@ Describe 'Start-YurunaDetachedProcess -- POSIX detach with a real stand-in worke
         $probe = Join-Path $script:Work ('env-probe-' + [guid]::NewGuid().ToString('N') + '.ps1')
         [System.IO.File]::WriteAllText($probe, 'Set-Content -LiteralPath $args[0] -Value "HS=$env:YURUNA_DETACH_HANDSHAKE;HOP=$env:YURUNA_DETACH_HOP_PID;START=$env:YURUNA_DETACH_HOP_START" -Encoding utf8NoBOM')
         $names = @('YURUNA_DETACH_HANDSHAKE', 'YURUNA_DETACH_HOP_PID', 'YURUNA_DETACH_HOP_START')
-        $saved = @{}
-        foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+        $saved = Save-YurunaTestEnvironment -Name $names
         try {
             # What a launcher that is itself a detached worker carries.
             $env:YURUNA_DETACH_HANDSHAKE = Join-Path $private 'launcher-hs.json'
@@ -201,11 +200,7 @@ Describe 'Start-YurunaDetachedProcess -- POSIX detach with a real stand-in worke
             $r = Start-YurunaDetachedProcess -FilePath $probe -ArgumentList @($report) -WorkingDirectory $script:Work -StdOutPath '/dev/null' `
                 -StdErrPath (Join-Path $private 'err.txt') -PrivateDirectory $private -Confirm:$false
             Assert-True $r.Launched "launched ($($r.Reason) $($r.Detail))"
-        } finally {
-            foreach ($name in $names) {
-                if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue } else { Set-Item -LiteralPath "Env:$name" -Value $saved[$name] }
-            }
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
         Assert-True (Wait-TestFile -Path $report) 'the worker reported its environment'
         Start-Sleep -Milliseconds 200
         Assert-Equal -Expected 'HS=;HOP=;START=' -Actual (Get-Content -LiteralPath $report -Raw).Trim() -Because 'the worker starts with none of the launcher''s detach state'
@@ -414,13 +409,11 @@ Describe 'Read-YurunaDetachedHandshake and Wait-YurunaDetachedHopExit' {
     }
 
     It 'reads no hop as exited, times out on a live hop, and detects a recycled hop PID' {
-        $saved = $env:YURUNA_DETACH_HOP_PID
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_DETACH_HOP_PID'
         try {
             Remove-Item Env:YURUNA_DETACH_HOP_PID -ErrorAction SilentlyContinue
             Assert-Equal -Expected 'no-hop' -Actual (Wait-YurunaDetachedHopExit -Deadline (New-YurunaDeadline -TotalMilliseconds 1000)).Reason
-        } finally {
-            if ($null -ne $saved) { $env:YURUNA_DETACH_HOP_PID = $saved }
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
         $live = Wait-YurunaDetachedHopExit -HopPid $PID -HopStartTimeUnixMs $script:OwnStart -Deadline (New-YurunaDeadline -TotalMilliseconds 400)
         Assert-False $live.Exited 'a live hop is waited on until the deadline'
         Assert-Equal -Expected 'timeout' -Actual $live.Reason

@@ -28,7 +28,7 @@ examples:AmisAdAd((examples:AmisAdAd)) -- subClassOf --> examples:AmisAdDomainEn
 examples:AmisAdAd((examples:AmisAdAd)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 examples:AmisAdAgency((examples:AmisAdAgency)) -- subClassOf --> examples:AmisAdParticipantRole((examples:AmisAdParticipantRole))
 examples:AmisAdAggregateTargeting((examples:AmisAdAggregateTargeting)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
-examples:AmisAdAggregateTargeting((examples:AmisAdAggregateTargeting)) -- subClassOf --> software:Policy[software:Policy]
+examples:AmisAdAggregateTargeting((examples:AmisAdAggregateTargeting)) -- subClassOf --> y:Policy[y:Policy]
 examples:AmisAdAppointment((examples:AmisAdAppointment)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
 examples:AmisAdAppointment((examples:AmisAdAppointment)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 examples:AmisAdAttestation((examples:AmisAdAttestation)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
@@ -51,7 +51,7 @@ examples:AmisAdCampaignBudget((examples:AmisAdCampaignBudget)) -- subClassOf -->
 examples:AmisAdCampaignBudget((examples:AmisAdCampaignBudget)) -- subClassOf --> y:Quantity[y:Quantity]
 examples:AmisAdCarrier((examples:AmisAdCarrier)) -- subClassOf --> examples:AmisAdParticipantRole((examples:AmisAdParticipantRole))
 examples:AmisAdClosingPolicy((examples:AmisAdClosingPolicy)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
-examples:AmisAdClosingPolicy((examples:AmisAdClosingPolicy)) -- subClassOf --> software:Policy[software:Policy]
+examples:AmisAdClosingPolicy((examples:AmisAdClosingPolicy)) -- subClassOf --> y:Policy[y:Policy]
 examples:AmisAdCompensatingEntry((examples:AmisAdCompensatingEntry)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
 examples:AmisAdCompensatingEntry((examples:AmisAdCompensatingEntry)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 examples:AmisAdConnector((examples:AmisAdConnector)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
@@ -108,7 +108,7 @@ examples:AmisAdNeed((examples:AmisAdNeed)) -- subClassOf --> examples:AmisAdDoma
 examples:AmisAdNeed((examples:AmisAdNeed)) -- subClassOf --> r_AmisAdNeed_requestedByBuyer_AmisAdBuyer_((Anonymous class))
 examples:AmisAdNeed((examples:AmisAdNeed)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 examples:AmisAdNeedConstraint((examples:AmisAdNeedConstraint)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
-examples:AmisAdNeedConstraint((examples:AmisAdNeedConstraint)) -- subClassOf --> software:Policy[software:Policy]
+examples:AmisAdNeedConstraint((examples:AmisAdNeedConstraint)) -- subClassOf --> y:Policy[y:Policy]
 examples:AmisAdNeedEnvelope((examples:AmisAdNeedEnvelope)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
 examples:AmisAdNeedEnvelope((examples:AmisAdNeedEnvelope)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 examples:AmisAdOffer -- examples:offeredBySeller --> examples:AmisAdSeller
@@ -123,7 +123,7 @@ examples:AmisAdParticipantRole((examples:AmisAdParticipantRole)) -- subClassOf -
 examples:AmisAdParticipationGrant((examples:AmisAdParticipationGrant)) -- subClassOf --> examples:AmisAdConsentGrant((examples:AmisAdConsentGrant))
 examples:AmisAdPrincipal((examples:AmisAdPrincipal)) -- subClassOf --> examples:AmisAdParticipantRole((examples:AmisAdParticipantRole))
 examples:AmisAdPrivacyThreshold((examples:AmisAdPrivacyThreshold)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
-examples:AmisAdPrivacyThreshold((examples:AmisAdPrivacyThreshold)) -- subClassOf --> software:Policy[software:Policy]
+examples:AmisAdPrivacyThreshold((examples:AmisAdPrivacyThreshold)) -- subClassOf --> y:Policy[y:Policy]
 examples:AmisAdRefund((examples:AmisAdRefund)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
 examples:AmisAdRefund((examples:AmisAdRefund)) -- subClassOf --> y:Process[y:Process]
 examples:AmisAdResource((examples:AmisAdResource)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
@@ -142,7 +142,7 @@ examples:AmisAdShortlist((examples:AmisAdShortlist)) -- subClassOf --> y:Informa
 examples:AmisAdSlice((examples:AmisAdSlice)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
 examples:AmisAdSlice((examples:AmisAdSlice)) -- subClassOf --> y:SystemElement[y:SystemElement]
 examples:AmisAdSovereigntyPolicy((examples:AmisAdSovereigntyPolicy)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
-examples:AmisAdSovereigntyPolicy((examples:AmisAdSovereigntyPolicy)) -- subClassOf --> software:Policy[software:Policy]
+examples:AmisAdSovereigntyPolicy((examples:AmisAdSovereigntyPolicy)) -- subClassOf --> y:Policy[y:Policy]
 examples:AmisAdSupportCase((examples:AmisAdSupportCase)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
 examples:AmisAdSupportCase((examples:AmisAdSupportCase)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 examples:AmisAdTenant((examples:AmisAdTenant)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
@@ -211,6 +211,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

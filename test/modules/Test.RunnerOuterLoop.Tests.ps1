@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42305b75-dbdd-448e-8c59-ffaf93235629
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,12 +45,14 @@ try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { Write-War
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
+$script:ConfigFileDir = New-YurunaTestTempDir -Prefix 'ol-config'
+
 function New-TempConfig {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Test fixture: writes a throwaway temp config file, removed in finally; not user-facing state.')]
+        Justification = 'Test fixture: writes a throwaway config file under the suite temp folder; not user-facing state.')]
     [CmdletBinding()]
     param([string]$Yaml)
-    $p = Join-Path ([System.IO.Path]::GetTempPath()) ("ol-" + [guid]::NewGuid().ToString('N') + '.yml')
+    $p = Join-Path $script:ConfigFileDir ([guid]::NewGuid().ToString('N') + '.yml')
     Set-Content -LiteralPath $p -Value $Yaml -Encoding utf8
     return $p
 }
@@ -179,8 +181,7 @@ Describe 'Get-OuterAutoRemediation (pool override WINS over config > default)' {
 
 Describe 'Get-OuterCycleSummaryLine (per-cycle console line + shareable transcript link)' {
     BeforeAll {
-        $script:SummaryDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ol-sum-" + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:SummaryDir -Force | Out-Null
+        $script:SummaryDir = New-YurunaTestTempDir -Prefix 'ol-sum'
         $script:SavedSummaryRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $script:SavedPublicUrl = Save-YurunaTestEnvironment -Name 'YURUNA_STATUS_PUBLIC_URL'
         $env:YURUNA_RUNTIME_DIR = $script:SummaryDir
@@ -193,7 +194,7 @@ Describe 'Get-OuterCycleSummaryLine (per-cycle console line + shareable transcri
         Restore-YurunaTestEnvironment -Saved $script:SavedSummaryRuntime
         Restore-YurunaTestEnvironment -Saved $script:SavedPublicUrl
         Remove-Item -LiteralPath $script:SummaryCfg -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:SummaryDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:SummaryDir
     }
 
     It 'names the cycle, the verdict, and the short /cycle/`<number`> link' {
@@ -216,7 +217,7 @@ Describe 'Get-OuterCycleSummaryLine (per-cycle console line + shareable transcri
             -Because 'the lifecycle suffix never reaches the link'
     }
     It 'still names the cycle when there is no server to link to' {
-        $saved = $env:YURUNA_STATUS_PUBLIC_URL
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_STATUS_PUBLIC_URL'
         $cfgOff = New-TempConfig "statusService:`n  enabled: false`n"
         try {
             Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue
@@ -225,7 +226,7 @@ Describe 'Get-OuterCycleSummaryLine (per-cycle console line + shareable transcri
                 -Actual (Get-OuterCycleSummaryLine -ConfigPath $cfgOff -ExitCode 0) `
                 -Because 'the verdict is still worth printing without a link'
         } finally {
-            if ($null -ne $saved) { $env:YURUNA_STATUS_PUBLIC_URL = $saved }
+            Restore-YurunaTestEnvironment -Saved $saved
             Remove-Item -LiteralPath $cfgOff -Force -ErrorAction SilentlyContinue
         }
     }
@@ -248,19 +249,18 @@ Describe 'Get-OuterCycleSummaryLine (per-cycle console line + shareable transcri
 
 Describe 'Get-OuterStatusBaseUrl (never localhost)' {
     It 'honors an operator-published base URL and drops its trailing slash' {
-        $saved = $env:YURUNA_STATUS_PUBLIC_URL
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_STATUS_PUBLIC_URL'
         try {
             $env:YURUNA_STATUS_PUBLIC_URL = 'https://dash.example/yuruna/'
             Assert-Equal -Expected 'https://dash.example/yuruna' `
                 -Actual (Get-OuterStatusBaseUrl -ConfigPath 'nonexistent.yml') `
                 -Because 'a reverse proxy is not discoverable from this process'
         } finally {
-            if ($null -eq $saved) { Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue }
-            else { $env:YURUNA_STATUS_PUBLIC_URL = $saved }
+            Restore-YurunaTestEnvironment -Saved $saved
         }
     }
     It 'yields no base URL when the status service is gated off' {
-        $saved = $env:YURUNA_STATUS_PUBLIC_URL
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_STATUS_PUBLIC_URL'
         $cfgOn = New-TempConfig "statusService:`n  enabled: true`n  port: 8080`n"
         $cfgOff = New-TempConfig "statusService:`n  enabled: false`n"
         try {
@@ -271,12 +271,12 @@ Describe 'Get-OuterStatusBaseUrl (never localhost)' {
             Assert-Equal -Expected '' -Actual (Get-OuterStatusBaseUrl -ConfigPath $cfgOn -ArgList $al) `
                 -Because 'a forwarded -NoStatusService means no server was started'
         } finally {
-            if ($null -ne $saved) { $env:YURUNA_STATUS_PUBLIC_URL = $saved }
+            Restore-YurunaTestEnvironment -Saved $saved
             Remove-Item -LiteralPath $cfgOn, $cfgOff -Force -ErrorAction SilentlyContinue
         }
     }
     It 'discovers a routable address rather than loopback' {
-        $saved = $env:YURUNA_STATUS_PUBLIC_URL
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_STATUS_PUBLIC_URL'
         try {
             Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue
             $url = Get-OuterStatusBaseUrl -ConfigPath 'nonexistent.yml'
@@ -285,7 +285,7 @@ Describe 'Get-OuterStatusBaseUrl (never localhost)' {
             Assert-False ($url -match 'localhost|127\.0\.0\.1') 'a shared link must not point at the reader'
             if ($url) { Assert-True ($url -match '^http://\d+\.\d+\.\d+\.\d+:\d+$') "shape was '$url'" }
         } finally {
-            if ($null -ne $saved) { $env:YURUNA_STATUS_PUBLIC_URL = $saved }
+            Restore-YurunaTestEnvironment -Saved $saved
         }
     }
 }
@@ -297,8 +297,7 @@ Describe 'Invoke-RunnerOuterLoop failure pause (auto-remediation trigger is reac
     # the trigger then never fires and the only symptom is an error every poll tick.
     BeforeAll {
         $script:CfgAutoRem   = New-TempConfig "testCycle:`n  autoRemediation:`n    enabled: true`n"
-        $script:PauseTempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ol-rt-" + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:PauseTempDir -Force | Out-Null
+        $script:PauseTempDir = New-YurunaTestTempDir -Prefix 'ol-rt'
         Set-Content -LiteralPath (Join-Path $script:PauseTempDir 'last_failure.json') `
             -Value '{"failureClass":"wait_timeout"}' -Encoding utf8
         # Both are joined unguarded on the pause path: the restart-flag probe reads
@@ -313,7 +312,7 @@ Describe 'Invoke-RunnerOuterLoop failure pause (auto-remediation trigger is reac
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeDir
         Restore-YurunaTestEnvironment -Saved $script:SavedLogDir
         Remove-Item -LiteralPath $script:CfgAutoRem -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:PauseTempDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:PauseTempDir
     }
 
     It 'ends the pause early on a transient failure class when the config ENGAGES remediation' {
@@ -558,8 +557,7 @@ Describe 'Refresh gate at the cycle dispatch (mocked spawn)' {
         Import-Module (Join-Path $here 'Test.StateFile.psm1') -Force -Global -DisableNameChecking
     }
     BeforeEach {
-        $script:DispatchDir = Join-Path ([System.IO.Path]::GetTempPath()) ('ol-dispatch-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:DispatchDir -Force | Out-Null
+        $script:DispatchDir = New-YurunaTestTempDir -Prefix 'ol-dispatch'
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:DispatchDir
         $script:CycleScriptPath = Join-Path $script:DispatchDir 'cycle.ps1'
@@ -576,7 +574,7 @@ Describe 'Refresh gate at the cycle dispatch (mocked spawn)' {
     }
     AfterEach {
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
-        Remove-Item -LiteralPath $script:DispatchDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:DispatchDir
     }
 
     It 'spawns the preflight chain with its token in the child environment only, and clears it afterwards' {
@@ -642,7 +640,7 @@ Describe 'Invoke-RunnerOuterCycle at its refresh sites (in-process, stand-in inn
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
                 Justification = 'Test fixture: throwaway runtime and log directories with sentinel files.')]
             param([string]$InnerScript)
-            $root = Join-Path ([System.IO.Path]::GetTempPath()) ('ol-site-' + [guid]::NewGuid().ToString('N'))
+            $root = New-YurunaTestTempDir -Prefix 'ol-site'
             $runtime = Join-Path $root 'runtime'; $log = Join-Path $root 'log'
             New-Item -ItemType Directory -Path $runtime, $log -Force | Out-Null
             foreach ($name in @('inner.pid', 'inner.start', 'break-active.json')) { Set-Content -LiteralPath (Join-Path $runtime $name) -Value 'x' -Encoding utf8 }
@@ -697,7 +695,7 @@ Describe 'Invoke-RunnerOuterCycle at its refresh sites (in-process, stand-in inn
             Assert-Equal -Expected ('d' * 32) -Actual $seen.token
             Assert-Equal -Expected (('e' * 32) + ':2') -Actual $seen.generation
             Assert-True ([string]::IsNullOrEmpty($env:YURUNA_CYCLE_GENERATION)) 'cleared after the spawn'
-        } finally { Remove-Item -LiteralPath $f.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $f.Root }
     }
     It 'holds a cycle before the pull and changes nothing while the gate is closed' {
         $f = New-CycleFixture -InnerScript $script:EnvInner
@@ -712,7 +710,7 @@ Describe 'Invoke-RunnerOuterCycle at its refresh sites (in-process, stand-in inn
             }
             Assert-True (Test-Path -LiteralPath (Join-Path $f.Log 'last_failure.json')) 'the failure record is untouched'
             Assert-False (Test-Path -LiteralPath $f.EnvFile) 'no inner ran'
-        } finally { Remove-Item -LiteralPath $f.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $f.Root }
     }
     It 'reports refresh-gated when its own inner was held at an inner site, and carries the barrier to the inner' {
         $gatedInner = "`$parent = (Get-Process -Id `$PID).Parent.Id; [ordered]@{ schemaVersion = 1; site = 'git-pull'; innerParentPid = `$parent; observedUtc = [DateTime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path 'RUNTIME' 'runner.refresh-gated.json'); " + $script:EnvInner
@@ -727,7 +725,7 @@ Describe 'Invoke-RunnerOuterCycle at its refresh sites (in-process, stand-in inn
             Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'runner.refresh-gated.json')) 'the sidecar is consumed'
             Assert-Equal -Expected 'r-9' -Actual (Get-Content -LiteralPath $f.EnvFile -Raw | ConvertFrom-Json).barrier
             Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'break-active.json')) 'an ordinary cycle still clears a stale break marker'
-        } finally { Remove-Item -LiteralPath $f.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $f.Root }
     }
     It 'returns a gate refusal before running cycle-end hooks or reusing old results' {
         $gateInner = "[ordered]@{ attemptGeneration = `$env:YURUNA_CYCLE_GENERATION; startedAtUtc = [DateTime]::UtcNow.ToString('o'); passed = `$false; exitCode = 1; frameworkCommitSha = 'new-sha' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path 'RUNTIME' 'runner.configGate.json'); Set-Content -LiteralPath (Join-Path 'RUNTIME' 'runner.phase') -Value 'config-gate'; exit 1"
@@ -742,7 +740,7 @@ Describe 'Invoke-RunnerOuterCycle at its refresh sites (in-process, stand-in inn
             $r.ExitCode | Should -Be 1
             Should -Invoke -CommandName Get-OuterPoolStorageMoveMode -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly -Scope It
             (Get-RunnerAttemptFault -RuntimeDir $f.Runtime -AttemptGeneration $f.State.CycleGeneration).IsCrash | Should -BeFalse
-        } finally { Remove-Item -LiteralPath $f.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $f.Root }
     }
 
 }
@@ -764,8 +762,7 @@ Describe 'Invoke-RunnerOuterLoop refresh outcomes and automatic-refresh call sit
         }
     }
     BeforeEach {
-        $script:LoopDir = Join-Path ([System.IO.Path]::GetTempPath()) ('ol-loop-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:LoopDir -Force | Out-Null
+        $script:LoopDir = New-YurunaTestTempDir -Prefix 'ol-loop'
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:LoopDir; $env:YURUNA_LOG_DIR = $script:LoopDir
         $script:Logged = [System.Collections.Generic.List[string]]::new()
@@ -789,7 +786,7 @@ Describe 'Invoke-RunnerOuterLoop refresh outcomes and automatic-refresh call sit
     }
     AfterEach {
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
-        Remove-Item -LiteralPath $script:LoopDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:LoopDir
         Remove-Item function:Set-RunnerState, function:global:Update-HostRefreshAutoEvidence, function:global:Invoke-HostRefreshAutoDecision, `
             function:global:Stop-HostRefreshAutoQueuedRequest, function:global:Set-HostRefreshCallerAck, function:global:Resolve-StatusServiceStart -ErrorAction SilentlyContinue
         Remove-Variable __loopStates, __trigger -Scope Global -ErrorAction SilentlyContinue
@@ -1110,3 +1107,5 @@ Describe 'Invoke-OuterPoolStorageMove times the move on the monotonic clock' {
         Assert-True ($line[0].EndsWith('in 42s')) "the line reports the elapsed move time: $($line[0])"
     }
 }
+
+AfterAll { Remove-YurunaTestTempDir $script:ConfigFileDir }

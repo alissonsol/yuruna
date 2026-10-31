@@ -23,11 +23,10 @@ circled class.
 %%{init: {"flowchart": {"useMaxWidth": 0}}}%%
 graph LR
 classDef Datatype fill:#9c6,stroke:#9c6;
-software:AlternativeTerm((software:AlternativeTerm)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 software:DocumentIdentifier((software:DocumentIdentifier)) -- subClassOf --> y:Identifier[y:Identifier]
 software:Globalization((software:Globalization)) -- subClassOf --> y:Process[y:Process]
 software:HeadingAnchor((software:HeadingAnchor)) -- subClassOf --> y:Identifier[y:Identifier]
-software:LanguageFallback((software:LanguageFallback)) -- subClassOf --> software:Policy[software:Policy]
+software:LanguageFallback((software:LanguageFallback)) -- subClassOf --> y:Policy[y:Policy]
 software:LinkAlias -- software:aliasOfLink --> software:ShortLink
 software:LinkAlias((software:LinkAlias)) -- subClassOf --> y:Identifier[y:Identifier]
 software:Locale((software:Locale)) -- subClassOf --> y:Identifier[y:Identifier]
@@ -45,13 +44,12 @@ software:MessageTemplate -- software:identifiedByKey --> software:MessageKey
 software:MessageTemplate((software:MessageTemplate)) -- subClassOf --> r_MessageTemplate_identifiedByKey_MessageKey_((Anonymous class))
 software:MessageTemplate((software:MessageTemplate)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 software:PluralForm((software:PluralForm)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-software:PreferredTerm((software:PreferredTerm)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 software:ProtectedToken((software:ProtectedToken)) -- subClassOf --> y:Identifier[y:Identifier]
 software:Pseudolocalization((software:Pseudolocalization)) -- subClassOf --> y:Process[y:Process]
 software:ShortLink((software:ShortLink)) -- subClassOf --> y:Identifier[y:Identifier]
 software:ShortLinkCatalog((software:ShortLinkCatalog)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 software:TerminologyGlossary((software:TerminologyGlossary)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-software:TextDirection((software:TextDirection)) -- subClassOf --> software:Policy[software:Policy]
+software:TextDirection((software:TextDirection)) -- subClassOf --> y:Policy[y:Policy]
 software:Translation -- software:translates --> y:InformationArtifact
 software:Translation((software:Translation)) -- subClassOf --> r_Translation_translates_InformationArtifact_((Anonymous class))
 software:Translation((software:Translation)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
@@ -92,6 +90,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

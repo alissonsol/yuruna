@@ -750,11 +750,25 @@ e restaurada com `Restore-YurunaTestEnvironment`, que remove uma entrada que
 estava ausente e mantém vazia uma entrada vazia; as cópias feitas à mão apagavam
 a entrada ou descartavam o valor externo, de modo que sete suítes deixavam
 `YURUNA_RUNTIME_DIR`, e uma `YURUNA_LOG_DIR`, apontando para uma pasta de fixture
-ou sem valor para o que rodasse em seguida no processo. A mesma proteção faz
-falhar uma suíte que define um `user.email` à mão, mantém um executor git que
-roda o git por conta própria, grava um desses globais à mão fora de um runspace
-próprio ou restaura `YURUNA_RUNTIME_DIR` ou `YURUNA_LOG_DIR` à mão em uma
-finalização.
+ou sem valor para o que rodasse em seguida no processo. Um teste cujo objeto
+define entradas que ele não consegue nomear de antemão salva todas com `-All` e
+restaura com `-RemoveOthers`, que também remove o que foi acrescentado. Uma pasta
+de fixture com nome único vem de `New-YurunaTestTempDir` e é removida com
+`Remove-YurunaTestTempDir`; um arquivo ou um caminho que ainda não pode existir
+fica dentro de uma pasta assim. Um listener de loopback vem de
+`New-YurunaTestTcpListener` (em todos os endereços com `-AnyAddress`, sem iniciar
+com `-NoStart`), uma porta em que nada escuta vem de `Get-YurunaTestFreePort`,
+duas pontas conectadas vêm de `New-YurunaTestSocketPair`, e um substituto HTTP
+vem de `Start-YurunaTestHttpResponder`: respostas roteirizadas
+(`New-YurunaTestHttpReply`) em ordem ou por padrão da requisição, cada requisição
+lida por inteiro, opcionalmente mantida aberta para o prazo de um cliente, e
+devolvidas por `Stop-YurunaTestHttpResponder`. A mesma proteção faz falhar uma
+suíte que define um `user.email` à mão, mantém um executor git que roda o git
+por conta própria, grava um desses globais à mão fora de um runspace próprio,
+restaura à mão uma entrada do ambiente do processo em uma finalização, junta a
+pasta temporária com um nome GUID ou aleatório, ou abre um listener ou aceita
+uma conexão por conta própria; uma suíte cujo listener é o objeto dos seus
+testes fica listada com o motivo.
 
 O código-fonte dos drivers de host é lido da mesma forma. `Get-YurunaTestFileAst`
 e `Get-YurunaTestSourceText` leem `host/<driver>/modules/Yuruna.Host.psm1` como o
@@ -763,6 +777,18 @@ driver inteiro, com cada arquivo de parte inserido onde a raiz o carrega, e
 arquivos de um driver, extrai uma função de qualquer arquivo que a defina e lê
 qualquer caminho da mesma forma. Uma suíte nunca abre só o arquivo raiz, então o
 código pode mudar entre a raiz e suas partes sem quebrar as suítes que o leem.
+
+A inicialização de um serviço de extensão é lida da mesma forma.
+`Start-StashServiceVM.ps1`, `Start-PoolControlServiceVM.ps1` e
+`Start-DownloadAgentServiceVM.ps1` executam o script compartilhado
+`test/service/Start-ExtensionService.ps1`, que executa no lugar a parte de
+prontidão do serviço, `Start-ExtensionService.<key>.ps1`;
+[`Test.ServiceStartSource.psm1`](../../test/modules/Test.ServiceStartSource.psm1)
+lê o que uma inicialização executa como um único texto ou árvore de sintaxe, o
+script compartilhado com a parte daquele serviço onde o script a carrega, de modo
+que uma suíte que ordena as chamadas de uma inicialização ou procura nela um
+banner continua funcionando quando o código muda entre o script compartilhado e
+uma parte.
 
 `Assert-Equal` compara **por valor**; `Assert-StringEqual` compara representações
 em string. São exportações separadas porque de fato diferem -- em zeros
@@ -1632,6 +1658,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Voltar para [Yuruna](../../README.md)

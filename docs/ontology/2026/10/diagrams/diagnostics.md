@@ -20,9 +20,9 @@ circled class.
 graph LR
 classDef Datatype fill:#9c6,stroke:#9c6;
 diagnostics:AlertNotification((diagnostics:AlertNotification)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-diagnostics:AlertRule((diagnostics:AlertRule)) -- subClassOf --> software:Policy[software:Policy]
+diagnostics:AlertRule((diagnostics:AlertRule)) -- subClassOf --> y:Policy[y:Policy]
 diagnostics:ClearStaleGitLock((diagnostics:ClearStaleGitLock)) -- subClassOf --> diagnostics:RecoveryAction((diagnostics:RecoveryAction))
-diagnostics:ContactPoint((diagnostics:ContactPoint)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+diagnostics:ContactPoint((diagnostics:ContactPoint)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 diagnostics:CounterMetric((diagnostics:CounterMetric)) -- subClassOf --> diagnostics:Metric((diagnostics:Metric))
 diagnostics:CrossHostIncident((diagnostics:CrossHostIncident)) -- subClassOf --> diagnostics:RepeatedFailureIncident((diagnostics:RepeatedFailureIncident))
 diagnostics:DashboardPanel((diagnostics:DashboardPanel)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
@@ -31,7 +31,6 @@ diagnostics:DiagnosticCheck -- diagnostics:checksElement --> y:SystemElement
 diagnostics:DiagnosticCheck -- diagnostics:observes --> diagnostics:DiagnosticEvidence
 diagnostics:DiagnosticCheck((diagnostics:DiagnosticCheck)) -- subClassOf --> y:Process[y:Process]
 diagnostics:DiagnosticEvidence((diagnostics:DiagnosticEvidence)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-diagnostics:DiagnosticLadder((diagnostics:DiagnosticLadder)) -- subClassOf --> software:Policy[software:Policy]
 diagnostics:DominantFailureClass((diagnostics:DominantFailureClass)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 diagnostics:EndFailurePauseEarly((diagnostics:EndFailurePauseEarly)) -- subClassOf --> diagnostics:RecoveryAction((diagnostics:RecoveryAction))
 diagnostics:EscalateRecommendation((diagnostics:EscalateRecommendation)) -- subClassOf --> diagnostics:RecoveryRecommendation((diagnostics:RecoveryRecommendation))
@@ -57,11 +56,11 @@ diagnostics:Incident -- diagnostics:hasEvidence --> diagnostics:DiagnosticEviden
 diagnostics:Incident -- diagnostics:hasFingerprint --> diagnostics:IncidentFingerprint
 diagnostics:Incident -- diagnostics:recursAfter --> diagnostics:Incident
 diagnostics:Incident((diagnostics:Incident)) -- subClassOf --> y:Situation[y:Situation]
-diagnostics:IncidentDetectionPolicy((diagnostics:IncidentDetectionPolicy)) -- subClassOf --> software:Policy[software:Policy]
+diagnostics:IncidentDetectionPolicy((diagnostics:IncidentDetectionPolicy)) -- subClassOf --> y:Policy[y:Policy]
 diagnostics:IncidentFingerprint((diagnostics:IncidentFingerprint)) -- subClassOf --> y:Identifier[y:Identifier]
 diagnostics:InfrastructureFailure((diagnostics:InfrastructureFailure)) -- subClassOf --> diagnostics:Failure((diagnostics:Failure))
 diagnostics:InstrumentationFailure((diagnostics:InstrumentationFailure)) -- subClassOf --> diagnostics:Failure((diagnostics:Failure))
-diagnostics:LogLevel((diagnostics:LogLevel)) -- subClassOf --> software:Policy[software:Policy]
+diagnostics:LogLevel((diagnostics:LogLevel)) -- subClassOf --> y:Policy[y:Policy]
 diagnostics:LogRotation((diagnostics:LogRotation)) -- subClassOf --> y:Process[y:Process]
 diagnostics:LogStream((diagnostics:LogStream)) -- subClassOf --> diagnostics:DiagnosticEvidence((diagnostics:DiagnosticEvidence))
 diagnostics:Loki((diagnostics:Loki)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
@@ -71,7 +70,7 @@ diagnostics:MetricLabel((diagnostics:MetricLabel)) -- subClassOf --> y:Identifie
 diagnostics:MetricScrape((diagnostics:MetricScrape)) -- subClassOf --> y:Process[y:Process]
 diagnostics:NDJSON((diagnostics:NDJSON)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 diagnostics:NoDataState((diagnostics:NoDataState)) -- subClassOf --> y:State[y:State]
-diagnostics:NotificationPolicy((diagnostics:NotificationPolicy)) -- subClassOf --> software:Policy[software:Policy]
+diagnostics:NotificationPolicy((diagnostics:NotificationPolicy)) -- subClassOf --> y:Policy[y:Policy]
 diagnostics:OpenIncidentState((diagnostics:OpenIncidentState)) -- subClassOf --> y:State[y:State]
 diagnostics:OperatorInterventionRecommendation((diagnostics:OperatorInterventionRecommendation)) -- subClassOf --> diagnostics:RecoveryRecommendation((diagnostics:RecoveryRecommendation))
 diagnostics:PauseAndInspectRecommendation((diagnostics:PauseAndInspectRecommendation)) -- subClassOf --> diagnostics:RecoveryRecommendation((diagnostics:RecoveryRecommendation))
@@ -140,6 +139,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

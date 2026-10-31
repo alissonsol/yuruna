@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42c8b0e7-91d4-4a36-b5f8-2e7c19d3a640
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -244,9 +244,9 @@ Describe 'virsh is asked for its output in a language the code can read' {
         $null = New-Item -ItemType Directory -Path $bin
         [IO.File]::WriteAllText((Join-Path $bin 'virsh'), "#!/bin/sh`necho `"LC_MESSAGES=`$LC_MESSAGES LC_ALL=`$LC_ALL`"`n")
         & chmod +x (Join-Path $bin 'virsh')
-        $priorPath = $env:PATH; $priorAll = $env:LC_ALL
+        $prior = Save-YurunaTestEnvironment -Name 'PATH', 'LC_ALL'
         try {
-            $env:PATH = "$bin$([IO.Path]::PathSeparator)$priorPath"
+            $env:PATH = "$bin$([IO.Path]::PathSeparator)$($prior.PATH)"
             $env:LC_ALL = 'de_DE.UTF-8'
             $lines = & {
                 Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -DisableNameChecking
@@ -257,7 +257,7 @@ Describe 'virsh is asked for its output in a language the code can read' {
             Assert-True ((@($lines) -join ' ') -match '^LC_MESSAGES=C LC_ALL=\s*$') `
                 "Invoke-Virsh must run virsh with LC_MESSAGES=C and LC_ALL cleared (LC_ALL outranks LC_MESSAGES); virsh saw: $($lines -join ' ')"
             Assert-Equal -Expected 'de_DE.UTF-8' -Actual $env:LC_ALL -Because 'the pin reaches the child only, never everything the process runs afterward'
-        } finally { $env:PATH = $priorPath; $env:LC_ALL = $priorAll }
+        } finally { Restore-YurunaTestEnvironment -Saved $prior }
     }
 
     It 'never branches on unpinned virsh output' {

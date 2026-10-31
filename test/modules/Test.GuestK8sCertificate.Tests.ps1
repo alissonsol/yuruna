@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42df5581-572e-4f0e-9e2c-5cfd797e9fbf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,7 @@
 BeforeAll {
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $script:guestScripts = @{
     ubuntu    = Join-Path $repoRoot 'guest/shared/ubuntu.k8s.sh'
@@ -438,8 +439,7 @@ Describe 'The Ubuntu certificate region, run under bash' {
     BeforeAll {
         $script:bashRan = $false
         if ($script:bashSkip) { return }
-        $script:work = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-k8s-cert-' + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $script:work -Force
+        $script:work = New-YurunaTestTempDir -Prefix 'yuruna-k8s-cert'
         $realHome = Join-Path $script:work 'home'
         $null = New-Item -ItemType Directory -Path $realHome -Force
         $https = Join-Path $realHome '.aspnet/https'
@@ -489,7 +489,7 @@ chown() { printf '%s\n' "$*" >> "$CHOWN_LOG"; }
         $script:bashRan = $true
     }
     AfterAll {
-        if ($script:work -and (Test-Path -LiteralPath $script:work)) { Remove-Item -LiteralPath $script:work -Recurse -Force -ErrorAction SilentlyContinue }
+        Remove-YurunaTestTempDir $script:work
     }
 
     It 'runs to completion' {
@@ -562,8 +562,7 @@ if ($IsWindows) {
             $script:windowsRuns = @{}
             $script:windowsSkip = if (-not $script:openssl) { 'openssl was not found to stand in for mkcert' }
             if ($script:windowsSkip) { return }
-            $script:windowsWork = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-k8s-cert-win-' + [guid]::NewGuid().ToString('N'))
-            $null = New-Item -ItemType Directory -Path $script:windowsWork -Force
+            $script:windowsWork = New-YurunaTestTempDir -Prefix 'yuruna-k8s-cert-win'
 
             # mkcert is replaced by a function that makes the same two PEM files with openssl.
             $stub = @(
@@ -586,7 +585,7 @@ if ($IsWindows) {
             }
         }
         AfterAll {
-            if ($script:windowsWork -and (Test-Path -LiteralPath $script:windowsWork)) { Remove-Item -LiteralPath $script:windowsWork -Recurse -Force -ErrorAction SilentlyContinue }
+            Remove-YurunaTestTempDir $script:windowsWork
         }
 
         It 'creates a PFX that opens only with the sidecar password, under <Shell>' -ForEach @(@{ Shell = 'powershell.exe' }, @{ Shell = 'pwsh' }) {

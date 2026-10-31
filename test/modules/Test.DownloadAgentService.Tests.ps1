@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 421157f0-4a70-494a-a09e-b13c89c002b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -540,8 +540,7 @@ Describe 'Test.DownloadAgentService readiness' {
     }
 
     It 'reports a listener as reachable and a closed port as not, without blocking' {
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
         # Read the bound port while the listener is still up: LocalEndpoint is
         # only meaningful on a started listener.
         $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port

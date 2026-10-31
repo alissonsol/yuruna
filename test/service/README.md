@@ -42,6 +42,21 @@ reports that operation and returns without starting or stopping anything.
 return; an actual host-side proof retains its build and process-launch
 confirmation gates.
 
+## One start pipeline for the extension services
+
+`Start-StashServiceVM.ps1`, `Start-PoolControlServiceVM.ps1` and
+`Start-DownloadAgentServiceVM.ps1` confirm the operation, name their service
+and run [`Start-ExtensionService.ps1`](Start-ExtensionService.ps1), as the
+three `Stop-*ServiceVM.ps1` scripts run `Stop-ExtensionService.ps1`. The shared
+script runs every phase up to the VM build. The phases from the guest address
+on differ per service and live in `Start-ExtensionService.<key>.ps1` (`stash`,
+`pool-control`, `download-agent`), which the shared script runs in its own
+scope inside the start operation's `try` block, so an `exit` there ends the
+start through the `finally` that closes the operation. A part refuses to run
+on its own. `Start-PoolControlServiceVM.ps1 -HostSideProof` keeps its
+host-side launch in its own script, and the caching proxy keeps its own start.
+See the shared [lifecycle rationale](https://yuruna.link/42e220c4-0008).
+
 ## The readiness budget across the three VM bring-ups
 
 The stash, download-agent and pool-control VM bring-ups wait through
@@ -88,6 +103,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna](../../README.md)

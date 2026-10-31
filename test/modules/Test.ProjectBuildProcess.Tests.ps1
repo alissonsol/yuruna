@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42a42fc4-3899-4caf-9b13-53b48db992a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,6 +90,7 @@ Describe 'Certificate Secret failures protect submitted values' -Skip:(-not $scr
 
 Describe 'Windows developer Docker launcher status and working directory' -Skip:(-not $script:ProjectAvailable -or -not $IsWindows) {
     BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
         $projectRoot = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'yuruna-project'
         $script:DeveloperLauncher = Join-Path $projectRoot 'example/website/components/frontend/website/docker-run-dev.cmd'
     }
@@ -103,8 +104,7 @@ Describe 'Windows developer Docker launcher status and working directory' -Skip:
         $log = Join-Path $TestDrive 'docker.calls'
         $passwordVariable = 'ASPNETCORE_Kestrel__Certificates__Default__Password'
         $names = @('PATH', 'DOCKER_TEST_LOG', 'DOCKER_TEST_BUILD_EXIT', 'DOCKER_TEST_RUN_EXIT', $passwordVariable)
-        $ambient = @{}
-        foreach ($name in $names) { $ambient[$name] = [Environment]::GetEnvironmentVariable($name) }
+        $ambient = Save-YurunaTestEnvironment -Name $names
         [IO.File]::WriteAllText($stub, (@(
             '@echo off',
             'echo %1^|%CD%>>"%DOCKER_TEST_LOG%"',
@@ -132,9 +132,7 @@ Describe 'Windows developer Docker launcher status and working directory' -Skip:
             [Environment]::GetEnvironmentVariable($passwordVariable) | Should -Be 'launcher-fixture-password'
         } finally {
             Set-Location -LiteralPath $location.Path
-            foreach ($name in $names) {
-                [Environment]::SetEnvironmentVariable($name, $(if ($null -eq $ambient[$name]) { [NullString]::Value } else { $ambient[$name] }))
-            }
+            Restore-YurunaTestEnvironment -Saved $ambient
         }
     }
 }

@@ -173,7 +173,7 @@ func pollState(t *testing.T, h *refreshHost, now time.Time) (*poolState, *http.C
 		t.Fatal(err)
 	}
 	s := newPoolState("default", port)
-	s.hosts[refreshHostID] = &hostView{HostId: refreshHostID, CurrentIP: u.Hostname(), LastSeenUnixMs: now.UnixMilli()}
+	s.view().Hosts[refreshHostID] = &hostView{HostId: refreshHostID, CurrentIP: u.Hostname(), LastSeenUnixMs: now.UnixMilli()}
 	return s, h.srv.Client()
 }
 
@@ -189,21 +189,21 @@ func TestPollOnceMergesTheRefreshCapability(t *testing.T) {
 	s, client := pollState(t, h, now)
 
 	s.pollOnce(client, "no-such-squid.log", "", now)
-	got := s.hosts[refreshHostID].refreshView(now, s.refreshTTL)
+	got := s.view().Hosts[refreshHostID].RefreshView(now, s.refreshTTL)
 	if got.Availability != sdkpool.RefreshAvailable || got.Ceiling != sdkpool.RungStartIfStopped || !got.RemoteUsable() || got.ObservedUnixMs != now.UnixMilli() {
 		t.Fatalf("after an available answer: %+v", got)
 	}
 
 	h.set(func(w http.ResponseWriter) { w.WriteHeader(http.StatusInternalServerError) })
 	s.pollOnce(client, "no-such-squid.log", "", now)
-	got = s.hosts[refreshHostID].refreshView(now, s.refreshTTL)
+	got = s.view().Hosts[refreshHostID].RefreshView(now, s.refreshTTL)
 	if got.Availability != sdkpool.RefreshUnavailable || got.Reason != sdkpool.RefreshReasonControlStatusUnreadable || got.Ceiling != sdkpool.RungStartIfStopped || got.RemoteUsable() {
 		t.Fatalf("after a failed control-status read: %+v", got)
 	}
 
 	h.set(func(w http.ResponseWriter) { fmt.Fprint(w, `{"ok":true,"pad":"`+strings.Repeat("z", 5000)+`"}`) })
 	s.pollOnce(client, "no-such-squid.log", "", now)
-	if got = s.hosts[refreshHostID].refreshView(now, s.refreshTTL); got.Reason != sdkpool.RefreshReasonControlStatusUnreadable {
+	if got = s.view().Hosts[refreshHostID].RefreshView(now, s.refreshTTL); got.Reason != sdkpool.RefreshReasonControlStatusUnreadable {
 		t.Fatalf("after an oversize answer: %+v", got)
 	}
 
@@ -211,7 +211,7 @@ func TestPollOnceMergesTheRefreshCapability(t *testing.T) {
 	s.pollOnce(client, "no-such-squid.log", "", now)
 	h.set(func(w http.ResponseWriter) { w.WriteHeader(http.StatusNotFound) })
 	s.pollOnce(client, "no-such-squid.log", "", now)
-	got = s.hosts[refreshHostID].refreshView(now, s.refreshTTL)
+	got = s.view().Hosts[refreshHostID].RefreshView(now, s.refreshTTL)
 	if got.Availability != sdkpool.RefreshUnavailable || got.Reason != sdkpool.RefreshReasonNotAdvertised {
 		t.Fatalf("after a route-less answer: %+v", got)
 	}
@@ -220,7 +220,7 @@ func TestPollOnceMergesTheRefreshCapability(t *testing.T) {
 		fmt.Fprint(w, `{"ok":true,"tokenConfigured":false,"tokenTag":"","utcNow":""}`)
 	})
 	s.pollOnce(client, "no-such-squid.log", "", now)
-	if got = s.hosts[refreshHostID].refreshView(now, s.refreshTTL); got.Reason != sdkpool.RefreshReasonNotAdvertised {
+	if got = s.view().Hosts[refreshHostID].RefreshView(now, s.refreshTTL); got.Reason != sdkpool.RefreshReasonNotAdvertised {
 		t.Fatalf("after an answer without the field: %+v", got)
 	}
 
@@ -228,8 +228,8 @@ func TestPollOnceMergesTheRefreshCapability(t *testing.T) {
 	s.pollOnce(client, "no-such-squid.log", "", now)
 	h.srv.Close()
 	s.pollOnce(client, "no-such-squid.log", "", now)
-	hv := s.hosts[refreshHostID]
-	got = hv.refreshView(now, s.refreshTTL)
+	hv := s.view().Hosts[refreshHostID]
+	got = hv.RefreshView(now, s.refreshTTL)
 	if hv.Reachable || got.Availability != sdkpool.RefreshUnavailable || got.Reason != sdkpool.RefreshReasonHostUnreachable || got.Ceiling != sdkpool.RungStartIfStopped {
 		t.Fatalf("after the host went dark: reachable=%v %+v", hv.Reachable, got)
 	}
@@ -241,13 +241,13 @@ func TestPollOnceRecoversAnAvailableCapability(t *testing.T) {
 	h.set(func(w http.ResponseWriter) { w.WriteHeader(http.StatusInternalServerError) })
 	s, client := pollState(t, h, now)
 	s.pollOnce(client, "no-such-squid.log", "", now)
-	if got := s.hosts[refreshHostID].refreshView(now, s.refreshTTL); got.Availability != sdkpool.RefreshUnavailable {
+	if got := s.view().Hosts[refreshHostID].RefreshView(now, s.refreshTTL); got.Availability != sdkpool.RefreshUnavailable {
 		t.Fatalf("a host never read must not be available: %+v", got)
 	}
 	h.set(availableAnswer)
 	later := now.Add(time.Minute)
 	s.pollOnce(client, "no-such-squid.log", "", later)
-	if got := s.hosts[refreshHostID].refreshView(later, s.refreshTTL); !got.RemoteUsable() || got.Reason != "" {
+	if got := s.view().Hosts[refreshHostID].RefreshView(later, s.refreshTTL); !got.RemoteUsable() || got.Reason != "" {
 		t.Fatalf("a recovered host must read available again: %+v", got)
 	}
 }
@@ -260,21 +260,21 @@ func TestRefreshViewExpiresAnAvailableReading(t *testing.T) {
 	ttl := 2 * time.Minute
 	hv := &hostView{Refresh: sdkpool.HostRefresh{Protocol: 1, Availability: sdkpool.RefreshAvailable, Ceiling: sdkpool.RungReclaim,
 		Remote: sdkpool.RefreshRemoteProvisioned, State: sdkpool.RefreshStateIdle, ObservedUnixMs: observed.UnixMilli()}}
-	if v := hv.refreshView(observed.Add(ttl), ttl); v.Availability != sdkpool.RefreshAvailable || v.AgeSeconds != 120 {
+	if v := hv.RefreshView(observed.Add(ttl), ttl); v.Availability != sdkpool.RefreshAvailable || v.AgeSeconds != 120 {
 		t.Fatalf("at the TTL: %+v", v)
 	}
-	v := hv.refreshView(observed.Add(ttl+time.Second), ttl)
+	v := hv.RefreshView(observed.Add(ttl+time.Second), ttl)
 	if v.Availability != sdkpool.RefreshUnavailable || v.Reason != sdkpool.RefreshReasonObservationExpired || v.RemoteUsable() || v.AgeSeconds != 121 {
 		t.Fatalf("past the TTL: %+v", v)
 	}
 	if hv.Refresh.Availability != sdkpool.RefreshAvailable {
-		t.Fatal("refreshView must not mutate the stored reading")
+		t.Fatal("RefreshView must not mutate the stored reading")
 	}
-	if v := (&hostView{}).refreshView(observed, ttl); v != sdkpool.UnobservedRefresh() {
+	if v := (&hostView{}).RefreshView(observed, ttl); v != sdkpool.UnobservedRefresh() {
 		t.Fatalf("zero value = %+v, want the unobserved value", v)
 	}
 	// A clock behind the observation is age 0, not a negative age.
-	if v := hv.refreshView(observed.Add(-time.Hour), ttl); v.AgeSeconds != 0 || v.Availability != sdkpool.RefreshAvailable {
+	if v := hv.RefreshView(observed.Add(-time.Hour), ttl); v.AgeSeconds != 0 || v.Availability != sdkpool.RefreshAvailable {
 		t.Fatalf("clock behind the observation: %+v", v)
 	}
 }
@@ -305,10 +305,10 @@ func TestPoolStatusCarriesRefreshBesideTheControlString(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.authToken = token
 	now := time.Now()
-	s.hosts[refreshHostID] = &hostView{HostId: refreshHostID, BaseURL: "http://192.0.2.10:8080", Reachable: true, Control: controlReady,
+	s.view().Hosts[refreshHostID] = &hostView{HostId: refreshHostID, BaseURL: "http://192.0.2.10:8080", Reachable: true, Control: controlReady,
 		LastSeenUnixMs: now.UnixMilli(), Refresh: sdkpool.HostRefresh{Protocol: 1, Availability: sdkpool.RefreshAvailable,
 			Ceiling: sdkpool.RungStartIfStopped, Remote: sdkpool.RefreshRemoteProvisioned, State: sdkpool.RefreshStateIdle, ObservedUnixMs: now.UnixMilli()}}
-	s.hosts["42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] = &hostView{HostId: "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", BaseURL: "http://192.0.2.11:8080"}
+	s.view().Hosts["42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] = &hostView{HostId: "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", BaseURL: "http://192.0.2.11:8080"}
 	rec := httptest.NewRecorder()
 	s.handlePoolStatus(rec, httptest.NewRequest(http.MethodGet, routePoolStatus, nil))
 	body := rec.Body.String()
@@ -352,11 +352,11 @@ func TestRefreshGaugeCardinalityIsBounded(t *testing.T) {
 	now := time.Now()
 	for i := 0; i < 50; i++ {
 		id := fmt.Sprintf("42%030x", i)
-		s.hosts[id] = &hostView{HostId: id, BaseURL: "http://192.0.2.1:8080", LastSeenUnixMs: now.UnixMilli(),
+		s.view().Hosts[id] = &hostView{HostId: id, BaseURL: "http://192.0.2.1:8080", LastSeenUnixMs: now.UnixMilli(),
 			Refresh: sdkpool.HostRefresh{Protocol: 1, Availability: []string{sdkpool.RefreshAvailable, "garbage-" + strconv.Itoa(i)}[i%2],
 				Ceiling: sdkpool.RungProbe, State: fmt.Sprintf("state-%d\"}", i), ObservedUnixMs: now.UnixMilli()}}
 	}
-	s.hosts["42ffffffffffffffffffffffffffffff"] = &hostView{HostId: "42ffffffffffffffffffffffffffffff", LastSeenUnixMs: now.UnixMilli(),
+	s.view().Hosts["42ffffffffffffffffffffffffffffff"] = &hostView{HostId: "42ffffffffffffffffffffffffffffff", LastSeenUnixMs: now.UnixMilli(),
 		Refresh: sdkpool.HostRefresh{Protocol: 1, Availability: sdkpool.RefreshAvailable, Ceiling: sdkpool.RungProbe,
 			State: sdkpool.RefreshStateRecoveryPending, ObservedUnixMs: now.UnixMilli()}}
 	rec := httptest.NewRecorder()
@@ -407,7 +407,7 @@ func TestRefreshGaugeCardinalityIsBounded(t *testing.T) {
 func TestTheAggregatorMintsNoRefreshAuthority(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.authToken = proofToken
-	s.hosts[refreshHostID] = &hostView{HostId: refreshHostID, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10",
+	s.view().Hosts[refreshHostID] = &hostView{HostId: refreshHostID, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10",
 		Reachable: true, LastSeenUnixMs: time.Now().UnixMilli(), ExtensionTargets: map[string]string{"stash-service": "http://192.0.2.12"}}
 	seedExtensionHealth(s, refreshHostID, stashArea, "http://192.0.2.12")
 	fragment := regexp.MustCompile(`#yctl=[0-9]+\.(?:[A-Za-z0-9_-]+\.)?[A-Za-z0-9+/]+=*$`)

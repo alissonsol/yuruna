@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 421ce51f-cd50-4db0-a15a-54de5b80a7ab
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,16 +61,13 @@ BeforeAll {
         $ast
     }
 
-    $script:TempRoot = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-baseimage-" + [guid]::NewGuid())
-    New-Item -ItemType Directory -Path $script:TempRoot -Force | Out-Null
+    $script:TempRoot = New-YurunaTestTempDir -Prefix 'yuruna-baseimage'
     $script:GuestDir = Join-Path $script:TempRoot 'guest'
     New-Item -ItemType Directory -Path $script:GuestDir -Force | Out-Null
 }
 
 AfterAll {
-    if ($script:TempRoot -and (Test-Path -LiteralPath $script:TempRoot)) {
-        Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Remove-YurunaTestTempDir $script:TempRoot
 }
 
 Describe 'the base-image gate is the only fetch path' {

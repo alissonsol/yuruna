@@ -24,10 +24,9 @@ storage:Cache((storage:Cache)) -- subClassOf --> storage:StorageResource((storag
 storage:CompletionSentinel((storage:CompletionSentinel)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 storage:ContentAddressing((storage:ContentAddressing)) -- subClassOf --> y:Process[y:Process]
 storage:ContentDigest((storage:ContentDigest)) -- subClassOf --> y:Identifier[y:Identifier]
-storage:CopyMode((storage:CopyMode)) -- subClassOf --> software:Policy[software:Policy]
-storage:CurrentArtifactPointer((storage:CurrentArtifactPointer)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+storage:CopyMode((storage:CopyMode)) -- subClassOf --> y:Policy[y:Policy]
+storage:CurrentArtifactPointer((storage:CurrentArtifactPointer)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 storage:CycleArchive((storage:CycleArchive)) -- subClassOf --> storage:Archive((storage:Archive))
-storage:Deduplication((storage:Deduplication)) -- subClassOf --> y:Process[y:Process]
 storage:DownloadAgentService((storage:DownloadAgentService)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
 storage:DownloadPool((storage:DownloadPool)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
 storage:DownloadResume((storage:DownloadResume)) -- subClassOf --> y:Process[y:Process]
@@ -36,19 +35,16 @@ storage:EphemeralStorage((storage:EphemeralStorage)) -- subClassOf --> storage:S
 storage:FileSystem((storage:FileSystem)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
 storage:FreeSpace((storage:FreeSpace)) -- subClassOf --> y:Quantity[y:Quantity]
 storage:LocalStorage((storage:LocalStorage)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
-storage:Mount((storage:Mount)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+storage:Mount((storage:Mount)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 storage:MountPoint((storage:MountPoint)) -- subClassOf --> y:Identifier[y:Identifier]
-storage:MoveMode((storage:MoveMode)) -- subClassOf --> software:Policy[software:Policy]
+storage:MoveMode((storage:MoveMode)) -- subClassOf --> y:Policy[y:Policy]
 storage:NetworkAttachedStorage((storage:NetworkAttachedStorage)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
 storage:PersistentVolume((storage:PersistentVolume)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
-storage:PersistentVolumeClaim((storage:PersistentVolumeClaim)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+storage:PersistentVolumeClaim((storage:PersistentVolumeClaim)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 storage:PoolStorage((storage:PoolStorage)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
 storage:PoolStorageFullFailure((storage:PoolStorageFullFailure)) -- subClassOf --> diagnostics:InfrastructureFailure[diagnostics:InfrastructureFailure]
-storage:ReplicationBacklog((storage:ReplicationBacklog)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-storage:ReplicationLedger((storage:ReplicationLedger)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-storage:RetentionPolicy((storage:RetentionPolicy)) -- subClassOf --> software:Policy[software:Policy]
+storage:RetentionPolicy((storage:RetentionPolicy)) -- subClassOf --> y:Policy[y:Policy]
 storage:SingleFlightDownload((storage:SingleFlightDownload)) -- subClassOf --> y:Process[y:Process]
-storage:StagingArea((storage:StagingArea)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
 storage:StaleMount((storage:StaleMount)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
 storage:StashEntry((storage:StashEntry)) -- subClassOf --> r_StashEntry_storedIn_StashStorage_((Anonymous class))
 storage:StashEntry((storage:StashEntry)) -- subClassOf --> y:Artifact[y:Artifact]
@@ -84,6 +80,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 420a4a34-c1ef-485b-9c87-3ba17e1a4250
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,11 +62,12 @@ Describe 'Shared lazy host identity policy' {
 
     It 'honors random override without reading hardware' {
         $calls = & $script:SeedModule { $script:SeedCalls }
+        $seed = Save-YurunaTestEnvironment -Name 'YURUNA_HOST_ID_SEED'
         $env:YURUNA_HOST_ID_SEED = 'random'
         try {
             Resolve-SeededHostId | Should -BeNullOrEmpty
             (& $script:SeedModule { $script:SeedCalls }) | Should -Be $calls
-        } finally { $env:YURUNA_HOST_ID_SEED = $null }
+        } finally { Restore-YurunaTestEnvironment -Saved $seed }
     }
 
     It 'allows random fallback if hardware derivation throws' {

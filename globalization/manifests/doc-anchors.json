@@ -5006,8 +5006,8 @@
         },
         {
           "id": "42f52e37-0020",
-          "heading": "test/service/Start-StashServiceVM.ps1: Phase order across the service VM family",
-          "slug": "testservicestart-stashservicevmps1-phase-order-across-the-service-vm-family"
+          "heading": "test/service/Start-ExtensionService.ps1: Phase order across the service VM family",
+          "slug": "testservicestart-extensionserviceps1-phase-order-across-the-service-vm-family"
         }
       ]
     },
@@ -7085,6 +7085,16 @@
           "id": "42c29d04-000f",
           "heading": "Cross-host incidents",
           "slug": "cross-host-incidents"
+        },
+        {
+          "id": "42c29d04-0010",
+          "heading": "Extension address health",
+          "slug": "extension-address-health"
+        },
+        {
+          "id": "42c29d04-0011",
+          "heading": "The pool view and its lock",
+          "slug": "the-pool-view-and-its-lock"
         }
       ]
     },

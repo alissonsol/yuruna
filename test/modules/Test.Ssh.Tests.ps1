@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42539169-cf17-4eb5-b0d6-c972156d3841
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@ $modulePath = Join-Path $here 'Test.Ssh.psm1'
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.ServiceStartSource.psm1') -Force -DisableNameChecking
 
 }
 
@@ -376,12 +377,14 @@ Describe 'Per-guest SSH host key pins' {
     # it, so a different machine answering at the guest's address is refused
     # instead of receiving the command.
     BeforeAll {
-        $script:PinDir = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-pin-' + [guid]::NewGuid().ToString('N'))
+        # The pin folder itself does not exist yet: the module creates it.
+        $script:PinRoot = New-YurunaTestTempDir -Prefix 'yuruna-pin'
+        $script:PinDir = Join-Path $script:PinRoot 'pins'
         & (Get-Module Test.Ssh) { $script:SavedPinDir = $script:HostKeyPinDir; $script:HostKeyPinDir = $args[0] } $script:PinDir
     }
     AfterAll {
         & (Get-Module Test.Ssh) { $script:HostKeyPinDir = $script:SavedPinDir }
-        Remove-Item -LiteralPath $script:PinDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:PinRoot
     }
 
     It 'pins a named guest in its own file under an alias of the name' {
@@ -508,7 +511,8 @@ Describe 'Per-guest SSH host key pins' {
         $adoptFn = Get-YurunaTestFunctionAst -Path (Join-Path $root 'test/modules/Test.ServiceVm.psm1') -Name 'Resolve-YurunaServiceVmAdoption'
         $adoptFn.Extent.Text | Should -Not -Match 'Reset-GuestHostKeyPin'
         foreach ($start in @('Start-StashServiceVM.ps1', 'Start-PoolControlServiceVM.ps1', 'Start-DownloadAgentServiceVM.ps1')) {
-            $startText = Get-Content -LiteralPath (Join-Path $root "test/service/$start") -Raw
+            # What the start runs: the shared pipeline with its service's readiness part.
+            $startText = Get-YurunaServiceStartText -Path (Join-Path $root "test/service/$start")
             $startText | Should -Match 'Invoke-YurunaServiceVmBuild -BuilderPath' -Because "$start rebuilds only through the shared builder"
             $startText.IndexOf("'Test.Ssh.psm1'") | Should -BeLessThan $startText.IndexOf('Invoke-YurunaServiceVmBuild -BuilderPath') -Because "the builder's pin reset needs Test.Ssh loaded in $start"
             $startText.IndexOf("'Test.Ssh.psm1'") | Should -BeGreaterThan 0

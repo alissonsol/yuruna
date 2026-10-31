@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4277cde3-5e56-4d5e-beb5-7bed391f35c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,11 +47,13 @@ Import-Module (Join-Path $here 'Test.RecoveryContract.psm1') -Force -Global -Dis
 Import-Module (Join-Path $here 'Test.RecoveryLedger.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path $here 'Test.RunnerOuterLoop.psm1') -Force -DisableNameChecking
 
+$script:LoopConfigDir = New-YurunaTestTempDir -Prefix 'rol-config'
+
 function New-LoopConfig {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Test fixture: writes a throwaway config file under the OS temp directory.')]
+        Justification = 'Test fixture: writes a throwaway config file under the suite temp folder.')]
     param([bool]$Enabled, [int]$MaxAttempts = 1)
-    $path = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N') + '.yml')
+    $path = Join-Path $script:LoopConfigDir ([guid]::NewGuid().ToString('N') + '.yml')
     $text = "testCycle:`n  autoRemediation:`n    enabled: $($Enabled.ToString().ToLowerInvariant())`n    maxAttemptsPerCycle: $MaxAttempts`n"
     Set-Content -LiteralPath $path -Value $text -Encoding utf8
     return $path
@@ -81,8 +83,7 @@ Describe 'The failure pause shortcut is budgeted by the ledger' {
         $script:MessagePattern = "auto-remediation: transient 'wait_timeout'"
     }
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'rol'
         Set-Content -LiteralPath (Join-Path $script:Dir 'last_failure.json') -Value '{"failureClass":"wait_timeout"}' -Encoding utf8
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $script:SavedLog = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
@@ -111,7 +112,7 @@ Describe 'The failure pause shortcut is budgeted by the ledger' {
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Restore-YurunaTestEnvironment -Saved $script:SavedLog
         Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
 
     It 'ends the pause early once for a failure, then lets the second one take its pause' {
@@ -173,8 +174,7 @@ Describe 'The failure pause shortcut is budgeted by the ledger' {
 # with nothing on the status page to say so.
 Describe 'A run of attempts that produce no verdict' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'rol'
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
         $script:Config = New-LoopConfig -Enabled $false -MaxAttempts 1
@@ -198,7 +198,7 @@ Describe 'A run of attempts that produce no verdict' {
     AfterEach {
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
     It 'doubles the hold after each cycle process that would not start, and says so' {
         $null = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('spawn', 'spawn', 'spawn', 'stop')
@@ -225,8 +225,7 @@ Describe 'A run of attempts that produce no verdict' {
 # used to refill every repair budget as if a repair had worked.
 Describe 'A passing cycle that skipped a guest' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'rol'
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $script:SavedLog = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
@@ -251,7 +250,7 @@ Describe 'A passing cycle that skipped a guest' {
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Restore-YurunaTestEnvironment -Saved $script:SavedLog
         Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
     It 're-arms <Expected> budget refill(s) when the guests were <Statuses>' -TestCases @(
         @{ Statuses = @('skipped', 'skipped'); Expected = 0 }
@@ -270,8 +269,7 @@ Describe 'A passing cycle that skipped a guest' {
 # counted a host that tested nothing as a pass.
 Describe 'A cycle that failed nothing but skipped a planned guest' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'rol'
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $script:SavedLog = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
@@ -300,7 +298,7 @@ Describe 'A cycle that failed nothing but skipped a planned guest' {
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Restore-YurunaTestEnvironment -Saved $script:SavedLog
         Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
     It 'raises no fault and re-arms no repair budget, and says how many guests it skipped' {
         $out = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('degraded', 'stop')
@@ -317,8 +315,7 @@ Describe 'A cycle that failed nothing but skipped a planned guest' {
 # still waited out the whole failure pause, because nothing asked.
 Describe 'A host condition whose probe says it cleared' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'rol'
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $script:SavedLog = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
@@ -352,7 +349,7 @@ Describe 'A host condition whose probe says it cleared' {
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Restore-YurunaTestEnvironment -Saved $script:SavedLog
         Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
     It 'ends the pause through the ledger once the probe says the share has room' {
         $out = Invoke-FakeLoop -ConfigPath $script:Config -Cycle @('full', 'stop')
@@ -382,8 +379,7 @@ Describe 'A host condition whose probe says it cleared' {
 # times the same failure had already been retried.
 Describe 'The hold before an unattended retry ends a pause' {
     It 'doubles with each early end the ledger holds for the failure, to at most 15 minutes' {
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rol-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $dir = New-YurunaTestTempDir -Prefix 'rol'
         try {
             $result = New-RecoveryResult -EntryPoint runner -CycleGeneration (('c' * 32) + ':1') -Outcome failed -ExitCode 1 `
                 -FailureClass wait_timeout -SequenceName 'workload.x' -ActionVerb waitForText -Reason 'timed out'
@@ -398,7 +394,7 @@ Describe 'The hold before an unattended retry ends a pause' {
             $null = Complete-RecoveryFingerprint -RuntimeDir $dir -Generation (('c' * 32) + ':2')
             & $hold | Should -Be 300 -Because 'a pass re-arms the backoff with the budget'
             & (Get-Module Test.RunnerOuterLoop) { Get-OuterEarlyEndHoldSeconds -PollSeconds 300 -RuntimeDir '' -Fingerprint '' } | Should -Be 300
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
@@ -457,7 +453,7 @@ Describe 'A framework pull that fails on a stale git lock' {
         $script:Git = (Get-Command git -ErrorAction SilentlyContinue)
     }
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rolp-' + [guid]::NewGuid().ToString('N'))
+        $script:Dir = New-YurunaTestTempDir -Prefix 'rolp'
         $script:Repo = Join-Path $script:Dir 'framework'
         New-Item -ItemType Directory -Path $script:Repo -Force | Out-Null
         $script:Runtime = Join-Path $script:Dir 'runtime'
@@ -492,7 +488,7 @@ Describe 'A framework pull that fails on a stale git lock' {
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Restore-YurunaTestEnvironment -Saved $script:SavedLog
         Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
 
     It 'moves the lock aside and retries at once instead of holding' -Skip:(-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -578,3 +574,5 @@ Describe 'A framework pull that fails on a stale git lock' {
         (Read-RecoveryResult -RuntimeDir $script:Runtime).failureClass | Should -BeExactly $Class
     }
 }
+
+AfterAll { Remove-YurunaTestTempDir $script:LoopConfigDir }

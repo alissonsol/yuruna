@@ -37,6 +37,7 @@ network:Forwarder((network:Forwarder)) -- subClassOf --> y:SystemElement[y:Syste
 network:Gateway((network:Gateway)) -- subClassOf --> network:NetworkingResource((network:NetworkingResource))
 network:HTTPCache((network:HTTPCache)) -- subClassOf --> storage:Cache[storage:Cache]
 network:HTTPConnectTunnel((network:HTTPConnectTunnel)) -- subClassOf --> network:NetworkingResource((network:NetworkingResource))
+network:HostAddressBeacon((network:HostAddressBeacon)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
 network:HyperVDefaultSwitch((network:HyperVDefaultSwitch)) -- subClassOf --> network:VirtualSwitch((network:VirtualSwitch))
 network:HyperVExternalSwitch((network:HyperVExternalSwitch)) -- subClassOf --> network:VirtualSwitch((network:VirtualSwitch))
 network:HyperVManagementAdapter((network:HyperVManagementAdapter)) -- subClassOf --> network:NetworkAdapter((network:NetworkAdapter))
@@ -77,6 +78,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

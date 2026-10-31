@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 425d1ef1-c9ad-47cc-8b78-45a0c1156135
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,12 +53,6 @@ BeforeAll {
 
     $script:Pwsh = (Get-Process -Id $PID).Path
     if (-not $script:Pwsh) { $script:Pwsh = 'pwsh' }
-
-    function Initialize-TempRuntimeDir {
-        $dir = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-stall-" + [Guid]::NewGuid().ToString('n'))
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        return $dir
-    }
 }
 
 Describe 'Invoke-BoundedNativeCommand' {
@@ -280,24 +274,24 @@ Describe 'Invoke-BoundedNativeCommand' {
 
 Describe 'Get-RunnerStalledPreamblePhase' {
     It 'names the phase when runner.phase survived the inner' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             Set-Content -LiteralPath (Join-Path $dir 'runner.phase') -Value "config-gate`n" -NoNewline
             Get-RunnerStalledPreamblePhase -RuntimeDir $dir | Should -Be 'config-gate'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'reports no stall when the inner cleared the phase' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             Get-RunnerStalledPreamblePhase -RuntimeDir $dir | Should -Be ''
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
 Describe 'Update-RunnerCrashGating' {
     It 'advances the counters when the inner was killed before saving them' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             $gatingFile = Join-Path $dir 'runner.gating.json'
             # The shape a healthy run leaves behind, saved before this cycle began.
@@ -321,11 +315,11 @@ Describe 'Update-RunnerCrashGating' {
             $saved.consecutiveFailures  | Should -Be 1
             # A streak of successes cannot survive a cycle that never ran.
             $saved.consecutiveSuccesses | Should -Be 0
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'leaves the counters alone when the inner saved them during this cycle' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             $gatingFile = Join-Path $dir 'runner.gating.json'
             $spawnedAt  = [DateTime]::UtcNow.AddMinutes(-5)
@@ -345,23 +339,23 @@ Describe 'Update-RunnerCrashGating' {
             # in half the failures the operator asked for.
             $saved = Get-Content -Raw -LiteralPath $gatingFile | ConvertFrom-Json
             $saved.consecutiveFailures | Should -Be 4
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'starts the counters from zero when no gating file exists at all' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             $result = Update-RunnerCrashGating -RuntimeDir $dir -SpawnedAtUtc ([DateTime]::UtcNow.AddMinutes(-5)) `
                 -Config $null -Cycle 1 -ExitCode 137 -Confirm:$false
             $result.ConsecutiveCrashes | Should -Be 1
             (Test-Path -LiteralPath (Join-Path $dir 'runner.gating.json')) | Should -Be $true
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
 Describe 'Update-RunnerFaultStatus' {
     It 'reports a runner fault separately from the last completed cycle' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             $statusFile = Join-Path $dir 'status.json'
             Set-Content -LiteralPath $statusFile -Value (@{
@@ -382,7 +376,7 @@ Describe 'Update-RunnerFaultStatus' {
             $doc.runnerFault.failureClass | Should -Be 'preamble_stall'
             # The completed cycle keeps its own verdict and provenance.
             $doc.cycle              | Should -Be 1886
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'publishes existing host identity when a fault precedes the first cycle' -TestCases @(
@@ -390,7 +384,7 @@ Describe 'Update-RunnerFaultStatus' {
         @{ BootstrapTemplate = $true }
     ) {
         param($BootstrapTemplate)
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             $hostId = '42' + ('c' * 30)
             Set-Content -LiteralPath (Join-Path $dir 'host.uuid') -Value $hostId
@@ -407,11 +401,11 @@ Describe 'Update-RunnerFaultStatus' {
             @($doc.gitCommits).Count | Should -Be 0
             @($doc.history).Count | Should -Be 0
             (Get-Content -Raw -LiteralPath (Join-Path $dir 'host.uuid')).Trim() | Should -Be $hostId
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'leaves the verdict alone for a state that still produces one' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             $statusFile = Join-Path $dir 'status.json'
             Set-Content -LiteralPath $statusFile -Value (@{ schemaVersion = 1; overallStatus = 'pass' } | ConvertTo-Json)
@@ -419,11 +413,11 @@ Describe 'Update-RunnerFaultStatus' {
             $doc = Get-Content -Raw -LiteralPath $statusFile | ConvertFrom-Json
             $doc.overallStatus | Should -Be 'pass'
             $doc.runnerState   | Should -Be 'cycle-start'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'publishes a fault even before the first cycle creates a status document' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' -FailureClass 'config_gate_failed' -Confirm:$false | Should -Be $true
             $doc = Get-Content -Raw -LiteralPath (Join-Path $dir 'status.json') | ConvertFrom-Json -AsHashtable
@@ -432,13 +426,13 @@ Describe 'Update-RunnerFaultStatus' {
             $doc.Contains('cycle') | Should -BeFalse
             $doc.Contains('hostId') | Should -BeFalse
             @($doc.history).Count | Should -Be 0
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
 Describe 'Get-RunnerPreambleStallStreak' {
     It 'does not count an explicit configuration refusal as a preamble stall' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             $gate = @{
                 attemptGeneration = 'typed-gate:1'; passed = $false
@@ -451,11 +445,11 @@ Describe 'Get-RunnerPreambleStallStreak' {
             $fault.IsCrash | Should -BeFalse
             $fault.StalledPhase | Should -BeNullOrEmpty
             (Get-RunnerPreambleStallStreak -RuntimeDir $dir -StalledPhase $fault.StalledPhase -Confirm:$false).Streak | Should -Be 0
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'counts repeats in the same phase and widens the pause once they escalate' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             $first  = Get-RunnerPreambleStallStreak -RuntimeDir $dir -StalledPhase 'config-gate' -Confirm:$false
             $first.Streak     | Should -Be 1
@@ -471,21 +465,21 @@ Describe 'Get-RunnerPreambleStallStreak' {
             $third = Get-RunnerPreambleStallStreak -RuntimeDir $dir -StalledPhase 'config-gate' -Confirm:$false
             $third.Streak     | Should -Be 3
             $third.Multiplier | Should -BeGreaterThan 1
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'restarts the streak when the stall moves to a different phase' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             $null = Get-RunnerPreambleStallStreak -RuntimeDir $dir -StalledPhase 'host-detect' -Confirm:$false
             $null = Get-RunnerPreambleStallStreak -RuntimeDir $dir -StalledPhase 'host-detect' -Confirm:$false
             $moved = Get-RunnerPreambleStallStreak -RuntimeDir $dir -StalledPhase 'config-gate' -Confirm:$false
             $moved.Streak | Should -Be 1
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'clears the streak when a failure is not a preamble stall' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         try {
             $null = Get-RunnerPreambleStallStreak -RuntimeDir $dir -StalledPhase 'config-gate' -Confirm:$false
             $cleared = Get-RunnerPreambleStallStreak -RuntimeDir $dir -StalledPhase '' -Confirm:$false
@@ -494,15 +488,15 @@ Describe 'Get-RunnerPreambleStallStreak' {
             # A later stall must not inherit a widened pause from an unrelated failure.
             $again = Get-RunnerPreambleStallStreak -RuntimeDir $dir -StalledPhase 'config-gate' -Confirm:$false
             $again.Streak | Should -Be 1
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
 Describe 'crash gating timestamp interpretation' {
     It 'accounts only for saves before spawn across cultures and local time zones' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-stall'
         $beforeCulture = [Threading.Thread]::CurrentThread.CurrentCulture
-        $beforeTimezone = $env:TZ
+        $savedTimezone = Save-YurunaTestEnvironment -Name 'TZ'
         try {
             foreach ($zone in @('Pacific/Honolulu', 'Europe/Berlin')) {
                 $env:TZ = $zone
@@ -519,9 +513,9 @@ Describe 'crash gating timestamp interpretation' {
             }
         } finally {
             [Threading.Thread]::CurrentThread.CurrentCulture = $beforeCulture
-            if ($null -eq $beforeTimezone) { Remove-Item Env:TZ -ErrorAction SilentlyContinue } else { $env:TZ = $beforeTimezone }
+            Restore-YurunaTestEnvironment -Saved $savedTimezone
             [TimeZoneInfo]::ClearCachedData()
-            Remove-Item -LiteralPath $dir -Recurse -Force
+            Remove-YurunaTestTempDir $dir
         }
     }
 }

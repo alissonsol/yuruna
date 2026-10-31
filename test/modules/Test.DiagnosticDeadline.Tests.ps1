@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 425737dc-81c1-4d1d-8e15-006de1ba8931
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -599,7 +599,7 @@ Describe 'diagnostic collection is isolated behind an enforced process deadline'
 
 Describe 'password diagnostics use a bounded native client with a child-only credential' {
     It 'keeps the credential out of arguments and preserves the parent environment' {
-        $oldPasswordEnvironment = [Environment]::GetEnvironmentVariable('SSHPASS', 'Process')
+        $saved = Save-YurunaTestEnvironment -Name 'SSHPASS'
         $script:nativeInvocation = $null
         Mock Invoke-BoundedNativeCommand -ModuleName Test.Diagnostic {
             param($FilePath, $ArgumentList, $Environment, $TimeoutSeconds, $StreamEncoding)
@@ -632,9 +632,7 @@ Describe 'password diagnostics use a bounded native client with a child-only cre
             Assert-Equal 'ssh' $script:nativeInvocation.ArgumentList[1]
             Assert-Equal 'fixture@192.0.2.10' $script:nativeInvocation.ArgumentList[-2]
             Assert-Match 'http://192\.0\.2\.1:8080/yuruna-repo/' $script:nativeInvocation.ArgumentList[-1]
-        } finally {
-            [Environment]::SetEnvironmentVariable('SSHPASS', $oldPasswordEnvironment, 'Process')
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 
     It 'preserves partial stdout and stderr when password SSH times out' {

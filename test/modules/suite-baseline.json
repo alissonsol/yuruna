@@ -3,8 +3,8 @@
   "recordedUtc": "2026-10-21T13:44:45.0925658Z",
   "pesterVersion": "6.2.0",
   "totals": {
-    "suites": 458,
-    "tests": 11121,
+    "suites": 459,
+    "tests": 11145,
     "failed": 0,
     "skipped": 36
   },
@@ -501,6 +501,11 @@
       "total": 48,
       "skipped": 0,
       "seconds": 3.08
+    },
+    "test/modules/Test.ExtensionServiceStart.Tests.ps1": {
+      "total": 24,
+      "skipped": 0,
+      "seconds": 1.68
     },
     "test/modules/Test.ExtensionUiChrome.Tests.ps1": {
       "total": 39,
@@ -2531,7 +2536,7 @@
       }
     },
     {
-      "registeredUtc": "2026-10-28T12:53:33.8456810Z",
+      "registeredUtc": "2026-10-28T12:53:33.845681Z",
       "pesterVersion": "6.2.0",
       "suites": [
         "test/modules/Test.GuestKernelFault.Tests.ps1"
@@ -2550,6 +2555,17 @@
       "tests": 5,
       "sourceSha256": {
         "test/modules/Test.GuestSshHostKeys.Tests.ps1": "CD3C638D9427CC6AA73C0A6359B7EE96804E7717BD29EB3798E2644BB43D13BB"
+      }
+    },
+    {
+      "registeredUtc": "2026-10-30T21:04:10.6100014Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.ExtensionServiceStart.Tests.ps1"
+      ],
+      "tests": 24,
+      "sourceSha256": {
+        "test/modules/Test.ExtensionServiceStart.Tests.ps1": "0261874E97EE7A57D0E44C586575FD6BD181BE4DF63CF605BCF4E03F06703904"
       }
     }
   ]

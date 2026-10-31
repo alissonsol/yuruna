@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42bc0016-f193-426d-a72c-0c102ad1e5f2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,7 @@ BeforeDiscovery {
 }
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Import-Module (Join-Path $script:RepoRoot 'automation/Import.Yaml.psm1') -Force
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
@@ -553,16 +554,12 @@ exit "$YURUNA_HTTP_EXIT"
     ) {
         $config = ConvertFrom-File (Join-Path $script:ProjectRoot $Config)
         $registryKey = 'YURUNA_CONSISTENCY_REGISTRY.registryLocation'
-        $originalName = [Environment]::GetEnvironmentVariable('registryName')
-        $originalLocation = [Environment]::GetEnvironmentVariable($registryKey)
+        $saved = Save-YurunaTestEnvironment -Name 'registryName', $registryKey
         try {
             [Environment]::SetEnvironmentVariable('registryName', 'YURUNA_CONSISTENCY_REGISTRY')
             [Environment]::SetEnvironmentVariable($registryKey, $Registry)
             $ExecutionContext.InvokeCommand.ExpandString($config.globalVariables._registryLocation) | Should -BeExactly $Expected
-        } finally {
-            [Environment]::SetEnvironmentVariable('registryName', $(if ($null -eq $originalName) { [NullString]::Value } else { $originalName }))
-            [Environment]::SetEnvironmentVariable($registryKey, $(if ($null -eq $originalLocation) { [NullString]::Value } else { $originalLocation }))
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 
     It '<Config> removes only what it installs and bounds every namespace delete' -ForEach @(

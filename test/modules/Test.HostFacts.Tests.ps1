@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42dd28f9-7cee-4413-a3f4-cd86d58bb561
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -321,12 +321,12 @@ Describe 'Linux mount table' {
 
 Describe 'Linux device classification' -Skip:($IsWindows) {
     BeforeAll {
-        $script:SysRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-sysfs-" + [guid]::NewGuid().ToString('N'))
+        $script:SysRoot = New-YurunaTestTempDir -Prefix 'yuruna-sysfs'
         New-FakeSysRoot -Path $script:SysRoot
     }
 
     AfterAll {
-        Remove-Item -LiteralPath $script:SysRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:SysRoot
     }
 
     It 'follows a partition to the disk that holds it' {

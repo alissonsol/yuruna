@@ -5282,19 +5282,13 @@
     },
     {
       "wireCode": "host_refresh.failed",
-      "path": "test/service/Start-DownloadAgentServiceVM.ps1",
+      "path": "test/service/Start-ExtensionService.ps1",
       "matchCount": 1,
       "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.failed",
       "path": "test/service/Start-PoolControlServiceVM.ps1",
-      "matchCount": 2,
-      "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
-    },
-    {
-      "wireCode": "host_refresh.failed",
-      "path": "test/service/Start-StashServiceVM.ps1",
       "matchCount": 1,
       "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
     },
@@ -5324,7 +5318,7 @@
     },
     {
       "wireCode": "host_refresh.idle",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/poolstate/views.go",
       "matchCount": 3,
       "reason": "Runner overall status the aggregator reads from status.json; not the host-refresh state."
     },
@@ -5750,8 +5744,14 @@
     },
     {
       "wireCode": "host_refresh.refused",
+      "path": "test/extension/pool-aggregator-service/internal/poolstate/labcodes.go",
+      "matchCount": 1,
+      "reason": "Lab exchange outcome counter; not a host-refresh value."
+    },
+    {
+      "wireCode": "host_refresh.refused",
       "path": "test/extension/pool-aggregator-service/main.go",
-      "matchCount": 2,
+      "matchCount": 1,
       "reason": "Lab exchange outcome counter; not a host-refresh value."
     },
     {
@@ -5924,7 +5924,7 @@
     },
     {
       "wireCode": "host_refresh.running",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/poolstate/views.go",
       "matchCount": 3,
       "reason": "Runner overall status the aggregator reads from status.json; not a host-refresh request state."
     },
@@ -6002,19 +6002,19 @@
     },
     {
       "wireCode": "host_refresh.running",
-      "path": "test/service/Start-DownloadAgentServiceVM.ps1",
+      "path": "test/service/Start-ExtensionService.download-agent.ps1",
       "matchCount": 1,
       "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.running",
-      "path": "test/service/Start-PoolControlServiceVM.ps1",
+      "path": "test/service/Start-ExtensionService.pool-control.ps1",
       "matchCount": 1,
       "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.running",
-      "path": "test/service/Start-StashServiceVM.ps1",
+      "path": "test/service/Start-ExtensionService.stash.ps1",
       "matchCount": 1,
       "reason": "Service operation result and final state recorded by the service start or stop script, and virtual machine state in operator text; not a host-refresh value."
     },
@@ -6452,8 +6452,14 @@
     },
     {
       "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-aggregator-service/internal/poolstate/views.go",
+      "matchCount": 1,
+      "reason": "Control-state fallback when the control route cannot be compared; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
       "path": "test/extension/pool-aggregator-service/main.go",
-      "matchCount": 7,
+      "matchCount": 6,
       "reason": "Failure-class, pause-control and pinned-commit fallbacks; not the host-refresh state."
     },
     {
@@ -6830,6 +6836,6 @@
     "displayOnlyCount": 10,
     "catalogBoundaryCount": 11,
     "consumerCount": 414,
-    "literalExclusionCount": 332
+    "literalExclusionCount": 333
   }
 }

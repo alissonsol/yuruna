@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42536ec8-4d7e-4727-b52e-55f7f0ca8688
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,8 +103,7 @@ $script:Python = @('python3', 'python') | ForEach-Object {
     } | Select-Object -First 1
 
 
-$script:WorkRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-brand-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Force -Path $script:WorkRoot | Out-Null
+$script:WorkRoot = New-YurunaTestTempDir -Prefix 'yuruna-brand'
 $script:BranderPath = Join-Path $script:WorkRoot 'yuruna-brand-dashboards.py'
 [System.IO.File]::WriteAllText($script:BranderPath,
     (Get-SeedFileContent -SeedPath $script:SeedPath -GuestPath '/usr/local/bin/yuruna-brand-dashboards.py'))
@@ -178,7 +177,7 @@ function Invoke-Brander {
     param(
         [Parameter(Mandatory)][string]$DashboardDir,
         [string]$Name = 'Yurunadev',
-        [string]$Version = '2026.10.30',
+        [string]$Version = '2026.10.31',
         [switch]$NoEnvFile
     )
     $envFile = Join-Path $DashboardDir '..' | Join-Path -ChildPath 'brand.env'
@@ -186,13 +185,11 @@ function Invoke-Brander {
         [System.IO.File]::WriteAllText($envFile,
             "YURUNA_BRAND_NAME='$Name'`nYURUNA_BRAND_VERSION='$Version'`n")
     }
+    $saved = Save-YurunaTestEnvironment -Name 'YURUNA_DASHBOARD_DIR', 'YURUNA_BRAND_ENV'
     $env:YURUNA_DASHBOARD_DIR = $DashboardDir
     $env:YURUNA_BRAND_ENV     = $envFile
     try { & $script:Python.Source $script:BranderPath 2>&1 | Out-String }
-    finally {
-        Remove-Item Env:\YURUNA_DASHBOARD_DIR -ErrorAction SilentlyContinue
-        Remove-Item Env:\YURUNA_BRAND_ENV -ErrorAction SilentlyContinue
-    }
+    finally { Restore-YurunaTestEnvironment -Saved $saved }
 }
 
 # One dashboard directory per test, so nothing carries state between them.
@@ -259,9 +256,7 @@ function Get-BrandPanel {
 }
 
 AfterAll {
-    if ($script:WorkRoot -and (Test-Path -LiteralPath $script:WorkRoot)) {
-        Remove-Item -LiteralPath $script:WorkRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Remove-YurunaTestTempDir $script:WorkRoot
 }
 
 Describe 'the brand banner is one line across the top of the dashboards this VM serves' {
@@ -322,7 +317,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
         # A line that broke would need a taller banner to be legible, which is
         # the whole cost the layout was chosen to avoid.
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.10.30' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.10.31' | Out-Null
 
         foreach ($name in $script:RealDashboards.Keys) {
             $doc = Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json
@@ -331,7 +326,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
             # nothing, so it is not part of the line being measured.
             $rendered = ($content -replace '(?s)^.*?-->\s*', '')
             Assert-True ($rendered -notmatch '[\r\n]') -Because "$name's banner must be a single line: got [$rendered]"
-            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.10.30`') -Actual $rendered `
+            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.10.31`') -Actual $rendered `
                 -Because "$name's banner must hold the name and version apart with non-breaking spaces"
         }
     }
@@ -434,7 +429,7 @@ Describe 'the brand banner is safe to re-run' {
         # The version is a variable, not a literal repeated in the assertion.
         # Written twice, the two copies drift the first time the version moves,
         # and the assertion then checks for a string the test never asked for.
-        $version = '2026.10.30'
+        $version = '2026.10.31'
 
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
         Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version $version | Out-Null
@@ -794,7 +789,7 @@ Describe 'the seeded identity names the enlistment the VM was built from' {
 
     It 'answers a usable identity where nothing can be resolved' {
         # A seed cannot carry a null. An unbrandable host still has to render.
-        $identity = Get-YurunaBrandIdentity -RepoRoot (Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N')))
+        $identity = Get-YurunaBrandIdentity -RepoRoot (Join-Path $script:WorkRoot 'no-such-repo')
         Assert-Equal -Expected 'Yuruna' -Actual $identity.Name -Because 'the name falls back rather than emptying'
         Assert-Equal -Expected '' -Actual $identity.Version -Because 'an unreadable VERSION reports empty, not a guess'
     }

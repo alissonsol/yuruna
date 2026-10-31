@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b4865f-6a1d-415a-a630-1e2183bca862
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,8 +43,7 @@ function New-RuntimeFixture {
         Justification = 'Test fixture: creates a temp dir + repoints the runtime env var; no production state.')]
     [OutputType([hashtable])]
     param()
-    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-hostid-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+    $tmp = New-YurunaTestTempDir -Prefix 'yrn-hostid'
     $prev = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
     $env:YURUNA_RUNTIME_DIR = $tmp
     return @{ Tmp = $tmp; Prev = $prev }
@@ -55,7 +54,7 @@ function Remove-RuntimeFixture {
         Justification = 'Test teardown: restores the env var + removes the temp dir.')]
     param([Parameter(Mandatory)][hashtable]$Fixture)
     Restore-YurunaTestEnvironment -Saved $Fixture.Prev
-    Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-YurunaTestTempDir $Fixture.Tmp
 }
 
 }

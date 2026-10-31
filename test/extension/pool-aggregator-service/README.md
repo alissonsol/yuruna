@@ -417,9 +417,15 @@ unaffected (graceful degradation).
 - `internal/incident/` -- the incident rules: host incidents, pool-wide
   same-class incidents and the pool health gate. It keeps no state; the pool
   view owns the records and calls the rules under its one lock.
+- `internal/poolstate/` -- the pool view and the one lock that guards it: the
+  host records, the cycle counters, incidents, announces, the lab connection
+  codes, the address counts, the identity aliases and the canary ring's facts.
+  Code reaches the view only inside `State.Do`; the cycle counters, the address
+  scan and footprints, the lab codes, the identity aliases and the last poll
+  time are reached through methods.
 - `internal/httpserve/` -- the HTTP transport: the listener that serves plain
   HTTP and TLS on one port, and the shared request and response helpers. The
-  route handlers stay beside the pool state they read.
+  route handlers stay beside the pool view they read.
 - `go.mod` -- module + Go version. Zero external dependencies.
 - `pool-aggregator-service.service` -- systemd unit (`User=proxy`, hardened,
   `ReadOnlyPaths=/var/log/squid` to read the access log; `:9400`; `ExecStart`
@@ -755,6 +761,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna](../../../README.md)

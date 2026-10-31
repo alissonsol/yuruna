@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 422b8d9d-ee36-4c20-b920-5d584af0ebff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,8 +54,7 @@ function New-CycleStartFixture {
     [OutputType([hashtable])]
     param()
     $saved = Save-YurunaTestGlobal -Name '__YurunaCycleFolder', '__YurunaLogFile', '__YurunaCycleIdentity', '__YurunaCycleStartUtc'
-    $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-cyclestart-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $root -Force | Out-Null
+    $root = New-YurunaTestTempDir -Prefix 'yrn-cyclestart'
     return @{ Root = $root; Saved = $saved }
 }
 
@@ -64,7 +63,7 @@ function Restore-CycleStartFixture {
         Justification = 'Test teardown: restores saved globals and removes the temp dir.')]
     param([Parameter(Mandatory)][hashtable]$Fixture)
     Restore-YurunaTestGlobal -Saved $Fixture.Saved
-    if ($Fixture.Root) { Remove-Item -LiteralPath $Fixture.Root -Recurse -Force -ErrorAction SilentlyContinue }
+    Remove-YurunaTestTempDir $Fixture.Root
 }
 
 function Get-EmittedCycleStart {

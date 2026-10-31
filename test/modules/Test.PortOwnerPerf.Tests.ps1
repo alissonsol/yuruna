@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42e861b5-08b7-414a-a164-c414c541a30d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,14 +137,13 @@ Describe 'Get-PortHolderServiceInfo requires the Yuruna field combination' {
 
 Describe 'Get-PerfHostUuid creates the host id atomically' {
     BeforeEach {
-        $script:root = Join-Path ([System.IO.Path]::GetTempPath()) ('perfuuid-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Path $script:root -Force | Out-Null
+        $script:root = New-YurunaTestTempDir -Prefix 'perfuuid'
         $script:savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:root
     }
     AfterEach {
         Restore-YurunaTestEnvironment -Saved $script:savedRuntime
-        if (Test-Path -LiteralPath $script:root) { [System.IO.Directory]::Delete($script:root, $true) }
+        Remove-YurunaTestTempDir $script:root
     }
     It 'generates a 42-prefixed id, persists it, and is idempotent' {
         $first = Get-PerfHostUuid

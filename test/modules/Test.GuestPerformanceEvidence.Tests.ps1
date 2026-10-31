@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f463f6-e84a-4c17-b6df-5f7f46b59e05
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     # The wrapper writes its recorder folder and trace under the guest's /tmp
     # and names both in its log; a guest prunes them on its next run, so a test
     # that runs the wrapper here removes them itself, on every path.
@@ -76,9 +77,9 @@ Describe 'Diagnostic completeness and ordering' {
         $native=Join-Path $nativeDir 'ssh'
         [IO.File]::WriteAllText($native,"#!/bin/bash`nprintf 'snapshotUtc=fixture\\n/proc/stat partial\\n'`nprintf 'partial stderr\\n' >&2`nsleep 30`n")
         & chmod +x $native
-        $oldPath=$env:PATH
+        $oldPath = Save-YurunaTestEnvironment -Name 'PATH'
         try {
-            $env:PATH=$nativeDir+[IO.Path]::PathSeparator+$oldPath
+            $env:PATH=$nativeDir+[IO.Path]::PathSeparator+$oldPath.PATH
             foreach ($keep in @($true,$false)) {
                 $clock=[Diagnostics.Stopwatch]::StartNew()
                 $result=Test.Ssh\Invoke-GuestSsh -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -Command true `
@@ -94,7 +95,7 @@ Describe 'Diagnostic completeness and ordering' {
                     $result.output | Should -Not -BeNullOrEmpty
                 }
             }
-        } finally { $env:PATH=$oldPath }
+        } finally { Restore-YurunaTestEnvironment -Saved $oldPath }
     }
 
     It 'distinguishes complete, partial, timeout, and unavailable captures' {

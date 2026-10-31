@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d9232d-ca85-4467-9819-14ed428ab4b9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,7 @@ $ErrorActionPreference = 'Stop'
 $script:testRoot = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot 'Test.PoolAdmin.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.Lab.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Stubs for the authentication extension. The FUNCTIONS are global because that
 # is the only session state the module under test can reach: it looks a command
@@ -67,17 +68,6 @@ function global:Get-EffectiveUser {
 
 # Helpers sit at file scope, above the first Describe: a Describe body runs during
 # the discovery pass and everything it declares is discarded before the first It.
-function New-TempLabDir {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Test fixture: creates a throwaway temp directory the test removes again; there is no operator-facing action to confirm.')]
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-    $p = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-labtest-' + [Guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $p -Force
-    return $p
-}
-
 function Write-TestLabVault {
     param([string]$Dir, [string]$Name, [string]$PoolPath)
     $body = "schemaVersion: 1`nlab:`n  name: $Name`n  poolPath: '$PoolPath'`nusers: {}`n"
@@ -90,7 +80,8 @@ function Write-TestLabVault {
 
 Describe 'New-YurunaPoolConfigurationStore' {
     BeforeAll {
-    $script:work = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-lab-t-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+    $script:workRoot = New-YurunaTestTempDir -Prefix 'yuruna-lab-t'
+    $script:work = Join-Path $script:workRoot 'work'
     $script:store = Join-Path $work 'x.intent.git'
     $script:created = New-YurunaPoolConfigurationStore -Path $store -Confirm:$false
     }
@@ -124,14 +115,15 @@ Describe 'New-YurunaPoolConfigurationStore' {
     }
 
     AfterAll {
-        Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:workRoot
     }
 }
 
 Describe 'New-Lab writes a usable lab vault' {
     BeforeAll {
     $stamp = [Guid]::NewGuid().ToString('N').Substring(0, 8)
-    $script:work = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-lab-v-$stamp")
+    $script:workRoot = New-YurunaTestTempDir -Prefix 'yuruna-lab-v'
+    $script:work = Join-Path $script:workRoot 'root'
     $labName = "pester-lab-$stamp"
     $script:vault = Join-Path $script:testRoot "status/extension/authentication/lab.$labName.vault.yml"
     # Credential names unique to this run. The subject here is what New-Lab
@@ -206,7 +198,7 @@ Describe 'New-Lab writes a usable lab vault' {
 
     AfterAll {
         Remove-Item $vault -Force -ErrorAction SilentlyContinue
-        Remove-Item $work  -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:workRoot
     }
 }
 
@@ -263,7 +255,7 @@ Describe 'Resolve-YurunaLabVaultKey' {
 
 Describe 'Get-YurunaLabVaultPassword' {
     BeforeAll {
-    $script:dir = New-TempLabDir
+    $script:dir = New-YurunaTestTempDir -Prefix 'yuruna-labtest'
     $script:good = Join-Path $dir 'lab.good.vault.yml'
     [IO.File]::WriteAllText($good,
         "schemaVersion: 1`nlab:`n  name: good`nusers:`n  yuruna-pool:`n    password: p1`n  yuruna-stash:`n    password: s1`n",
@@ -285,52 +277,52 @@ Describe 'Get-YurunaLabVaultPassword' {
     }
 
     AfterAll {
-        Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $dir
     }
 }
 
 Describe 'Get-YurunaLabStorageRoot' {
     It 'adopts the root when every lab on the machine agrees' {
-        $d = New-TempLabDir
+        $d = New-YurunaTestTempDir -Prefix 'yuruna-labtest'
         try {
             $null = Write-TestLabVault -Dir $d -Name 'lab-a' -PoolPath '/srv/yuruna/yuruna.pool'
             $null = Write-TestLabVault -Dir $d -Name 'lab-b' -PoolPath '/srv/yuruna/yuruna.pool'
             Get-YurunaLabStorageRoot -VaultDir $d | Should -Be '/srv/yuruna'
-        } finally { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $d }
     }
     It 'refuses to guess when the labs disagree' {
-        $d = New-TempLabDir
+        $d = New-YurunaTestTempDir -Prefix 'yuruna-labtest'
         try {
             $null = Write-TestLabVault -Dir $d -Name 'lab-a' -PoolPath '/srv/yuruna/yuruna.pool'
             $null = Write-TestLabVault -Dir $d -Name 'lab-b' -PoolPath '/data/lab/yuruna.pool'
             Get-YurunaLabStorageRoot -VaultDir $d -WarningAction SilentlyContinue | Should -Be ''
-        } finally { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $d }
     }
     It 'returns nothing when the machine has no lab yet' {
-        $d = New-TempLabDir
+        $d = New-YurunaTestTempDir -Prefix 'yuruna-labtest'
         try { Get-YurunaLabStorageRoot -VaultDir $d | Should -Be '' }
-        finally { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue }
+        finally { Remove-YurunaTestTempDir $d }
     }
     It 'returns nothing when the vault directory does not exist' {
         Get-YurunaLabStorageRoot -VaultDir (Join-Path ([IO.Path]::GetTempPath()) 'yuruna-no-such-dir-42') | Should -Be ''
     }
     It 'still answers when one vault file is corrupt' {
         # One unreadable file must not block a machine whose other labs answer.
-        $d = New-TempLabDir
+        $d = New-YurunaTestTempDir -Prefix 'yuruna-labtest'
         try {
             $null = Write-TestLabVault -Dir $d -Name 'lab-a' -PoolPath '/srv/yuruna/yuruna.pool'
             [IO.File]::WriteAllText((Join-Path $d 'lab.bad.vault.yml'), "lab:`n  - [broken`n", [Text.UTF8Encoding]::new($false))
             Get-YurunaLabStorageRoot -VaultDir $d | Should -Be '/srv/yuruna'
-        } finally { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $d }
     }
     It 'ignores files that are not lab vaults' {
         # The host vault lives in the same folder and must never be mistaken for one.
-        $d = New-TempLabDir
+        $d = New-YurunaTestTempDir -Prefix 'yuruna-labtest'
         try {
             $null = Write-TestLabVault -Dir $d -Name 'lab-a' -PoolPath '/srv/yuruna/yuruna.pool'
             [IO.File]::WriteAllText((Join-Path $d 'vault.yml'), "users:`n  x:`n    password: p`n", [Text.UTF8Encoding]::new($false))
             Get-YurunaLabStorageRoot -VaultDir $d | Should -Be '/srv/yuruna'
-        } finally { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 }
 

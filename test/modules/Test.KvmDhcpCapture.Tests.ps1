@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 429cf70d-40bb-4de7-a305-1a10d263253b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,6 +63,7 @@ BeforeAll {
     $script:RepoRoot   = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
     $script:DriverPath = Join-Path $script:RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
     $script:RunnerPath = Join-Path $script:RepoRoot 'test/modules/Test.RunnerInnerLoop.psm1'
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.DriverSource.psm1') -DisableNameChecking
     $script:DriverText = Get-YurunaSourceText -Path $script:DriverPath
     $script:RunnerText = Get-Content -Raw -LiteralPath $script:RunnerPath
@@ -280,7 +281,8 @@ Describe 'kvm DHCP evidence: what the failure folder ends up holding' {
             return @('DHCPDISCOVER(virbr0) 42:38:f4:32:9f:22', 'DHCPOFFER(virbr0) 192.168.122.119 42:38:f4:32:9f:22')
         }
         Mock -ModuleName 'Yuruna.Host' Invoke-Virsh { return @(' Expiry Time   MAC address   Protocol   IP address') }
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-dhcp-test-{0}" -f ([guid]::NewGuid().ToString('N')))
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-dhcp-test'
+        $dir = Join-Path $root 'capture'
         try {
             & $script:Driver {
                 $script:YurunaDhcpCapture = @{
@@ -298,7 +300,7 @@ Describe 'kvm DHCP evidence: what the failure folder ends up holding' {
             $text | Should -Match 'no wire capture' -Because 'a capture that did not run must say so, or its absence reads as silence on the wire'
             $text | Should -Match '2026-08-20T' -Because 'the armed instant has to be human-readable in the artifact'
         } finally {
-            Remove-Item -Recurse -Force -LiteralPath $dir -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $root
         }
     }
 
@@ -307,12 +309,13 @@ Describe 'kvm DHCP evidence: what the failure folder ends up holding' {
         # whichever guest failed. A save that answered for any VM would attach
         # one guest's evidence to another guest's folder.
         & $script:Driver { $script:YurunaDhcpCapture = @{ VMName = 'test-other-01' } }
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-dhcp-test-{0}" -f ([guid]::NewGuid().ToString('N')))
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-dhcp-test'
+        $dir = Join-Path $root 'capture'
         try {
             (Save-VMDhcpCapture -VMName 'test-guest-01' -OutputDirectory $dir) | Should -BeFalse
             (Test-Path -LiteralPath $dir) | Should -BeFalse -Because 'a declined save must not even create the folder'
         } finally {
-            Remove-Item -Recurse -Force -LiteralPath $dir -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $root
         }
     }
 

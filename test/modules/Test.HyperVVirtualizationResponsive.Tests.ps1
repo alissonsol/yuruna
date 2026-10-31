@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d7e0b4-3a91-4c6f-8b25-1e9d6f4a7c80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -146,8 +146,7 @@ BeforeAll {
     $script:ProbeScript   = & $script:Module { $script:HyperVProbeScript }
     $script:ServiceScript = & $script:Module { $script:HyperVServiceScript }
     $script:StartScript   = & $script:Module { $script:HyperVStartScript }
-    $script:TempRoot = Join-Path ([IO.Path]::GetTempPath()) ('yrn-hyperv-' + [guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $script:TempRoot -Force
+    $script:TempRoot = New-YurunaTestTempDir -Prefix 'yrn-hyperv'
 
     function New-NativeResult {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -227,7 +226,7 @@ BeforeAll {
 }
 
 AfterAll {
-    Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-YurunaTestTempDir $script:TempRoot
     Get-Module -Name 'Yuruna.Host' -All | Remove-Module -Force -ErrorAction SilentlyContinue
     if ($script:HyperVStub) { Remove-Module -ModuleInfo $script:HyperVStub -Force -ErrorAction SilentlyContinue }
     if ($script:ServiceStub) { Remove-Item -Path 'Function:\Get-Service' -ErrorAction SilentlyContinue }

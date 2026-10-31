@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 421acc52-385e-488d-859e-c51ce10fdcdc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -371,8 +371,7 @@ function Stop-HarnessProcess {
 
 & {
     $script:Tree = New-HarnessTree
-    $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, 0)
-    $probe.Start(); $script:Port = $probe.LocalEndpoint.Port; $probe.Stop()
+    $script:Port = Get-YurunaTestFreePort -AnyAddress
     # The runtime's own inputs, passed the way the launcher passes them.
     $serverArguments = @(
         '-Port', "$($script:Port)", '-StatusDir', (Join-Path $script:RepoRoot 'test/status'), '-RuntimeDir', $script:Tree.Runtime

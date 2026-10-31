@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d1c86a-7fb3-4e59-90a2-63b4e0d7185f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -578,8 +578,7 @@ $shouldWrite = Set-ImmutableAssetValidator -Request $request -Response $response
         )
         $capture = [scriptblock]::Create((@($definitions) -join "`n") +
             "`nGet-StatusLocaleCatalogAsset -Locale qps-Ploc -Root `$args[0]")
-        $root = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-status-catalog-race-' + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $root
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-status-catalog-race'
         try {
             $path = Join-Path $root 'qps-Ploc.status.js'
             $original = [Text.Encoding]::UTF8.GetBytes('window.originalCatalog = true;')
@@ -597,7 +596,7 @@ $shouldWrite = Set-ImmutableAssetValidator -Request $request -Response $response
                     '[byte[]]$immutableLocaleCatalog.Bytes')) `
                 'the shipped route re-reads the replaceable stable source after validating its hash'
         } finally {
-            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $root
         }
     }
 
@@ -637,8 +636,7 @@ $shouldWrite = Set-ImmutableAssetValidator -Request $request -Response $response
         Assert-False ($block.Contains('{0:N1}')) `
             'the shipped listing still delegates numeric punctuation to the host culture'
         $builder = [scriptblock]::Create($block + "`n`$sb.ToString()")
-        $directory = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-status-listing-' + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $directory
+        $directory = New-YurunaTestTempDir -Prefix 'yuruna-status-listing'
         try {
             [IO.File]::WriteAllBytes((Join-Path $directory 'sample.bin'), [byte[]]::new(1536))
             $entries = @(Get-ChildItem -LiteralPath $directory)
@@ -691,15 +689,14 @@ $shouldWrite = Set-ImmutableAssetValidator -Request $request -Response $response
                         'Set-StatusErrorRepresentation -Request \$req -Response \$res')).Count -eq 2) `
                 'the generated 413 and 404 paths do not share the localized error response boundary'
         } finally {
-            Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $directory
         }
     }
 
     It 'HTML-encodes translator-owned file-size wording in the shipped listing builder' {
         $block = Get-DirectoryListingBlockFromServer
         $builder = [scriptblock]::Create($block + "`n`$sb.ToString()")
-        $directory = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-status-listing-hostile-' + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $directory
+        $directory = New-YurunaTestTempDir -Prefix 'yuruna-status-listing-hostile'
         try {
             [IO.File]::WriteAllBytes((Join-Path $directory 'sample.bin'), [byte[]]::new(1536))
             $functions = @{
@@ -727,15 +724,14 @@ $shouldWrite = Set-ImmutableAssetValidator -Request $request -Response $response
             Assert-True ($rendered.Contains('data-bytes="1536"')) `
                 'encoding localized display text changed the invariant machine byte value'
         } finally {
-            Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $directory
         }
     }
 
     It 'strips injected bidi controls and isolates displayed listing paths and names' {
         $block = Get-DirectoryListingBlockFromServer
         $builder = [scriptblock]::Create($block + "`n`$sb.ToString()")
-        $directory = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-status-listing-bidi-' + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $directory
+        $directory = New-YurunaTestTempDir -Prefix 'yuruna-status-listing-bidi'
         $pdi = [char]0x2069
         $override = [char]0x202e
         $rawName = 'sample' + $pdi + $override + '.bin'
@@ -761,7 +757,7 @@ $shouldWrite = Set-ImmutableAssetValidator -Request $request -Response $response
             Assert-True ($rendered.Contains('href="' + $escapedRawName + '"')) `
                 'the safe displayed name replaced the independently percent-encoded href target'
         } finally {
-            Remove-Item -LiteralPath $directory -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $directory
         }
     }
 
@@ -984,9 +980,7 @@ foreach ($name in $required) {
 '@
         )
 
-        $sandbox = Join-Path ([IO.Path]::GetTempPath()) (
-            'yuruna-status-import-replay-' + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $sandbox
+        $sandbox = New-YurunaTestTempDir -Prefix 'yuruna-status-import-replay'
         try {
             $replayPath = Join-Path $sandbox 'replay-server-imports.ps1'
             [IO.File]::WriteAllText($replayPath, (($replayLines -join "`n") + "`n"))
@@ -1017,7 +1011,7 @@ foreach ($name in $required) {
             Assert-NoFinding $findings ('a localizing route would throw on every request in a runspace ' +
                 'that ran the status service startup imports')
         } finally {
-            Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $sandbox
         }
     }
 

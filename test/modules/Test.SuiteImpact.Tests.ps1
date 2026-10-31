@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f9ba9c-c42d-40ac-831a-41f654880e31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,17 +97,12 @@ sys.exit(code)
         param([Parameter(Mandatory)][string]$Root, [string[]]$Argument = @(), [hashtable]$Environment = @{})
         $values = @{ YURUNA_STRACE = $script:FakeTracer }
         foreach ($name in $Environment.Keys) { $values[$name] = $Environment[$name] }
-        $saved = @{}
-        foreach ($name in $values.Keys) {
-            $saved[$name] = [Environment]::GetEnvironmentVariable($name)
-            [Environment]::SetEnvironmentVariable($name, $values[$name])
-        }
+        $saved = Save-YurunaTestEnvironment -Name @($values.Keys)
+        foreach ($name in $values.Keys) { [Environment]::SetEnvironmentVariable($name, $values[$name]) }
         try {
             $output = & $script:Pwsh -NoProfile -File (Join-Path $Root 'tools/Invoke-TestSuite.ps1') -Root $Root -ThrottleLimit 2 @Argument 2>&1 | Out-String
             $code = $LASTEXITCODE
-        } finally {
-            foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
         $report = Join-Path $Root '.test-results/suite-results.json'
         $result = if (Test-Path -LiteralPath $report) { Get-Content -LiteralPath $report -Raw | ConvertFrom-Json } else { $null }
         [pscustomobject]@{ ExitCode = $code; Result = $result; Output = ($output -replace "`e\[[0-9;]*m", '') }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 420935c1-4b35-484c-b68d-3295385f8efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,7 +53,7 @@ function New-ResourceOutputFixture {
         Justification = 'Test helper: creates a throwaway temp project the calling It block deletes in its finally.')]
     [CmdletBinding()] [OutputType([string])] param([string[]]$ResourceName)
 
-    $projectRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-clear-$([guid]::NewGuid().ToString('N'))"
+    $projectRoot = New-YurunaTestTempDir -Prefix 'yrn-clear'
     $null = New-Item -ItemType Directory -Force -Path (Join-Path $projectRoot 'config/localhost')
     $outFile = Join-Path $projectRoot 'config/localhost/resources.output.yml'
     $null = New-Item -Path $outFile -ItemType File -Force
@@ -117,7 +117,7 @@ Describe 'clear-resource-enumeration' {
                 "teardown found no resources in a file that declares two: $joined"
         }
         finally {
-            Remove-Item -LiteralPath $projectRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $projectRoot
         }
     }
 
@@ -129,7 +129,7 @@ Describe 'clear-resource-enumeration' {
                 "a resources.output.yml holding only globalVariables has nothing to destroy: $joined"
         }
         finally {
-            Remove-Item -LiteralPath $projectRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $projectRoot
         }
     }
 
@@ -141,7 +141,7 @@ Describe 'clear-resource-enumeration' {
                 "globalVariables is the shared variable map, not a resource work folder: $joined"
         }
         finally {
-            Remove-Item -LiteralPath $projectRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $projectRoot
         }
     }
 

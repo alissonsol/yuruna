@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42a2d2ac-e1a1-44dc-a05c-9ab1449c99c9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,14 +65,13 @@ Describe 'forget-host client (best-effort guards)' {
     It 'Invoke-PoolForgetHost reports not-ok with a reason when the aggregator/CA is unreachable' {
         # 192.0.2.1 is TEST-NET-1 (RFC 5737) -- guaranteed unroutable, so the CA fetch
         # fails fast and the call returns a best-effort not-ok summary instead of throwing.
-        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('pfh_' + [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+        $tmp = New-YurunaTestTempDir -Prefix 'pfh'
         try {
             $r = Invoke-PoolForgetHost -ProxyIp '192.0.2.1' -HostId '42cafe0000000000000000000000dead' -Token 't' -RuntimeDir $tmp -TimeoutSeconds 2
             Assert-True ($r -is [hashtable]) 'returns a summary hashtable'
             Assert-True (-not $r.ok) 'not ok against an unreachable aggregator'
             Assert-True ([bool]$r.reason) 'a reason is set'
-        } finally { Remove-Item -Recurse -Force -LiteralPath $tmp -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $tmp }
     }
 }
 

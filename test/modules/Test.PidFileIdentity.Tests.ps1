@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42da5cce-810b-4f7b-9c05-6d1901f4e6b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,10 +38,12 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.YurunaDir.psm1') -Force
 Import-Module (Join-Path $here 'Test.Recovery.psm1')  -Force
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+$script:PidTempDir = New-YurunaTestTempDir -Prefix 'yuruna-pidtest'
 
 function Write-TempPidFile {
     param([int]$PidValue, [datetime]$Mtime)
-    $p = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-pidtest-" + [guid]::NewGuid().ToString('N') + '.pid')
+    $p = Join-Path $script:PidTempDir ([guid]::NewGuid().ToString('N') + '.pid')
     Set-Content -LiteralPath $p -Value "$PidValue"
     if ($PSBoundParameters.ContainsKey('Mtime')) { (Get-Item -LiteralPath $p).LastWriteTime = $Mtime }
     return $p
@@ -122,3 +124,5 @@ Describe 'Clear-StalePidFile -MtimeIdentity (service pidfile, no .start companio
         } finally { Remove-Item -LiteralPath $pf -Force -ErrorAction SilentlyContinue }
     }
 }
+
+AfterAll { Remove-YurunaTestTempDir $script:PidTempDir }

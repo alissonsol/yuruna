@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42875271-1829-42b3-b731-1d7a16616cfd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,12 +64,6 @@ BeforeAll {
         param([string]$Path)
         if (-not (Test-Path -LiteralPath $Path)) { return '<absent>' }
         return (@(Get-ChildItem -LiteralPath $Path -Force -Recurse | ForEach-Object { $_.FullName.Substring($Path.Length) } | Sort-Object) -join '|')
-    }
-
-    function Get-FreeLoopbackPort {
-        $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $probe.Start()
-        try { return ([System.Net.IPEndPoint]$probe.LocalEndpoint).Port } finally { $probe.Stop() }
     }
 
     function Wait-ForFile {
@@ -767,9 +761,8 @@ Describe 'identity capture' {
     }
 
     It 'verifies a host-side pool-control process by name, start time and a loopback connect' {
-        $port = Get-FreeLoopbackPort
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
+        $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
         try {
             [void](Write-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $script:Env.RuntimeDir -Active $true -HostingMode 'host-process' `
                     -BaseUrl "http://127.0.0.1:$port/" -Extra ([ordered]@{ pid = 4242; port = $port; processStartUnixMs = 1790000000000 }))
@@ -786,9 +779,8 @@ Describe 'identity capture' {
     }
 
     It 'validates a legacy marker that only carries a pid through the process lookup' {
-        $port = Get-FreeLoopbackPort
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
+        $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
         try {
             [void](Write-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $script:Env.RuntimeDir -Active $true -Extra ([ordered]@{ pid = 77; port = $port }))
             $lookup = { param($ProcessId) $null = $ProcessId; [pscustomobject]@{ Name = 'pool-control-se'; Path = ''; StartUnixMs = [long]1 } }
@@ -870,9 +862,8 @@ Describe 'the passive census tick' {
     }
 
     It 'makes no control-channel call on an ARP miss, and never counts an uncorroborated answer' {
-        $port = Get-FreeLoopbackPort
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
+        $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
         try {
             [void](Write-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $script:Env.RuntimeDir -Active $true -BaseUrl "http://127.0.0.1:$port")
             $tick = Invoke-YurunaServiceCensusTick -StateRoot $script:Env.StateRoot -RuntimeDir $script:Env.RuntimeDir -Roster (& $script:StashRoster 80) -HardCodedName @('yuruna-stash-service') -Confirm:$false
@@ -890,9 +881,8 @@ Describe 'the passive census tick' {
     }
 
     It 'counts an answer whose address carries the bundle MAC in a post-probe ARP read' {
-        $port = Get-FreeLoopbackPort
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
+        $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
         $script:Passive.Address['yuruna-stash-service'] = [pscustomobject]@{ VMName = 'yuruna-stash-service'; Address = '127.0.0.1'; Origin = 'arp'
             BundlePath = '/b'; BundleMac = 'AA:BB:CC:DD:EE:01'; NetworkMode = 'Shared'; MacCorroborated = $true; Reason = 'ok'; ElapsedMs = 1 }
         $script:Passive.ArpMap = @{ '127.0.0.1' = 'AA:BB:CC:DD:EE:01' }
@@ -913,9 +903,8 @@ Describe 'the passive census tick' {
     }
 
     It 'never lets a lease-only match prove identity' {
-        $port = Get-FreeLoopbackPort
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
+        $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
         $script:Passive.Address['yuruna-stash-service'] = [pscustomobject]@{ VMName = 'yuruna-stash-service'; Address = $null; Origin = 'none'
             BundlePath = '/b'; BundleMac = 'AA:BB:CC:DD:EE:01'; NetworkMode = 'Shared'; MacCorroborated = $false; Reason = 'lease-only'; ElapsedMs = 1 }
         $script:Passive.ArpMap = @{ '127.0.0.1' = 'AA:BB:CC:DD:EE:99' }
@@ -928,9 +917,8 @@ Describe 'the passive census tick' {
     }
 
     It 're-resolves at most once per ten minutes and keeps a prior positive through a MAC mismatch' {
-        $port = Get-FreeLoopbackPort
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
+        $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
         $script:Passive.Address['yuruna-stash-service'] = [pscustomobject]@{ VMName = 'yuruna-stash-service'; Address = '127.0.0.1'; Origin = 'arp'
             BundlePath = '/b'; BundleMac = 'AA:BB:CC:DD:EE:01'; NetworkMode = 'Shared'; MacCorroborated = $true; Reason = 'ok'; ElapsedMs = 1 }
         $script:Passive.ArpMap = @{ '127.0.0.1' = 'AA:BB:CC:DD:EE:01' }

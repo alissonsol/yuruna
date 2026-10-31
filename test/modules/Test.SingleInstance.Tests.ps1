@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42645f00-faa2-428e-bbc3-6249194cf5b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,20 +118,22 @@ function Get-TestProcessStartIso {
     return (Get-Process -Id $ProcessId).StartTime.ToUniversalTime().AddSeconds($SkewSeconds).ToString('o')
 }
 
-$TempRoot = [System.IO.Path]::GetTempPath()
+# One folder for the suite; each block creates its own child below it.
+$TempRoot = New-YurunaTestTempDir -Prefix 'yuruna-si'
+$script:SingleInstanceTempRoot = $TempRoot
 
-$StateDir = Join-Path $TempRoot ('yuruna-si-state-' + [guid]::NewGuid().ToString('N'))
+$StateDir = Join-Path $TempRoot 'state'
 $script:StatePidFile = Join-Path $StateDir 'runner.pid'
 $script:StateStartFile = Join-Path $StateDir 'runner.start'
 
-$WriteDir = Join-Path $TempRoot ('yuruna-si-write-' + [guid]::NewGuid().ToString('N'))
+$WriteDir = Join-Path $TempRoot 'write'
 $script:WritePidFile = Join-Path $WriteDir 'runner.pid'
 $script:WriteStartFile = Join-Path $WriteDir 'runner.start'
 
-$StopDir = Join-Path $TempRoot ('yuruna-si-stop-' + [guid]::NewGuid().ToString('N'))
+$StopDir = Join-Path $TempRoot 'stop'
 $script:StopCleanupScript = Join-Path $StopDir 'Remove-TestVMFiles.ps1'
 $script:StopCleanupMarker = Join-Path $StopDir 'cleanup-ran.txt'
-$script:StopEmptyDir = Join-Path $TempRoot ('yuruna-si-empty-' + [guid]::NewGuid().ToString('N'))
+$script:StopEmptyDir = Join-Path $TempRoot 'empty'
 
 }
 
@@ -723,3 +725,5 @@ Describe 'Start record and cycle record' {
         Remove-Item -LiteralPath (Join-Path $script:CycleDir 'runner.cycle.json') -Force
     }
 }
+
+AfterAll { Remove-YurunaTestTempDir $script:SingleInstanceTempRoot }

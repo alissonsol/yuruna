@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42c57683-d950-42e5-b4d6-4ab0ea4adc92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,11 +105,12 @@ Describe 'The failure tail ends with the record the runner reads' {
 Describe 'Invoke-YurunaEntrypoint' {
     BeforeAll {
         Import-Module $script:resultMod -Force -DisableNameChecking
-        $script:entryTranscript = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-entry-{0}.txt" -f [guid]::NewGuid().ToString('N'))
+        $script:entryDir = New-YurunaTestTempDir -Prefix 'yuruna-entry'
+        $script:entryTranscript = Join-Path $script:entryDir 'transcript.txt'
     }
     AfterAll {
         Remove-Module Yuruna.Result -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:entryTranscript -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:entryDir
     }
     It 'passes an operation''s own result through' {
         $result = Invoke-YurunaEntrypoint -TranscriptFile $script:entryTranscript -Operation { New-YurunaResultManifest -Success $true }

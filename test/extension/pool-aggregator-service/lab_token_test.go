@@ -32,7 +32,9 @@ func newLabState(codes ...string) *poolState {
 	s := newPoolState("default", 8080)
 	s.authToken = "sekret-internal-auth-key"
 	s.labRotate = time.Minute
-	s.labCodes = codes
+	for i := len(codes) - 1; i >= 0; i-- {
+		s.view().RotateLabCode(codes[i], len(codes), time.Time{})
+	}
 	return s
 }
 
@@ -88,13 +90,14 @@ func TestRotateLabTokenRetainsGraceWindow(t *testing.T) {
 	var minted []string
 	for i := 0; i < labKeepCodes+2; i++ {
 		s.rotateLabToken(now)
-		minted = append(minted, s.labCodes[0])
+		minted = append(minted, s.view().LabCodes()[0])
 	}
-	if len(s.labCodes) != labKeepCodes {
-		t.Fatalf("retained %d codes, want %d", len(s.labCodes), labKeepCodes)
+	codes := s.view().LabCodes()
+	if len(codes) != labKeepCodes {
+		t.Fatalf("retained %d codes, want %d", len(codes), labKeepCodes)
 	}
-	if s.labCodes[0] != minted[len(minted)-1] {
-		t.Errorf("labCodes[0] = %q, want the most recently minted %q", s.labCodes[0], minted[len(minted)-1])
+	if codes[0] != minted[len(minted)-1] {
+		t.Errorf("LabCodes()[0] = %q, want the most recently minted %q", codes[0], minted[len(minted)-1])
 	}
 }
 
@@ -285,9 +288,14 @@ func TestLabTokenExchangeThrottlesPerIP(t *testing.T) {
 func TestRotateLabTokenPrunesExpiredFails(t *testing.T) {
 	s := newLabState("abc123")
 	old := time.Now().UTC().Add(-labFailWindow - time.Minute)
-	s.labFails["10.0.0.7"] = []time.Time{old, old}
+	for range 2 {
+		s.view().RedeemLabCode("10.0.0.7", "zzz999", old, old.Add(-labFailWindow), labFailLimit, maxLabFailKeys)
+	}
+	if len(s.view().LabFailures("10.0.0.7")) != 2 {
+		t.Fatal("the two failed attempts were not recorded")
+	}
 	s.rotateLabToken(time.Now().UTC())
-	if _, ok := s.labFails["10.0.0.7"]; ok {
+	if s.view().LabFailures("10.0.0.7") != nil {
 		t.Error("expired throttle records survived rotation")
 	}
 }
@@ -316,8 +324,8 @@ func TestLabFailsMapIsBounded(t *testing.T) {
 	for i := 0; i < maxLabFailKeys+200; i++ {
 		postLabToken(s, fmt.Sprintf("10.%d.%d.%d:5555", i/65536, (i/256)%256, i%256), `{"labToken":"zzz999"}`)
 	}
-	if len(s.labFails) > maxLabFailKeys {
-		t.Errorf("throttle map holds %d keys, want <= %d", len(s.labFails), maxLabFailKeys)
+	if n := s.view().LabFailureBuckets(); n > maxLabFailKeys {
+		t.Errorf("throttle map holds %d keys, want <= %d", n, maxLabFailKeys)
 	}
 	// Overflow must fail SAFE: a correct code still redeems.
 	if rec := postLabToken(s, "10.99.99.99:5555", `{"labToken":"abc123"}`); rec.Code != 200 {

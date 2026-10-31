@@ -2,7 +2,7 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
   GUID: 423b04da-3c01-4ade-bcdb-003a0a239f01
-  Version: 2026.10.30
+  Version: 2026.10.31
   Exercise the performance page's actual rendering functions with a minimal DOM.
   Optional argument: aggregate JSON produced by the generated status handler.
 */

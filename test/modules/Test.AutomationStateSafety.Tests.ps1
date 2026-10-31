@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42741ee4-f795-4b5e-ab28-a68625394829
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,8 +57,7 @@ Describe 'resource state survives failed provisioning and teardown' {
     BeforeEach {
         $script:originalLocation = (Get-Location).Path
         $script:originalExit = $global:LASTEXITCODE
-        $script:originalEnvironment = @{}
-        foreach ($item in Get-ChildItem Env:) { $script:originalEnvironment[$item.Name] = $item.Value }
+        $script:originalEnvironment = Save-YurunaTestEnvironment -All
         $env:stateSafetySource = 'local-value'
         & (Get-Module Yuruna.Resource) { $script:globalVariables = [ordered]@{} }
         Mock Confirm-ResourceList -ModuleName Yuruna.Resource { $true }
@@ -78,10 +77,7 @@ Describe 'resource state survives failed provisioning and teardown' {
     AfterEach {
         Set-Location -LiteralPath $script:originalLocation
         $global:LASTEXITCODE = $script:originalExit
-        foreach ($item in Get-ChildItem Env:) {
-            if (-not $script:originalEnvironment.ContainsKey($item.Name)) { Remove-Item -LiteralPath "Env:$($item.Name)" }
-        }
-        foreach ($name in $script:originalEnvironment.Keys) { Set-Item -LiteralPath "Env:$name" -Value $script:originalEnvironment[$name] }
+        Restore-YurunaTestEnvironment -Saved $script:originalEnvironment -RemoveOthers
     }
 
     # Every second run was refused once a folder had been initialized, and the

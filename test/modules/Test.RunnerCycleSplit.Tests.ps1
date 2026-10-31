@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 424757c6-0173-447c-a3d1-c814f73109f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -252,8 +252,7 @@ Describe 'The inner spawn inherits the console rather than a pipe' {
             param([switch]$Capture, [int]$TimeoutSeconds = 6, [int]$GrandchildSeconds = 25)
 
             $pwshExe = [Environment]::ProcessPath
-            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna leak ' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $dir = New-YurunaTestTempDir -Prefix 'yuruna leak'
             $parent = $null
             try {
                 Set-Content -LiteralPath (Join-Path $dir 'grandchild.ps1') -Encoding utf8 -Value @'
@@ -301,7 +300,7 @@ if ($Capture) { $result = Invoke-Cycle; $null = $result } else { Invoke-Cycle }
                 if ($parent -and -not $parent.HasExited) {
                     Stop-Process -Id $parent.Id -Force -ErrorAction SilentlyContinue
                 }
-                Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-YurunaTestTempDir $dir -Attempts 10
             }
         }
     }
@@ -386,8 +385,7 @@ Describe 'Cycle dispatch' {
         # not recognized as the name of a script file" and exits 64 -- which the outer
         # reads as a failed cycle, so a host whose path has a space never runs one.
         # Self-contained fixtures do not depend on Describe discovery scope.
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna cycle ' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna cycle'
         $spacedScript = Join-Path $dir 'Invoke-TestCycleRunner.ps1'
         Set-Content -LiteralPath $spacedScript -Value '# spawn fixture' -Encoding utf8
         $priorRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
@@ -414,7 +412,7 @@ Describe 'Cycle dispatch' {
             }
         } finally {
             Restore-YurunaTestEnvironment -Saved $priorRuntimeDir
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $dir
         }
     }
 }

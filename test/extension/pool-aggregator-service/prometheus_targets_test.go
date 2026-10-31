@@ -34,15 +34,15 @@ func promTargetsFor(t *testing.T, s *poolState) []promTargetGroup {
 // long as it stays listed.
 func TestPrometheusTargetsListsOnlyScrapableHosts(t *testing.T) {
 	s := newPoolState("default", defaultStatusPort)
-	s.hosts["42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] = &hostView{
+	s.view().Hosts["42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] = &hostView{
 		HostId: "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CurrentIP: "10.0.0.5", Reachable: true,
 		Status: &hostStatus{Host: "host.windows.hyper-v"},
 	}
-	s.hosts["42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] = &hostView{
+	s.view().Hosts["42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] = &hostView{
 		HostId: "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", CurrentIP: "10.0.0.6", Reachable: true,
 		Status: &hostStatus{Host: "host.unsupported.vm"},
 	}
-	s.hosts["42cccccccccccccccccccccccccccccc"] = &hostView{
+	s.view().Hosts["42cccccccccccccccccccccccccccccc"] = &hostView{
 		HostId: "42cccccccccccccccccccccccccccccc", CurrentIP: "10.0.0.7", Reachable: false,
 		Status: &hostStatus{Host: "host.windows.hyper-v"},
 	}
@@ -83,7 +83,7 @@ func TestPrometheusTargetsUnixUsesConfirmedStatusEndpoint(t *testing.T) {
 				HostId: "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CurrentIP: "10.0.0.6", Reachable: true,
 				BaseURL: "http://10.0.0.6:28080", Status: &hostStatus{Host: hostType},
 			}
-			s.hosts[hv.HostId] = hv
+			s.view().Hosts[hv.HostId] = hv
 			got := promTargetsFor(t, s)
 			if len(got) != 1 || len(got[0].Targets) != 1 || got[0].Targets[0] != "10.0.0.6:28080" {
 				t.Fatalf("target groups %+v, want the confirmed Unix status endpoint", got)
@@ -115,7 +115,7 @@ func TestPrometheusTargetsFollowsTheAddressAndThePort(t *testing.T) {
 		HostId: "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CurrentIP: "10.0.0.5", Reachable: true,
 		Status: &hostStatus{Host: "host.windows.hyper-v"},
 	}
-	s.hosts[hv.HostId] = hv
+	s.view().Hosts[hv.HostId] = hv
 	if got := promTargetsFor(t, s); got[0].Targets[0] != "10.0.0.5:19182" {
 		t.Fatalf("target %q, want the configured exporter port", got[0].Targets[0])
 	}

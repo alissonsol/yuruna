@@ -37,18 +37,18 @@ software:AutomationFailure((software:AutomationFailure)) -- subClassOf --> diagn
 software:AutomationResultManifest((software:AutomationResultManifest)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 software:AutomationSuccessStatus((software:AutomationSuccessStatus)) -- subClassOf --> y:State[y:State]
 software:AutomationToolFailed((software:AutomationToolFailed)) -- subClassOf --> software:AutomationFailure((software:AutomationFailure))
+software:AutomationToolTimeout((software:AutomationToolTimeout)) -- subClassOf --> software:AutomationFailure((software:AutomationFailure))
 software:AutomationUnknownFailure((software:AutomationUnknownFailure)) -- subClassOf --> software:AutomationFailure((software:AutomationFailure))
 software:Bootstrap((software:Bootstrap)) -- subClassOf --> y:Process[y:Process]
 software:BootstrapSyncFailure((software:BootstrapSyncFailure)) -- subClassOf --> diagnostics:InfrastructureFailure[diagnostics:InfrastructureFailure]
 software:CapabilityMatrix((software:CapabilityMatrix)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-software:CloudConfiguration((software:CloudConfiguration)) -- subClassOf --> software:ConfigurationArtifact((software:ConfigurationArtifact))
+software:CloudConfiguration((software:CloudConfiguration)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 software:CloudProvider((software:CloudProvider)) -- subClassOf --> y:SystemElement[y:SystemElement]
 software:ComponentPublication((software:ComponentPublication)) -- subClassOf --> software:DeploymentOperation((software:DeploymentOperation))
-software:ConfigurationArtifact((software:ConfigurationArtifact)) -- subClassOf --> security:AssessmentView[security:AssessmentView]
-software:ConfigurationArtifact((software:ConfigurationArtifact)) -- subClassOf --> y:Artifact[y:Artifact]
 software:ConfigurationService((software:ConfigurationService)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
 software:Container((software:Container)) -- subClassOf --> y:SystemElement[y:SystemElement]
 software:ContainerImage((software:ContainerImage)) -- subClassOf --> software:SoftwareArtifact((software:SoftwareArtifact))
+software:DeployPhaseLedger((software:DeployPhaseLedger)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 software:DeployableComponent((software:DeployableComponent)) -- subClassOf --> software:SoftwareArtifact((software:SoftwareArtifact))
 software:DeploymentOperation((software:DeploymentOperation)) -- subClassOf --> y:Process[y:Process]
 software:DeploymentPipeline((software:DeploymentPipeline)) -- subClassOf --> r_DeploymentPipeline_hasPart_ComponentPublication_((Anonymous class))
@@ -60,29 +60,25 @@ software:DeploymentTarget((software:DeploymentTarget)) -- subClassOf --> y:Syste
 software:HealthProbe((software:HealthProbe)) -- subClassOf --> y:Process[y:Process]
 software:HelmChart((software:HelmChart)) -- subClassOf --> software:SoftwareArtifact((software:SoftwareArtifact))
 software:HelmRelease((software:HelmRelease)) -- subClassOf --> y:SystemElement[y:SystemElement]
-software:HelmValues((software:HelmValues)) -- subClassOf --> software:ConfigurationArtifact((software:ConfigurationArtifact))
+software:HelmValues((software:HelmValues)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 software:IdempotentOperation((software:IdempotentOperation)) -- subClassOf --> y:Process[y:Process]
 software:ImageBuild((software:ImageBuild)) -- subClassOf --> y:Process[y:Process]
-software:ImageResolver((software:ImageResolver)) -- subClassOf --> y:Process[y:Process]
 software:ImageTag((software:ImageTag)) -- subClassOf --> y:Identifier[y:Identifier]
-software:ImageVariant((software:ImageVariant)) -- subClassOf --> y:Identifier[y:Identifier]
-software:InfrastructureAsCode((software:InfrastructureAsCode)) -- subClassOf --> software:ConfigurationArtifact((software:ConfigurationArtifact))
+software:InfrastructureAsCode((software:InfrastructureAsCode)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 software:IntegrityManifest((software:IntegrityManifest)) -- subClassOf --> software:ArtifactManifest((software:ArtifactManifest))
-software:Kubeconfig((software:Kubeconfig)) -- subClassOf --> software:ConfigurationArtifact((software:ConfigurationArtifact))
+software:Kubeconfig((software:Kubeconfig)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 software:KubernetesCluster((software:KubernetesCluster)) -- subClassOf --> y:SystemElement[y:SystemElement]
-software:KubernetesConfigMap((software:KubernetesConfigMap)) -- subClassOf --> software:ConfigurationArtifact((software:ConfigurationArtifact))
-software:KubernetesContext((software:KubernetesContext)) -- subClassOf --> software:ConfigurationArtifact((software:ConfigurationArtifact))
+software:KubernetesContext((software:KubernetesContext)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 software:KubernetesDeployment((software:KubernetesDeployment)) -- subClassOf --> y:SystemElement[y:SystemElement]
-software:KubernetesIngress((software:KubernetesIngress)) -- subClassOf --> software:ConfigurationArtifact((software:ConfigurationArtifact))
+software:KubernetesIngress((software:KubernetesIngress)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 software:KubernetesNamespace((software:KubernetesNamespace)) -- subClassOf --> y:Identifier[y:Identifier]
 software:KubernetesNode((software:KubernetesNode)) -- subClassOf --> compute:ComputingNode[compute:ComputingNode]
 software:KubernetesPod((software:KubernetesPod)) -- subClassOf --> r_KubernetesPod_hasPart_Container_((Anonymous class))
 software:KubernetesPod((software:KubernetesPod)) -- subClassOf --> y:SystemElement[y:SystemElement]
-software:KubernetesSecret((software:KubernetesSecret)) -- subClassOf --> software:ConfigurationArtifact((software:ConfigurationArtifact))
+software:KubernetesSecret((software:KubernetesSecret)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 software:KubernetesService((software:KubernetesService)) -- subClassOf --> y:SystemElement[y:SystemElement]
 software:LivenessProbe((software:LivenessProbe)) -- subClassOf --> software:HealthProbe((software:HealthProbe))
 software:LocalDeploymentTarget((software:LocalDeploymentTarget)) -- subClassOf --> software:DeploymentTarget((software:DeploymentTarget))
-software:LocalFirstImagePull((software:LocalFirstImagePull)) -- subClassOf --> y:Process[y:Process]
 software:ManualImageDrop((software:ManualImageDrop)) -- subClassOf --> y:Process[y:Process]
 software:N8n((software:N8n)) -- subClassOf --> r_N8n_dependsOn_NodeJS_((Anonymous class))
 software:N8n((software:N8n)) -- subClassOf --> software:SoftwareArtifact((software:SoftwareArtifact))
@@ -95,7 +91,6 @@ software:PackageManager((software:PackageManager)) -- subClassOf --> y:SystemEle
 software:PackageMetadata((software:PackageMetadata)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 software:PackageRepository((software:PackageRepository)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
 software:PackageTransactionStall((software:PackageTransactionStall)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
-software:Policy((software:Policy)) -- subClassOf --> software:ConfigurationArtifact((software:ConfigurationArtifact))
 software:Project -- software:selectsConfiguration --> software:CloudConfiguration
 software:Project((software:Project)) -- subClassOf --> r_Project_selectsConfiguration_CloudConfiguration_((Anonymous class))
 software:Project((software:Project)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
@@ -105,7 +100,6 @@ software:Registry((software:Registry)) -- subClassOf --> y:SoftwareService[y:Sof
 software:RegistryManifestUnavailable((software:RegistryManifestUnavailable)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
 software:RegistryMirror((software:RegistryMirror)) -- subClassOf --> software:Registry((software:Registry))
 software:RegistryRepository((software:RegistryRepository)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-software:ReleaseDryRun((software:ReleaseDryRun)) -- subClassOf --> y:Process[y:Process]
 software:ReleaseManifest((software:ReleaseManifest)) -- subClassOf --> software:ArtifactManifest((software:ArtifactManifest))
 software:ReleaseSignature((software:ReleaseSignature)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 software:ResourceProvisioning((software:ResourceProvisioning)) -- subClassOf --> software:DeploymentOperation((software:DeploymentOperation))
@@ -118,8 +112,8 @@ software:SourceHash((software:SourceHash)) -- subClassOf --> y:Identifier[y:Iden
 software:SourceRevision((software:SourceRevision)) -- subClassOf --> y:Identifier[y:Identifier]
 software:TLSCertificateSecret((software:TLSCertificateSecret)) -- subClassOf --> software:KubernetesSecret((software:KubernetesSecret))
 software:TaskQueue((software:TaskQueue)) -- subClassOf --> y:SystemElement[y:SystemElement]
-software:VersionFloor((software:VersionFloor)) -- subClassOf --> software:Policy((software:Policy))
-software:VersionPin((software:VersionPin)) -- subClassOf --> software:ConfigurationArtifact((software:ConfigurationArtifact))
+software:VersionFloor((software:VersionFloor)) -- subClassOf --> y:Policy[y:Policy]
+software:VersionPin((software:VersionPin)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 software:WorkerCapacity((software:WorkerCapacity)) -- subClassOf --> y:Quantity[y:Quantity]
 software:WorkloadDeployment((software:WorkloadDeployment)) -- subClassOf --> software:DeploymentOperation((software:DeploymentOperation))
 software:Zot((software:Zot)) -- subClassOf --> software:Registry((software:Registry))
@@ -163,7 +157,7 @@ r_Project_selectsConfiguration_CloudConfiguration_thing((thing)) --> r_Project_s
 r_Project_selectsConfiguration_CloudConfiguration_software:selectsConfiguration[software:selectsConfiguration]
 -- some --> r_Project_selectsConfiguration_CloudConfiguration_software:CloudConfiguration((software:CloudConfiguration))
 end
-y:SystemElement -- software:configuredBy --> software:ConfigurationArtifact
+y:SystemElement -- software:configuredBy --> y:ConfigurationArtifact
 ```
 
 ---
@@ -172,6 +166,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

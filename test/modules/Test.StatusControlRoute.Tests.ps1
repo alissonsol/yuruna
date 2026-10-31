@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42798304-85e4-4102-8026-ce168ff64fd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,14 +98,8 @@ function New-SocketPair {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param()
-    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-    $listener.Start()
-    try {
-        $client = [System.Net.Sockets.TcpClient]::new()
-        $client.Connect([System.Net.IPAddress]::Loopback, $listener.LocalEndpoint.Port)
-        $server = $listener.AcceptTcpClient()
-    } finally { $listener.Stop() }
-    return [pscustomobject]@{ Writer = $client; WriterStream = $client.GetStream(); Reader = $server; ReaderStream = $server.GetStream() }
+    $pair = New-YurunaTestSocketPair
+    return [pscustomobject]@{ Writer = $pair.Client; WriterStream = $pair.Client.GetStream(); Reader = $pair.Server; ReaderStream = $pair.Server.GetStream() }
 }
 
 function Close-SocketPair {
@@ -758,17 +752,13 @@ Write-Output ('RESULT ' + (ConvertTo-Json -Compress @{
     mode = `$mode; kept = `$kept; linkReason = `$linkReason; underHome = `$second.Path.StartsWith('$($homeDir -replace "'", "''")')
 }))
 "@)
-            $previousHome = $env:HOME
-            $previousProfile = $env:USERPROFILE
+            $previous = Save-YurunaTestEnvironment -Name 'HOME', 'USERPROFILE'
             try {
                 # Windows derives the home directory from USERPROFILE, not HOME.
                 $env:HOME = $homeDir
                 $env:USERPROFILE = $homeDir
                 $output = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File $probe 2>&1 | Out-String
-            } finally {
-                if ($null -eq $previousHome) { Remove-Item Env:HOME -ErrorAction SilentlyContinue } else { $env:HOME = $previousHome }
-                if ($null -eq $previousProfile) { Remove-Item Env:USERPROFILE -ErrorAction SilentlyContinue } else { $env:USERPROFILE = $previousProfile }
-            }
+            } finally { Restore-YurunaTestEnvironment -Saved $previous }
             $clean = $output -replace "`e\[[0-9;]*[A-Za-z]", ''
             $line = @($clean -split "`r?`n" | Where-Object { $_ -like 'RESULT *' }) | Select-Object -First 1
             Assert-True ([bool]$line) 'the child produced no result line'

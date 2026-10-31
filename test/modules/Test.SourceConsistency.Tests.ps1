@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,7 @@ BeforeAll {
     # way the metadata gate reads them.
     Import-Module (Join-Path $script:RepoRoot 'tools/Source.Identity.psm1') -Force
     Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.DriverSource.psm1') -Force -DisableNameChecking
+    Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.ServiceStartSource.psm1') -Force -DisableNameChecking
     Import-Module powershell-yaml
 
     # The parity tests that call this read a sibling checkout itself. A
@@ -69,8 +70,11 @@ BeforeAll {
         return $Path
     }
 
+    # A start that forwards to the shared extension-service start reads as what
+    # it runs: the shared pipeline with that service's readiness part in place.
     function Get-ConsistencyWorkflowSource {
         param([string]$Path)
+        if ([IO.File]::ReadAllText($Path).Contains("'Start-ExtensionService.ps1'")) { return Get-YurunaServiceStartText -Path $Path }
         return [IO.File]::ReadAllText((Resolve-ConsistencyWorkflowPath $Path))
     }
 
@@ -1047,6 +1051,7 @@ Describe 'Shared source regions' {
         @{ Path = 'test/Test-CachingProxyService.ps1' },
         @{ Path = 'test/modules/Invoke-TestRunnerInnerLoop.ps1' },
         @{ Path = 'test/service/Start-CachingProxyServiceVM.ps1' },
+        @{ Path = 'test/service/Start-ExtensionService.ps1' },
         @{ Path = 'test/service/Start-StashServiceVM.ps1' },
         @{ Path = 'test/service/Stop-CachingProxyServiceVM.ps1' },
         @{ Path = 'test/service/Stop-StashServiceVM.ps1' }

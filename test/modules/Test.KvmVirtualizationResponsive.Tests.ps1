@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4266a8d2-4adb-4edb-a8b6-0875ae9138c8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,8 +70,7 @@ BeforeAll {
     # A throwaway PATH entry with a scripted `virsh` lets every failure shape
     # run regardless of whether this host has a real libvirtd, without ever
     # touching the real one.
-    $script:FakeBinDir = Join-Path ([IO.Path]::GetTempPath()) ("yrn-kvmfake-" + [Guid]::NewGuid().ToString('n'))
-    New-Item -ItemType Directory -Path $script:FakeBinDir -Force | Out-Null
+    $script:FakeBinDir = New-YurunaTestTempDir -Prefix 'yrn-kvmfake'
     $script:MarkerPath = Join-Path $script:FakeBinDir 'invoked'
 
     function New-FakeVirsh {
@@ -86,7 +85,7 @@ BeforeAll {
     }
 
     function Use-FakeVirsh {
-        $env:PATH = "$script:FakeBinDir" + [IO.Path]::PathSeparator + $script:OrigPath
+        $env:PATH = "$script:FakeBinDir" + [IO.Path]::PathSeparator + $script:OrigPath.PATH
     }
 
     # Stand-ins for the identity tools the group diagnosis reads. They shadow
@@ -111,14 +110,14 @@ BeforeAll {
     }
 
     $script:KvmEvidenceKey = @('connection', 'localePinned', 'client', 'socket', 'libvirtGroup', 'exitCode', 'drainTimedOut', 'outputTruncated')
-    $script:OrigPath = $env:PATH
+    $script:OrigPath = Save-YurunaTestEnvironment -Name 'PATH'
 }
 
 AfterAll {
     foreach ($nativeName in $script:NativeCommandStubs) { Remove-Item -LiteralPath "Function:global:$nativeName" -ErrorAction SilentlyContinue }
 
-    $env:PATH = $script:OrigPath
-    Remove-Item -LiteralPath $script:FakeBinDir -Recurse -Force -ErrorAction SilentlyContinue
+    Restore-YurunaTestEnvironment -Saved $script:OrigPath
+    Remove-YurunaTestTempDir $script:FakeBinDir
 }
 
 Describe 'Test-VirtualizationResponsive -- real libvirtd on this host' {
@@ -165,8 +164,8 @@ Describe 'Test-VirtualizationResponsive -- real libvirtd on this host' {
 
 # Runs POSIX stand-in executables and shell installers that Windows cannot launch.
 Describe 'Test-VirtualizationResponsive -- record shape and connection pin' -Skip:$IsWindows {
-    BeforeEach { $script:OrigPath = $env:PATH }
-    AfterEach  { $env:PATH = $script:OrigPath }
+    BeforeEach { $script:OrigPath = Save-YurunaTestEnvironment -Name 'PATH' }
+    AfterEach  { Restore-YurunaTestEnvironment -Saved $script:OrigPath }
 
     It 'returns a schema-1 record carrying every field and every KVM evidence key' {
         New-FakeVirsh "printf 'vm-a\n'`nexit 0"
@@ -194,13 +193,11 @@ Describe 'Test-VirtualizationResponsive -- record shape and connection pin' -Ski
         $envFile  = Join-Path $script:FakeBinDir 'env'
         New-FakeVirsh ("printf '%s\n' `"`$@`" > '$argvFile'`nprintf 'LC_MESSAGES=%s\nLC_ALL=%s\n' `"`$LC_MESSAGES`" `"`$LC_ALL`" > '$envFile'`nexit 0")
         Use-FakeVirsh
-        $priorAll = $env:LC_ALL
+        $priorAll = Save-YurunaTestEnvironment -Name 'LC_ALL'
         try {
             $env:LC_ALL = 'de_DE.UTF-8'
             $r = Test-VirtualizationResponsive -TimeoutSeconds 10
-        } finally {
-            if ($null -eq $priorAll) { Remove-Item Env:LC_ALL -ErrorAction SilentlyContinue } else { $env:LC_ALL = $priorAll }
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $priorAll }
         $r.state | Should -Be 'Responsive'
         $argv = @(Get-Content -LiteralPath $argvFile)
         $argv[0] | Should -Be '--connect'
@@ -225,8 +222,8 @@ Describe 'Test-VirtualizationResponsive -- record shape and connection pin' -Ski
 
 # Runs POSIX stand-in executables and shell installers that Windows cannot launch.
 Describe 'Test-VirtualizationResponsive -- classification (fake virsh)' -Skip:$IsWindows {
-    BeforeEach { $script:OrigPath = $env:PATH }
-    AfterEach  { $env:PATH = $script:OrigPath }
+    BeforeEach { $script:OrigPath = Save-YurunaTestEnvironment -Name 'PATH' }
+    AfterEach  { Restore-YurunaTestEnvironment -Saved $script:OrigPath }
 
     It 'reports missing-client, not a false Responsive or a hang, when virsh is not on PATH' {
         $env:PATH = '/nonexistent-yrn-test-path'
@@ -414,8 +411,8 @@ Describe 'Test-VirtualizationResponsive -- classification (fake virsh)' -Skip:$I
 
 # Runs POSIX stand-in executables and shell installers that Windows cannot launch.
 Describe 'Get-VMState -- bounded, unknown before absent (fake virsh)' -Skip:$IsWindows {
-    BeforeEach { $script:OrigPath = $env:PATH }
-    AfterEach  { $env:PATH = $script:OrigPath }
+    BeforeEach { $script:OrigPath = Save-YurunaTestEnvironment -Name 'PATH' }
+    AfterEach  { Restore-YurunaTestEnvironment -Saved $script:OrigPath }
 
     It 'reads a denied probe as unknown, never absent' {
         New-FakeVirsh "echo 'error: authentication unavailable: could not connect to any' 1>&2`nexit 1"

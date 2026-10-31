@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 424fcb83-70f8-4a61-899b-5252d0c26fea
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,17 +90,32 @@
     block handed to a runspace of its own (AddScript, Start-Job,
     Start-ThreadJob) sets them there and is not counted.
 
-    The seventh rule covers the process environment entries that point a test
-    at its runtime and log folders, YURUNA_RUNTIME_DIR and YURUNA_LOG_DIR. Suites
-    put them back by hand in a dozen forms, and the forms disagreed: a teardown
-    that removes the entry, or sets it to $null, drops a value the process held
-    before the suite, and a restore guarded by "if it was set" leaves the test's
-    folder behind when it was not. Save-YurunaTestEnvironment and
-    Restore-YurunaTestEnvironment keep the previous value, absent included, so a
-    teardown (finally, AfterEach, AfterAll) changes these entries only through
-    Restore-YurunaTestEnvironment; a suite that names them restores computed
-    entry names the same way. Setting an entry in setup or in a test is the
-    test's own work and is not counted.
+    The seventh rule covers the process environment. Suites put entries back by
+    hand in a dozen forms (YURUNA_RUNTIME_DIR, PATH, HOME, GIT_* and retry and
+    translation settings among them), and the forms disagreed: a teardown that
+    removes the entry, or sets it to $null, drops a value the process held
+    before the suite, and a restore guarded by "if it was set" leaves the
+    test's value behind when it was not. Save-YurunaTestEnvironment and
+    Restore-YurunaTestEnvironment keep the previous value, absent included, so
+    a teardown (finally, AfterEach, AfterAll) changes the environment only
+    through Restore-YurunaTestEnvironment. Setting an entry in setup or in a
+    test is the test's own work and is not counted.
+
+    The eighth rule covers temp folders. A suite that joins the temp folder with
+    a GUID or random name builds a fixture folder by hand, and the copies
+    disagreed on the name, on whether the folder existed before the test used
+    it and on whether anything removed it. New-YurunaTestTempDir and
+    Remove-YurunaTestTempDir make and remove one; a fixed name under the temp
+    folder (an absent path, the folder a module is asserted to use) is not a
+    fixture.
+
+    The ninth rule covers loopback listeners. A suite that constructs a
+    TcpListener or HttpListener, or accepts a connection, has copied a
+    listener, and the copies disagreed on when the port was read, on whether a
+    responder read the whole request and on whether its job was ever removed.
+    New-YurunaTestTcpListener, Get-YurunaTestFreePort, New-YurunaTestSocketPair
+    and Start-/Stop-YurunaTestHttpResponder do it once; a suite whose listener is
+    the subject of its tests is listed with the reason.
 #>
 
 BeforeAll {
@@ -239,19 +254,17 @@ BeforeAll {
     }
 
     # A hand-made restore of the process environment: inside a finally,
-    # AfterEach or AfterAll block, an assignment to a guarded $env: entry, a
-    # Remove-Item of Env:<entry>, or [Environment]::SetEnvironmentVariable on it,
-    # and, in a suite that names a guarded entry, a SetEnvironmentVariable or
-    # Remove-Item Env: whose entry name is computed (a restore loop over saved
-    # names). Teardown is where a test puts
+    # AfterEach or AfterAll block, an assignment to an $env: entry, or a
+    # Remove-Item, Set-Item or Clear-Item of Env:<entry>, or
+    # [Environment]::SetEnvironmentVariable, whether the entry is named or
+    # computed (a restore loop over saved names). Teardown is where a test puts
     # the process back; Restore-YurunaTestEnvironment does that from what
     # Save-YurunaTestEnvironment recorded, including that an entry was absent,
     # where the hand copies cleared or dropped the outer value. Setting an entry
     # in setup or in a test is the test's own work and is not counted, and
     # neither is a block another runspace runs.
     function Get-LocalEnvironmentRestoreCopy {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Name is read inside the script blocks the AST searches run, which the rule does not follow.')]
-        param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Ast, [Parameter(Mandatory)][string[]]$Name)
+        param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Ast)
         $private = @($Ast.FindAll({
                     param($n)
                     $n -is [System.Management.Automation.Language.ScriptBlockExpressionAst] -and (
@@ -273,10 +286,6 @@ BeforeAll {
             }
             return $false
         }
-        $guarded = { param($entry) $Name -ccontains $entry }
-        # A computed entry name counts only in a suite that names a guarded entry,
-        # as the list a save-and-restore loop walks.
-        $namesGuarded = @($Ast.FindAll({ param($x) $x -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $Name -ccontains $x.Value }, $true)).Count -gt 0
         $found = [System.Collections.Generic.List[int]]::new()
         $candidates = $Ast.FindAll({
                 param($x)
@@ -288,25 +297,108 @@ BeforeAll {
         foreach ($n in $candidates) {
             $hit = $false
             if ($n -is [System.Management.Automation.Language.AssignmentStatementAst]) {
-                $hit = $n.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and $n.Left.VariablePath.DriveName -eq 'env' -and
-                    (& $guarded ($n.Left.VariablePath.UserPath -replace '^env:'))
+                $hit = $n.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and $n.Left.VariablePath.DriveName -eq 'env'
             } elseif ($n -is [System.Management.Automation.Language.CommandAst]) {
-                if ($n.GetCommandName() -in @('Remove-Item', 'ri', 'del')) {
+                if ($n.GetCommandName() -in @('Remove-Item', 'ri', 'del', 'Set-Item', 'si', 'Clear-Item', 'cli')) {
                     foreach ($element in @($n.CommandElements | Select-Object -Skip 1)) {
-                        if ($element -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $element.Value -match '^Env:\\?(.+)$' -and (& $guarded $Matches[1])) { $hit = $true }
-                        if ($namesGuarded -and $element -is [System.Management.Automation.Language.ExpandableStringExpressionAst] -and $element.Value -match '^Env:') { $hit = $true }
+                        if (($element -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
+                                $element -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) -and $element.Value -match '^Env:') { $hit = $true }
                     }
                 }
-            } elseif ($n.Member.Value -eq 'SetEnvironmentVariable' -and $n.Arguments.Count -ge 1) {
-                $first = $n.Arguments[0]
-                $hit = ($namesGuarded -and -not ($first -is [System.Management.Automation.Language.StringConstantExpressionAst])) -or
-                    ($first -is [System.Management.Automation.Language.StringConstantExpressionAst] -and (& $guarded $first.Value))
+            } elseif ($n.Member.Value -eq 'SetEnvironmentVariable') {
+                $hit = $true
             }
             if ($hit -and (& $within $n $teardown) -and -not (& $within $n $private)) { $found.Add($n.Extent.StartLineNumber) }
         }
         @($found | Sort-Object -Unique)
     }
-    $script:GuardedEnvironmentEntry = @('YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR')
+
+    # A temp path built by hand with a unique name: a temp-folder expression
+    # ([IO.Path]::GetTempPath(), $env:TEMP, $env:TMP or $env:TMPDIR) in the same
+    # statement as a unique-name token ([guid]::NewGuid(), New-Guid,
+    # GetRandomFileName, Get-Random), or GetTempFileName, which is both. A part
+    # in parentheses or in $() counts as the statement around it. That is the
+    # shape of a fixture folder, which New-YurunaTestTempDir makes and
+    # Remove-YurunaTestTempDir removes; the hand copies differed in the name,
+    # in whether the folder existed before the test used it, and in whether
+    # anything removed it. A fixed name under the temp folder (an absent path,
+    # the folder a module is asserted to use, a listing of it) is not a fixture
+    # and is not counted.
+    function Get-LocalTempPathCopy {
+        param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Ast)
+        $isUnique = {
+            param($x)
+            ($x -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $x.Static -and
+            $x.Member -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+            $x.Member.Value -in @('NewGuid', 'GetRandomFileName', 'GetTempFileName')) -or
+            ($x -is [System.Management.Automation.Language.CommandAst] -and $x.GetCommandName() -in @('New-Guid', 'Get-Random'))
+        }
+        $sources = $Ast.FindAll({
+                param($x)
+                ($x -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $x.Static -and
+                $x.Member -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+                $x.Member.Value -in @('GetTempPath', 'GetTempFileName')) -or
+                ($x -is [System.Management.Automation.Language.VariableExpressionAst] -and $x.VariablePath.UserPath -match '^env:(TEMP|TMP|TMPDIR)$')
+            }, $true)
+        $found = [System.Collections.Generic.List[int]]::new()
+        foreach ($source in $sources) {
+            $statement = $source.Parent
+            while ($statement -and -not (
+                    $statement -is [System.Management.Automation.Language.PipelineBaseAst] -and
+                    $statement.Parent -isnot [System.Management.Automation.Language.ParenExpressionAst] -and
+                    -not ($statement.Parent -is [System.Management.Automation.Language.StatementBlockAst] -and (
+                            $statement.Parent.Parent -is [System.Management.Automation.Language.SubExpressionAst] -or
+                            $statement.Parent.Parent -is [System.Management.Automation.Language.ArrayExpressionAst])))) {
+                $statement = $statement.Parent
+            }
+            if (-not $statement) { continue }
+            if (@($statement.FindAll($isUnique, $true)).Count -gt 0) { $found.Add($statement.Extent.StartLineNumber) }
+        }
+        @($found | Sort-Object -Unique)
+    }
+
+    # Suites that still build a uniquely named temp path by hand, each with why
+    # the shared helper cannot serve it. An entry that stops applying fails the
+    # stale-entry test below.
+    $script:TempPathCopyAllowed = [ordered]@{}
+
+    # A listening socket a suite opens itself: a TcpListener or HttpListener it
+    # constructs ([...]::new or New-Object), or an accept it runs
+    # (AcceptTcpClient, AcceptSocket, GetContext and their Async and Begin
+    # forms). The copies disagreed on when the port was read (a stopped
+    # listener reports port 0), on whether a responder read the whole request,
+    # and on whether the job that served it was ever removed.
+    # New-YurunaTestTcpListener, Get-YurunaTestFreePort, New-YurunaTestSocketPair
+    # and Start-/Stop-YurunaTestHttpResponder do each of those once.
+    function Get-LocalListenerCopy {
+        param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Ast)
+        $listenerType = '(^|\.)(TcpListener|HttpListener)$'
+        @($Ast.FindAll({
+                    param($x)
+                    ($x -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $x.Static -and
+                    $x.Expression -is [System.Management.Automation.Language.TypeExpressionAst] -and
+                    $x.Expression.TypeName.FullName -match $listenerType -and
+                    $x.Member -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $x.Member.Value -eq 'new') -or
+                    ($x -is [System.Management.Automation.Language.CommandAst] -and $x.GetCommandName() -eq 'New-Object' -and
+                    @($x.CommandElements | Where-Object {
+                            $_ -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $_.Value -match $listenerType
+                        }).Count -gt 0) -or
+                    ($x -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and -not $x.Static -and
+                    $x.Member -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+                    $x.Member.Value -in @('AcceptTcpClient', 'AcceptTcpClientAsync', 'BeginAcceptTcpClient', 'AcceptSocket',
+                        'AcceptSocketAsync', 'BeginAcceptSocket', 'GetContext', 'GetContextAsync', 'BeginGetContext'))
+                }, $true) | ForEach-Object { $_.Extent.StartLineNumber } | Sort-Object -Unique)
+    }
+
+    # Suites whose listener is the subject of the test rather than a stand-in,
+    # each with the reason. An entry that stops applying fails the stale-entry
+    # test below.
+    $script:ListenerCopyAllowed = [ordered]@{
+        'test/modules/Test.DownloadAgentService.Tests.ps1'    = 'a fake download agent answers the agent API from a plan the test changes as it runs (an ensure queue, Range requests, a first transfer cut short), which scripted replies cannot express'
+        'test/modules/Test.PortOwner.Tests.ps1'               = 'the module under test probes a port with an HttpListener prefix bind, so the port it must find held is held by an HttpListener prefix'
+        'test/modules/Test.StatusServiceRefreshSafe.Tests.ps1' = 'the test proves the listener that held the port still accepts after a refused start, so it accepts on that listener itself'
+        'test/modules/Test.Transport.Tests.ps1'               = 'a fake VNC server speaks the RFB handshake and closes its end the way a stopping VM does, which is not HTTP'
+    }
 }
 
 Describe 'every suite keeps its fixtures in a scope the tests can read' {
@@ -635,10 +727,10 @@ $($script:GlobalChannelWriteFound -join "`n")
     }
 }
 
-Describe 'every suite restores the runtime and log folder entries through the shared helpers' {
+Describe 'every suite restores the process environment through the shared helpers' {
     BeforeAll {
         $script:EnvironmentRestoreCopyFound = @(foreach ($rel in $script:Suites) {
-                foreach ($line in (Get-LocalEnvironmentRestoreCopy -Ast (Get-SuiteAst -Relative $rel) -Name $script:GuardedEnvironmentEntry)) { '{0}:{1}' -f $rel, $line }
+                foreach ($line in (Get-LocalEnvironmentRestoreCopy -Ast (Get-SuiteAst -Relative $rel))) { '{0}:{1}' -f $rel, $line }
             })
     }
 
@@ -650,60 +742,188 @@ BeforeAll {
 }
 AfterAll { $env:YURUNA_RUNTIME_DIR = $script:Prior }
 Describe 'a block' {
-    AfterEach { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue }
+    AfterEach { Remove-Item Env:GIT_CONFIG_GLOBAL -ErrorAction SilentlyContinue }
     It 'restores by hand' {
         $saved = @{}
-        foreach ($name in @('YURUNA_RUNTIME_DIR')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
-        try { $env:YURUNA_LOG_DIR = 'y' }
+        foreach ($name in @('HOME')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+        try { $env:HOME = 'y' }
         finally { foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) } }
-        try { $env:YURUNA_RUNTIME_DIR = 'z' } finally { [Environment]::SetEnvironmentVariable('YURUNA_RUNTIME_DIR', $null) }
-        try { $env:YURUNA_LOG_DIR = 'w' } finally { Remove-Item -LiteralPath "Env:YURUNA_LOG_DIR" }
+        try { $env:PATH = 'z' } finally { [Environment]::SetEnvironmentVariable('PATH', $null) }
+        try { $env:NO_COLOR = '1' } finally { Remove-Item -LiteralPath "Env:NO_COLOR" }
+        try { $env:OMP_THREAD_LIMIT = '1' } finally { Set-Item -LiteralPath Env:OMP_THREAD_LIMIT -Value '4' }
+        try { $env:YURUNA_RETRY = '0' } finally { foreach ($name in $saved.Keys) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue } }
     }
 }
 '@
         $shared = @'
 BeforeAll {
-    $script:Saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR'
+    $script:Saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'GIT_CONFIG_GLOBAL', 'PATH'
     $env:YURUNA_RUNTIME_DIR = 'x'
 }
 AfterAll { Restore-YurunaTestEnvironment -Saved $script:Saved }
 Describe 'a block' {
     It 'sets and reads the entries as the test needs' {
-        $env:YURUNA_LOG_DIR = 'y'
-        Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue
+        $env:GIT_CONFIG_GLOBAL = 'y'
+        Remove-Item Env:GIT_CONFIG_GLOBAL -ErrorAction SilentlyContinue
         $dir = $env:YURUNA_RUNTIME_DIR
-        $job = Start-ThreadJob -ScriptBlock { try { $env:YURUNA_RUNTIME_DIR = 'j' } finally { $env:YURUNA_RUNTIME_DIR = $null } }
-        try { $env:OTHER_SETTING = '1' } finally { Remove-Item Env:OTHER_SETTING -ErrorAction SilentlyContinue }
+        $job = Start-ThreadJob -ScriptBlock { try { $env:PATH = 'j' } finally { $env:PATH = $null } }
+        $saved = Save-YurunaTestEnvironment -Name 'HOME'
+        try { $env:HOME = 'z'; [Environment]::SetEnvironmentVariable('HOME', 'w') } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 }
 '@
-        $unguarded = @'
-Describe 'a block' {
-    It 'restores entries this rule does not cover' {
-        $saved = @{ OTHER = [Environment]::GetEnvironmentVariable('OTHER') }
-        try { $env:OTHER = '1' } finally { foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) } }
-    }
-}
-'@
-        $names = @('YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR')
         $copyAst = [System.Management.Automation.Language.Parser]::ParseInput($copy, [ref]$null, [ref]$null)
         $sharedAst = [System.Management.Automation.Language.Parser]::ParseInput($shared, [ref]$null, [ref]$null)
-        $unguardedAst = [System.Management.Automation.Language.Parser]::ParseInput($unguarded, [ref]$null, [ref]$null)
-        Assert-StringEqual '5,7,12,13,14' (@(Get-LocalEnvironmentRestoreCopy -Ast $copyAst -Name $names) -join ',') `
-            'an assignment, a Remove-Item (bare and quoted) and SetEnvironmentVariable (named and computed) in AfterAll, AfterEach and finally are each reported'
-        Assert-Equal 0 (@(Get-LocalEnvironmentRestoreCopy -Ast $sharedAst -Name $names).Count) `
-            'the shared helpers, writes a test makes outside teardown, a read, a thread job and an unguarded entry are not hand-made restores'
-        Assert-Equal 0 (@(Get-LocalEnvironmentRestoreCopy -Ast $unguardedAst -Name $names).Count) `
-            'a computed restore in a suite that names no guarded entry is outside this rule'
+        Assert-StringEqual '5,7,12,13,14,15,16' (@(Get-LocalEnvironmentRestoreCopy -Ast $copyAst) -join ',') `
+            'an assignment, Remove-Item (bare and quoted), Set-Item and SetEnvironmentVariable (named and computed) in AfterAll, AfterEach and finally are each reported, whatever the entry'
+        Assert-Equal 0 (@(Get-LocalEnvironmentRestoreCopy -Ast $sharedAst).Count) `
+            'the shared helpers, writes a test makes outside teardown, a read and a thread job are not hand-made restores'
     }
 
-    It 'restores no runtime or log folder entry by hand in any suite' {
+    It 'restores no process environment entry by hand in any suite' {
         Assert-True ($script:EnvironmentRestoreCopyFound.Count -eq 0) @"
-these suites put YURUNA_RUNTIME_DIR or YURUNA_LOG_DIR back by hand in a
-teardown. Save them with Save-YurunaTestEnvironment before the test changes
-them and put them back with Restore-YurunaTestEnvironment
+these suites put a process environment entry back by hand in a teardown. Save
+the entries with Save-YurunaTestEnvironment before the test changes them and
+put them back with Restore-YurunaTestEnvironment
 (test/modules/Test.Assert.psm1), which also removes an entry that was absent:
 $($script:EnvironmentRestoreCopyFound -join "`n")
+"@
+    }
+}
+
+Describe 'every suite takes its uniquely named temp folders from the shared helper' {
+    BeforeAll {
+        $script:TempPathCopyFound = @(foreach ($rel in $script:Suites) {
+                foreach ($line in (Get-LocalTempPathCopy -Ast (Get-SuiteAst -Relative $rel))) { [pscustomobject]@{ Suite = $rel; Line = $line } }
+            })
+    }
+
+    It 'tells a hand-built unique temp path from the shared helper and from a fixed name under the temp folder' {
+        $copy = @'
+BeforeAll {
+    $script:Root = Join-Path ([System.IO.Path]::GetTempPath()) ('x-' + [guid]::NewGuid().ToString('N'))
+}
+Describe 'a block' {
+    It 'builds its own' {
+        $a = Join-Path ([IO.Path]::GetTempPath()) "y-$([guid]::NewGuid().ToString('N'))"
+        $b = Join-Path $env:TMPDIR ([System.IO.Path]::GetRandomFileName())
+        Mock Get-LogRoot { Join-Path $env:TEMP (New-Guid) }
+        $c = @{ Root = Join-Path ([IO.Path]::GetTempPath()) ('z' + (Get-Random)) }
+        $d = [System.IO.Path]::GetTempFileName()
+    }
+}
+'@
+        $shared = @'
+BeforeAll {
+    $script:Root = New-YurunaTestTempDir -Prefix 'x'
+    $script:Id = [guid]::NewGuid().ToString('N')
+}
+AfterAll { Remove-YurunaTestTempDir $script:Root }
+Describe 'a block' {
+    It 'uses the helper and names fixed paths' {
+        $absent = Join-Path ([IO.Path]::GetTempPath()) 'no-such-config.yml'
+        $left = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Filter 'yuruna-*.pem').Count
+        Assert-Equal (Join-Path ([System.IO.Path]::GetTempPath()) 'runner.state.json') (Get-RunnerStatePath)
+        $mine = Join-Path $script:Root ([guid]::NewGuid().ToString('N'))
+        $env:TEMP = $script:Root
+    }
+}
+'@
+        $copyAst = [System.Management.Automation.Language.Parser]::ParseInput($copy, [ref]$null, [ref]$null)
+        $sharedAst = [System.Management.Automation.Language.Parser]::ParseInput($shared, [ref]$null, [ref]$null)
+        Assert-StringEqual '2,6,7,8,9,10' (@(Get-LocalTempPathCopy -Ast $copyAst) -join ',') `
+            'GetTempPath and the TEMP, TMP and TMPDIR entries beside NewGuid, GetRandomFileName, New-Guid and Get-Random, in parentheses, in $(), in a mock and in a hashtable, and GetTempFileName alone, are each reported'
+        Assert-Equal 0 (@(Get-LocalTempPathCopy -Ast $sharedAst).Count) `
+            'the shared helper, a fixed name under the temp folder, a listing of it, a unique name under a folder the helper made, and a GUID on its own are not hand-built temp paths'
+    }
+
+    It 'builds no uniquely named temp path by hand outside the listed suites' {
+        $unlisted = @($script:TempPathCopyFound | Where-Object { $_.Suite -cnotin @($script:TempPathCopyAllowed.Keys) } | ForEach-Object { '{0}:{1}' -f $_.Suite, $_.Line })
+        Assert-True ($unlisted.Count -eq 0) @"
+these suites build a uniquely named temp path by hand. Take the folder from
+New-YurunaTestTempDir and remove it with Remove-YurunaTestTempDir
+(test/modules/Test.Assert.psm1); a file or a path that must not exist yet goes
+under such a folder:
+$($unlisted -join "`n")
+"@
+    }
+
+    It 'lists no suite that has stopped building its own temp path' {
+        $stale = @(@($script:TempPathCopyAllowed.Keys) | Where-Object { $_ -cnotin @($script:TempPathCopyFound.Suite) })
+        Assert-True ($stale.Count -eq 0) @"
+these entries of the remaining-copies list no longer build a unique temp path
+by hand. Remove them, so a copy pasted back later is caught:
+$($stale -join "`n")
+"@
+    }
+}
+
+Describe 'every suite opens its loopback listeners through the shared helpers' {
+    BeforeAll {
+        $script:ListenerCopyFound = @(foreach ($rel in $script:Suites) {
+                foreach ($line in (Get-LocalListenerCopy -Ast (Get-SuiteAst -Relative $rel))) { [pscustomobject]@{ Suite = $rel; Line = $line } }
+            })
+    }
+
+    It 'tells a hand-made listener or responder from the shared helpers' {
+        $copy = @'
+BeforeAll {
+    function Get-LoopbackListener {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        $listener
+    }
+}
+Describe 'a block' {
+    It 'opens its own' {
+        $http = [Net.HttpListener]::new()
+        $other = New-Object System.Net.Sockets.TcpListener ([Net.IPAddress]::Any, 0)
+        $job = Start-ThreadJob -ArgumentList $listener -ScriptBlock { param($Listener) $client = $Listener.AcceptTcpClient() }
+        $pending = $listener.AcceptTcpClientAsync()
+        $context = $http.GetContext()
+    }
+}
+'@
+        $shared = @'
+BeforeAll {
+    $script:Port = Get-YurunaTestFreePort
+}
+Describe 'a block' {
+    It 'uses the helpers' {
+        $listener = New-YurunaTestTcpListener -AnyAddress
+        $pair = New-YurunaTestSocketPair
+        $responder = Start-YurunaTestHttpResponder -Reply (New-YurunaTestHttpReply -Body 'ok')
+        try { $client = [System.Net.Sockets.TcpClient]::new(); $socket = [System.Net.Sockets.Socket]::new('InterNetwork', 'Stream', 'Tcp') }
+        finally { $listener.Stop(); $pair.Client.Dispose(); $pair.Server.Dispose(); $requests = Stop-YurunaTestHttpResponder $responder }
+    }
+}
+'@
+        $copyAst = [System.Management.Automation.Language.Parser]::ParseInput($copy, [ref]$null, [ref]$null)
+        $sharedAst = [System.Management.Automation.Language.Parser]::ParseInput($shared, [ref]$null, [ref]$null)
+        Assert-StringEqual '3,10,11,12,13,14' (@(Get-LocalListenerCopy -Ast $copyAst) -join ',') `
+            'a TcpListener and an HttpListener built with ::new or New-Object, and AcceptTcpClient, its Async form and GetContext, are each reported'
+        Assert-Equal 0 (@(Get-LocalListenerCopy -Ast $sharedAst).Count) `
+            'the shared helpers, a client and a plain socket are not hand-made listeners'
+    }
+
+    It 'opens no listener by hand outside the listed suites' {
+        $unlisted = @($script:ListenerCopyFound | Where-Object { $_.Suite -cnotin @($script:ListenerCopyAllowed.Keys) } | ForEach-Object { '{0}:{1}' -f $_.Suite, $_.Line })
+        Assert-True ($unlisted.Count -eq 0) @"
+these suites open a listener or accept a connection themselves. Bind with
+New-YurunaTestTcpListener or Get-YurunaTestFreePort, pair two ends with
+New-YurunaTestSocketPair, and serve HTTP with Start-YurunaTestHttpResponder and
+Stop-YurunaTestHttpResponder (test/modules/Test.Assert.psm1); a listener that is
+the subject of the test is listed with its reason:
+$($unlisted -join "`n")
+"@
+    }
+
+    It 'lists no suite that has stopped opening its own listener' {
+        $stale = @(@($script:ListenerCopyAllowed.Keys) | Where-Object { $_ -cnotin @($script:ListenerCopyFound.Suite) })
+        Assert-True ($stale.Count -eq 0) @"
+these entries of the listed-listener table no longer open a listener
+themselves. Remove them, so a copy pasted back later is caught:
+$($stale -join "`n")
 "@
     }
 }

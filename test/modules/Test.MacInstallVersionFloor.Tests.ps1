@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4207f1a4-6b1e-4c0a-9a05-9b2a1f6c3d77
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,19 +114,17 @@ function New-FakeTool {
 function Invoke-InstallerShell {
     param([Parameter(Mandatory)][string]$Body, [hashtable]$Environment = @{})
     $script = @($script:Prelude, $script:Lifted, $Body) -join "`n"
-    $file = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-floor-{0}.sh" -f [guid]::NewGuid().ToString('N'))
+    $dir = New-YurunaTestTempDir -Prefix 'yuruna-floor'
+    $file = Join-Path $dir 'floor.sh'
     Set-Content -LiteralPath $file -Value $script
-    $saved = @{}
-    foreach ($k in $Environment.Keys) {
-        $saved[$k] = [Environment]::GetEnvironmentVariable($k)
-        [Environment]::SetEnvironmentVariable($k, $Environment[$k])
-    }
+    $saved = Save-YurunaTestEnvironment -Name @($Environment.Keys)
+    foreach ($k in $Environment.Keys) { [Environment]::SetEnvironmentVariable($k, $Environment[$k]) }
     try {
         $out = & bash $file 2>&1
         return @{ Output = (@($out) -join "`n"); ExitCode = $LASTEXITCODE }
     } finally {
-        foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
-        Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+        Restore-YurunaTestEnvironment -Saved $saved
+        Remove-YurunaTestTempDir $dir
     }
 }
 
@@ -136,7 +134,7 @@ function New-FloorSandbox {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: creates a temp sandbox tree the test removes in its finally block; not user-facing state.')]
     param()
-    $root = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-floor-{0}" -f [guid]::NewGuid().ToString('N'))
+    $root = New-YurunaTestTempDir -Prefix 'yuruna-floor'
     foreach ($sub in @('brew/bin', 'sysbin', 'local/bin', 'pkg')) {
         New-Item -ItemType Directory -Path (Join-Path $root $sub) -Force | Out-Null
     }

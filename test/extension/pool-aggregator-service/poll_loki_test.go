@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 type pollLokiTransport func(*http.Request) (*http.Response, error)
@@ -26,8 +28,8 @@ func TestPollOnceSlowLokiLeavesPoolReadableAndSnapshotsTransitions(t *testing.T)
 	const secondID = "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	now := time.Now().UTC()
 	s := newPoolState("default", 8080)
-	s.hosts[firstID] = &hostView{HostId: firstID, CurrentIP: "192.0.2.10"}
-	s.hosts[secondID] = &hostView{HostId: secondID, CurrentIP: "192.0.2.11"}
+	s.view().Hosts[firstID] = &hostView{HostId: firstID, CurrentIP: "192.0.2.10"}
+	s.view().Hosts[secondID] = &hostView{HostId: secondID, CurrentIP: "192.0.2.11"}
 	started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var unblock sync.Once
 	defer func() {
@@ -114,11 +116,11 @@ func TestPollOnceSlowLokiLeavesPoolReadableAndSnapshotsTransitions(t *testing.T)
 	}
 
 	// Later state changes must not rewrite the second transition waiting to send.
-	s.mu.Lock()
-	s.hosts[secondID].Status.OverallStatus = "running"
-	s.hosts[secondID].Status.LastFailure.FailureClass = "changed"
-	s.hosts[secondID].PoolId = "changed-pool"
-	s.mu.Unlock()
+	s.st.Do(func(view *poolstate.View) {
+		view.Hosts[secondID].Status.OverallStatus = "running"
+		view.Hosts[secondID].Status.LastFailure.FailureClass = "changed"
+		view.Hosts[secondID].PoolId = "changed-pool"
+	})
 	unblock.Do(func() { close(release) })
 	select {
 	case <-done:
@@ -131,8 +133,8 @@ func TestPollOnceSlowLokiLeavesPoolReadableAndSnapshotsTransitions(t *testing.T)
 	if got := cycleLines[1]; got["hostId"] != secondID || got["overallStatus"] != "fail" || got["failureClass"] != "network" || cyclePools[1] != "original-pool" {
 		t.Fatalf("queued transition changed with live state: pool=%q line=%v", cyclePools[1], got)
 	}
-	if s.fail[firstID] != 1 || s.fail[secondID] != 1 {
-		t.Fatalf("cycle counters changed: %v", s.fail)
+	if _, failTotals := s.view().CycleTotals(); failTotals[firstID] != 1 || failTotals[secondID] != 1 {
+		t.Fatalf("cycle counters changed: %v", failTotals)
 	}
 }
 
@@ -148,11 +150,9 @@ func TestPollRunnerFaultPreservesCompletedCycle(t *testing.T) {
 				const hid = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 				const start = "2026-10-01T12:00:00Z"
 				s := newPoolState("default", 8080)
-				s.hosts[hid] = &hostView{HostId: hid, CurrentIP: "192.0.2.10"}
+				s.view().Hosts[hid] = &hostView{HostId: hid, CurrentIP: "192.0.2.10"}
 				if prior != "" {
-					s.seen[hid+"|"+start] = prior
-					s.counted[hid+"|"+start] = true
-					s.pass[hid] = 1
+					s.seedCycle(hid, start, prior, time.Now(), true)
 				}
 				var cycleLines []map[string]string
 				runnerState := "paused"
@@ -200,8 +200,8 @@ func TestPollRunnerFaultPreservesCompletedCycle(t *testing.T) {
 					s.pollOnce(client, filepath.Join(t.TempDir(), "absent.log"), "http://loki.invalid/push", time.Now().UTC())
 					runnerState = "cycle-start"
 				}
-				if s.pass[hid] != 1 || s.fail[hid] != 0 || len(s.failWindow[hid]) != 0 {
-					t.Fatalf("runner fault counted as cycle failure: pass=%v fail=%v window=%v", s.pass, s.fail, s.failWindow)
+				if passes, fails := s.cycleTotals(hid); passes != 1 || fails != 0 || len(s.view().FailWindow[hid]) != 0 {
+					t.Fatalf("runner fault counted as cycle failure: pass=%d fail=%d window=%v", passes, fails, s.view().FailWindow)
 				}
 				wantLines := 1
 				if prior != "" {
@@ -219,10 +219,10 @@ func TestPollRunnerFaultPreservesCompletedCycle(t *testing.T) {
 				if separateFault {
 					wantHealth = "preflight-failed"
 				}
-				if s.hosts[hid].statusLabel() != wantHealth {
-					t.Fatalf("runner fault health = %q, want %q", s.hosts[hid].statusLabel(), wantHealth)
+				if s.view().Hosts[hid].StatusLabel() != wantHealth {
+					t.Fatalf("runner fault health = %q, want %q", s.view().Hosts[hid].StatusLabel(), wantHealth)
 				}
-				encoded, err := json.Marshal(s.hosts[hid].Status)
+				encoded, err := json.Marshal(s.view().Hosts[hid].Status)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -237,7 +237,7 @@ func TestPollRunnerFaultPreservesCompletedCycle(t *testing.T) {
 func TestPollFirstAttemptFaultWithoutCycle(t *testing.T) {
 	const hid = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	s := newPoolState("default", 8080)
-	s.hosts[hid] = &hostView{HostId: hid, CurrentIP: "192.0.2.10"}
+	s.view().Hosts[hid] = &hostView{HostId: hid, CurrentIP: "192.0.2.10"}
 	pushes := 0
 	client := &http.Client{Transport: pollLokiTransport(func(r *http.Request) (*http.Response, error) {
 		code, body := http.StatusNotFound, "{}"
@@ -268,12 +268,12 @@ func TestPollFirstAttemptFaultWithoutCycle(t *testing.T) {
 		return &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})}
 	s.pollOnce(client, filepath.Join(t.TempDir(), "absent.log"), "http://loki.invalid/push", time.Now().UTC())
-	hv := s.hosts[hid]
-	if !hv.Reachable || hv.statusLabel() != "preflight-failed" {
+	hv := s.view().Hosts[hid]
+	if !hv.Reachable || hv.StatusLabel() != "preflight-failed" {
 		t.Fatalf("first attempt must be a reachable host with a preflight failure: %+v", hv)
 	}
-	if s.pass[hid] != 0 || s.fail[hid] != 0 || len(s.seen) != 0 || pushes != 0 {
-		t.Fatalf("attempt invented cycle accounting: pass=%v fail=%v seen=%v pushes=%d", s.pass, s.fail, s.seen, pushes)
+	if passes, fails := s.cycleTotals(hid); passes != 0 || fails != 0 || s.view().CycleCount() != 0 || pushes != 0 {
+		t.Fatalf("attempt invented cycle accounting: pass=%d fail=%d cycles=%d pushes=%d", passes, fails, s.view().CycleCount(), pushes)
 	}
 	encoded, err := json.Marshal(hv.Status)
 	if err != nil {

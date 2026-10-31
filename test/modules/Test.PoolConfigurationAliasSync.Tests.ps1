@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 428a6a51-09a1-4515-99d2-2504e234cbcf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,8 +68,11 @@ function New-AliasShellFixture {
 }
 
 Describe 'Sync-PoolConfigurationAliasOnProxy guards' {
-    BeforeEach { $env:YURUNA_CACHING_PROXY_SERVICE_IP = '' }
-    AfterEach  { $env:YURUNA_CACHING_PROXY_SERVICE_IP = '' }
+    BeforeEach {
+        $script:SavedCacheIp = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
+        $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
+    }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedCacheIp }
 
     Context 'refuses to act without a target' {
         It 'skips when no proxy address can be resolved' {

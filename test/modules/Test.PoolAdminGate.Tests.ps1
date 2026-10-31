@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42074735-e5df-4b56-b216-96e6299e53f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,16 +84,18 @@ function Test-AnyExtentMatch {
 }
 
 Describe 'Test-YurunaPoolConfigurationFile enforces required vs optional configuration files' {
+    BeforeAll { $script:GateFileDir = New-YurunaTestTempDir -Prefix 'pool-gate-file' }
+    AfterAll { Remove-YurunaTestTempDir $script:GateFileDir }
     It 'FAILS a required file that is absent (pools.yml must not read as success)' {
-        $missing = Join-Path ([System.IO.Path]::GetTempPath()) ('nope-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
+        $missing = Join-Path $script:GateFileDir 'nope-required.yml'
         Test-YurunaPoolConfigurationFile -Path $missing -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required -WarningAction SilentlyContinue | Should -Be $false
     }
     It 'SKIPs (passes) an optional file that is absent' {
-        $missing = Join-Path ([System.IO.Path]::GetTempPath()) ('nope-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
+        $missing = Join-Path $script:GateFileDir 'nope-optional.yml'
         Test-YurunaPoolConfigurationFile -Path $missing -SchemaName 'guests.compatibility.schema.yml' -Label 'guests.compatibility.yml' | Should -Be $true
     }
     It 'PASSes a present, schema-valid file' {
-        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yes-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
+        $tmp = Join-Path $script:GateFileDir 'yes.yml'
         Set-Content -LiteralPath $tmp -Value 'schemaVersion: 1'
         try {
             Mock -ModuleName Test.PoolAdmin ConvertFrom-Yaml { @{ schemaVersion = 1 } }
@@ -102,7 +104,7 @@ Describe 'Test-YurunaPoolConfigurationFile enforces required vs optional configu
         } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     }
     It 'FAILs a present file that is schema-invalid' {
-        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('bad-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
+        $tmp = Join-Path $script:GateFileDir 'bad.yml'
         Set-Content -LiteralPath $tmp -Value 'schemaVersion: 1'
         try {
             Mock -ModuleName Test.PoolAdmin ConvertFrom-Yaml { @{ schemaVersion = 1 } }
@@ -111,7 +113,7 @@ Describe 'Test-YurunaPoolConfigurationFile enforces required vs optional configu
         } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     }
     It 'FAILs a present file that will not parse as YAML' {
-        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('unparse-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
+        $tmp = Join-Path $script:GateFileDir 'unparse.yml'
         Set-Content -LiteralPath $tmp -Value ': not yaml'
         try {
             Mock -ModuleName Test.PoolAdmin ConvertFrom-Yaml { throw 'bad yaml' }
@@ -133,6 +135,7 @@ Describe 'Invoke-PoolAdminGitWithRetry survives a transient failure within a bou
         Should -Invoke -ModuleName Test.PoolAdmin Start-Sleep -Times 0 -Exactly -Scope It
     }
     It 'retries a transient failure and returns 0 once the next attempt succeeds' {
+        $saved = Save-YurunaTestEnvironment -Name 'POOLADMIN_GIT_ATTEMPTS'
         $env:POOLADMIN_GIT_ATTEMPTS = '0'
         Mock -ModuleName Test.PoolAdmin Invoke-PoolSyncGit {
             $n = [int]$env:POOLADMIN_GIT_ATTEMPTS + 1
@@ -148,7 +151,7 @@ Describe 'Invoke-PoolAdminGitWithRetry survives a transient failure within a bou
             $rc | Should -Be 0
             Should -Invoke -ModuleName Test.PoolAdmin Invoke-PoolSyncGit -Times 2 -Exactly -Scope It
             Should -Invoke -ModuleName Test.PoolAdmin Start-Sleep -Times 1 -Exactly -Scope It
-        } finally { Remove-Item Env:\POOLADMIN_GIT_ATTEMPTS -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
     It 'gives up with the failing exit code once the wall-clock budget is spent (bounded, real backoff)' {
         Mock -ModuleName Test.PoolAdmin Invoke-PoolSyncGit { 128 }
@@ -229,7 +232,7 @@ Describe 'Open-YurunaPoolConfiguration refuses to reset --hard over unpushed loc
 
 Describe 'An existing configuration clone must match the requested configurationGitUrl' {
     BeforeAll {
-        $script:originRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('poolorigin-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $script:originRoot = New-YurunaTestTempDir -Prefix 'poolorigin'
         $script:originClone = Join-Path $script:originRoot 'clone'
         New-Item -ItemType Directory -Path $script:originClone -Force | Out-Null
         & git -C $script:originClone init --quiet 2>&1 | Out-Null
@@ -237,7 +240,7 @@ Describe 'An existing configuration clone must match the requested configuration
     }
     AfterAll {
         Unlock-YurunaPoolConfigurationClone -All
-        if (Test-Path -LiteralPath $script:originRoot) { [System.IO.Directory]::Delete($script:originRoot, $true) }
+        Remove-YurunaTestTempDir $script:originRoot
     }
     It 'accepts the same URL despite case, a .git suffix or a trailing slash' {
         (Test-PoolConfigurationCloneOrigin -Path $script:originClone -Url 'HTTPS://example.test/org/configuration-one/') | Should -BeTrue
@@ -273,8 +276,7 @@ Describe 'Open-YurunaPoolConfiguration keeps concurrent admin commands out of on
         $modules = Split-Path -Parent $PSCommandPath
         $script:lockAdmin = Join-Path $modules 'Test.PoolAdmin.psm1'
         $script:lockSync = Join-Path $modules 'Test.PoolSync.psm1'
-        $script:lockRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('poollock-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Path $script:lockRoot -Force | Out-Null
+        $script:lockRoot = New-YurunaTestTempDir -Prefix 'poollock'
         # A real bare store with one commit, so a clone has something to fetch.
         $script:lockStore = Join-Path $script:lockRoot 'store.git'
         $seed = Join-Path $script:lockRoot 'seed'
@@ -307,7 +309,7 @@ Describe 'Open-YurunaPoolConfiguration keeps concurrent admin commands out of on
     }
     AfterAll {
         Unlock-YurunaPoolConfigurationClone -All
-        if (Test-Path -LiteralPath $script:lockRoot) { [System.IO.Directory]::Delete($script:lockRoot, $true) }
+        Remove-YurunaTestTempDir $script:lockRoot
     }
 
     It 'lets six processes open one clone that does not exist yet, and every one succeeds' {

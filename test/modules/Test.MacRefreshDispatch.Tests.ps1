@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4245aa15-0036-4384-9791-32951e4e7589
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -621,10 +621,12 @@ echo "MODE=$YURUNA_INSTALL_MODE"
 # Runs POSIX stand-in executables and shell installers that Windows cannot launch.
 Describe 'yuruna_refresh_dispatch -- past the platform gate (Darwin stubbed)' -Skip:$IsWindows {
     It 'refuses when the target directory does not exist' {
-        $missing = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-missing-{0}" -f [guid]::NewGuid().ToString('N'))
-        $r = Invoke-InstallerShell -FakeDarwin -Body 'yuruna_refresh_dispatch "installer.sh" --refresh' `
-            -Environment @{ YURUNA_REFRESH = '1'; YURUNA_DIR = $missing }
-        Assert-Match 'not an existing Yuruna checkout' $r.Output ''
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-missing'
+        try {
+            $r = Invoke-InstallerShell -FakeDarwin -Body 'yuruna_refresh_dispatch "installer.sh" --refresh' `
+                -Environment @{ YURUNA_REFRESH = '1'; YURUNA_DIR = (Join-Path $root 'checkout') }
+            Assert-Match 'not an existing Yuruna checkout' $r.Output ''
+        } finally { Remove-YurunaTestTempDir $root }
     }
 
     It 'refuses when the protocol-version file is absent (pre-refresh checkout)' {

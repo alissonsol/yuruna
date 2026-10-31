@@ -12,7 +12,8 @@ service's behavior, flags and endpoints are in its
 
 ## Distinct client addresses
 
-Applies to: `distinctClientIPs` in `main.go`
+Applies to: `distinctClientIPs` in `main.go`, whose set `RecordAddressScan` in
+`internal/poolstate/addresses.go` joins with the host addresses
 
 `distinctClientIPs` returns the different addresses seen in the squid log over
 a window, and whether the whole window was covered. It is a count of addresses
@@ -104,11 +105,12 @@ restart, so a still-degraded pool does not page again.
 
 ## Host status label
 
-Applies to: `statusLabel` and `statusCode` in `main.go`
+Applies to: `HostView.StatusLabel` and `HostView.StatusCode` in
+`internal/poolstate/views.go`
 
-`statusLabel` folds reachability, whether the host's runner is alive,
+`StatusLabel` folds reachability, whether the host's runner is alive,
 `overallStatus` and the two pause flags into one value for the per-host table;
-`statusCode` is its numeric twin for the state-timeline panel, derived from the
+`StatusCode` is its numeric twin for the state-timeline panel, derived from the
 same source so they never disagree: unreachable 0, running 1, pass 2, fail 3,
 idle 4 (reachable with no or another cycle status), paused 5, pausing-cycle 6,
 pausing-step 7, stopped 8, preflight-failed 9.
@@ -343,6 +345,74 @@ count against the floor `max(1, CrossN-1)` -- never re-pinning -- so the inciden
 cannot hop between classes and inflate its duration. A different class reaching
 `CrossN` resolves the old incident and opens a new one (with a new id) in the
 same pass.
+
+<a id="42c29d04-0010"></a>
+
+## Extension address health
+
+Applies to: `ExtHealthView` in `internal/poolstate/views.go`,
+`applyExtensionProbeLocked`, `refreshExtensionHealth` and
+`applyExtensionHealthLocked` in `main.go`
+
+The pool hands out an extension's address only after this aggregator has
+reached it, and the verdict behind that rule belongs to an address, not to a
+service: when the advertised address changes, the record starts over and the new
+address has to earn its own confirmation. `Confirmed` separates two opposite
+situations. An address never reached is refused outright, which is what keeps a
+host-private address (a service VM on a hypervisor-private network) out of the
+pool. An address reached and then lost is carried through `extensionHealthGrace`
+of failures before it is refused, so a service restart or a dropped packet does
+not empty the dashboard panel and stall every cycle that needs the service.
+
+The verdict is re-derived on every poll, so the crossing of the grace would be
+logged once per `-interval` for as long as the announce TTL holds the entry.
+`RefusedLogged` keeps it to one line, and is reset with the rest of the record
+when the address changes, so a failure of a later address is reported
+again.
+
+<a id="42c29d04-0011"></a>
+
+## The pool view and its lock
+
+Applies to: `State` and `View` in `internal/poolstate/poolstate.go`, and every
+`st.Do` call in the service
+
+The aggregator's view of the pool -- the hosts, the cycle counters and their
+dedup set, the incident records and the health gate's latch, the self-announced
+extensions and this aggregator's verdicts on their addresses, the lab connection
+codes, the address counts, the identity aliases and the canary ring's facts --
+sits behind one mutex, which `internal/poolstate` owns. Several steps change more
+than one of those at once: a poll's merge updates hosts, cycle records, fail
+windows and incidents together, a handover moves a host's records under its new
+identity, and a forget clears one host from every map. One lock keeps each step
+whole for every reader, which separate locks per map would not without an
+ordering that every caller would have to follow.
+
+The view is reached only inside `State.Do`, which holds the lock for the call;
+code that needs the view while it already holds the lock takes the `*View`
+as a parameter (the `...Locked` helpers, `poolFor`, the incident evaluation),
+so the lock requirement is in the signature rather than in a comment. The lock
+is not reentrant: a function that takes it must not be called from inside `Do`.
+
+Nothing waits on the network inside `Do`. The poll captures what it will send to
+Loki -- cycle transitions, presence beacons, incident events, event-tail targets
+-- while it holds the lock and sends it after the lock is released; pool status
+and the metrics are serialized to bytes inside `Do`, because the host records
+they hold are mutated by the next poll, and written to the client after it. The
+one disk write inside `Do` is the handover ledger, synced before the handover is
+applied, so an acknowledged handover is always the persisted one.
+
+Some groups are reached only through methods that keep their own invariants: the
+cycle ledger (`ObserveCycle`, `CountTerminal`, `RevertCycle`, `ReapCycles`,
+`ForgetCycles`), the address scan (`RecordAddressScan`, which takes the union with
+the host addresses under the same lock) and the per-host address footprints, the
+lab connection codes (`RotateLabCode`, `RedeemLabCode`, which compares every kept
+code in constant time and bounds the throttle map), the identity aliases
+(`CanonicalHostID`, `ReplacedBy`, `RetiredIDs`, `SetAliases`) and the time of the
+last completed poll. The host records, the incident records and the health
+gate's latch, the announces with their health verdicts and the canary ring's
+facts are still fields of the view that the service's own code reads and changes
+inside `Do`.
 
 ---
 

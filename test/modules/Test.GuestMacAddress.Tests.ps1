@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b98737-f5a4-45fd-a853-c26c9d97ec84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -226,20 +226,23 @@ Describe 'Get-YurunaHostMacSeed -- what the host half is keyed on' {
         # silently, on precisely the hosts that have not finished a cycle yet.
         Mock Test-Path -ModuleName Yuruna.Common { $false } -ParameterFilter { $LiteralPath -like '*host.uuid' }
         $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $tmp = New-YurunaTestTempDir -Prefix 'mac'
         try {
-            $env:YURUNA_RUNTIME_DIR = (Join-Path ([System.IO.Path]::GetTempPath()) ('mac-' + [guid]::NewGuid().ToString('N').Substring(0, 8)))
+            $env:YURUNA_RUNTIME_DIR = Join-Path $tmp 'absent'
             $first = Get-YurunaHostMacSeed
             Assert-True ([string]::Equals($first, [Net.Dns]::GetHostName(), [StringComparison]::Ordinal)) 'the fallback must use the hostname when both runtime files are absent'
             foreach ($i in 1..5) {
                 Assert-Equal -Expected $first -Actual (Get-YurunaHostMacSeed) -Because 'fallback seed is stable across calls'
             }
-        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+        } finally {
+            Restore-YurunaTestEnvironment -Saved $saved
+            Remove-YurunaTestTempDir $tmp
+        }
     }
     It 'reads the host id from runtime/host.uuid when one is present' {
         $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
-        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('mac-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $tmp = New-YurunaTestTempDir -Prefix 'mac'
         try {
-            New-Item -ItemType Directory -Force -Path $tmp | Out-Null
             Set-Content -LiteralPath (Join-Path $tmp 'host.uuid') -Value "$script:HOSTB`n" -NoNewline
             $env:YURUNA_RUNTIME_DIR = $tmp
             Assert-Equal -Expected $script:HOSTB -Actual (Get-YurunaHostMacSeed) -Because 'host.uuid is the preferred seed'
@@ -247,7 +250,7 @@ Describe 'Get-YurunaHostMacSeed -- what the host half is keyed on' {
                          -Actual  (Get-YurunaGuestMacAddress -VMName $script:VM1) -Because 'resolved seed matches an explicit one'
         } finally {
             Restore-YurunaTestEnvironment -Saved $saved
-            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $tmp
         }
     }
 }

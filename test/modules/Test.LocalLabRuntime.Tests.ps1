@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 427d7835-537a-46e8-a963-5fe9f73d0a55
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -233,7 +233,7 @@ Describe 'pool-control markers advertise reachable endpoints' {
         $script:bundleMode=$Mode; $script:poolControlForwarded=$Forwarded; $script:daemonReady=$Ready
         $script:startOutcome = [pscustomobject]@{ Advertise = $Ready }
         $script:listeningButUnreachable=$Unreachable; $script:HostType='host.macos.utm'; $script:vmIp='192.0.2.42'
-        $ast = Get-FixtureAst 'service/Start-PoolControlServiceVM.ps1'
+        $ast = Get-FixtureAst 'service/Start-ExtensionService.pool-control.ps1'
         $assignment = $ast.Find({param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$poolControlServiceBaseUrl'}, $true)
         . ([scriptblock]::Create($assignment.Extent.Text))
         $poolControlServiceBaseUrl | Should -Be $Expected

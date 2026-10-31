@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 425c4e99-8eb0-4875-95bc-856e3d36c7fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,13 +39,14 @@ BeforeAll {
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Resource.psm1') -Force -DisableNameChecking
     # In the environment, where the stand-in tools defined as global functions
     # can read it.
+    $script:SavedPwshEntry = Save-YurunaTestEnvironment -Name 'YURUNA_DEADLINE_TEST_PWSH'
     $env:YURUNA_DEADLINE_TEST_PWSH = (Get-Process -Id $PID).Path
     $script:Hang = { & $env:YURUNA_DEADLINE_TEST_PWSH -NoProfile -NonInteractive -Command 'Start-Sleep -Seconds 60' }
     $script:EnvironmentName = @('YURUNA_RETRY_MAX_ATTEMPTS', 'YURUNA_RETRY_DELAY_SECONDS', 'TF_PLUGIN_CACHE_DIR', 'TF_IN_AUTOMATION', 'contextName', 'workFolder', 'resourceName')
 }
 
 AfterAll {
-    Remove-Item -Path Env:YURUNA_DEADLINE_TEST_PWSH -ErrorAction SilentlyContinue
+    Restore-YurunaTestEnvironment -Saved $script:SavedPwshEntry
 }
 
 Describe 'a tool call under a deadline' {
@@ -122,14 +123,13 @@ Describe 'the bound of a deploy tool call' {
 Describe 'a phase ends a stopped tool call as tool_timeout' {
     BeforeEach {
         $script:originalLocation = (Get-Location).Path
-        $script:originalEnvironment = @{}
-        foreach ($name in $script:EnvironmentName) { $script:originalEnvironment[$name] = [Environment]::GetEnvironmentVariable($name) }
+        $script:originalEnvironment = Save-YurunaTestEnvironment -Name $script:EnvironmentName
         $env:YURUNA_RETRY_MAX_ATTEMPTS = '1'
     }
 
     AfterEach {
         Set-Location -LiteralPath $script:originalLocation
-        foreach ($name in $script:EnvironmentName) { [Environment]::SetEnvironmentVariable($name, $script:originalEnvironment[$name]) }
+        Restore-YurunaTestEnvironment -Saved $script:originalEnvironment
         foreach ($name in 'helm', 'kubectl', 'tofu') { Remove-Item -Path "Function:global:$name" -ErrorAction SilentlyContinue }
     }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 424a2e17-dfe4-4ca3-ae90-6837265945f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -374,8 +374,8 @@ Describe 'internal-auth-key provisioning' {
         # in a full run and not when this file is run by itself.
         Get-Module -Name 'default' -All | Remove-Module -Force -ErrorAction SilentlyContinue
         Import-Module $patAuthModule -Global -Force -DisableNameChecking -ErrorAction SilentlyContinue
-        $patTmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-pat-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $patTmpDir -Force | Out-Null
+        $patTmpDir = New-YurunaTestTempDir -Prefix 'yuruna-pat'
+        $script:PatSavedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_TEST_PAT_DIR'
         $env:YURUNA_TEST_PAT_DIR = $patTmpDir
         $patReady = [bool](Get-Command Set-InternalAuthKey -ErrorAction SilentlyContinue) -and `
                     [bool](Get-Command Set-UserVaultKey -ErrorAction SilentlyContinue)
@@ -395,8 +395,8 @@ Describe 'internal-auth-key provisioning' {
         # the module location) and drop the throwaway dir so a later suite in the
         # same runspace sees the real vault.
         Import-Module $patAuthModule -Global -Force -DisableNameChecking -ErrorAction SilentlyContinue
-        if ($patTmpDir -and (Test-Path -LiteralPath $patTmpDir)) { Remove-Item -LiteralPath $patTmpDir -Recurse -Force -ErrorAction SilentlyContinue }
-        Remove-Item Env:\YURUNA_TEST_PAT_DIR -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $patTmpDir
+        Restore-YurunaTestEnvironment -Saved $script:PatSavedEnvironment
     }
 
     It 'Get-InternalAuthKeyValue serves a legacy pool-auth-token entry when the newer names are absent' {
@@ -478,8 +478,7 @@ Describe 'internal-auth-key provisioning' {
 # See https://yuruna.link/42e220c4-0014
 Describe 'status-service bounce' {
     BeforeAll {
-        $bnDir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-bounce-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $bnDir -Force | Out-Null
+        $bnDir = New-YurunaTestTempDir -Prefix 'yuruna-bounce'
         $bnPidFile = Join-Path $bnDir 'grandchild.pid'
         $bnScript  = Join-Path $bnDir 'Start-StatusService.ps1'
         # Single-quoted here-string + placeholder: the generated script needs no
@@ -513,7 +512,7 @@ exit 0
             $gcPid = (Get-Content -LiteralPath $bnPidFile -Raw).Trim()
             if ($gcPid) { Stop-Process -Id $gcPid -Force -ErrorAction SilentlyContinue }
         }
-        Remove-Item -LiteralPath $bnDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $bnDir
         # The helper names its transcript after this process and leaves it for
         # its caller to judge; this suite is that caller here.
         $bounceLog = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-status-bounce-$PID.log"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 424882ac-09a5-499f-af1e-64e5b6e9bf94
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,7 +132,8 @@ Describe 'native service invocation preserves failure and argument boundaries' {
         Should -Invoke Start-Process -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -ParameterFilter { $ArgumentList -match '"C:\\Users\\Test User\\install log.txt"' }
     }
     It 'waits for a VM address before configuring the shared NAT forwarder' {
-        $ast = Get-RuntimeSafetyAst "$script:TestRoot/service/Start-PoolControlServiceVM.ps1"
+        # The pool-control start's address and forwarding phases are its readiness part.
+        $ast = Get-RuntimeSafetyAst "$script:TestRoot/service/Start-ExtensionService.pool-control.ps1"
         $wait = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Wait-VMIp' }, $true)
         $forward = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Add-PortMap' }, $true)
         $wait.Extent.EndOffset | Should -BeLessThan $forward.Extent.StartOffset

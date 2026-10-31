@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42bc2da1-ebdb-48ed-9d8a-68099d34d1f5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,17 +46,6 @@ Import-Module (Join-Path $here 'Test.SequenceHandler.psm1') -Force -DisableNameC
 Import-Module (Join-Path $here 'Test.SequenceResolve.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
-
-function New-WRTempDir {
-    [CmdletBinding()]
-    [OutputType([string])]
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Test helper: creates a throwaway log dir the calling It block deletes in its finally.')]
-    param()
-    $p = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-wr-" + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $p -Force | Out-Null
-    return $p
-}
 
 # --- REGION: Fixture helpers
 # See https://yuruna.link/42e220c4-0014
@@ -153,35 +142,35 @@ Describe 'New-WarmResumeEvent (schema)' {
 
 Describe 'Read-WarmResumeCheckpoint' {
     It 'round-trips a checkpoint from last_failure.json' {
-        $d = New-WRTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-wr'
         try {
             @{ failureClass='network_timeout'; sequenceName='k8s'; repro=@{ resumeFromStep=27 } } |
                 ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $d 'last_failure.json')
             $cp = Read-WarmResumeCheckpoint -LogDir $d
             Assert-Equal -Expected 'network_timeout' -Actual $cp.FailureClass
             Assert-Equal -Expected 27 -Actual $cp.ResumeFromStep
-        } finally { if (Test-Path $d) { Remove-Item -Recurse -Force $d } }
+        } finally { Remove-YurunaTestTempDir $d }
     }
     It 'returns an empty checkpoint for a missing file' {
-        $d = New-WRTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-wr'
         try { Assert-Equal -Expected 0 -Actual (Read-WarmResumeCheckpoint -LogDir $d).ResumeFromStep }
-        finally { if (Test-Path $d) { Remove-Item -Recurse -Force $d } }
+        finally { Remove-YurunaTestTempDir $d }
     }
     It 'returns an empty checkpoint for a corrupt file' {
-        $d = New-WRTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-wr'
         try {
             [System.IO.File]::WriteAllText((Join-Path $d 'last_failure.json'), '{ not json', [System.Text.UTF8Encoding]::new($false))
             Assert-Equal -Expected 0 -Actual (Read-WarmResumeCheckpoint -LogDir $d).ResumeFromStep
-        } finally { if (Test-Path $d) { Remove-Item -Recurse -Force $d } }
+        } finally { Remove-YurunaTestTempDir $d }
     }
     It 'treats a file older than NotBeforeUtc as no checkpoint (staleness gate)' {
-        $d = New-WRTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-wr'
         try {
             @{ failureClass='network_timeout'; sequenceName='k8s'; repro=@{ resumeFromStep=27 } } |
                 ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $d 'last_failure.json')
             $cp = Read-WarmResumeCheckpoint -LogDir $d -NotBeforeUtc ([DateTime]::UtcNow.AddMinutes(5))
             Assert-Equal -Expected 0 -Actual $cp.ResumeFromStep -Because 'a stale record must not drive a resume'
-        } finally { if (Test-Path $d) { Remove-Item -Recurse -Force $d } }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 }
 
@@ -279,8 +268,7 @@ Describe 'Get-WarmResumeStepAction (against the engine loader)' {
     # than a hand-built list: it is the only assertion that catches the loader
     # contract changing underneath the reader.
     BeforeAll {
-        $script:seqDir = Join-Path ([System.IO.Path]::GetTempPath()) ("wr-seq-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Path $script:seqDir -Force | Out-Null
+        $script:seqDir = New-YurunaTestTempDir -Prefix 'wr-seq'
         $script:seqFile = Join-Path $script:seqDir 'workload.guest.ubuntu.server.24.probe.yml'
         @'
 sequenceGuid: 42d9c1a7-3f5b-4e88-9a20-6b7c1d0e4f52
@@ -306,9 +294,7 @@ workload:
 '@ | Set-Content -LiteralPath $script:seqFile -Encoding utf8
     }
     AfterAll {
-        if ($script:seqDir -and (Test-Path -LiteralPath $script:seqDir)) {
-            Remove-Item -LiteralPath $script:seqDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
+        Remove-YurunaTestTempDir $script:seqDir
     }
 
     It 'reads component and workload as one list, in the order -StartStep counts' {
@@ -498,8 +484,7 @@ Describe 'Replay safety is declared by every registered action' {
 Describe 'Get-WarmResumeStepReplayClass (against the engine loader)' {
 
     BeforeAll {
-        $script:rcDir = Join-Path ([System.IO.Path]::GetTempPath()) ("wr-rc-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Path $script:rcDir -Force | Out-Null
+        $script:rcDir = New-YurunaTestTempDir -Prefix 'wr-rc'
         $script:rcFile = Join-Path $script:rcDir 'workload.guest.ubuntu.server.24.replay.yml'
         @'
 sequenceGuid: 42b7a1c3-5d2e-4f60-9a81-3c4d5e6f7a80
@@ -537,9 +522,7 @@ workload:
 '@ | Set-Content -LiteralPath $script:rcFile -Encoding utf8
     }
     AfterAll {
-        if ($script:rcDir -and (Test-Path -LiteralPath $script:rcDir)) {
-            Remove-Item -LiteralPath $script:rcDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
+        Remove-YurunaTestTempDir $script:rcDir
     }
 
     It 'reads a whole step, so a wrapper is as unsafe as the least safe thing it holds' {
@@ -602,8 +585,7 @@ component:
 Describe 'Get-WarmResumeBoundarySnapshotId' {
 
     BeforeAll {
-        $script:bsDir = Join-Path ([System.IO.Path]::GetTempPath()) ("wr-bs-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Path $script:bsDir -Force | Out-Null
+        $script:bsDir = New-YurunaTestTempDir -Prefix 'wr-bs'
         $script:bsLiteral = Join-Path $script:bsDir 'workload.guest.ubuntu.server.24.literal.yml'
         @'
 sequenceGuid: 42c8b2d4-6e3f-4071-8b92-4d5e6f7a8b91
@@ -636,9 +618,7 @@ workload:
 '@ | Set-Content -LiteralPath $script:bsLiteral -Encoding utf8
     }
     AfterAll {
-        if ($script:bsDir -and (Test-Path -LiteralPath $script:bsDir)) {
-            Remove-Item -LiteralPath $script:bsDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
+        Remove-YurunaTestTempDir $script:bsDir
     }
 
     It 'returns the literal id of a top-level restore' {
@@ -683,8 +663,7 @@ Describe 'New-WarmResumeDeclinedEvent' {
 
 Describe 'Resolve-WarmResumeReplayPlan' {
     BeforeAll {
-        $script:rpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("wr-rp-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Path $script:rpDir -Force | Out-Null
+        $script:rpDir = New-YurunaTestTempDir -Prefix 'wr-rp'
         $script:rpWithBoundary = Join-Path $script:rpDir 'workload.guest.ubuntu.server.24.boundary.yml'
         @'
 sequenceGuid: 42c8b2d4-6e3f-4071-8b92-4d5e6f7a8b92
@@ -749,7 +728,7 @@ workload:
         # The path form: the scope-qualified spelling removes nothing.
         Remove-Item -Path Function:\Resolve-SequencePath, Function:\Test-VMDiskSnapshot -ErrorAction SilentlyContinue
         Remove-Variable __rpPlan -Scope Global -ErrorAction SilentlyContinue
-        if ($script:rpDir -and (Test-Path -LiteralPath $script:rpDir)) { Remove-Item -LiteralPath $script:rpDir -Recurse -Force -ErrorAction SilentlyContinue }
+        Remove-YurunaTestTempDir $script:rpDir
     }
     BeforeEach { $global:__rpPlan = @{ Path = $script:rpWithBoundary; SnapshotPresent = $true; SeenName = ''; SnapshotProbeThrows = $false } }
 

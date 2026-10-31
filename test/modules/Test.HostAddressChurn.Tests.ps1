@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42218fa5-018e-4ea0-a6fe-a80cc7202613
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,17 +49,6 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.HostAddressBeacon.psm1') -Force -DisableNameChecking
 
-    function New-ChurnTempDir {
-        [CmdletBinding()]
-        [OutputType([string])]
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-            Justification = 'Test helper: creates a throwaway runtime dir the calling It block deletes.')]
-        param()
-        $p = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-churn-" + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $p -Force | Out-Null
-        return $p
-    }
-
     function Add-ChurnRow {
         param([string]$Dir, [datetime]$AtUtc, [string]$To = '192.168.7.9')
         Write-HostAddressChangeRecord -RuntimeDir $Dir -Previous '192.168.7.1' -Current $To `
@@ -74,31 +63,31 @@ Describe 'Get-HostAddressChangeCount' {
         # facts and only one is evidence. Collapsing them is precisely how five
         # consecutive cycles were read as having met no churn when three of them
         # had -- so the unmeasured case must not be able to wear zero's costume.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             Get-HostAddressChangeCount -RuntimeDir $d -StartUtc ([datetime]::UtcNow.AddHours(-1)) -EndUtc ([datetime]::UtcNow) |
                 Should -Be -1
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'reports -1 when every row is unreadable, which is also not a quiet network' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             Set-Content -Path (Join-Path $d 'hostaddress.changes.ndjson') -Value 'not json at all'
             Get-HostAddressChangeCount -RuntimeDir $d -StartUtc ([datetime]::UtcNow.AddHours(-1)) -EndUtc ([datetime]::UtcNow) |
                 Should -Be -1
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'reports zero when the record exists and the window really was quiet' {
         # The genuine zero, which must survive the change above: a host that
         # recorded changes, none of them inside this cycle.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             Add-ChurnRow -Dir $d -AtUtc ([datetime]::UtcNow.AddMinutes(-90))
             Get-HostAddressChangeCount -RuntimeDir $d -StartUtc ([datetime]::UtcNow.AddHours(-1)) -EndUtc ([datetime]::UtcNow) |
                 Should -Be 0
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'reports zero for a host that has held one address since the beacon started' {
@@ -108,31 +97,31 @@ Describe 'Get-HostAddressChangeCount' {
         # meaning the most bounded hosts in the lab were indistinguishable from
         # the ones nothing was watching. The baseline row is what separates
         # them, and it must never itself count as a change.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             Write-HostAddressBaselineRecord -RuntimeDir $d -Current '192.168.7.115' `
                 -ObservedAtUtc ([datetime]::UtcNow.AddMinutes(-10).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)) -Confirm:$false
             Get-HostAddressChangeCount -RuntimeDir $d -StartUtc ([datetime]::UtcNow.AddHours(-1)) -EndUtc ([datetime]::UtcNow) |
                 Should -Be 0
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'counts only the changes that fell inside the cycle window' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             # One before the cycle started, three inside it.
             foreach ($m in 70, 40, 25, 10) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-$m) }
             Get-HostAddressChangeCount -RuntimeDir $d -StartUtc $now.AddMinutes(-50) -EndUtc $now |
                 Should -Be 3 -Because 'the change 70 minutes ago predates the window'
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'includes changes exactly on the window boundaries' {
         # A cycle's first and last instants belong to that cycle. Excluding them
         # would under-report precisely the change that landed at a cycle edge,
         # which is where a lease boundary most often falls.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             # Truncated to the second, which is the precision a recorded row
             # carries. Comparing a second-precision row against a boundary that
@@ -144,30 +133,30 @@ Describe 'Get-HostAddressChangeCount' {
             Add-ChurnRow -Dir $d -AtUtc $start
             Add-ChurnRow -Dir $d -AtUtc $end
             Get-HostAddressChangeCount -RuntimeDir $d -StartUtc $start -EndUtc $end | Should -Be 2
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'reads as zero for a window in which nothing happened' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-40)
             Get-HostAddressChangeCount -RuntimeDir $d -StartUtc $now.AddMinutes(-9) -EndUtc $now.AddMinutes(-3) |
                 Should -Be 0
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'skips a malformed row rather than failing the cycle over it' {
         # This feeds a report at cycle end. A truncated final line -- the shape a
         # crash mid-append leaves -- must not become the reason a cycle cannot
         # close.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-10)
             Add-Content -Path (Join-Path $d 'hostaddress.changes.ndjson') -Value '{"event":"host_address_change","cur'
             Get-HostAddressChangeCount -RuntimeDir $d -StartUtc $now.AddMinutes(-30) -EndUtc $now | Should -Be 1
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 }
 
@@ -177,18 +166,18 @@ Describe 'Get-HostAddressChangeRow' {
         # The count's -1 rule, carried by the rows: a failure record that reads
         # these must be able to say "unmeasured" rather than "the host held its
         # address", which is what an empty list means.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $null -eq (Get-HostAddressChangeRow -RuntimeDir $d -StartUtc ([datetime]::UtcNow.AddHours(-1)) -EndUtc ([datetime]::UtcNow)) |
                 Should -BeTrue -Because 'no record was ever written'
             Set-Content -Path (Join-Path $d 'hostaddress.changes.ndjson') -Value 'not json at all'
             $null -eq (Get-HostAddressChangeRow -RuntimeDir $d -StartUtc ([datetime]::UtcNow.AddHours(-1)) -EndUtc ([datetime]::UtcNow)) |
                 Should -BeTrue -Because 'a record no row of which can be read is not a quiet network'
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'returns the moves inside the window with their instants and addresses, and an empty list for a quiet one' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             Write-HostAddressBaselineRecord -RuntimeDir $d -Current '192.168.7.1' `
@@ -205,14 +194,14 @@ Describe 'Get-HostAddressChangeRow' {
             @($quiet).Count | Should -Be 0
             Get-HostAddressChangeCount -RuntimeDir $d -StartUtc $now.AddMinutes(-50) -EndUtc $now |
                 Should -Be 1 -Because 'the count is the rows counted'
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 }
 
 Describe 'Write-HostAddressChangeRecord' {
 
     It 'appends one parseable row per change, keeping what it moved from and to' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             Write-HostAddressChangeRecord -RuntimeDir $d -Previous '192.168.7.133' -Current '192.168.7.53' `
                 -ChangedAtUtc '2026-08-12T15:08:55Z'
@@ -226,29 +215,29 @@ Describe 'Write-HostAddressChangeRecord' {
             # the round-trip is asserted as an instant rather than as text.
             ([datetime]$row.changedAtUtc).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture) |
                 Should -Be '2026-08-12T15:08:55Z'
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'appends rather than rewrites, so the runner can read it while the beacon writes' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             foreach ($n in 1..5) {
                 Write-HostAddressChangeRecord -RuntimeDir $d -Previous '' -Current "192.168.7.$n" `
                     -ChangedAtUtc ([datetime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture))
             }
             @(Get-Content (Join-Path $d 'hostaddress.changes.ndjson')).Count | Should -Be 5
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'records the first observation, where there is no previous address' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             Write-HostAddressChangeRecord -RuntimeDir $d -Previous '' -Current '192.168.7.133' `
                 -ChangedAtUtc '2026-08-12T14:49:24Z'
             $row = @(Get-Content (Join-Path $d 'hostaddress.changes.ndjson'))[0] | ConvertFrom-Json
             $row.previous | Should -Be ''
             $row.current  | Should -Be '192.168.7.133'
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 }
 
@@ -309,14 +298,14 @@ Describe 'The counter is reachable from the session that actually records it' {
 Describe 'Get-HostAddressChurnVerdict -- periodic, or merely frequent?' {
 
     It 'calls a quiet host stable, and an absent record unknown' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             (Get-HostAddressChurnVerdict -RuntimeDir $d).verdict | Should -Be 'unknown' `
                 -Because 'no record means the question was not asked, not that the answer is good'
             Add-ChurnRow -Dir $d -AtUtc ([datetime]::UtcNow.AddDays(-30))
             (Get-HostAddressChurnVerdict -RuntimeDir $d -LookbackHours 48).verdict | Should -Be 'stable' `
                 -Because 'the only change on file is far outside the window'
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'calls a beacon-started, never-moved host stable rather than unknown' {
@@ -324,7 +313,7 @@ Describe 'Get-HostAddressChurnVerdict -- periodic, or merely frequent?' {
         # motionless host whose status service restarted three times would read
         # as 'moved' -- and on a long lease that is the reading that sends an
         # operator hunting for leaked addresses that were never leaked.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             foreach ($ago in 300, 200, 100) {
                 Write-HostAddressBaselineRecord -RuntimeDir $d -Current '192.168.7.115' `
@@ -333,7 +322,7 @@ Describe 'Get-HostAddressChurnVerdict -- periodic, or merely frequent?' {
             $v = Get-HostAddressChurnVerdict -RuntimeDir $d
             $v.verdict | Should -Be 'stable'
             $v.changes | Should -Be 0
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'reads one address per renewal as renewal-churn, at ANY lease length' {
@@ -343,7 +332,7 @@ Describe 'Get-HostAddressChurnVerdict -- periodic, or merely frequent?' {
         # the first a fault and the second healthy -- while the second is worse,
         # each abandoned address being parked for a week instead of 20 minutes.
         foreach ($periodMin in 10, 600, 5040) {
-            $d = New-ChurnTempDir
+            $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
             try {
                 $now = [datetime]::UtcNow
                 foreach ($i in 1..8) {
@@ -353,7 +342,7 @@ Describe 'Get-HostAddressChurnVerdict -- periodic, or merely frequent?' {
                 $v.verdict | Should -Be 'renewal-churn' -Because "a $periodMin-minute period repeats just as plainly as any other"
                 $v.medianIntervalMinutes | Should -Be $periodMin
                 $v.distinctAddresses | Should -Be 8 -Because 'every renewal took a fresh address'
-            } finally { Remove-Item -Recurse -Force $d }
+            } finally { Remove-YurunaTestTempDir $d }
         }
     }
 
@@ -361,19 +350,19 @@ Describe 'Get-HostAddressChurnVerdict -- periodic, or merely frequent?' {
         # Same number of changes as the case above, spread at no fixed interval.
         # This is what the discovery path exists to absorb, and telling an
         # operator to re-pin their DHCP identity over it is wrong advice.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             foreach ($m in 5, 47, 63, 400, 415, 1200) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-$m) }
             (Get-HostAddressChurnVerdict -RuntimeDir $d -NowUtc $now).verdict | Should -Be 'moved'
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'still sees the period when a reboot lands in the middle of it' {
         # The reason regularity is measured against the median and not the mean:
         # one outlying gap must not be able to hide a timer that is otherwise
         # ticking on every renewal.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             # Eight 30-minute steps with one 9-hour gap wedged in.
@@ -382,19 +371,19 @@ Describe 'Get-HostAddressChurnVerdict -- periodic, or merely frequent?' {
             $v = Get-HostAddressChurnVerdict -RuntimeDir $d -NowUtc $now
             $v.verdict | Should -Be 'renewal-churn'
             $v.medianIntervalMinutes | Should -Be 30
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'will not call two changes a period' {
         # Two points make one interval, which is a duration; a period needs a
         # repetition to be one. Guessing from a single gap is how a host that
         # rebooted twice gets told its DHCP identity is broken.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             foreach ($m in 30, 60) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-$m) }
             (Get-HostAddressChurnVerdict -RuntimeDir $d -NowUtc $now).verdict | Should -Be 'moved'
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 }
 
@@ -405,7 +394,7 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
         # different remedies: one is a setting on this host, the other cannot be
         # fixed on this host at all. Reporting either one for both is how an
         # operator applies a pin, sees no change, and stops trusting the check.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             foreach ($i in 1..8) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-30 * $i) -To "192.168.7.$(10 + $i)" }
@@ -422,14 +411,14 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
                 $pinned.remedy   | Should -Not -Be 'PIN-IT' -Because 'a pin that is already set cannot be the remedy for its own failure'
                 $pinned.remedy   | Should -Match 'reserv|static'
             }
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'flags a host that is stable only by the server''s goodwill' {
         # No churn to see, no pin to hold it. Nothing is wrong yet, which is
         # exactly when saying so is cheap -- the alternative is finding out at
         # the next lease-table eviction.
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Dir = $d } {
                 param($Dir)
@@ -443,15 +432,15 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
                 Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkd'; pinned = $true; detail = 'pinned'; remedy = '' } }
                 (Get-HostAddressStabilityReport -RuntimeDir $Dir).severity | Should -Be 'ok'
             }
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'never reports a severity a cycle could fail on' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             (Get-HostAddressStabilityReport -RuntimeDir $d).severity |
                 Should -BeIn @('ok', 'advisory', 'warning')
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     # A window whose every change reports the same current address describes a
@@ -461,7 +450,7 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
     # An operator reading it goes looking for address mobility, finds a host
     # sitting on one address, and concludes the check is noise.
     It 'does not report a renumbering when only one address was ever seen' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             # Irregular gaps so the verdict is 'moved' rather than periodic, and
@@ -477,11 +466,11 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
                 $r.message | Should -Match 'took no extra lease'
                 $r.severity | Should -BeIn @('ok', 'advisory', 'warning')
             }
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'still reports a real renumbering when more than one address was seen' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             $i = 0
@@ -496,7 +485,7 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
                 $r.message | Should -Match 'changed address \d+ time'
                 $r.message | Should -Match 'distinct addresses'
             }
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     # The pool-drain arithmetic in the periodic branch is a quantitative claim
@@ -504,7 +493,7 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
     # false, and a false leak sends an operator to the DHCP server for a fault
     # that is on the wire.
     It 'withdraws the pool-drain claim when the periodic changes are all one address' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             foreach ($i in 1..8) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-30 * $i) -To '192.168.7.9' }
@@ -518,7 +507,7 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
                 $r.message  | Should -Not -Match 'a day'
                 $r.message  | Should -Match 'LOSES AND REACQUIRES'
             }
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     # The periodic multi-address branch reports a RATE, and a rate is not a
@@ -529,7 +518,7 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
     # measurement, and it sends whoever reads it to a DHCP server that may have
     # most of its pool free.
     It 'reports the churn rate without asserting renewal or exhaustion' {
-        $d = New-ChurnTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
         try {
             $now = [datetime]::UtcNow
             $i = 0
@@ -554,7 +543,7 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
                 # The one claim the address log DOES support stays.
                 $r.message | Should -Match 'breaks every guest behind it'
             }
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 }
 

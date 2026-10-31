@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42bad34d-afe5-4516-b9c8-4c8fb18b5c09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -135,7 +135,7 @@ Describe 'Deployment entrypoints delegate hardened path resolution and scope mod
 
 Describe 'The wildcard-glob hazard the -LiteralPath switch closes' {
     It 'a wildcard-metachar folder name resolves under -LiteralPath but globs under -Path' {
-        $root = Join-Path ([System.IO.Path]::GetTempPath()) ("auentry-" + [System.Guid]::NewGuid().ToString('N'))
+        $root = New-YurunaTestTempDir -Prefix 'auentry'
         # A literal folder name containing bracket metacharacters.
         $bracket = Join-Path $root 'proj[1]'
         New-Item -ItemType Directory -Path $bracket -Force | Out-Null
@@ -148,6 +148,6 @@ Describe 'The wildcard-glob hazard the -LiteralPath switch closes' {
             @($literal).Count | Should -Be 1
             $literal.Path     | Should -Be $bracket
             [string]::IsNullOrEmpty($globbed) | Should -BeTrue
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }

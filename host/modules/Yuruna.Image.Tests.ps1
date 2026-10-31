@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42fd17d5-cc0b-4b81-94e7-4b54d311a679
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,61 +73,24 @@ $script:ImageTargetName = 'resolute-server-cloudimg-arm64.img'
 $script:ImageTargetHash = '3e113fdd41f39e13729375173bb2ae793f87dc6db4294e5251ff2476971788ba'
 $script:ImageSumsBytes  = [System.Text.Encoding]::UTF8.GetBytes($ImageSumsBody)
 
-# One-shot HTTP responder on loopback. A raw TcpListener rather than
-# HttpListener: HttpListener needs a URL ACL (or Administrator) to bind, which
-# an unattended test run cannot assume. The socket is bound by the caller and
-# handed to the job already listening, so the request can never arrive before
-# there is something to accept it.
-function Get-LoopbackChecksumListener {
-    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-    $listener.Start()
-    return @{
-        Listener = $listener
-        BaseUrl  = "http://127.0.0.1:$(([System.Net.IPEndPoint]$listener.LocalEndpoint).Port)"
-    }
-}
-
-function Get-ChecksumResponderJob {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
-        Justification = 'Every value arrives through -ArgumentList into the job param() block; the analyzer does not follow that path.')]
+# One loopback responder serves the checksum list and the image: a request
+# naming SHA256SUMS gets the list (or its status), any other the image bytes.
+# Neither reply carries a Content-Type, exactly as the Ubuntu mirrors serve
+# SHA256SUMS. That omission is what made Invoke-WebRequest hand `.Content` back
+# as a Byte[] instead of a string.
+function Start-ChecksumResponder {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test fixture: starts a loopback responder each case stops itself.')]
     param(
-        [System.Net.Sockets.TcpListener]$Listener,
         [string]$SumsBody = '',
         [int]$SumsStatus = 200,
         [string]$ImageBody = '',
         [int]$RequestCount = 1
     )
-    return Start-ThreadJob -ScriptBlock {
-        param($Listener, $SumsBody, $SumsStatus, $ImageBody, $RequestCount)
-        try {
-            for ($i = 0; $i -lt $RequestCount; $i++) {
-                $client = $Listener.AcceptTcpClient()
-                try {
-                    $stream  = $client.GetStream()
-                    $buffer  = [byte[]]::new(8192)
-                    $read    = $stream.Read($buffer, 0, $buffer.Length)
-                    $request = [System.Text.Encoding]::ASCII.GetString($buffer, 0, $read)
-                    if ($request -match 'SHA256SUMS') {
-                        $status = $SumsStatus
-                        $body   = $SumsBody
-                    } else {
-                        $status = 200
-                        $body   = $ImageBody
-                    }
-                    $reason  = if ($status -eq 200) { 'OK' } else { 'Not Found' }
-                    $payload = [System.Text.Encoding]::UTF8.GetBytes($body)
-                    # NO Content-Type header, exactly as the Ubuntu mirrors serve
-                    # SHA256SUMS. That omission is what made Invoke-WebRequest
-                    # hand `.Content` back as a Byte[] instead of a string.
-                    $head      = "HTTP/1.1 $status $reason`r`nContent-Length: $($payload.Length)`r`nConnection: close`r`n`r`n"
-                    $headBytes = [System.Text.Encoding]::ASCII.GetBytes($head)
-                    $stream.Write($headBytes, 0, $headBytes.Length)
-                    $stream.Write($payload, 0, $payload.Length)
-                    $stream.Flush()
-                } finally { $client.Close() }
-            }
-        } finally { $Listener.Stop() }
-    } -ArgumentList $Listener, $SumsBody, $SumsStatus, $ImageBody, $RequestCount
+    return Start-YurunaTestHttpResponder -RequestCount $RequestCount -Route ([ordered]@{
+            'SHA256SUMS' = (New-YurunaTestHttpReply -StatusCode $SumsStatus -Body $SumsBody)
+            '.'          = (New-YurunaTestHttpReply -Body $ImageBody)
+        })
 }
 
 function New-ImageTestDirectory {
@@ -136,9 +99,7 @@ function New-ImageTestDirectory {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $path = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-image-test-' + [Guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
-    return $path
+    return New-YurunaTestTempDir -Prefix 'yuruna-image-test'
 }
 }
 
@@ -200,25 +161,21 @@ Describe 'A missing entry and an unreachable publisher are different answers' {
     }
 
     It 'reports absent, carrying the status, when the publisher serves a 404' {
-        $bound = Get-LoopbackChecksumListener
-        $job   = Get-ChecksumResponderJob -Listener $bound.Listener -SumsStatus 404 -SumsBody 'not here'
+                $bound = Start-ChecksumResponder -SumsStatus 404 -SumsBody 'not here'
         try {
             $r = Get-ImageChecksumLine -ChecksumUrl "$($bound.BaseUrl)/SHA256SUMS" `
                 -TargetFileName $script:ImageTargetName -WarningAction SilentlyContinue
             Assert-StringEqual -Expected 'absent' -Actual $r.State
             Assert-StringEqual -Expected 404 -Actual $r.Status
         } finally {
-            $bound.Listener.Stop()
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            $null = Stop-YurunaTestHttpResponder $bound
         }
     }
 
     It 'reports unreachable when nothing is listening at the address' {
         # A closed loopback port refuses immediately, so the whole retry budget
         # is spent in milliseconds; MaxAttempts 1 keeps even that off the clock.
-        $bound = Get-LoopbackChecksumListener
-        $port  = ([System.Net.IPEndPoint]$bound.Listener.LocalEndpoint).Port
-        $bound.Listener.Stop()
+        $port  = Get-YurunaTestFreePort
         $dir = New-ImageTestDirectory
         try {
             $r = Get-PublishedChecksumBody -ChecksumUrl "http://127.0.0.1:$port/SHA256SUMS" `
@@ -226,21 +183,19 @@ Describe 'A missing entry and an unreachable publisher are different answers' {
             Assert-StringEqual -Expected 'unreachable' -Actual $r.State
             Assert-True ($r.Status -eq 0) 'a refused connection carries no HTTP status'
             Assert-True ($r.Detail -ne '') 'and the reason survives into the result'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'reads the hash back over a response that carries no Content-Type' {
         # End-to-end through the fetch path, against the exact publisher
         # behavior -- a 200 with no Content-Type -- that broke the lookup.
-        $bound = Get-LoopbackChecksumListener
-        $job   = Get-ChecksumResponderJob -Listener $bound.Listener -SumsBody $ImageSumsBody
+                $bound = Start-ChecksumResponder -SumsBody $ImageSumsBody
         try {
             $r = Get-ImageChecksumLine -ChecksumUrl "$($bound.BaseUrl)/SHA256SUMS" -TargetFileName $script:ImageTargetName
             Assert-StringEqual -Expected 'found' -Actual $r.State
             Assert-StringEqual -Expected $script:ImageTargetHash -Actual $r.Hash
         } finally {
-            $bound.Listener.Stop()
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            $null = Stop-YurunaTestHttpResponder $bound
         }
     }
 }
@@ -274,8 +229,7 @@ Describe 'The download policy is permissive by default and strict only on reques
             [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($payload))
         ).Replace('-', '').ToLowerInvariant()
         $dir   = New-ImageTestDirectory
-        $bound = Get-LoopbackChecksumListener
-        $job   = Get-ChecksumResponderJob -Listener $bound.Listener -ImageBody $payload `
+                $bound = Start-ChecksumResponder -ImageBody $payload `
             -SumsBody "$hash *image.img`n" -RequestCount 2
         $dest = Join-Path $dir 'image.img'
         try {
@@ -286,9 +240,8 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True $ok 'a verified download is accepted'
             Assert-True (Test-Path -LiteralPath $dest) 'and the file is kept'
         } finally {
-            $bound.Listener.Stop()
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            $null = Stop-YurunaTestHttpResponder $bound
+            Remove-YurunaTestTempDir $dir
         }
     }
 
@@ -296,8 +249,7 @@ Describe 'The download policy is permissive by default and strict only on reques
         # The enforcing arm of the policy: it can only fire when the lookup
         # actually yields a hash, so it fails silently open if the decode breaks.
         $dir   = New-ImageTestDirectory
-        $bound = Get-LoopbackChecksumListener
-        $job   = Get-ChecksumResponderJob -Listener $bound.Listener -ImageBody 'tampered bytes' `
+                $bound = Start-ChecksumResponder -ImageBody 'tampered bytes' `
             -SumsBody ('00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff *image.img' + "`n") -RequestCount 2
         $dest = Join-Path $dir 'image.img'
         try {
@@ -308,9 +260,8 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True (-not $ok) 'a mismatch fails the caller'
             Assert-True (-not (Test-Path -LiteralPath $dest)) 'and the tampered file is removed'
         } finally {
-            $bound.Listener.Stop()
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            $null = Stop-YurunaTestHttpResponder $bound
+            Remove-YurunaTestTempDir $dir
         }
     }
 
@@ -319,8 +270,7 @@ Describe 'The download policy is permissive by default and strict only on reques
         # three host types reach a no-checksum branch whenever the release
         # directory publishes no sidecar, and a strict default would fail them.
         $dir   = New-ImageTestDirectory
-        $bound = Get-LoopbackChecksumListener
-        $job   = Get-ChecksumResponderJob -Listener $bound.Listener -ImageBody 'bytes' `
+                $bound = Start-ChecksumResponder -ImageBody 'bytes' `
             -SumsBody $ImageSumsBody -RequestCount 2
         $dest = Join-Path $dir 'image.img'
         try {
@@ -331,16 +281,14 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True $ok 'an unlisted file is accepted under the default policy'
             Assert-True (Test-Path -LiteralPath $dest) 'and the download is kept'
         } finally {
-            $bound.Listener.Stop()
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            $null = Stop-YurunaTestHttpResponder $bound
+            Remove-YurunaTestTempDir $dir
         }
     }
 
     It 'deletes the file when the caller opts in to strict on a missing entry' {
         $dir   = New-ImageTestDirectory
-        $bound = Get-LoopbackChecksumListener
-        $job   = Get-ChecksumResponderJob -Listener $bound.Listener -ImageBody 'bytes' `
+                $bound = Start-ChecksumResponder -ImageBody 'bytes' `
             -SumsBody $ImageSumsBody -RequestCount 2
         $dest = Join-Path $dir 'image.img'
         try {
@@ -351,9 +299,8 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True (-not $ok) 'the strict policy refuses the artifact'
             Assert-True (-not (Test-Path -LiteralPath $dest)) 'and removes it'
         } finally {
-            $bound.Listener.Stop()
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            $null = Stop-YurunaTestHttpResponder $bound
+            Remove-YurunaTestTempDir $dir
         }
     }
 
@@ -362,8 +309,7 @@ Describe 'The download policy is permissive by default and strict only on reques
         # a publisher that ships no hash -- so it is unreachable, and the default
         # for that is permissive too.
         $dir   = New-ImageTestDirectory
-        $bound = Get-LoopbackChecksumListener
-        $job   = Get-ChecksumResponderJob -Listener $bound.Listener -ImageBody 'bytes' -SumsBody '' -RequestCount 2
+                $bound = Start-ChecksumResponder -ImageBody 'bytes' -SumsBody '' -RequestCount 2
         $dest = Join-Path $dir 'image.img'
         try {
             $ok = Save-ImageWithChecksum -SourceUrl "$($bound.BaseUrl)/image.img" -DestPath $dest `
@@ -372,9 +318,8 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True $ok 'an unreachable checksum file is accepted under the default policy'
             Assert-True (Test-Path -LiteralPath $dest) 'and the download is kept'
         } finally {
-            $bound.Listener.Stop()
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            $null = Stop-YurunaTestHttpResponder $bound
+            Remove-YurunaTestTempDir $dir
         }
     }
 
@@ -383,8 +328,7 @@ Describe 'The download policy is permissive by default and strict only on reques
         # only the signature leg. Routing that outcome through the unreachable
         # policy would accept bytes the caller had everything it needed to reject.
         $dir   = New-ImageTestDirectory
-        $bound = Get-LoopbackChecksumListener
-        $job   = Get-ChecksumResponderJob -Listener $bound.Listener -ImageBody 'tampered bytes' -SumsBody '' -RequestCount 2
+                $bound = Start-ChecksumResponder -ImageBody 'tampered bytes' -SumsBody '' -RequestCount 2
         $dest = Join-Path $dir 'image.img'
         try {
             $ok = Save-ImageWithChecksum -SourceUrl "$($bound.BaseUrl)/image.img" -DestPath $dest `
@@ -394,16 +338,14 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True (-not $ok) 'the supplied hash is compared, and it does not match'
             Assert-True (-not (Test-Path -LiteralPath $dest)) 'and the file is removed'
         } finally {
-            $bound.Listener.Stop()
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            $null = Stop-YurunaTestHttpResponder $bound
+            Remove-YurunaTestTempDir $dir
         }
     }
 
     It 'keeps the file when no checksum source was supplied at all' {
         $dir   = New-ImageTestDirectory
-        $bound = Get-LoopbackChecksumListener
-        $job   = Get-ChecksumResponderJob -Listener $bound.Listener -ImageBody 'bytes' -RequestCount 1
+                $bound = Start-ChecksumResponder -ImageBody 'bytes' -RequestCount 1
         $dest = Join-Path $dir 'image.img'
         try {
             $ok = Save-ImageWithChecksum -SourceUrl "$($bound.BaseUrl)/image.img" -DestPath $dest `
@@ -412,9 +354,8 @@ Describe 'The download policy is permissive by default and strict only on reques
             Assert-True $ok 'the caller opted out of verification, which is not a failure'
             Assert-True (Test-Path -LiteralPath $dest) 'and the download is kept'
         } finally {
-            $bound.Listener.Stop()
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            $null = Stop-YurunaTestHttpResponder $bound
+            Remove-YurunaTestTempDir $dir
         }
     }
 }
@@ -424,10 +365,11 @@ Describe 'The download policy is permissive by default and strict only on reques
 # whoever can block the signature must not be able to switch the check off.
 Describe 'A checksum signature that cannot be checked is refused where it could have been' {
     BeforeAll {
-        $script:SumsPath = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-sig-test-' + [Guid]::NewGuid().ToString('N') + '.SHA256SUMS')
+        $script:SumsDir = New-YurunaTestTempDir -Prefix 'yuruna-sig-test'
+        $script:SumsPath = Join-Path $script:SumsDir 'checksums.SHA256SUMS'
         [System.IO.File]::WriteAllBytes($script:SumsPath, $script:ImageSumsBytes)
     }
-    AfterAll { Remove-Item -LiteralPath $script:SumsPath -Force -ErrorAction SilentlyContinue }
+    AfterAll { Remove-YurunaTestTempDir $script:SumsDir }
 
     It 'proceeds on the hash alone on a host without gpg' {
         Mock -ModuleName Yuruna.Image Get-Command { $null } -ParameterFilter { $Name -eq 'gpg' }
@@ -453,10 +395,9 @@ Describe 'A checksum signature that cannot be checked is refused where it could 
             [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($payload))
         ).Replace('-', '').ToLowerInvariant()
         $dir   = New-ImageTestDirectory
-        $bound = Get-LoopbackChecksumListener
         # The signature request matches the SHA256SUMS route, so gpg is handed
         # the checksum text as a signature, which it cannot verify.
-        $job   = Get-ChecksumResponderJob -Listener $bound.Listener -ImageBody $payload `
+        $bound = Start-ChecksumResponder -ImageBody $payload `
             -SumsBody "$hash *image.img`n" -RequestCount 3
         $dest = Join-Path $dir 'image.img'
         try {
@@ -467,9 +408,8 @@ Describe 'A checksum signature that cannot be checked is refused where it could 
             Assert-True (-not $ok) 'a checksum list whose signature cannot be checked is not trusted'
             Assert-True (-not (Test-Path -LiteralPath $dest)) 'and the file is removed'
         } finally {
-            $bound.Listener.Stop()
-            $job | Remove-Job -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            $null = Stop-YurunaTestHttpResponder $bound
+            Remove-YurunaTestTempDir $dir
         }
     }
 }

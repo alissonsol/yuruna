@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42fceff5-e96e-4072-9219-6ca416d6489c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -320,7 +320,7 @@ __READ__() {
     }
 
     It 'captures two independent CPU-accounting samples within the restart observation budget' -Skip:(-not $IsLinux) {
-        $oldMode = $env:E_CLOCK_ONLY
+        $oldMode = Save-YurunaTestEnvironment -Name 'E_CLOCK_ONLY'
         try {
             $env:E_CLOCK_ONLY = '1'
             $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -348,7 +348,7 @@ __READ__() {
             $output | Should -Match 'current_clocksource'
             $output | Should -Match 'topology/core_id'
             $output | Should -Match 'snapshotCompleteUtc='
-        } finally { $env:E_CLOCK_ONLY = $oldMode }
+        } finally { Restore-YurunaTestEnvironment -Saved $oldMode }
     }
 
     It 'captures raw memory pressure and cgroup counters before stacks can exhaust a sample' -Skip:(-not $IsLinux) {

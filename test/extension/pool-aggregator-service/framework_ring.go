@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 // The framework canary ring. A pool's pools.yml may name canary members that
@@ -48,9 +50,9 @@ type ringRow struct {
 	passed   bool   // a pass that skipped no planned guest
 }
 
-// ringFacts is revision -> hostId -> cycleStartUtc -> passed. Recording is
-// idempotent, because every poll re-reads each host's whole recent history.
-type ringFacts map[string]map[string]map[string]bool
+// ringFacts is the pool view's record of each host's completed cycles,
+// revision -> hostId -> cycleStartUtc -> passed.
+type ringFacts = poolstate.RingFacts
 
 type ringStateDoc struct {
 	Version   int       `json:"version"`
@@ -129,21 +131,21 @@ func ringSkippedGuest(summary map[string]json.RawMessage) bool {
 	return false
 }
 
-// recordRingRows merges one host's completed cycles. Caller holds s.mu.
+// recordRingRows merges one host's completed cycles into the locked view.
 // Returns true when anything new was recorded.
-func (s *poolState) recordRingRows(hostID string, rows []ringRow) bool {
+func (s *poolState) recordRingRows(view *poolstate.View, hostID string, rows []ringRow) bool {
 	if len(rows) == 0 {
 		return false
 	}
-	if s.ring == nil {
-		s.ring = ringFacts{}
+	if view.Ring == nil {
+		view.Ring = ringFacts{}
 	}
 	changed := false
 	for _, row := range rows {
-		hosts := s.ring[row.revision]
+		hosts := view.Ring[row.revision]
 		if hosts == nil {
 			hosts = map[string]map[string]bool{}
-			s.ring[row.revision] = hosts
+			view.Ring[row.revision] = hosts
 		}
 		cycles := hosts[hostID]
 		if cycles == nil {
@@ -158,7 +160,7 @@ func (s *poolState) recordRingRows(hostID string, rows []ringRow) bool {
 		trimRingCycles(cycles)
 	}
 	if changed {
-		trimRingRevisions(s.ring)
+		trimRingRevisions(view.Ring)
 	}
 	return changed
 }
@@ -233,18 +235,19 @@ type ringAnswer struct {
 // order or on which host answered first. The qualifying revision is the newest
 // one with at least requiredPasses passes; failures do not subtract, and a newer
 // revision that has not reached the count leaves the previous answer in place.
-// Retired host IDs count for the host that replaced them. Caller holds s.mu.
-func (s *poolState) qualifyRing(canaries []string, requiredPasses int) ringAnswer {
+// Retired host IDs count for the host that replaced them. view is the locked
+// pool view.
+func (s *poolState) qualifyRing(view *poolstate.View, canaries []string, requiredPasses int) ringAnswer {
 	answer := ringAnswer{CanaryMembers: canaries, RequiredPasses: requiredPasses, Revisions: []ringCandidate{}}
 	counted := map[string]bool{}
 	for _, id := range canaries {
-		counted[canonicalHostID(s.handovers, id)] = true
+		counted[view.CanonicalHostID(id)] = true
 	}
 	var candidates []ringCandidate
-	for revision, hosts := range s.ring {
+	for revision, hosts := range view.Ring {
 		c := ringCandidate{Revision: revision}
 		for hostID, cycles := range hosts {
-			if !counted[canonicalHostID(s.handovers, hostID)] {
+			if !counted[view.CanonicalHostID(hostID)] {
 				continue
 			}
 			for cycle, passed := range cycles {
@@ -323,9 +326,8 @@ func (s *poolState) handleFrameworkRing(w http.ResponseWriter, r *http.Request) 
 	if canaries == nil {
 		canaries = []string{}
 	}
-	s.mu.Lock()
-	answer := s.qualifyRing(canaries, passes)
-	s.mu.Unlock()
+	var answer ringAnswer
+	s.st.Do(func(view *poolstate.View) { answer = s.qualifyRing(view, canaries, passes) })
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(answer)
@@ -381,16 +383,16 @@ func (s *poolState) loadRingState() {
 		}
 	}
 	trimRingRevisions(facts)
-	s.ring = facts
+	s.st.Do(func(view *poolstate.View) { view.Ring = facts })
 }
 
-// ringStateSnapshot encodes the facts for persistRingState. Caller holds s.mu,
-// so the file write itself can run after the unlock.
-func (s *poolState) ringStateSnapshot() []byte {
+// ringStateSnapshot encodes the locked view's facts for persistRingState, so
+// the file write itself can run after the unlock.
+func (s *poolState) ringStateSnapshot(view *poolstate.View) []byte {
 	if s.ringStateFile == "" {
 		return nil
 	}
-	revisions := s.ring
+	revisions := view.Ring
 	if revisions == nil {
 		revisions = ringFacts{}
 	}

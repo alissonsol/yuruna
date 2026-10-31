@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42a6ed9f-c626-4fda-9037-997b94337522
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -291,8 +291,7 @@ Describe 'the output checks of the reusable phases' {
 Describe 'the components publisher around a failed workloads phase' {
     BeforeEach {
         $script:originalLocation = (Get-Location).Path
-        $script:originalEnvironment = @{}
-        foreach ($item in Get-ChildItem Env:) { $script:originalEnvironment[$item.Name] = $item.Value }
+        $script:originalEnvironment = Save-YurunaTestEnvironment -All
         $env:ledgerBuildLog = Join-Path $TestDrive ('builds-' + [guid]::NewGuid().ToString('N'))
         Mock Confirm-ComponentList -ModuleName Yuruna.Component { $true }
         Set-Item -Path Function:global:docker -Value { $global:LASTEXITCODE = [int]$env:ledgerProbeExit }
@@ -301,10 +300,7 @@ Describe 'the components publisher around a failed workloads phase' {
     AfterEach {
         Set-Location -LiteralPath $script:originalLocation
         Remove-Item -Path Function:global:docker -ErrorAction SilentlyContinue
-        foreach ($item in Get-ChildItem Env:) {
-            if (-not $script:originalEnvironment.ContainsKey($item.Name)) { Remove-Item -LiteralPath "Env:$($item.Name)" }
-        }
-        foreach ($name in $script:originalEnvironment.Keys) { Set-Item -LiteralPath "Env:$name" -Value $script:originalEnvironment[$name] }
+        Restore-YurunaTestEnvironment -Saved $script:originalEnvironment -RemoveOthers
     }
 
     It 'rebuilds only when the pushed image is no longer in the registry (probe exit <ProbeExit>)' -ForEach @(

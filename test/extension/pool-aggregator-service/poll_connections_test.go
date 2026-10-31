@@ -52,7 +52,7 @@ func TestAPollReusesOneConnectionPerHostAndClosesIt(t *testing.T) {
 	u, _ := url.Parse(srv.URL)
 	port, _ := strconv.Atoi(u.Port())
 	s := newPoolState("default", port)
-	s.hosts[hid] = &hostView{HostId: hid, CurrentIP: u.Hostname(), LastSeenUnixMs: now.UnixMilli()}
+	s.view().Hosts[hid] = &hostView{HostId: hid, CurrentIP: u.Hostname(), LastSeenUnixMs: now.UnixMilli()}
 
 	s.pollWithFreshConnections("no-such-squid.log", "", now)
 

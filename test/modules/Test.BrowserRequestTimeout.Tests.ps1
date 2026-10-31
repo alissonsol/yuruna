@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f60b19-4d8a-4e27-9b53-1c7048ae3d62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,8 +47,7 @@ $script:Runtime = Join-Path $script:RepoRoot 'test/extension/extension-sdk/webui
 $script:Chrome = Get-YurunaTestBrowser
 
 
-$script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-timeout-" + [Guid]::NewGuid().ToString('N'))
-$null = New-Item -ItemType Directory -Path $script:Sandbox -Force
+$script:Sandbox = New-YurunaTestTempDir -Prefix 'yuruna-timeout'
 Copy-Item -LiteralPath $script:Runtime -Destination (Join-Path $script:Sandbox 'yuruna.core.js') -Force
 
 function Invoke-TimeoutScenario {
@@ -118,9 +117,7 @@ $script:StalledFetch = @'
 }
 
 AfterAll {
-if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
-    Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue
-}
+Remove-YurunaTestTempDir $script:Sandbox
 }
 
 Describe 'a stalled request is given up on rather than left hanging' {

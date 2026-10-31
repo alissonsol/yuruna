@@ -29,23 +29,23 @@ func TestARestartKeepsAFiringPoolAlert(t *testing.T) {
 	defer loki.Close()
 
 	s := newPoolState("default", 8080)
-	s.gating["lab"] = gatingPolicy{FailuresBeforeAlert: 2, SuccessesBeforeRearm: 2, HealthyThreshold: 0.5, DegradedAfter: 10 * time.Minute}
+	s.view().Gating["lab"] = gatingPolicy{FailuresBeforeAlert: 2, SuccessesBeforeRearm: 2, HealthyThreshold: 0.5, DegradedAfter: 10 * time.Minute}
 	gateHost(s, "42a", "lab", "fail", true)
 	gateHost(s, "42b", "lab", "fail", true)
 	s.rehydrateIncidentsFromLoki(loki.URL+"/loki/api/v1/push", "default", 24*time.Hour, base)
 
 	var events []incidentEvent
 	for _, at := range []time.Duration{0, 11 * time.Minute, 12 * time.Minute, 13 * time.Minute} {
-		events = append(events, s.evaluatePoolGate(base.Add(at))...)
+		events = append(events, s.evaluatePoolGate(s.view(), base.Add(at))...)
 	}
 	for _, ev := range events {
 		if ev.Alert && !ev.Rearm {
 			t.Fatalf("the still-degraded pool fired a second alert %q after the restart", ev.ID)
 		}
 	}
-	s.hosts["42a"].Status.OverallStatus = "pass"
+	s.view().Hosts["42a"].Status.OverallStatus = "pass"
 	for _, at := range []time.Duration{14 * time.Minute, 15 * time.Minute} {
-		events = append(events, s.evaluatePoolGate(base.Add(at))...)
+		events = append(events, s.evaluatePoolGate(s.view(), base.Add(at))...)
 	}
 	want := fmt.Sprintf("alert-pool-%d", firedAt.Unix())
 	rearmed := false
@@ -70,7 +70,7 @@ func TestARestartLeavesARearmedPoolAlertClosed(t *testing.T) {
 		{fmt.Sprint(t0.Add(time.Minute).UnixNano()), `{"event":"pool_alert_rearmed","incidentId":"alert-pool-1","startedAt":"2026-01-01T00:00:00Z"}`},
 		{fmt.Sprint(t0.UnixNano()), `{"event":"pool_alert_fired","incidentId":"alert-pool-1","startedAt":"2026-01-01T00:00:00Z"}`},
 	}}
-	if n := s.applyPoolAlertLines([]lokiStream{stream}); n != 0 || s.poolGate["lab"] != nil {
-		t.Fatalf("restored %d latch(es) (%+v) for a pool whose last line is a rearm", n, s.poolGate["lab"])
+	if n := s.applyPoolAlertLines([]lokiStream{stream}); n != 0 || s.view().PoolGate["lab"] != nil {
+		t.Fatalf("restored %d latch(es) (%+v) for a pool whose last line is a rearm", n, s.view().PoolGate["lab"])
 	}
 }

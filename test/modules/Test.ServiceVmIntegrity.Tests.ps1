@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4229d039-c021-419e-a736-76c0a2f58264
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -254,6 +254,7 @@ Describe 'the proxy CA is trusted by fingerprint' {
         Mock -ModuleName Test.CachingProxyService Read-CachingProxyServiceState { @{} }
         (Resolve-YurunaPinnedProxyCa -Pem $script:CaA -CacheHost '192.0.2.42').Reason | Should -Be 'first-use'
         $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script:CaA))
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'PIN_FIXTURE', 'PIN_SHA'
         $env:PIN_FIXTURE = $b64
         $env:PIN_SHA = Get-YurunaCertificateSha256 -Pem $script:CaA
         try {
@@ -263,11 +264,12 @@ Describe 'the proxy CA is trusted by fingerprint' {
             $refused.Accepted | Should -BeFalse
             $refused.Reason | Should -Be 'pin-mismatch'
             $refused.Pem | Should -Be $script:CaA -Because 'the trusted CA is what callers keep using'
-        } finally { Remove-Item Env:PIN_FIXTURE, Env:PIN_SHA -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
     }
     It 'treats a cached CA without a fingerprint as a last-good copy, not a pin' {
         # A proxy that generated a new CA on every build left a cached copy that
         # a later rebuild made stale; only a CA recorded with its fingerprint pins.
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'PIN_OLD'
         $env:PIN_OLD = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script:CaB))
         try {
             Mock -ModuleName Test.CachingProxyService Get-YurunaBumpCa { $null }
@@ -275,7 +277,7 @@ Describe 'the proxy CA is trusted by fingerprint' {
             $current = Resolve-YurunaPinnedProxyCa -Pem $script:CaA -CacheHost '192.0.2.42'
             $current.Accepted | Should -BeTrue
             $current.Reason | Should -Be 'first-use'
-        } finally { Remove-Item Env:PIN_OLD -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
     }
     It 'records the fingerprint with the CA it caches, so the next fetch is pinned' {
         $runtime = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
@@ -292,6 +294,7 @@ Describe 'the proxy CA is trusted by fingerprint' {
     It 'trusts a discovered proxy on first use although this host owns another CA' {
         # The recorded proxy address can be a proxy another host built, found by
         # discovery; owning a CA says nothing about the root that proxy serves.
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'PIN_FIXTURE', 'PIN_SERVED'
         $env:PIN_FIXTURE = $script:CaA
         $env:PIN_SERVED = $script:CaB
         try {
@@ -305,9 +308,10 @@ Describe 'the proxy CA is trusted by fingerprint' {
             $served = Resolve-CachingProxyServiceCaCertPem -LiveTimeoutSeconds 1
             $served.Source | Should -Be 'live'
             $served.Pem | Should -Be $script:CaB -Because 'guests are served the root the proxy bumps with'
-        } finally { Remove-Item Env:PIN_FIXTURE, Env:PIN_SERVED -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
     }
     It 'accepts the owned CA from its proxy over a root pinned before the rebuild' {
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'PIN_FIXTURE', 'PIN_OLD', 'PIN_SHA'
         $env:PIN_FIXTURE = $script:CaA
         $env:PIN_OLD = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script:CaB))
         $env:PIN_SHA = Get-YurunaCertificateSha256 -Pem $script:CaB
@@ -317,9 +321,10 @@ Describe 'the proxy CA is trusted by fingerprint' {
             $owned = Resolve-YurunaPinnedProxyCa -Pem $script:CaA -CacheHost '192.0.2.42'
             $owned.Accepted | Should -BeTrue
             $owned.Reason | Should -Be 'owned'
-        } finally { Remove-Item Env:PIN_FIXTURE, Env:PIN_OLD, Env:PIN_SHA -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
     }
     It 'refuses a different root from a proxy pinned to the owned CA' {
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'PIN_FIXTURE', 'PIN_OLD', 'PIN_SHA'
         $env:PIN_FIXTURE = $script:CaA
         $env:PIN_OLD = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script:CaA))
         $env:PIN_SHA = Get-YurunaCertificateSha256 -Pem $script:CaA
@@ -330,7 +335,7 @@ Describe 'the proxy CA is trusted by fingerprint' {
             $refused.Accepted | Should -BeFalse
             $refused.Reason | Should -Be 'pin-mismatch'
             $refused.Pem | Should -Be $script:CaA
-        } finally { Remove-Item Env:PIN_FIXTURE, Env:PIN_OLD, Env:PIN_SHA -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
     }
     It 'installs the seeded CA on the proxy before it would generate one' {
         $seed = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'host/vmconfig/caching-proxy-service.base.user-data')
@@ -426,6 +431,7 @@ Describe 'a host that did not build the proxy trusts its CA through a signed sta
     ) {
         param($Case, $Pinned, $Fetched, $Statement, $Keys, $Accepted, $Reason)
         $null = $Case
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'PIN_STATE'
         if ($Pinned) {
             $env:PIN_STATE = $script:PinA | ConvertTo-Json -Compress
             Mock -ModuleName Test.CachingProxyService Read-CachingProxyServiceState { $env:PIN_STATE | ConvertFrom-Json -AsHashtable }
@@ -437,7 +443,7 @@ Describe 'a host that did not build the proxy trusts its CA through a signed sta
             $verdict.Reason | Should -Be $Reason
             $verdict.Accepted | Should -Be $Accepted
             if (-not $Accepted -and $Pinned) { $verdict.Pem | Should -Be $script:CaA -Because 'callers keep the root they trust' }
-        } finally { Remove-Item Env:PIN_STATE -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
     }
     # A host that cached a root before fingerprints were recorded keeps the
     # proxy it already used until that proxy's builder publishes a statement.
@@ -522,6 +528,7 @@ $keys = Get-YurunaProxyCaVerificationKey 6>> $diagnosticPath
         }
     }
     It 'seeds no CA it refused, persists none, and says why' {
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'PIN_SERVED'
         $env:PIN_SERVED = $script:CaB
         try {
             Mock -ModuleName Test.CachingProxyService Get-CachingProxyServiceCaPem { $env:PIN_SERVED }
@@ -536,9 +543,10 @@ $keys = Get-YurunaProxyCaVerificationKey 6>> $diagnosticPath
             $r.Exhausted | Should -BeFalse -Because 'the proxy answered; its CA was refused'
             Should -Invoke -ModuleName Test.CachingProxyService Save-CachingProxyServiceState -Times 0
             Should -Invoke -ModuleName Test.CachingProxyService Write-Warning -ParameterFilter { $Message -match 'yuruna-squid-ca\.sig\.json' }
-        } finally { Remove-Item Env:PIN_SERVED -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
     }
     It 'seeds and pins a CA the proxy''s builder signed' {
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'PIN_SERVED', 'PIN_STATEMENT'
         $env:PIN_SERVED = $script:CaB
         $env:PIN_STATEMENT = $script:StatementB
         try {
@@ -551,10 +559,11 @@ $keys = Get-YurunaProxyCaVerificationKey 6>> $diagnosticPath
             $r.Reason | Should -Be 'signed'
             [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($r.CaCertBase64)) | Should -Be $script:CaB
             Should -Invoke -ModuleName Test.CachingProxyService Save-CachingProxyServiceState -Times 1 -Exactly
-        } finally { Remove-Item Env:PIN_SERVED, Env:PIN_STATEMENT -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
     }
     It 'sends a host download direct when the proxy''s CA is not trusted' {
         Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostDownload.psm1') -Force -DisableNameChecking
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'PIN_SERVED'
         $env:PIN_SERVED = $script:CaB
         try {
             Mock -ModuleName Yuruna.HostDownload Test-CachingProxyServicePort { $true }
@@ -570,7 +579,7 @@ $keys = Get-YurunaProxyCaVerificationKey 6>> $diagnosticPath
             $cfg = Get-CacheProxyForHostDownload -Uri 'https://example.invalid/image.iso' -ResolveCacheHostIp { '192.0.2.42' }
             $cfg.CaPemPath | Should -Not -BeNullOrEmpty -Because 'a signed CA is trusted for the download'
             Remove-Item -LiteralPath $cfg.CaPemPath -Force -ErrorAction SilentlyContinue
-        } finally { Remove-Item Env:PIN_SERVED -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedEnvironment }
     }
     It '<Builder> stops with the source_integrity exit when it refuses the proxy CA' -ForEach @(
         @{ Builder = 'host/ubuntu.kvm/modules/New-UbuntuServerVM.ps1'; Result = 'ca' }
@@ -601,11 +610,12 @@ Describe 'legacy proxy CA retrieval keeps the VM key private and checks its pin'
         $script:LegacyPair = Get-YurunaBumpCa -Create -HomePath (Join-Path $TestDrive 'legacy-ssh') -Confirm:$false
     }
     BeforeEach {
+        $script:SavedLegacyEnvironment = Save-YurunaTestEnvironment -Name 'LEGACY_CA_OUTPUT'
         $env:LEGACY_CA_OUTPUT = $script:LegacyPair.CertPem + $script:LegacyPair.KeyPem
         Mock -ModuleName Test.CachingProxyService Invoke-GuestSsh { @{success=$true;output=$env:LEGACY_CA_OUTPUT} }
         Mock -ModuleName Test.CachingProxyService Read-CachingProxyServiceState { @{} }
     }
-    AfterEach { Remove-Item Env:LEGACY_CA_OUTPUT -ErrorAction SilentlyContinue }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedLegacyEnvironment }
     It 'retrieves the pair through a bounded explicit local-VM address without logging the key' {
         $pair = Get-CachingProxyServiceLegacyCa -VMName owned-proxy -Address '192.0.2.42' -InformationVariable info
         Get-YurunaCertificateSha256 $pair.CertPem | Should -BeExactly $script:LegacyPair.Sha256
@@ -642,6 +652,7 @@ Describe 'rebuild recovery enrolls verified CA signing trust through host contro
         $script:RepairHost = @{hostId=('a'*32);baseUrl='http://192.0.2.7:8080'}
     }
     BeforeEach {
+        $script:SavedRepairEnvironment = Save-YurunaTestEnvironment -Name 'CA_REPAIR_DOC'
         $env:CA_REPAIR_DOC = Join-Path $TestDrive 'remote-config.json'
         Mock -ModuleName Test.CachingProxyService Save-CachingProxyServiceState { throw 'pins must not be removed' }
         @{repositories=@{projectUrl='file:///operator/project.git';mirror=@{mode='off';url='http://other-mirror';verificationPublicKeys=@()}};vmStart=@{cachingProxyIp='192.0.2.42'};custom='keep'} | ConvertTo-Json -Depth 12 | Set-Content $env:CA_REPAIR_DOC
@@ -656,7 +667,7 @@ Describe 'rebuild recovery enrolls verified CA signing trust through host contro
             return (Get-Content -Raw $env:CA_REPAIR_DOC | ConvertFrom-Json -AsHashtable)
         }
     }
-    AfterEach { Remove-Item Env:CA_REPAIR_DOC -ErrorAction SilentlyContinue }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedRepairEnvironment }
     It 'keeps operator settings and existing pins, reports the replacement before writing, and verifies enrollment' {
         $before = Get-Content -Raw $env:CA_REPAIR_DOC
         $result = Repair-CachingProxyPoolCaTrust -CacheHost '192.0.2.42' -PublicKeyPath $script:RepairKeyPath -HostRecord @($script:RepairHost) -ControlToken fixture -Confirm:$false -InformationVariable reports

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4278d388-a2bd-4339-8e7c-b8dad60dc368
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,8 +52,8 @@ Import-Module $cachingProxyModule -Force -DisableNameChecking
 
 # A config file per address: Read-TestConfig caches on (path, mtime, hash), so
 # reusing one path across tests could serve a previous test's parse.
-$configDir = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-aggregator-url-tests'
-New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+$configDir = New-YurunaTestTempDir -Prefix 'yuruna-aggregator-url'
+$script:AggregatorUrlConfigDir = $configDir
 function Use-ConfigProxyAddress {
     param([string]$Address)
     if (-not $Address) { $env:YURUNA_CONFIG_PATH = (Join-Path $configDir 'absent.yml'); return }
@@ -66,12 +66,12 @@ function Use-ConfigProxyAddress {
 
 Describe 'Get-PoolAggregatorServiceSeedUrl believes a claim only once it answers' {
     BeforeEach {
+        $script:SavedSeedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP', 'YURUNA_CONFIG_PATH'
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
         Mock Save-CachingProxyServiceState -ModuleName Test.CachingProxyService { 'state-path' }
     }
     AfterEach {
-        $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
-        $env:YURUNA_CONFIG_PATH      = ''
+        Restore-YurunaTestEnvironment -Saved $script:SavedSeedEnvironment
     }
 
     Context 'a claim that does not answer is passed over' {
@@ -195,5 +195,5 @@ Describe 'Get-PoolAggregatorServiceSeedUrl believes a claim only once it answers
 }
 
 AfterAll {
-    Remove-Item -LiteralPath (Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-aggregator-url-tests') -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-YurunaTestTempDir $script:AggregatorUrlConfigDir
 }

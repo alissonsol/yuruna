@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42236bc2-fc6c-4607-abaa-81fea9bc8e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -278,12 +278,15 @@ Describe 'the scaffolds' {
     It 'throws naming the file when it is missing' {
         # A loader that tolerates a missing file hands back an empty tree, and a
         # guard asserting that something is absent then passes against nothing.
-        $name = 'yuruna-absent-' + [guid]::NewGuid().ToString('N') + '.ps1'
-        $missing = Join-Path ([IO.Path]::GetTempPath()) $name
-        try { $null = Get-YurunaTestFileAst -Path $missing; throw 'unreachable' }
-        catch { $_.Exception.Message | Should -Match ([regex]::Escape($name)) }
-        try { $null = Get-YurunaTestFunctionAst -Path $missing -Name 'Alpha'; throw 'unreachable' }
-        catch { $_.Exception.Message | Should -Match ([regex]::Escape($name)) }
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-absent'
+        try {
+            $name = 'absent.ps1'
+            $missing = Join-Path $dir $name
+            try { $null = Get-YurunaTestFileAst -Path $missing; throw 'unreachable' }
+            catch { $_.Exception.Message | Should -Match ([regex]::Escape($name)) }
+            try { $null = Get-YurunaTestFunctionAst -Path $missing -Name 'Alpha'; throw 'unreachable' }
+            catch { $_.Exception.Message | Should -Match ([regex]::Escape($name)) }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'looks a function up in an AST it is handed, first match in document order' {
@@ -546,5 +549,115 @@ Describe 'the browser profile stop' -Skip:(-not $IsWindows) {
             if (-not $bystander.HasExited) { $bystander.Kill() }
             $bystander.Dispose()
         }
+    }
+}
+
+Describe 'the process environment snapshot' {
+    It 'takes an empty name list and restores nothing from it' {
+        $saved = Save-YurunaTestEnvironment -Name @()
+        Assert-Equal 0 $saved.Count
+        Restore-YurunaTestEnvironment -Saved $saved
+    }
+
+    It 'puts back every entry and removes what was added, with -All and -RemoveOthers' {
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_ASSERT_ADDED', 'YURUNA_ASSERT_CHANGED'
+        try {
+            $env:YURUNA_ASSERT_CHANGED = 'before'
+            Remove-Item -LiteralPath Env:YURUNA_ASSERT_ADDED -ErrorAction SilentlyContinue
+            $all = Save-YurunaTestEnvironment -All
+            $env:YURUNA_ASSERT_ADDED = 'added by the subject'
+            $env:YURUNA_ASSERT_CHANGED = 'after'
+            Restore-YurunaTestEnvironment -Saved $all -RemoveOthers
+            Assert-Null ([Environment]::GetEnvironmentVariable('YURUNA_ASSERT_ADDED')) 'an entry the snapshot does not name is removed'
+            Assert-StringEqual 'before' $env:YURUNA_ASSERT_CHANGED 'a changed entry gets its value back'
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+    }
+}
+
+Describe 'the loopback listeners' {
+    It 'starts a listener on a port the system picked, or leaves it unstarted with -NoStart' {
+        $listener = New-YurunaTestTcpListener
+        try {
+            Assert-True $listener.Server.IsBound 'a listener is started unless asked not to be'
+            Assert-True (([System.Net.IPEndPoint]$listener.LocalEndpoint).Port -gt 0) 'the system picked a port'
+            Assert-StringEqual '127.0.0.1' ([System.Net.IPEndPoint]$listener.LocalEndpoint).Address
+        } finally { $listener.Stop() }
+        $idle = New-YurunaTestTcpListener -AnyAddress -NoStart
+        Assert-False $idle.Server.IsBound 'an unstarted listener holds no port yet'
+        Assert-StringEqual '0.0.0.0' ([System.Net.IPEndPoint]$idle.LocalEndpoint).Address
+    }
+
+    It 'hands out a port that refuses a connection and that a test can bind at once' {
+        $port = Get-YurunaTestFreePort
+        $client = [System.Net.Sockets.TcpClient]::new()
+        try { Assert-Throw { $client.Connect([System.Net.IPAddress]::Loopback, $port) } }
+        finally { $client.Dispose() }
+        $listener = New-YurunaTestTcpListener -Port $port
+        try { Assert-Equal $port ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port }
+        finally { $listener.Stop() }
+    }
+
+    It 'joins two ends that carry bytes both ways' {
+        $pair = New-YurunaTestSocketPair
+        try {
+            $pair.Client.GetStream().WriteByte(7)
+            Assert-Equal 7 $pair.Server.GetStream().ReadByte()
+            $pair.Server.GetStream().WriteByte(9)
+            Assert-Equal 9 $pair.Client.GetStream().ReadByte()
+        } finally { $pair.Client.Dispose(); $pair.Server.Dispose() }
+    }
+}
+
+Describe 'the scripted HTTP responder' {
+    It 'writes a reply whose length counts UTF-8 bytes and that names a type only when asked' {
+        $plain = New-YurunaTestHttpReply -StatusCode 404 -Body "caf$([char]0xE9)"
+        Assert-Match '^HTTP/1\.1 404 Not Found\r\n' $plain
+        Assert-Match 'Content-Length: 5\r\n' $plain 'four characters, five UTF-8 bytes'
+        Assert-False ($plain -match 'Content-Type') 'no type unless one is named'
+        $typed = New-YurunaTestHttpReply -Body '{}' -ContentType 'application/json' -Header ([ordered]@{ 'Retry-After' = '0' })
+        Assert-Match 'Content-Type: application/json\r\n' $typed
+        Assert-Match 'Retry-After: 0\r\n' $typed
+    }
+
+    It 'serves its replies in order and hands back each request whole, body included' {
+        $responder = Start-YurunaTestHttpResponder -Reply @((New-YurunaTestHttpReply -Body 'first' -ContentType 'text/plain'), (New-YurunaTestHttpReply -StatusCode 500 -Body 'second'))
+        try {
+            $one = Invoke-WebRequest -Uri "$($responder.BaseUrl)/one" -Method Post -Body 'payload' -SkipHttpErrorCheck
+            $two = Invoke-WebRequest -Uri "$($responder.BaseUrl)/two" -SkipHttpErrorCheck
+        } finally { $requests = @(Stop-YurunaTestHttpResponder $responder) }
+        Assert-Equal 200 $one.StatusCode
+        Assert-StringEqual 'first' ([string]$one.Content)
+        Assert-Equal 500 $two.StatusCode
+        Assert-Equal 2 $requests.Count
+        Assert-Match '^POST /one HTTP/1\.1' $requests[0]
+        Assert-Match '\r\n\r\npayload$' $requests[0] 'the body arrives behind the head'
+        Assert-Match '^GET /two HTTP/1\.1' $requests[1]
+        Assert-Equal 'Completed' $responder.Job.State
+    }
+
+    It 'routes each request by its text and answers 404 when no route matches' {
+        $responder = Start-YurunaTestHttpResponder -RequestCount 2 -Route ([ordered]@{ 'SHA256SUMS' = (New-YurunaTestHttpReply -Body 'sums') })
+        try {
+            $miss = Invoke-WebRequest -Uri "$($responder.BaseUrl)/image.img" -SkipHttpErrorCheck
+            $hit = Invoke-WebRequest -Uri "$($responder.BaseUrl)/SHA256SUMS" -SkipHttpErrorCheck
+        } finally { $null = Stop-YurunaTestHttpResponder $responder }
+        Assert-Equal 404 $miss.StatusCode
+        Assert-Equal 200 $hit.StatusCode
+    }
+
+    It 'holds a connection open past a client deadline and lets go when stopped' {
+        $responder = Start-YurunaTestHttpResponder -Reply '' -HoldOpen
+        $clock = [System.Diagnostics.Stopwatch]::StartNew()
+        try { Assert-Throw { Invoke-WebRequest -Uri $responder.BaseUrl -TimeoutSec 1 } }
+        finally { $null = Stop-YurunaTestHttpResponder $responder }
+        Assert-True ($clock.Elapsed.TotalSeconds -lt 10) "the hold ends with the stop, not at its own limit ($($clock.Elapsed.TotalSeconds) s)"
+        Assert-Equal 'Completed' $responder.Job.State
+    }
+
+    It 'stops a responder nothing called, and a missing one, without throwing' {
+        $responder = Start-YurunaTestHttpResponder -Reply (New-YurunaTestHttpReply -Body 'never asked')
+        Assert-Equal 0 @(Stop-YurunaTestHttpResponder $responder).Count
+        Assert-Equal 0 @(Stop-YurunaTestHttpResponder $null).Count
+        Assert-Null (Get-Job -Id $responder.Job.Id -ErrorAction SilentlyContinue) 'the job is removed'
     }
 }

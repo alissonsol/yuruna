@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42e437e6-8cf0-45ba-9f8c-03558f1d5809
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,7 @@ function New-RphFixture {
         Justification = 'Test helper: creates a throwaway pool tree the calling It block deletes in its finally.')]
     param([string]$LastSeenUtc = '2020-01-01T00:00:00Z', [switch]$CurrentLayout)
     $id       = '42cafe0000000000000000000000dead'
-    $tmp      = Join-Path ([System.IO.Path]::GetTempPath()) ("rph_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    $tmp      = New-YurunaTestTempDir -Prefix 'rph'
     $pool     = Join-Path $tmp 'pool'
     $hostsDir = Join-Path $pool 'hosts'
     $cycleDir = if ($CurrentLayout) { Join-Path $pool "hosts/$id/test-cycles" } else { Join-Path $pool $id }
@@ -72,7 +72,7 @@ Describe 'Remove-PoolHost' {
             Assert-Equal 0 $LASTEXITCODE 'current-layout deletion succeeds'
             Assert-False (Test-Path -LiteralPath $f.CycleDir) 'selected archive is removed'
             Assert-Equal 'neighbor' ([IO.File]::ReadAllText((Join-Path $f.NeighborDir 'keep.txt'))) 'other host data survives'
-        } finally { Remove-Item -LiteralPath $f.Tmp -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $f.Tmp }
     }
     It 'refuses a traversal-shaped identifier and preserves both hosts' {
         $f = New-RphFixture -CurrentLayout
@@ -81,7 +81,7 @@ Describe 'Remove-PoolHost' {
             Assert-True ($LASTEXITCODE -ne 0) 'traversal is refused'
             Assert-True (Test-Path -LiteralPath $f.CycleDir) 'selected host survives refusal'
             Assert-True (Test-Path -LiteralPath (Join-Path $f.NeighborDir 'keep.txt')) 'neighbor survives refusal'
-        } finally { Remove-Item -LiteralPath $f.Tmp -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $f.Tmp }
     }
 
     It 'deletes a stale identity record and its replicated cycle folder' {
@@ -91,7 +91,7 @@ Describe 'Remove-PoolHost' {
             Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because 'stale removal exits 0'
             Assert-True (-not (Test-Path -LiteralPath $f.InfoFile)) 'the identity record is deleted'
             Assert-True (-not (Test-Path -LiteralPath $f.CycleDir)) 'the replicated cycle folder is deleted'
-        } finally { Remove-Item -Recurse -Force -LiteralPath $f.Tmp -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $f.Tmp }
     }
 
     It 'accepts the hostId as it is shown to an operator (GUID-dashed)' {
@@ -105,7 +105,7 @@ Describe 'Remove-PoolHost' {
             Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because 'a dashed hostId is accepted'
             Assert-True (-not (Test-Path -LiteralPath $f.InfoFile)) 'it resolves to the same identity record'
             Assert-True (-not (Test-Path -LiteralPath $f.CycleDir)) 'and the same cycle folder'
-        } finally { Remove-Item -Recurse -Force -LiteralPath $f.Tmp -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $f.Tmp }
     }
 
     It 'rejects a malformed hostId with a non-zero exit' {
@@ -114,7 +114,7 @@ Describe 'Remove-PoolHost' {
             & pwsh -NoProfile -File $script:rph -HostId 'not-a-uuid' -ConfigPath $f.CfgPath *> $null
             Assert-True ($LASTEXITCODE -ne 0) 'a bad hostId fails'
             Assert-True (Test-Path -LiteralPath $f.InfoFile) 'nothing is deleted on a bad id'
-        } finally { Remove-Item -Recurse -Force -LiteralPath $f.Tmp -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $f.Tmp }
     }
 
     It 'refuses a recently-seen record without -Force, then deletes it with -Force' {
@@ -126,7 +126,7 @@ Describe 'Remove-PoolHost' {
             & pwsh -NoProfile -File $script:rph -HostId $f.Id -ConfigPath $f.CfgPath -Force *> $null
             Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because '-Force overrides the recency guard'
             Assert-True (-not (Test-Path -LiteralPath $f.InfoFile)) 'the record is deleted with -Force'
-        } finally { Remove-Item -Recurse -Force -LiteralPath $f.Tmp -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $f.Tmp }
     }
 
     It 'is idempotent when the host has no records' {
@@ -136,6 +136,6 @@ Describe 'Remove-PoolHost' {
             Remove-Item -Recurse -Force -LiteralPath $f.CycleDir -ErrorAction SilentlyContinue
             & pwsh -NoProfile -File $script:rph -HostId $f.Id -ConfigPath $f.CfgPath *> $null
             Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because 'a no-op removal still succeeds'
-        } finally { Remove-Item -Recurse -Force -LiteralPath $f.Tmp -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $f.Tmp }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b8e14c-5d27-4a93-8c60-71fe2a0db339
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -256,12 +256,12 @@ Describe 'the commit gate judges what is staged' {
         }
         function Invoke-StagedGate {
             param([string]$Repository)
-            $saved = $env:GIT_DIR
+            $saved = Save-YurunaTestEnvironment -Name 'GIT_DIR'
             try {
                 $env:GIT_DIR = Join-Path $Repository '.git'
                 $output = & $script:Pwsh -NoProfile -File $script:Tool -Root $script:RepoRoot -Staged -Quiet 2>&1 | Out-String
                 return @{ Code = $LASTEXITCODE; Output = (ConvertTo-PlainDetail -Text $output) }
-            } finally { $env:GIT_DIR = $saved }
+            } finally { Restore-YurunaTestEnvironment -Saved $saved }
         }
     }
 

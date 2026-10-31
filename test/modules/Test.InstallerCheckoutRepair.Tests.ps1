@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42bf15a1-0a45-4de9-b937-54eada83f868
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -300,7 +300,7 @@ Describe 'installer outcome record' -Skip:$IsWindows {
             param([int]$Code, [string[]]$Issue = @(), [string]$Installer = 'ubuntu.kvm')
             $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
             $null = New-Item -ItemType Directory -Path (Join-Path $root 'state'), (Join-Path $root 'checkout'), (Join-Path $root 'logs') -Force
-            Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.10.30'
+            Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.10.31'
             $issueLines = ($Issue | ForEach-Object { "YURUNA_ISSUES+=('" + $_.Replace("'", "'\''") + "')" }) -join "`n"
             $body = @(
                 'set -euo pipefail', 'YURUNA_ISSUES=()', $issueLines,
@@ -327,7 +327,7 @@ Describe 'installer outcome record' -Skip:$IsWindows {
         $record = Get-Content -LiteralPath $r.File -Raw | ConvertFrom-Json
         $record.outcome | Should -Be 'succeeded'
         $record.exitCode | Should -Be 0
-        $record.version | Should -Be '2026.10.30'
+        $record.version | Should -Be '2026.10.31'
         $record.step | Should -Be 'Installing libvirt'
         @($record.issues).Count | Should -Be 0
         Test-Path -LiteralPath (Join-Path $r.Root 'logs/ubuntu.kvm.install.1.result.json') | Should -BeTrue
@@ -358,8 +358,8 @@ Describe 'installer outcome record' -Skip:$IsWindows {
         $fn = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Write-InstallResult' }, $true)
         $root = Join-Path $TestDrive 'win'
         $null = New-Item -ItemType Directory -Path (Join-Path $root 'checkout'), (Join-Path $root 'local') -Force
-        Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.10.30'
-        $saved = $env:LOCALAPPDATA
+        Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.10.31'
+        $saved = Save-YurunaTestEnvironment -Name 'LOCALAPPDATA'
         try {
             $env:LOCALAPPDATA = Join-Path $root 'local'
             $record = & ([scriptblock]::Create(@"
@@ -370,7 +370,7 @@ $($fn.Extent.Text)
 Write-InstallResult
 Get-Content -LiteralPath (Join-Path `$env:LOCALAPPDATA 'yuruna/install-result.json') -Raw | ConvertFrom-Json
 "@))
-        } finally { $env:LOCALAPPDATA = $saved }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
         $record.installer | Should -Be 'windows.hyper-v'
         $record.outcome | Should -Be 'succeeded-with-issues'
         @($record.issues) | Should -Be @('winget "x" failed')
@@ -395,12 +395,12 @@ Describe 'Windows installer elevation runs only a checked, administrator-only co
             $portable = [regex]::Replace($Text, '(?ms)^\$security = New-Object.*?^if \(\$PSVersionTable\.PSVersion\.Major -ge 6\)[^\n]*$', '[void][System.IO.Directory]::CreateDirectory($dir)')
             $file = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.ps1')
             Set-Content -LiteralPath $file -Value ("function Start-Sleep { }`n" + $portable)
-            $saved = @{ ProgramData = $env:ProgramData; NO_COLOR = $env:NO_COLOR }
+            $saved = Save-YurunaTestEnvironment -Name 'ProgramData', 'NO_COLOR'
             try {
                 $env:ProgramData = $ProgramData; $env:NO_COLOR = '1'
                 $output = & ([Environment]::ProcessPath) -NoProfile -File $file 2>&1
                 return @{ Code = $LASTEXITCODE; Output = (($output -join "`n") -replace '[\x00-\x08\x0B\x0C\x0E-\x1F]', '') }
-            } finally { $env:ProgramData = $saved.ProgramData; $env:NO_COLOR = $saved.NO_COLOR }
+            } finally { Restore-YurunaTestEnvironment -Saved $saved }
         }
     }
 

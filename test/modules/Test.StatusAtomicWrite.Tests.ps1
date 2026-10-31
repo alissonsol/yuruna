@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 420bd99b-9a43-48a6-9d05-9d19abdacd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,8 +88,7 @@ Describe 'status-service shared-state writes are atomic and collision-free' {
     }
 
     It '[IO.File]::Move overwrite atomically replaces an existing destination and consumes the temp' {
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rel9-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $dir = New-YurunaTestTempDir -Prefix 'rel9'
         try {
             $dst = Join-Path $dir 'target.txt'
             Set-Content -LiteralPath $dst -Value 'OLD' -NoNewline
@@ -104,7 +103,7 @@ Describe 'status-service shared-state writes are atomic and collision-free' {
             Assert-Equal -Expected 'NEW' -Actual (Get-Content -Raw -LiteralPath $dst)
             Assert-True (-not (Test-Path -LiteralPath $tmp)) 'the temp is consumed by the move'
         } finally {
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $dir
         }
     }
 }

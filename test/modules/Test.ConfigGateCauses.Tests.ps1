@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42e62d38-20d8-4171-9157-427b737d6f11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,8 +100,7 @@ Describe 'Real configuration gate causes under a controlled outage' {
 
     It 'appends Git overrides and restores every process environment value on disposal' {
         $names = @('GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1', 'YURUNA_GITHUB_PROBE_ENDPOINT')
-        $saved = @{}
-        foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+        $saved = Save-YurunaTestEnvironment -Name $names
         try {
             $env:GIT_CONFIG_COUNT = '1'
             $env:GIT_CONFIG_KEY_0 = 'core.abbrev'
@@ -119,9 +118,7 @@ Describe 'Real configuration gate causes under a controlled outage' {
             $env:GIT_CONFIG_KEY_1 | Should -Be 'previous-unused-key'
             $env:GIT_CONFIG_VALUE_1 | Should -Be 'previous-unused-value'
             $env:YURUNA_GITHUB_PROBE_ENDPOINT | Should -Be 'http://127.0.0.1:1234'
-        } finally {
-            foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 
     It 'redirects the inner diagnostic through the same independent TCP endpoint' {

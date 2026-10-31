@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4207281c-d594-4c5f-b5f3-215bb075539f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,11 +72,10 @@ function New-RepoRootFixture {
 
 Describe 'Update-ProjectClone swaps in a proven-complete clone' {
     BeforeEach {
-        $script:Root = Join-Path ([System.IO.Path]::GetTempPath()) ('pcswap-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Root -Force | Out-Null
+        $script:Root = New-YurunaTestTempDir -Prefix 'pcswap'
         $script:Remote = New-GitRemoteFixture -Root $script:Root
     }
-    AfterEach { Remove-Item -LiteralPath $script:Root -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:Root }
 
     It 'keeps the gate-selected commit and canonical tracking when origin advances before cloning' {
         $repo = New-RepoRootFixture -Root $script:Root -WithCheckout
@@ -172,15 +171,14 @@ Describe 'Update-ProjectClone swaps in a proven-complete clone' {
 
 Describe 'Update-ProjectClone never costs the last good checkout' {
     BeforeEach {
-        $script:Root = Join-Path ([System.IO.Path]::GetTempPath()) ('pcfail-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Root -Force | Out-Null
+        $script:Root = New-YurunaTestTempDir -Prefix 'pcfail'
         $script:Remote = New-GitRemoteFixture -Root $script:Root
         $script:Repo = New-RepoRootFixture -Root $script:Root -WithCheckout
         Mock -ModuleName Test.HostGit Get-FileLockingProcess { @() }
         Mock -ModuleName Test.HostGit Move-ProjectCloneDirectory { & $script:RealMoveProjectCloneDirectory @PesterBoundParameters }
         Mock -ModuleName Test.HostGit Remove-ProjectCloneDirectory { & $script:RealRemoveProjectCloneDirectory @PesterBoundParameters }
     }
-    AfterEach { Remove-Item -LiteralPath $script:Root -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:Root }
 
     It 'keeps the checkout when the clone fails, and removes the partial clone' {
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand {
@@ -280,8 +278,7 @@ Describe 'Update-ProjectClone with a file watcher on the checkout' -Skip:(-not $
     # server watching a project's obj folder is the case that surfaced this) makes
     # Windows refuse to rename the checkout, while a delete still goes through.
     BeforeEach {
-        $script:Root = Join-Path ([System.IO.Path]::GetTempPath()) ('pcwatch-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Root -Force | Out-Null
+        $script:Root = New-YurunaTestTempDir -Prefix 'pcwatch'
         $script:Remote = New-GitRemoteFixture -Root $script:Root
         $script:Repo = New-RepoRootFixture -Root $script:Root -WithCheckout
         $script:Deep = Join-Path $script:Repo 'project/example/site/obj/Debug'
@@ -298,7 +295,7 @@ Describe 'Update-ProjectClone with a file watcher on the checkout' -Skip:(-not $
         $script:Watcher.Dispose()
         foreach ($w in $global:__swapWatchers) { $w.Dispose() }
         Remove-Variable -Name __swapWatchers -Scope Global -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:Root -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Root
     }
 
     It 'replaces the checkout in place instead of failing the refresh' {
@@ -353,8 +350,7 @@ Describe 'Update-ProjectClone with a file watcher on the checkout' -Skip:(-not $
 
 Describe 'Restore-ProjectCloneSwap recovers an interrupted refresh' {
     BeforeEach {
-        $script:Root = Join-Path ([System.IO.Path]::GetTempPath()) ('pcrec-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Root -Force | Out-Null
+        $script:Root = New-YurunaTestTempDir -Prefix 'pcrec'
         $script:Repo = New-RepoRootFixture -Root $script:Root
         function Add-Dir {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -366,7 +362,7 @@ Describe 'Restore-ProjectCloneSwap recovers an interrupted refresh' {
         }
         $script:AddDir = ${function:Add-Dir}
     }
-    AfterEach { Remove-Item -LiteralPath $script:Root -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:Root }
 
     It 'puts the set-aside checkout back when the replacement never arrived' {
         & $script:AddDir 'project.previous' 'previous.txt'
@@ -423,11 +419,10 @@ Describe 'Restore-ProjectCloneSwap recovers an interrupted refresh' {
 
 Describe 'Test-ProjectCloneHealth' {
     BeforeEach {
-        $script:Root = Join-Path ([System.IO.Path]::GetTempPath()) ('pchealth-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Root -Force | Out-Null
+        $script:Root = New-YurunaTestTempDir -Prefix 'pchealth'
         $script:Remote = New-GitRemoteFixture -Root $script:Root
     }
-    AfterEach { Remove-Item -LiteralPath $script:Root -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:Root }
 
     It 'accepts a complete clone and names its revision' {
         $dest = Join-Path $script:Root 'clone'

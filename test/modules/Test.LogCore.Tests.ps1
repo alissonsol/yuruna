@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 422984c1-a8cf-44a9-a11d-01ec2ed555b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,26 +97,32 @@ Describe 'Set-LogLevelPreference restores ProgressPreference symmetrically' {
 Describe 'Log rotation throttle stamps only after a completed check' {
     It 'Test-LogRotationDue is a pure predicate (repeated calls do not advance the throttle)' {
         Reset-LogRotationCache -Confirm:$false
-        $p = [System.IO.Path]::GetTempFileName()
+        $dir = New-YurunaTestTempDir -Prefix 'logcore'
+        $p = Join-Path $dir 'live.log'
+        [System.IO.File]::WriteAllText($p, '')
         try {
             Assert-True (Test-LogRotationDue -Path $p) 'first call is due'
             Assert-True (Test-LogRotationDue -Path $p) 'still due -- the predicate does not stamp'
-        } finally { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'Invoke-LogRotation records the throttle after a completed size check' {
         Reset-LogRotationCache -Confirm:$false
-        $p = [System.IO.Path]::GetTempFileName()
+        $dir = New-YurunaTestTempDir -Prefix 'logcore'
+        $p = Join-Path $dir 'live.log'
+        [System.IO.File]::WriteAllText($p, '')
         try {
             [System.IO.File]::WriteAllText($p, 'small')
             $null = Invoke-LogRotation -Path $p -MaxBytes 1MB -Confirm:$false
             Assert-True (-not (Test-LogRotationDue -Path $p)) 'the completed under-threshold check stamped the throttle'
-        } finally { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'a failed size read does NOT burn the throttle window (the next call retries)' {
         Reset-LogRotationCache -Confirm:$false
-        $p = [System.IO.Path]::GetTempFileName()
+        $dir = New-YurunaTestTempDir -Prefix 'logcore'
+        $p = Join-Path $dir 'live.log'
+        [System.IO.File]::WriteAllText($p, '')
         try {
             [System.IO.File]::WriteAllText($p, 'small')
             # Test-Path still passes (the file exists); force the size read to throw
@@ -124,14 +130,16 @@ Describe 'Log rotation throttle stamps only after a completed check' {
             Mock -ModuleName Test.LogRotation Get-Item { throw 'simulated FS error' }
             $null = Invoke-LogRotation -Path $p -MaxBytes 1MB -Confirm:$false
             Assert-True (Test-LogRotationDue -Path $p) 'a read failure must not stamp the throttle -- the next call retries immediately'
-        } finally { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
 Describe 'Invoke-LogRotation recreates the live file after rotating' {
     It 'leaves an empty live file (no gap with no live log) and moves content to .1' {
         Reset-LogRotationCache -Confirm:$false
-        $p = [System.IO.Path]::GetTempFileName()
+        $dir = New-YurunaTestTempDir -Prefix 'logcore'
+        $p = Join-Path $dir 'live.log'
+        [System.IO.File]::WriteAllText($p, '')
         try {
             [System.IO.File]::WriteAllText($p, ('x' * 100))
             $rotated = Invoke-LogRotation -Path $p -MaxBytes 10 -Force -Confirm:$false
@@ -139,7 +147,7 @@ Describe 'Invoke-LogRotation recreates the live file after rotating' {
             Assert-True (Test-Path -LiteralPath $p) 'live file recreated immediately after the move'
             Assert-Equal 0 (Get-Item -LiteralPath $p).Length -Because 'recreated live file is empty'
             Assert-True (Test-Path -LiteralPath "$p.1") 'rotated content moved to .1'
-        } finally { Remove-Item -LiteralPath $p, "$p.1" -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 

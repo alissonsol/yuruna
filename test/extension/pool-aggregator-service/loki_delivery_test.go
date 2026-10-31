@@ -72,7 +72,7 @@ func TestLinesLokiRefusedAreSentOnTheNextPoll(t *testing.T) {
 	u, _ := url.Parse(host.URL)
 	port, _ := strconv.Atoi(u.Port())
 	s := newPoolState("default", port)
-	s.hosts[hid] = &hostView{HostId: hid, CurrentIP: u.Hostname(), LastSeenUnixMs: now.UnixMilli()}
+	s.view().Hosts[hid] = &hostView{HostId: hid, CurrentIP: u.Hostname(), LastSeenUnixMs: now.UnixMilli()}
 	client := &http.Client{Timeout: 5 * time.Second}
 	pushURL := lokiSrv.URL + "/loki/api/v1/push"
 
@@ -115,7 +115,7 @@ func TestTheOutboxHoldsAPollsLinesUntilLokiReturns(t *testing.T) {
 	u, _ := url.Parse(host.URL)
 	port, _ := strconv.Atoi(u.Port())
 	s := newPoolState("default", port)
-	s.hosts[hid] = &hostView{HostId: hid, CurrentIP: u.Hostname(), LastSeenUnixMs: now.UnixMilli()}
+	s.view().Hosts[hid] = &hostView{HostId: hid, CurrentIP: u.Hostname(), LastSeenUnixMs: now.UnixMilli()}
 	pushURL := lokiSrv.URL + "/loki/api/v1/push"
 	dir := t.TempDir()
 	s.outbox = newLokiOutbox(dir, pushURL)

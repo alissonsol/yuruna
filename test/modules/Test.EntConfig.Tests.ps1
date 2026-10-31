@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42e237df-6378-43f5-b1f4-c3f181119e39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,16 +112,14 @@ Describe 'ConvertTo-YurunaBool normalizes boolean-ish config flags' {
 
 Describe 'Test-TcpReachable is a bounded probe that always disposes' {
     It 'returns $true for a reachable local listener' {
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
         $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
         try {
             Test-TcpReachable -HostName '127.0.0.1' -Port $port -TimeoutMs 3000 | Should -BeTrue
         } finally { $listener.Stop() }
     }
     It 'returns $false for a closed port without throwing' {
-        $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $l.Start(); $port = ([System.Net.IPEndPoint]$l.LocalEndpoint).Port; $l.Stop()
+        $port = Get-YurunaTestFreePort
         { Test-TcpReachable -HostName '127.0.0.1' -Port $port -TimeoutMs 3000 } | Should -Not -Throw
         Test-TcpReachable -HostName '127.0.0.1' -Port $port -TimeoutMs 3000 | Should -BeFalse
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b2a26c-2f83-45a5-9ea1-2968fe3e40d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,9 +103,7 @@ namespace Yuruna.Test {
     # Restrict only the fixture's bind address; the entire authentication and
     # HTTP request path remain the service function's own code.
     $functions = ($definitions -join "`n") -replace '\[System.Net.IPAddress\]::Any', '[System.Net.IPAddress]::Loopback'
-    $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-    $probe.Start()
-    try { $script:Port = $probe.LocalEndpoint.Port } finally { $probe.Stop() }
+    $script:Port = Get-YurunaTestFreePort
     $childPath = Join-Path $script:Work 'server.ps1'
     $childText = @'
 param([string]$ModulePath, [int]$ListenPort, [string]$FixtureRoot)

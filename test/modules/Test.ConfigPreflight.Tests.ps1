@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42871662-c8fc-4b5a-9380-fa9ff5c48ae5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,12 +41,10 @@ Import-Module (Join-Path $here 'Test.ConfigPreflight.psm1') -Force -DisableNameC
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-# Paths only at file scope; the directories and the stub script are created in
-# BeforeAll and removed in AfterAll. A standalone run executes this file body
-# twice (discovery, then run), so a temp tree built here would be created and
-# deleted during discovery and every It would then spawn against a gate script
-# that no longer exists. $PID is stable across the two passes.
-$preflightRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-configpreflight-tests-$PID"
+# One root for the whole suite. Each Describe builds the folders and the stub
+# script it needs under it in its BeforeAll and removes the tree in its
+# AfterAll, so a later Describe rebuilds them under the same root.
+$preflightRoot = New-YurunaTestTempDir -Prefix 'yuruna-configpreflight'
 $script:gateRoot      = Join-Path $preflightRoot 'testroot-with-gate'     # TestRoot that HAS Test-Config.ps1
 $script:emptyRoot     = Join-Path $preflightRoot 'testroot-without-gate'  # TestRoot that does NOT
 $script:planRoot      = Join-Path $preflightRoot 'plans'                  # the per-test stub scripts
@@ -156,7 +154,7 @@ Describe 'Invoke-ConfigGate' {
     }
 
     AfterAll {
-        Remove-Item -LiteralPath $preflightRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $preflightRoot
     }
 
     Context 'bypass paths' {
@@ -337,7 +335,7 @@ Describe 'One gate per cycle, at the front of it' {
     }
 
     AfterAll {
-        Remove-Item -LiteralPath $preflightRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $preflightRoot
     }
 
     It 'the cycle gates itself, before it touches the host' {
@@ -407,7 +405,7 @@ Describe 'Configuration gate evidence survives the attempt' {
     # The earlier Describes' teardowns have already run, so this one rebuilds
     # the tree and has to remove it itself.
     AfterAll {
-        Remove-Item -LiteralPath (Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-configpreflight-tests-$PID") -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $preflightRoot
     }
 
     It 'preserves the full transcript and structured findings with current provenance' {

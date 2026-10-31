@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 423d6743-1531-4ed7-b6b3-7d5bf06035c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -603,11 +603,27 @@ function Invoke-YurunaTestShell {
 
 function Save-YurunaTestEnvironment {
     <# .SYNOPSIS
-    Snapshots named process environment entries while preserving unset versus empty values.
+    Snapshots named process environment entries, or every entry with -All,
+    while preserving unset versus empty values.
+    .DESCRIPTION
+    -All is for a test whose subject sets entries the test cannot name in
+    advance; Restore-YurunaTestEnvironment -RemoveOthers then also removes what
+    was added. Entry names are case-sensitive on Linux and macOS, so that
+    snapshot keys them by ordinal name there.
     #>
-    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseLiteralInitializerForHashtable', '',
+        Justification = 'The -All snapshot is keyed case-sensitively where entry names are, which a literal cannot be.')]
+    [CmdletBinding(DefaultParameterSetName = 'Name')]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string[]]$Name)
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'Name')][AllowEmptyCollection()][string[]]$Name,
+        [Parameter(Mandatory, ParameterSetName = 'All')][switch]$All
+    )
+    if ($All) {
+        $saved = if ($IsWindows) { [hashtable]::new([StringComparer]::OrdinalIgnoreCase) } else { [hashtable]::new([StringComparer]::Ordinal) }
+        foreach ($item in Get-ChildItem -Path Env:) { $saved[$item.Name] = $item.Value }
+        return $saved
+    }
     $saved = @{}
     foreach ($entry in $Name) { $saved[$entry] = [Environment]::GetEnvironmentVariable($entry) }
     return $saved
@@ -615,15 +631,242 @@ function Save-YurunaTestEnvironment {
 
 function Restore-YurunaTestEnvironment {
     <# .SYNOPSIS
-    Restores a fixture environment and removes entries that were originally absent.
+    Restores a fixture environment and removes entries that were originally
+    absent; with -RemoveOthers, also every entry the snapshot does not name.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Test teardown restores the caller environment.')]
-    param([Parameter(Mandatory)][hashtable]$Saved)
+    param([Parameter(Mandatory)][hashtable]$Saved, [switch]$RemoveOthers)
+    if ($RemoveOthers) {
+        foreach ($item in @(Get-ChildItem -Path Env:)) {
+            if (-not $Saved.ContainsKey($item.Name)) { Remove-Item -LiteralPath "Env:$($item.Name)" -ErrorAction SilentlyContinue }
+        }
+    }
     foreach ($name in $Saved.Keys) {
         if ($null -eq $Saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
         else { Set-Item -LiteralPath "Env:$name" -Value $Saved[$name] }
     }
+}
+
+function New-YurunaTestTcpListener {
+    <#
+    .SYNOPSIS
+    A TCP listener on the loopback address for one test, started unless -NoStart.
+    .DESCRIPTION
+    Port 0 lets the system pick a free port; read it from LocalEndpoint while
+    the listener is started, because a stopped listener reports the port it was
+    asked for, 0, not the one it held. A test that needs a port nothing listens
+    on takes Get-YurunaTestFreePort. -AnyAddress binds every interface, for a
+    subject that listens or connects there; -NoStart hands back a listener the
+    test starts at a moment of its choosing. The caller stops it in a finally
+    block.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Binds a socket for one test case, which the caller stops.')]
+    [CmdletBinding()]
+    [OutputType([System.Net.Sockets.TcpListener])]
+    param([ValidateRange(0, 65535)][int]$Port = 0, [switch]$AnyAddress, [switch]$NoStart)
+    $address = if ($AnyAddress) { [System.Net.IPAddress]::Any } else { [System.Net.IPAddress]::Loopback }
+    $listener = [System.Net.Sockets.TcpListener]::new($address, $Port)
+    if (-not $NoStart) { $listener.Start() }
+    return $listener
+}
+
+function Get-YurunaTestFreePort {
+    <#
+    .SYNOPSIS
+    A TCP port no listener held at the moment of the call, released for the
+    caller to bind or to probe as a port that refuses.
+    .DESCRIPTION
+    The port is bound on the loopback address (every address with -AnyAddress),
+    read while the listener is up and released. Nothing reserves it afterwards,
+    so a test binds it at once or uses it as a closed port.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([switch]$AnyAddress)
+    $listener = New-YurunaTestTcpListener -AnyAddress:$AnyAddress
+    try { return ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port } finally { $listener.Stop() }
+}
+
+function New-YurunaTestSocketPair {
+    <#
+    .SYNOPSIS
+    Two connected loopback TCP clients, Client and Server, for a test that
+    writes on one end and reads on the other.
+    .DESCRIPTION
+    The listener that joined them is stopped before the pair is returned, so
+    only the two connections remain; the caller disposes both in a finally
+    block.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Opens a loopback socket pair for one test case, which the caller disposes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    $listener = New-YurunaTestTcpListener
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $client.Connect([System.Net.IPAddress]::Loopback, ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port)
+        $server = $listener.AcceptTcpClient()
+    } catch {
+        $client.Dispose()
+        throw
+    } finally { $listener.Stop() }
+    return [pscustomobject]@{ Client = $client; Server = $server }
+}
+
+function New-YurunaTestHttpReply {
+    <#
+    .SYNOPSIS
+    The raw text of one HTTP/1.1 response for Start-YurunaTestHttpResponder.
+    .DESCRIPTION
+    Content-Length counts the body's UTF-8 bytes and the connection closes after
+    the reply. No Content-Type is sent unless one is named: publishers serve
+    files without one, and how a client reads such a body is what several tests
+    check. A test that needs a malformed or truncated reply writes the text
+    itself.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds a string; nothing changes.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [ValidateRange(100, 599)][int]$StatusCode = 200,
+        [AllowEmptyString()][string]$Body = '',
+        [string]$ContentType = '',
+        [System.Collections.IDictionary]$Header = @{}
+    )
+    $reason = 'Status'
+    if ([Enum]::IsDefined([System.Net.HttpStatusCode], $StatusCode)) {
+        $reason = ([string][System.Net.HttpStatusCode]$StatusCode) -creplace '(?<=[a-z])(?=[A-Z])', ' '
+    }
+    $head = [System.Text.StringBuilder]::new("HTTP/1.1 $StatusCode $reason`r`n")
+    if ($ContentType) { [void]$head.Append("Content-Type: $ContentType`r`n") }
+    foreach ($name in $Header.Keys) { [void]$head.Append("${name}: $($Header[$name])`r`n") }
+    [void]$head.Append("Content-Length: $([System.Text.Encoding]::UTF8.GetByteCount($Body))`r`nConnection: close`r`n`r`n")
+    return $head.ToString() + $Body
+}
+
+function Start-YurunaTestHttpResponder {
+    <#
+    .SYNOPSIS
+    Serves scripted HTTP replies on a loopback port, one connection each, and
+    records every request it reads.
+    .DESCRIPTION
+    A raw TcpListener rather than HttpListener: HttpListener needs a URL ACL (or
+    Administrator) to bind on Windows, which an unattended run cannot assume.
+    The listener is started before the serving thread job exists, so a request
+    can never arrive before something can accept it.
+
+    -Reply serves its entries in order, one per connection. -Route answers each
+    request with the reply of the first pattern its request text matches (a 404
+    when none does), for -RequestCount connections. Each request is read whole:
+    the head, then as many body bytes as its Content-Length names. -HoldOpen
+    keeps each connection open after its reply until the responder is stopped,
+    for a test whose subject is a client's deadline: an empty reply then answers
+    nothing at all, and a reply shorter than its Content-Length stalls mid-body.
+    Stop-YurunaTestHttpResponder ends it and returns the requests.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Starts a loopback responder for one test case, which the caller stops.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
+        Justification = 'Every value reaches the job through -ArgumentList into its param() block; the analyzer does not follow that path.')]
+    [CmdletBinding(DefaultParameterSetName = 'Reply')]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'Reply')][AllowEmptyString()][string[]]$Reply,
+        [Parameter(Mandatory, ParameterSetName = 'Route')][System.Collections.IDictionary]$Route,
+        [Parameter(ParameterSetName = 'Route')][ValidateRange(1, 1000)][int]$RequestCount = 1,
+        [switch]$HoldOpen
+    )
+    $routes = [System.Collections.Generic.List[object]]::new()
+    if ($PSCmdlet.ParameterSetName -eq 'Route') {
+        foreach ($key in $Route.Keys) { $routes.Add(@([string]$key, [string]$Route[$key])) }
+        $count = $RequestCount
+    } else { $count = $Reply.Count }
+    $notFound = New-YurunaTestHttpReply -StatusCode 404 -Body 'no route matched this request'
+    $release = [System.Threading.ManualResetEventSlim]::new($false)
+    $listener = New-YurunaTestTcpListener
+    $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+    $job = Start-ThreadJob -ArgumentList $listener, $Reply, $routes, $count, $notFound, $HoldOpen.IsPresent, $release -ScriptBlock {
+        param($Listener, $Replies, $Routes, $Count, $NotFound, $Hold, $Release)
+        try {
+            for ($n = 0; $n -lt $Count; $n++) {
+                $client = $Listener.AcceptTcpClient()
+                try {
+                    $stream = $client.GetStream()
+                    $stream.ReadTimeout = 5000
+                    $buffer = [System.IO.MemoryStream]::new()
+                    $chunk = [byte[]]::new(8192)
+                    $headEnd = -1
+                    $length = 0
+                    try {
+                        while ($headEnd -lt 0) {
+                            $read = $stream.Read($chunk, 0, $chunk.Length)
+                            if ($read -le 0) { break }
+                            $buffer.Write($chunk, 0, $read)
+                            $headEnd = [System.Text.Encoding]::ASCII.GetString($buffer.ToArray()).IndexOf("`r`n`r`n")
+                        }
+                        if ($headEnd -ge 0) {
+                            $lengthMatch = [regex]::Match([System.Text.Encoding]::ASCII.GetString($buffer.ToArray(), 0, $headEnd), '(?im)^content-length:\s*(\d+)')
+                            if ($lengthMatch.Success) { $length = [int]$lengthMatch.Groups[1].Value }
+                            while ($buffer.Length - ($headEnd + 4) -lt $length) {
+                                $read = $stream.Read($chunk, 0, $chunk.Length)
+                                if ($read -le 0) { break }
+                                $buffer.Write($chunk, 0, $read)
+                            }
+                        }
+                    } catch [System.IO.IOException] {
+                        # A client that stops sending is answered with what it sent.
+                        $null = $_
+                    }
+                    $request = [System.Text.Encoding]::UTF8.GetString($buffer.ToArray())
+                    $request
+                    $reply = $NotFound
+                    if ($Routes.Count -gt 0) {
+                        foreach ($route in $Routes) { if ($request -match $route[0]) { $reply = $route[1]; break } }
+                    } else { $reply = [string]$Replies[$n] }
+                    $bytes = [System.Text.Encoding]::UTF8.GetBytes($reply)
+                    if ($bytes.Length -gt 0) {
+                        $stream.Write($bytes, 0, $bytes.Length)
+                        $stream.Flush()
+                    }
+                    if ($Hold) { [void]$Release.Wait(60000) }
+                } finally { $client.Dispose() }
+            }
+        } finally { $Listener.Stop() }
+    }
+    return [pscustomobject]@{ Listener = $listener; Port = $port; BaseUrl = "http://127.0.0.1:$port"; Job = $job; Release = $release }
+}
+
+function Stop-YurunaTestHttpResponder {
+    <#
+    .SYNOPSIS
+    Ends a responder from Start-YurunaTestHttpResponder and returns the text of
+    every request it read, never throwing.
+    .DESCRIPTION
+    Releases held connections, stops the listener (an accept still waiting for a
+    connection ends with it), lets a reply in flight finish and removes the job.
+    Cleanup runs in finally blocks, where a throw would replace the test's own
+    failure with a tidying-up error.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Stops a loopback responder this module started for one test case.')]
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Position = 0)][AllowNull()]$Responder, [ValidateRange(1, 60)][int]$TimeoutSeconds = 5)
+    if ($null -eq $Responder) { return }
+    try { $Responder.Release.Set() } catch { Write-Verbose "Stop-YurunaTestHttpResponder: release failed ($($_.Exception.Message))." }
+    try { $Responder.Listener.Stop() } catch { Write-Verbose "Stop-YurunaTestHttpResponder: listener stop failed ($($_.Exception.Message))." }
+    $requests = @()
+    if ($Responder.Job) {
+        $null = $Responder.Job | Wait-Job -Timeout $TimeoutSeconds
+        $requests = @($Responder.Job | Receive-Job -ErrorAction SilentlyContinue | ForEach-Object { [string]$_ })
+        $Responder.Job | Remove-Job -Force -ErrorAction SilentlyContinue
+    }
+    try { $Responder.Release.Dispose() } catch { Write-Verbose "Stop-YurunaTestHttpResponder: release dispose failed ($($_.Exception.Message))." }
+    return [string[]]$requests
 }
 
 function Enter-TranslationTestEnvironment {
@@ -887,6 +1130,7 @@ function Invoke-YurunaTestBrowserResult {
 }
 
 Export-ModuleMember -Function Get-YurunaTestBrowser, Get-YurunaTestBrowserDom, Invoke-YurunaTestBrowserResult, Save-YurunaTestEnvironment, Restore-YurunaTestEnvironment, Enter-TranslationTestEnvironment, Get-YurunaTestCommandArgumentAst, Get-YurunaTestShellFunction, Invoke-YurunaTestShell, `
+    New-YurunaTestTcpListener, Get-YurunaTestFreePort, New-YurunaTestSocketPair, New-YurunaTestHttpReply, Start-YurunaTestHttpResponder, Stop-YurunaTestHttpResponder, `
     Assert-True, Assert-False, Assert-Equal, Assert-StringEqual, Assert-NotEqual, `
     Assert-Null, Assert-NotNull, Assert-Match, Assert-Throw, Assert-NoFinding, `
     Get-YurunaTestRepoRoot, New-YurunaTestTempDir, Remove-YurunaTestTempDir, New-YurunaTestGitRepository, Set-YurunaTestGitIdentity, Invoke-YurunaTestGit, `

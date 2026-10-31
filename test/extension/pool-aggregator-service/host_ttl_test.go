@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 // TestHostTTLReapHonorsConfiguredWindow pins the configurable host-disappearance
@@ -25,11 +27,11 @@ func TestHostTTLReapHonorsConfiguredWindow(t *testing.T) {
 	s.hostTtl = 2 * time.Hour
 	now := time.Now().UTC()
 
-	s.hosts["stalehost1"] = &hostView{
+	s.view().Hosts["stalehost1"] = &hostView{
 		HostId:         "stalehost1",
 		LastSeenUnixMs: now.Add(-3 * time.Hour).UnixMilli(),
 	}
-	s.hosts["freshhost1"] = &hostView{
+	s.view().Hosts["freshhost1"] = &hostView{
 		HostId:         "freshhost1",
 		LastSeenUnixMs: now.Add(-1 * time.Hour).UnixMilli(),
 	}
@@ -39,21 +41,18 @@ func TestHostTTLReapHonorsConfiguredWindow(t *testing.T) {
 	// to behavior: one key inside hostTtl+1h must survive the reap that removed
 	// its own host row (else a returning host re-counts that cycle), and one past
 	// it must go.
-	s.seenAt["stalehost1|cycle-recent"] = now.Add(-150 * time.Minute) // < 3h, survives
-	s.seen["stalehost1|cycle-recent"] = "pass"
-	s.counted["stalehost1|cycle-recent"] = true
-	s.seenAt["stalehost1|cycle-ancient"] = now.Add(-4 * time.Hour) // > 3h, swept
-	s.seen["stalehost1|cycle-ancient"] = "pass"
-	s.counted["stalehost1|cycle-ancient"] = true
+	s.seedCycle("stalehost1", "cycle-recent", "pass", now.Add(-150*time.Minute), true) // < 3h, survives
+	s.seedCycle("stalehost1", "cycle-ancient", "pass", now.Add(-4*time.Hour), true)    // > 3h, swept
 
 	s.pollOnce(nil, "no-such-squid.log", "", now)
 
-	s.mu.Lock()
-	_, stale := s.hosts["stalehost1"]
-	_, fresh := s.hosts["freshhost1"]
-	_, dedupKept := s.seenAt["stalehost1|cycle-recent"]
-	_, dedupSwept := s.seenAt["stalehost1|cycle-ancient"]
-	s.mu.Unlock()
+	var stale, fresh, dedupKept, dedupSwept bool
+	s.st.Do(func(view *poolstate.View) {
+		_, stale = view.Hosts["stalehost1"]
+		_, fresh = view.Hosts["freshhost1"]
+		_, dedupKept = view.Cycle("stalehost1|cycle-recent")
+		_, dedupSwept = view.Cycle("stalehost1|cycle-ancient")
+	})
 
 	if stale {
 		t.Error("host silent past the configured host-ttl survived the reap")

@@ -7,10 +7,10 @@
   },
   "totals": {
     "domains": 16,
-    "files": 514,
-    "candidates": 8790,
-    "fragments": 1849,
-    "catalogCalls": 5628,
+    "files": 525,
+    "candidates": 8780,
+    "fragments": 1848,
+    "catalogCalls": 5626,
     "pages": 15,
     "markdown": 139,
     "yamlFields": 178
@@ -93,10 +93,10 @@
       "domain": "status-service",
       "repository": "yuruna",
       "present": true,
-      "files": 17,
-      "candidates": 676,
-      "fragments": 284,
-      "catalogCalls": 105,
+      "files": 21,
+      "candidates": 650,
+      "fragments": 281,
+      "catalogCalls": 103,
       "pages": 0,
       "markdown": 1,
       "yamlFields": 0,
@@ -114,12 +114,12 @@
           "candidates": 78
         },
         {
-          "file": "test/service/Start-PoolControlServiceVM.ps1",
-          "candidates": 65
+          "file": "test/service/Start-ExtensionService.stash.ps1",
+          "candidates": 48
         },
         {
-          "file": "test/service/Start-StashServiceVM.ps1",
-          "candidates": 62
+          "file": "test/service/Start-ExtensionService.pool-control.ps1",
+          "candidates": 43
         }
       ]
     },
@@ -263,7 +263,7 @@
       "domain": "pool-aggregator",
       "repository": "yuruna",
       "present": true,
-      "files": 19,
+      "files": 25,
       "candidates": 131,
       "fragments": 28,
       "catalogCalls": 0,
@@ -349,9 +349,9 @@
       "domain": "runner",
       "repository": "yuruna",
       "present": true,
-      "files": 141,
-      "candidates": 2390,
-      "fragments": 329,
+      "files": 142,
+      "candidates": 2406,
+      "fragments": 331,
       "catalogCalls": 2448,
       "pages": 0,
       "markdown": 1,

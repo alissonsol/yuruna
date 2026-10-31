@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 // The extension-presence announce (POST /announce): a service VM self-reports
@@ -56,9 +58,10 @@ func TestAnnounceCreatesExtensionRow(t *testing.T) {
 func TestAnnounceNonDefaultPortRidesInTarget(t *testing.T) {
 	s := newPoolState("default", 8080)
 	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":8081}`, testHostID))
-	s.mu.Lock()
-	av := s.announce[announceKey(testHostID, stashArea)]
-	s.mu.Unlock()
+	var av *announceView
+	s.st.Do(func(view *poolstate.View) {
+		av = view.Announce[announceKey(testHostID, stashArea)]
+	})
 	if av == nil || av.Target != "http://10.0.0.7:8081" {
 		t.Errorf("announce target = %+v, want http://10.0.0.7:8081 (area defaults to stash-service)", av)
 	}
@@ -106,17 +109,18 @@ func TestAnnounceGoodbyeIdentityBound(t *testing.T) {
 	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
 
 	postAnnounce(s, "10.0.0.99:5555", fmt.Sprintf(`{"hostId":%q,"active":false}`, testHostID))
-	s.mu.Lock()
-	kept := s.announce[announceKey(testHostID, stashArea)] != nil
-	s.mu.Unlock()
+	var kept bool
+	s.st.Do(func(view *poolstate.View) {
+		kept = view.Announce[announceKey(testHostID, stashArea)] != nil
+	})
 	if !kept {
 		t.Fatal("a goodbye from a DIFFERENT source removed the entry")
 	}
 
 	postAnnounce(s, "10.0.0.7:6666", fmt.Sprintf(`{"hostId":%q,"active":false}`, testHostID))
-	s.mu.Lock()
-	kept = s.announce[announceKey(testHostID, stashArea)] != nil
-	s.mu.Unlock()
+	s.st.Do(func(view *poolstate.View) {
+		kept = view.Announce[announceKey(testHostID, stashArea)] != nil
+	})
 	if kept {
 		t.Fatal("the owner's goodbye did not remove the entry")
 	}
@@ -133,7 +137,7 @@ func TestAnnounceGoodbyeIdentityBound(t *testing.T) {
 // process received, so it is first-hand evidence the service answers there.
 func TestAnnounceLiveAnnounceBeatsStaleRegistration(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.hosts[testHostID] = &hostView{
+	s.view().Hosts[testHostID] = &hostView{
 		HostId:           testHostID,
 		BaseURL:          "http://10.0.0.1:8080",
 		ActiveExtensions: []string{"stash-service"},
@@ -163,7 +167,7 @@ func TestAnnounceLiveAnnounceBeatsStaleRegistration(t *testing.T) {
 // registration has fallen behind its service before it is the only source left.
 func TestAnnounceDisagreementIsReported(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.hosts[testHostID] = &hostView{
+	s.view().Hosts[testHostID] = &hostView{
 		HostId:           testHostID,
 		ActiveExtensions: []string{"stash-service"},
 		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.5"},
@@ -187,7 +191,7 @@ func TestAnnounceDisagreementIsReported(t *testing.T) {
 // its presence keeps meaning something.
 func TestAnnounceNoDisagreementWhenSourcesAgree(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.hosts[testHostID] = &hostView{
+	s.view().Hosts[testHostID] = &hostView{
 		HostId:           testHostID,
 		ActiveExtensions: []string{"stash-service"},
 		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.7"},
@@ -208,21 +212,22 @@ func TestAnnounceNoDisagreementWhenSourcesAgree(t *testing.T) {
 func TestAnnounceTTLReap(t *testing.T) {
 	s := newPoolState("default", 8080)
 	now := time.Now().UTC()
-	s.announce[announceKey("stalehost1", stashArea)] = &announceView{
+	s.view().Announce[announceKey("stalehost1", stashArea)] = &announceView{
 		HostId: "stalehost1", Area: stashArea,
 		LastSeenUnixMs: now.Add(-s.announceTtl - time.Minute).UnixMilli(),
 	}
-	s.announce[announceKey("freshhost1", stashArea)] = &announceView{
+	s.view().Announce[announceKey("freshhost1", stashArea)] = &announceView{
 		HostId: "freshhost1", Area: stashArea,
 		LastSeenUnixMs: now.Add(-time.Minute).UnixMilli(),
 	}
 	// The reap runs inside pollOnce's locked section; exercised via pollOnce
 	// with no squid log and no hosts (a no-op poll otherwise).
 	s.pollOnce(nil, "no-such-squid.log", "", now)
-	s.mu.Lock()
-	_, stale := s.announce[announceKey("stalehost1", stashArea)]
-	_, fresh := s.announce[announceKey("freshhost1", stashArea)]
-	s.mu.Unlock()
+	var stale, fresh bool
+	s.st.Do(func(view *poolstate.View) {
+		_, stale = view.Announce[announceKey("stalehost1", stashArea)]
+		_, fresh = view.Announce[announceKey("freshhost1", stashArea)]
+	})
 	if stale {
 		t.Error("stale announce survived the TTL reap")
 	}
@@ -261,21 +266,21 @@ func TestApplyAnnounceLines(t *testing.T) {
 	if n := s.applyAnnounceLines(streams, now); n != 2 {
 		t.Errorf("restored %d entries, want 2", n)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	live := s.announce[announceKey("livehost1", stashArea)]
-	if live == nil || live.Target != "http://10.0.0.7" {
-		t.Errorf("livehost1 = %+v, want restored with its target", live)
-	}
-	if live != nil && live.LastSeenUnixMs != now.Add(-time.Minute).UnixMilli() {
-		t.Errorf("livehost1 freshness = %d, want the LINE's timestamp", live.LastSeenUnixMs)
-	}
-	if s.announce[announceKey("gonehost1", stashArea)] != nil {
-		t.Error("gonehost1 restored despite its latest line being a goodbye")
-	}
-	if nl := s.announce[announceKey("nolinkhost", stashArea)]; nl == nil || nl.Target != "" {
-		t.Errorf("nolinkhost = %+v, want restored presence-only (no target)", nl)
-	}
+	s.st.Do(func(view *poolstate.View) {
+		live := view.Announce[announceKey("livehost1", stashArea)]
+		if live == nil || live.Target != "http://10.0.0.7" {
+			t.Errorf("livehost1 = %+v, want restored with its target", live)
+		}
+		if live != nil && live.LastSeenUnixMs != now.Add(-time.Minute).UnixMilli() {
+			t.Errorf("livehost1 freshness = %d, want the LINE's timestamp", live.LastSeenUnixMs)
+		}
+		if view.Announce[announceKey("gonehost1", stashArea)] != nil {
+			t.Error("gonehost1 restored despite its latest line being a goodbye")
+		}
+		if nl := view.Announce[announceKey("nolinkhost", stashArea)]; nl == nil || nl.Target != "" {
+			t.Errorf("nolinkhost = %+v, want restored presence-only (no target)", nl)
+		}
+	})
 }
 
 // /go/stash falls back to the self-announced target when the registration
@@ -298,11 +303,11 @@ func TestGoStashFallsBackToAnnounce(t *testing.T) {
 // fallback) and the raw announcedExtensions list.
 func TestPoolStatusStashBaseURL(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.hosts["reghost11"] = &hostView{
+	s.view().Hosts["reghost11"] = &hostView{
 		HostId:           "reghost11",
 		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.5"},
 	}
-	s.hosts[testHostID] = &hostView{HostId: testHostID} // in view, no registration target
+	s.view().Hosts[testHostID] = &hostView{HostId: testHostID} // in view, no registration target
 	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
 	seedExtensionHealth(s, "reghost11", stashArea, "http://10.0.0.5")
 	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
@@ -380,9 +385,10 @@ func TestAnnounceReportsAPushLokiRejected(t *testing.T) {
 	// The entry is deliberately KEPT: it is live and serving right now, so the
 	// row should show immediately; the retry the 503 provokes is what makes it
 	// durable.
-	s.mu.Lock()
-	av := s.announce[announceKey(testHostID, stashArea)]
-	s.mu.Unlock()
+	var av *announceView
+	s.st.Do(func(view *poolstate.View) {
+		av = view.Announce[announceKey(testHostID, stashArea)]
+	})
 	if av == nil {
 		t.Error("announce entry was dropped; an un-pushed announce is still a live service")
 	}
@@ -423,7 +429,7 @@ func TestForeignGoodbyeIsNotPersisted(t *testing.T) {
 	defer loki.Close()
 	s := newPoolState("default", 8080)
 	s.httpClient, s.lokiURL = loki.Client(), loki.URL
-	s.announce[announceKey(testHostID, stashArea)] = &announceView{HostId: testHostID, Area: stashArea, sourceIP: "10.0.0.7"}
+	s.view().Announce[announceKey(testHostID, stashArea)] = &announceView{HostId: testHostID, Area: stashArea, SourceIP: "10.0.0.7"}
 	body := fmt.Sprintf(`{"hostId":%q,"active":false}`, testHostID)
 	if r := postAnnounce(s, "10.0.0.99:5555", body); r.Code != http.StatusNoContent {
 		t.Fatalf("foreign goodbye: %d", r.Code)
@@ -444,16 +450,16 @@ func TestReplayedAnnounceIsHistoricalUntilLiveBeacon(t *testing.T) {
 	now := time.Now().UTC()
 	line := fmt.Sprintf(`{"hostId":%q,"area":"stash-service","target":"http://10.0.0.7","active":true}`, testHostID)
 	s.applyAnnounceLines([][][2]string{{{fmt.Sprint(now.UnixNano()), line}}}, now)
-	entry := s.announce[announceKey(testHostID, stashArea)]
-	if entry.sourceIP != "" {
-		t.Fatalf("replay invented live ownership: %s", entry.sourceIP)
+	entry := s.view().Announce[announceKey(testHostID, stashArea)]
+	if entry.SourceIP != "" {
+		t.Fatalf("replay invented live ownership: %s", entry.SourceIP)
 	}
-	if rank := extensionSourceRank(extensionHostEntry{Source: extSourceAnnounce, confirmed: entry.sourceIP != ""}); rank != 2 {
+	if rank := extensionSourceRank(extensionHostEntry{Source: extSourceAnnounce, confirmed: entry.SourceIP != ""}); rank != 2 {
 		t.Fatalf("historical rank = %d", rank)
 	}
 	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))
-	if entry.sourceIP != "10.0.0.7" {
-		t.Fatalf("live beacon did not bind owner: %s", entry.sourceIP)
+	if entry.SourceIP != "10.0.0.7" {
+		t.Fatalf("live beacon did not bind owner: %s", entry.SourceIP)
 	}
 }
 
@@ -481,7 +487,7 @@ func TestHostAnnounceUsesReplayablePresenceStream(t *testing.T) {
 	if n := s.applyPresenceLines([][][2]string{received.Streams[0].Values}, time.Now().UTC()); n != 1 {
 		t.Fatalf("presence did not replay: %d", n)
 	}
-	if s.hosts[testHostID].CurrentIP != "10.0.0.7" {
+	if s.view().Hosts[testHostID].CurrentIP != "10.0.0.7" {
 		t.Fatal("replayed address changed")
 	}
 }

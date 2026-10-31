@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -644,13 +644,13 @@ Describe 'a gate that cannot run is not reported as passing' {
         }
         $preflight = Join-Path $script:RepoRoot 'tools/Invoke-Preflight.ps1'
 
-        $priorPath = $env:PATH
+        $prior = Save-YurunaTestEnvironment -Name 'PATH'
         try {
             $env:PATH = $narrowed
             $output = & (Get-Process -Id $PID).Path -NoProfile -File $preflight -Release 2>&1 | Out-String
             $code = $LASTEXITCODE
         } finally {
-            $env:PATH = $priorPath
+            Restore-YurunaTestEnvironment -Saved $prior
         }
 
         # If the narrowed PATH still reaches every tool -- a host that installs

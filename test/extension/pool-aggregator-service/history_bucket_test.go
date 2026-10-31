@@ -242,7 +242,7 @@ func TestGoCycleUsesTheIndexBeforeTheHost(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.httpClient = srv.Client()
 	s.backfillStateDir = dir
-	s.hosts[histHostID] = &hostView{HostId: histHostID, BaseURL: srv.URL, Reachable: true,
+	s.view().Hosts[histHostID] = &hostView{HostId: histHostID, BaseURL: srv.URL, Reachable: true,
 		Status: &hostStatus{CycleStartUtc: "2026-09-16T01:30:30Z", StartedAt: "2026-09-16T01:30:30Z", CycleFolderUrl: "log/001856.2026-09-16.01-30-30." + histHostID + ".incomplete/"}}
 	click := histAt("2026-09-13T01:00:00Z").UnixMilli()
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/go/cycle?host=%s&t=%d", histHostID, click), nil)

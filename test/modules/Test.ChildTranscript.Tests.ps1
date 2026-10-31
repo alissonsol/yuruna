@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 427f1267-e087-42e4-ad77-aab3e3216101
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,7 +102,7 @@ function Invoke-TranscriptChild {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$Body)
 
-    $work = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-transcript-' + [guid]::NewGuid().ToString('N'))
+    $work = New-YurunaTestTempDir -Prefix 'yuruna-transcript'
     $tdir = Join-Path $work 'transcript'
     New-Item -ItemType Directory -Force -Path $tdir | Out-Null
     $childScript = Join-Path $work 'child.ps1'
@@ -112,16 +112,12 @@ function Invoke-TranscriptChild {
     # The directory is the only switch that turns the transcript on and it is
     # read from the environment, so it has to be set around the launch and put
     # back exactly as it was for whatever runs after this test.
-    $hadVar   = Test-Path -LiteralPath 'Env:\YURUNA_CHILD_TRANSCRIPT_DIR'
     $previous = Save-YurunaTestEnvironment -Name 'YURUNA_CHILD_TRANSCRIPT_DIR'
     try {
         $env:YURUNA_CHILD_TRANSCRIPT_DIR = $tdir
         $out = & (Get-PwshPath) -NoProfile -File $childScript -ModulePath $script:LogModule -ResultPath $resultPath 2>&1
         $code = $LASTEXITCODE
-    } finally {
-        if ($hadVar) { Restore-YurunaTestEnvironment -Saved $previous }
-        else { Remove-Item -LiteralPath 'Env:\YURUNA_CHILD_TRANSCRIPT_DIR' -ErrorAction SilentlyContinue }
-    }
+    } finally { Restore-YurunaTestEnvironment -Saved $previous }
 
     $files = @(Get-ChildItem -LiteralPath $tdir -Filter '*.log' -File -ErrorAction SilentlyContinue)
     $text  = ''
@@ -135,7 +131,7 @@ function Invoke-TranscriptChild {
     # Everything an assertion (or its failure message) needs is now in memory --
     # the FileInfo entries keep their paths after the directory goes -- so the
     # fixture leaves nothing behind in the system temp directory.
-    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-YurunaTestTempDir $work
     return @{
         ExitCode       = $code
         Output         = ($out -join "`n")

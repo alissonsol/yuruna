@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42117e6a-8e6c-4f6c-9d1a-2b8f9a0c7d3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -117,18 +117,11 @@ BeforeAll {
         [pscustomobject]@{ StateRoot = $root; RuntimeDir = $runtime }
     }
 
-    function Get-FreeLoopbackPort {
-        $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $probe.Start()
-        try { return ([System.Net.IPEndPoint]$probe.LocalEndpoint).Port } finally { $probe.Stop() }
-    }
-
     function Test-LoopbackAddressReachable {
         # Linux and Windows answer for all of 127.0.0.0/8; macOS configures only
         # 127.0.0.1 on lo0, so a guest address such as 127.0.0.2 never connects.
         param([Parameter(Mandatory)][string]$Address)
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, 0)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener -AnyAddress
         try {
             $client = [System.Net.Sockets.TcpClient]::new()
             try { return ($client.ConnectAsync($Address, ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port).Wait(2000) -and $client.Connected) }
@@ -511,8 +504,8 @@ Describe 'Restore-YurunaServiceVM -ObserveOnly -- never starts anything' {
     }
 
     It 'waits for a resumed guest whose listener comes up after a few polls, within the deadline' {
-        $port = Get-FreeLoopbackPort
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
+        $port = Get-YurunaTestFreePort
+        $listener = New-YurunaTestTcpListener -Port $port -NoStart
         $script:Time.Box.OnSleep = { param($count) if ($count -eq 3) { $listener.Start() } }.GetNewClosure()
         $identity = @([pscustomobject]@{ Key = 'stash'; VMName = 'yuruna-stash-service'; DisplayName = 'Stash service'; HealthPort = $port; HostingMode = 'vm' })
         $script:Fake.State['yuruna-stash-service'] = 'running'
@@ -530,7 +523,7 @@ Describe 'Restore-YurunaServiceVM -ObserveOnly -- never starts anything' {
     }
 
     It 'never reports a silent resumed guest healthy: health-unverified at the deadline' {
-        $port = Get-FreeLoopbackPort
+        $port = Get-YurunaTestFreePort
         $identity = @([pscustomobject]@{ Key = 'stash'; VMName = 'yuruna-stash-service'; DisplayName = 'Stash service'; HealthPort = $port; HostingMode = 'vm' })
         $script:Fake.State['yuruna-stash-service'] = 'running'
         $script:Fake.Ip['yuruna-stash-service'] = '127.0.0.1'
@@ -555,9 +548,8 @@ Describe 'Restore-YurunaServiceVM -ObserveOnly -- never starts anything' {
 
     It 'flags a stale advertisement even while the old forwarder still accepts connections' {
         if (-not (Test-LoopbackAddressReachable -Address '127.0.0.2')) { Set-ItResult -Skipped -Because 'this host does not answer 127.0.0.2 (macOS configures only 127.0.0.1 on lo0)'; return }
-        $port = Get-FreeLoopbackPort
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $port)
-        $listener.Start()
+        $port = Get-YurunaTestFreePort
+        $listener = New-YurunaTestTcpListener -Port $port -AnyAddress
         try {
             # The guest re-leased to 127.0.0.2; the advertised endpoint is a
             # host forwarder still pointing at the old 127.0.0.3. The forwarder
@@ -582,9 +574,8 @@ Describe 'Restore-YurunaServiceVM -ObserveOnly -- never starts anything' {
 
     It 'leaves a forwarder it cannot tie to an owner unchecked, never stale' {
         if (-not (Test-LoopbackAddressReachable -Address '127.0.0.2')) { Set-ItResult -Skipped -Because 'this host does not answer 127.0.0.2 (macOS configures only 127.0.0.1 on lo0)'; return }
-        $port = Get-FreeLoopbackPort
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $port)
-        $listener.Start()
+        $port = Get-YurunaTestFreePort
+        $listener = New-YurunaTestTcpListener -Port $port -AnyAddress
         try {
             # The advertised endpoint is this host's own, the forwarder table
             # was captured, and the forwarder on that port has an owner nobody
@@ -606,9 +597,8 @@ Describe 'Restore-YurunaServiceVM -ObserveOnly -- never starts anything' {
     }
 
     It 'resolves addresses through the passive resolver under the deadline, and runs the full lookup only while it fits' {
-        $port = Get-FreeLoopbackPort
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-        $listener.Start()
+        $port = Get-YurunaTestFreePort
+        $listener = New-YurunaTestTcpListener -Port $port
         $script:Passive = @{ Address = '127.0.0.1'; Reason = 'ok'; Calls = 0 }
         function global:Get-VMPassiveAddressContext {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
@@ -658,9 +648,8 @@ Describe 'Restore-YurunaServiceVM -ObserveOnly -- never starts anything' {
     }
 
     It 'verifies an advertised endpoint that is the fresh address and answers' {
-        $port = Get-FreeLoopbackPort
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-        $listener.Start()
+        $port = Get-YurunaTestFreePort
+        $listener = New-YurunaTestTcpListener -Port $port
         try {
             $identity = @([pscustomobject]@{
                     Key = 'stash'; VMName = 'yuruna-stash-service'; DisplayName = 'Stash service'; HealthPort = $port; HostingMode = 'vm'

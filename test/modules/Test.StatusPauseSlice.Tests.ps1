@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b7e04d-95c1-4a2f-8d63-70e1c9a4b528
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,8 +54,7 @@ $script:MirroredAsset = Join-Path $script:RepoRoot 'globalization/generated/brow
 $script:Chrome = Get-YurunaTestBrowser
 
 
-$script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-slice-" + [Guid]::NewGuid().ToString('N'))
-$null = New-Item -ItemType Directory -Path $script:Sandbox -Force
+$script:Sandbox = New-YurunaTestTempDir -Prefix 'yuruna-slice'
 Copy-Item -LiteralPath $script:Runtime -Destination (Join-Path $script:Sandbox 'yuruna.common.js') -Force
 Copy-Item -LiteralPath $script:PseudoAsset -Destination (Join-Path $script:Sandbox 'qps-Ploc.status.js') -Force
 Copy-Item -LiteralPath $script:MirroredAsset -Destination (Join-Path $script:Sandbox 'qps-Plocm.status.js') -Force
@@ -131,9 +130,7 @@ $script:PersistedEvent = @'
 }
 
 AfterAll {
-if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
-    Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue
-}
+Remove-YurunaTestTempDir $script:Sandbox
 }
 
 Describe 'the runner records a state, and the reader is shown it in their language' {

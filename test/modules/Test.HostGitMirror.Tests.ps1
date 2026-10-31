@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d67854-78e5-47cc-bb39-1453d818809f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -453,17 +453,13 @@ Describe 'Host operations use the production mirror coordinator and Git transpor
         [IO.Directory]::CreateDirectory($privateHome) | Out-Null
         [IO.File]::WriteAllText((Join-Path $privateHome '.netrc'), "default login fixture password fixture`n")
         [IO.File]::WriteAllText((Join-Path $privateHome '.gitconfig'), "[url `"http://127.0.0.1:1/`"]`n`t insteadOf = $($script:Live.context.url)/`n")
-        $previousToken = $env:GH_TOKEN; $previousProxy = $env:HTTP_PROXY
-        $previousHome = [Environment]::GetEnvironmentVariable('HOME')
+        $previous = Save-YurunaTestEnvironment -Name 'GH_TOKEN', 'HTTP_PROXY', 'HOME'
         try {
             $env:GH_TOKEN = 'fixture-only-token'
             $env:HTTP_PROXY = 'http://127.0.0.1:1'
             [Environment]::SetEnvironmentVariable('HOME', $privateHome)
             $result = Invoke-GitRepositoryUpdate -RepoRoot $repo -SourceContext $script:Live.context -Confirm:$false
-        } finally {
-            $env:GH_TOKEN = $previousToken; $env:HTTP_PROXY = $previousProxy
-            [Environment]::SetEnvironmentVariable('HOME', $previousHome)
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $previous }
         $result.success | Should -BeTrue -Because $result.errorMessage
         $result.revision | Should -BeExactly $expected
         $result.sourceSelection.verification | Should -BeExactly mirror-confirmed

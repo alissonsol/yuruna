@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42ba21e6-945f-48b7-aacb-cdc136e03c30
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,10 +37,7 @@ Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameCh
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 $script:Tool = Join-Path $script:RepoRoot 'tools/Test-SourceMetadata.ps1'
 Import-Module (Join-Path $script:RepoRoot 'tools/Source.Identity.psm1') -Force -Global
-$script:SavedEnvironment = @{}
-foreach ($name in 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE') {
-    $script:SavedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
-}
+$script:SavedEnvironment = Save-YurunaTestEnvironment -Name 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE'
 # The user's global git configuration (signing, hooks, autocrlf) must not reach
 # the fixture repositories, and a hook that runs this suite must not point git
 # at its own index.
@@ -100,7 +97,7 @@ function Get-HeaderText {
 
 function Get-PsInfoText {
     param([string]$Guid = (New-SourceGuid), [switch]$NoGuid, [switch]$NoCopyright, [switch]$NoPointer)
-    $lines = @('<#PSScriptInfo', '.VERSION 2026.10.30')
+    $lines = @('<#PSScriptInfo', '.VERSION 2026.10.31')
     if (-not $NoGuid) { $lines += ".GUID $Guid" }
     $lines += '.AUTHOR Alisson Sol et al.'
     if (-not $NoCopyright) { $lines += '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.' }
@@ -139,10 +136,7 @@ $script:NoExemption = Write-Exemption -Name 'none' -Body @{}
 }
 
 AfterAll {
-    foreach ($name in $script:SavedEnvironment.Keys) {
-        if ($null -eq $script:SavedEnvironment[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
-        else { Set-Item -LiteralPath "Env:$name" -Value $script:SavedEnvironment[$name] }
-    }
+    Restore-YurunaTestEnvironment -Saved $script:SavedEnvironment
 }
 
 Describe 'the copyright rule' {
@@ -959,8 +953,8 @@ Describe 'The Markdown footer report' {
     It 'passes a footer with a translated stamp and navigation links, and names a missing footer and content left after one' {
         $repository = New-FixtureRepository -Name 'markdown-footer'
         $footer = "---`n`nLICENSEURI https://yuruna.link/license`n`nCopyright (c) 2019-2026 by Alisson Sol et al.`n"
-        [IO.File]::WriteAllText((Join-Path $repository 'good.md'), "# Good`n`nBody.`n`n" + $footer + "`nLast review: 2026.10.30`n`nBack to [Yuruna](README.md)`n")
-        [IO.File]::WriteAllText((Join-Path $repository 'translated.md'), "# Bom`n`n" + $footer + "`n`u{00DA}ltima revis`u{00E3}o: 2026.10.30`n`nVoltar para [projeto](README.md) - [Yuruna](https://yuruna.com)`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'good.md'), "# Good`n`nBody.`n`n" + $footer + "`nLast review: 2026.10.31`n`nBack to [Yuruna](README.md)`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'translated.md'), "# Bom`n`n" + $footer + "`n`u{00DA}ltima revis`u{00E3}o: 2026.10.31`n`nVoltar para [projeto](README.md) - [Yuruna](https://yuruna.com)`n")
         [IO.File]::WriteAllText((Join-Path $repository 'AGENTS.md'), "# Agent rules`n`nRead them first.`n")
         $null = New-Item -ItemType Directory -Path (Join-Path $repository 'nested')
         [IO.File]::WriteAllText((Join-Path $repository 'nested/CLAUDE.md'), "Read and follow AGENTS.md.`n")
@@ -968,7 +962,7 @@ Describe 'The Markdown footer report' {
         $clean = Invoke-MetadataGate -Argument @('-Markdown', '-Root', $repository)
         $clean.Code | Should -Be 0 -Because $clean.Output
         $clean.Output | Should -Match '2 file\(s\) with the footer, 0 with content after it, 0 without one'
-        [IO.File]::WriteAllText((Join-Path $repository 'late.md'), "# Late`n`n" + $footer + "`nLast review: 2026.10.30`n`nA paragraph that landed under the license.`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'late.md'), "# Late`n`n" + $footer + "`nLast review: 2026.10.31`n`nA paragraph that landed under the license.`n")
         [IO.File]::WriteAllText((Join-Path $repository 'nofooter.md'), "# Notes`n`nNo footer here.`n")
         Save-FixtureCommit -Repository $repository
         $late = Invoke-MetadataGate -Argument @('-Markdown', '-Root', $repository)

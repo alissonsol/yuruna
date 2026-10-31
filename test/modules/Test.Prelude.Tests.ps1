@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 423c8376-a989-4f09-aa00-2e5a728ffa76
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,13 +97,13 @@ Describe 'Start-YurunaStatusServiceIfEnabled' {
     # Remove-Item before a single It executed, so the gate was handed a -StartScript path
     # that no longer existed and the "was it invoked" marker could never appear.
     BeforeAll {
-        $script:StubScript = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-startstub-" + [guid]::NewGuid().ToString('N') + ".ps1")
+        $script:StubDir = New-YurunaTestTempDir -Prefix 'yrn-startstub'
+        $script:StubScript = Join-Path $script:StubDir 'start-stub.ps1'
         $script:StubMarker = "$($script:StubScript).invoked"
         Set-Content -Path $script:StubScript -Value "param([int]`$Port,[switch]`$Restart) Set-Content -LiteralPath '$($script:StubMarker)' -Value (`"port=`$Port restart=`$Restart`")"
     }
     AfterAll {
-        Remove-Item -LiteralPath $script:StubScript -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:StubMarker -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:StubDir
     }
 
     It 'invokes the start script with the resolved port when enabled' {
@@ -137,10 +137,10 @@ Describe 'Start-YurunaStatusServiceIfEnabled' {
         $preludePath = (Resolve-Path (Join-Path $here 'Test.Prelude.psm1')).Path
         Assert-True (Test-Path $preludePath) 'prelude module resolves (guards against a false pass)'
 
-        $tmp           = [System.IO.Path]::GetTempPath()
-        $conflictStub  = Join-Path $tmp ("yrn-confstub-"  + [guid]::NewGuid().ToString('N') + ".ps1")
-        $childScript   = Join-Path $tmp ("yrn-confchild-" + [guid]::NewGuid().ToString('N') + ".ps1")
-        $continuedFlag = Join-Path $tmp ("yrn-continued-" + [guid]::NewGuid().ToString('N'))
+        $tmp           = New-YurunaTestTempDir -Prefix 'yrn-confstub'
+        $conflictStub  = Join-Path $tmp 'conflict-stub.ps1'
+        $childScript   = Join-Path $tmp 'conflict-child.ps1'
+        $continuedFlag = Join-Path $tmp 'continued'
 
         Set-Content -LiteralPath $conflictStub -Value @'
 param([int]$Port,[switch]$Restart)
@@ -159,7 +159,7 @@ Set-Content -LiteralPath '$continuedFlag' -Value 'CONTINUED'
             Assert-True ($rc -ne 0) "gate exits non-zero on conflict (rc=$rc)"
             Assert-True (-not (Test-Path $continuedFlag)) 'gate did not return/continue past the conflict'
         } finally {
-            Remove-Item -LiteralPath $conflictStub, $childScript, $continuedFlag -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $tmp
         }
     }
 }

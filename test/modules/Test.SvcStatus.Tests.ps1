@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4285ea0b-cf26-4402-b8af-aa598d20d4c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,7 @@
 
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Unqualified, at file scope above the Describes. An It body resolves an
 # unqualified file-level variable but not a $script:-qualified one: the run pass
@@ -78,8 +79,7 @@ Describe 'svc-status: the parent repoUrl writer writes status.json BOM-less' {
 
     Context 'encoding semantics' {
         It 'a BOM-less UTF8Encoding writes no BOM and round-trips; utf8BOM prefixes a BOM' {
-            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('svcstatus-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $dir = New-YurunaTestTempDir -Prefix 'svcstatus'
             try {
                 $doc = [pscustomobject]@{ repoUrl = 'https://example.test/x'; overallStatus = 'pass' }
                 $json = $doc | ConvertTo-Json -Depth 10
@@ -95,7 +95,7 @@ Describe 'svc-status: the parent repoUrl writer writes status.json BOM-less' {
                 $wb = [System.IO.File]::ReadAllBytes($withBom)
                 ($wb[0] -eq 0xEF -and $wb[1] -eq 0xBB -and $wb[2] -eq 0xBF) | Should -BeTrue
             } finally {
-                Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-YurunaTestTempDir $dir
             }
         }
     }

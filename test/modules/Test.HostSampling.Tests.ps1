@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d3bc19-cf65-4604-a69f-39ddfab7231d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -13,6 +13,7 @@
     Verify retained host evidence, counter availability, and process deadlines.
 #>
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'Test.HostMetricsExporter.psm1') -Force
 }
@@ -97,12 +98,12 @@ Describe 'durable bounded host evidence' {
         (Get-Content (Join-Path $result.Path 'snapshot.json') -Raw | ConvertFrom-Json).Status | Should -Be 'unavailable'
     }
     It 'clears a previous recording pointer when sampling is disabled' {
-        $before=$env:YURUNA_HOST_SAMPLING_DISABLED
+        $before = Save-YurunaTestEnvironment -Name 'YURUNA_HOST_SAMPLING_DISABLED'
         try {
             $env:YURUNA_HOST_SAMPLING_DISABLED='1'; $runtime=Join-Path $TestDrive 'disabled'
             $null=Start-YurunaHostSampling -RuntimeDirectory $runtime -Confirm:$false
             (Get-Content (Join-Path $runtime 'host-sampling.current.json') -Raw | ConvertFrom-Json).Directory | Should -BeNullOrEmpty
-        } finally { $env:YURUNA_HOST_SAMPLING_DISABLED=$before }
+        } finally { Restore-YurunaTestEnvironment -Saved $before }
     }
     It 'bounds a stuck native probe and retains output produced before timeout' {
         $watch=[Diagnostics.Stopwatch]::StartNew()

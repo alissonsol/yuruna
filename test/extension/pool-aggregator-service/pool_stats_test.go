@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 // /api/v1/pool-stats feeds the pool-control board's cards. The properties that
@@ -59,6 +61,7 @@ func newLokiStub(t *testing.T, pass, fail map[string]int64, seen *[]string) *htt
 
 func newStatsState(lokiBase string) *poolState {
 	return &poolState{
+		st: poolstate.New(),
 		// The readers derive /query from the PUSH url, as every other reader does.
 		lokiURL:    lokiBase + "/loki/api/v1/push",
 		httpClient: &http.Client{Timeout: 5 * time.Second},

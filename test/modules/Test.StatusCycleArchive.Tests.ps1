@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4225e4e5-9e96-476f-b10c-41d45c8308df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -180,7 +180,7 @@ Describe 'the cycle archive route grammar' {
         Assert-True ($null -ne ('System.IO.Compression.ZipFile' -as [type])) `
             'no zip writer on this runtime: /archive/<cycle>.zip cannot pack anything'
 
-        $work = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
+        $work = New-YurunaTestTempDir -Prefix 'yuruna-cycle-archive'
         try {
             $src = Join-Path $work $script:GoodLeaf
             $guest = Join-Path $src 'test-guest.ubuntu.server.24-01'
@@ -204,7 +204,7 @@ Describe 'the cycle archive route grammar' {
                     "archive entry '$e' escapes the cycle folder: every entry must be rooted at it"
             }
         } finally {
-            Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $work
         }
     }
 
@@ -213,7 +213,7 @@ Describe 'the cycle archive route grammar' {
         # over a folder with an open transcript in it. Reading with the default
         # share mode would be refused on exactly that file, losing the one an
         # operator most wanted to send.
-        $work = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
+        $work = New-YurunaTestTempDir -Prefix 'yuruna-cycle-archive'
         try {
             $src = Join-Path $work "$script:GoodLeaf.incomplete"
             $null = New-Item -ItemType Directory -Path $src -Force
@@ -231,7 +231,7 @@ Describe 'the cycle archive route grammar' {
                     'the open transcript was skipped: the packer must read with ReadWrite sharing'
             } finally { $writer.Dispose() }
         } finally {
-            Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $work
         }
     }
 
@@ -256,7 +256,7 @@ Describe 'the cycle archive route grammar' {
     }
 
     It 'leaves a snapshot or backup out of the archive it builds' {
-        $work = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
+        $work = New-YurunaTestTempDir -Prefix 'yuruna-cycle-archive'
         try {
             $src = Join-Path $work $script:GoodLeaf
             $nested = Join-Path $src 'test-guest.ubuntu.server.24-01'
@@ -285,7 +285,7 @@ Describe 'the cycle archive route grammar' {
             }
             Assert-NoFinding $findings 'the name-shape exclusion must hold, or the archive is a way around the deny-list'
         } finally {
-            Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $work
         }
     }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b7c9d4-3f1a-4e8c-9d52-7c4a1b6e8f30
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,7 +114,7 @@ function New-PowerShellSandbox {
         # other directory stands for a copy the installer's own sources own.
         [string]$PwshDir = 'snapbin'
     )
-    $root = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-pwshfloor-{0}" -f [guid]::NewGuid().ToString('N'))
+    $root = New-YurunaTestTempDir -Prefix 'yuruna-pwshfloor'
     foreach ($sub in @('snapbin', 'localbin', 'automation')) {
         New-Item -ItemType Directory -Path (Join-Path $root $sub) -Force | Out-Null
     }
@@ -170,7 +170,7 @@ Describe 'requirement_floor' {
             $r = Invoke-InstallerShell -Body 'requirement_floor PowerShell' `
                 -Environment @{ YURUNA_DIR = $box.Root }
             Assert-Match '^7\.6\.5$' $r.Output.Trim() 'the floor is the dotted number, without the edition'
-        } finally { Remove-Item -LiteralPath $box.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $box.Root }
     }
     It 'reads the row it was asked for, not the first row in the file' {
         $box = New-PowerShellSandbox -PwshVersion '7.6.5'
@@ -179,7 +179,7 @@ Describe 'requirement_floor' {
             $r = Invoke-InstallerShell -Body 'requirement_floor git' `
                 -Environment @{ YURUNA_DIR = $box.Root }
             Assert-Match '^2\.53\.0$' $r.Output.Trim() 'each row is addressed by its own tool name'
-        } finally { Remove-Item -LiteralPath $box.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $box.Root }
     }
     It 'answers nothing when the requirement list is not on disk yet' {
         # The repair runs after the checkout, but a run that lost the clone must
@@ -189,7 +189,7 @@ Describe 'requirement_floor' {
             $r = Invoke-InstallerShell -Body 'requirement_floor PowerShell || echo NO-FLOOR' `
                 -Environment @{ YURUNA_DIR = (Join-Path $box.Root 'absent') }
             Assert-Match 'NO-FLOOR' $r.Output 'a missing requirement list yields no floor'
-        } finally { Remove-Item -LiteralPath $box.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $box.Root }
     }
 }
 
@@ -224,7 +224,7 @@ Describe 'bring_powershell_to_required_version' {
                 -Environment @{ YURUNA_DIR = $box.Root; FAKE_ROOT = $box.Root; PATH = "$($box.BinDir):/usr/bin:/bin" }
             Assert-Match 'meets the 7\.6\.5 floor' $r.Output 'a host at the floor is reported and not touched'
             Assert-True (-not (Test-Path -LiteralPath (Join-Path $box.Root 'calls'))) 'no upgrade source is reached when the floor is already met'
-        } finally { Remove-Item -LiteralPath $box.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $box.Root }
     }
     It 'refreshes a snap-provided interpreter in place when that reaches the floor' {
         # A snap advances only through snapd. When its channel carries the floor,
@@ -240,7 +240,7 @@ Describe 'bring_powershell_to_required_version' {
             $calls = Get-Content -LiteralPath (Join-Path $box.Root 'calls') -Raw
             Assert-Match 'SNAP refresh powershell' $calls 'snapd is asked first for a snap-provided interpreter'
             Assert-True ($calls -notmatch 'TARBALL') 'the managed sources are not reached once the snap meets the floor'
-        } finally { Remove-Item -LiteralPath $box.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $box.Root }
     }
     It 'falls through to the managed sources when the snap channel cannot reach the floor' {
         # The reported shape: snapd has nothing newer, so a copy the installer
@@ -257,7 +257,7 @@ Describe 'bring_powershell_to_required_version' {
             Assert-Match 'SNAP refresh powershell' $calls 'the in-place refresh is still attempted first'
             Assert-Match 'TARBALL' $calls 'a snap stuck below the floor falls through to the managed sources'
             Assert-Match 'PowerShell is now 7\.6\.5' $r.Output 'the managed source raises the version the name answers with'
-        } finally { Remove-Item -LiteralPath $box.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $box.Root }
     }
     It 'upgrades an interpreter no package manager here provides' {
         # A hand-unpacked pwsh is neither a snap nor a package; it is still below
@@ -273,7 +273,7 @@ Describe 'bring_powershell_to_required_version' {
             Assert-True ($calls -notmatch 'SNAP refresh') 'snapd is not asked to refresh an interpreter it does not own'
             Assert-Match 'TARBALL' $calls 'the managed sources are reached'
             Assert-Match 'PowerShell is now 7\.6\.5' $r.Output 'the repair reports the version it reached'
-        } finally { Remove-Item -LiteralPath $box.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $box.Root }
     }
     It 'reports a floor no source on this host could reach' {
         # Finishing silently below a floor is the failure this whole region
@@ -285,7 +285,7 @@ Describe 'bring_powershell_to_required_version' {
                 -Environment @{ YURUNA_DIR = $box.Root; FAKE_ROOT = $box.Root; PATH = "$($box.BinDir):/usr/bin:/bin" }
             Assert-Match 'ISSUE PowerShell is 7\.6\.4 after the upgrade attempt, still below the 7\.6\.5 floor' $r.Output `
                 'an unreachable floor is reported rather than passed over'
-        } finally { Remove-Item -LiteralPath $box.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $box.Root }
     }
     It 'leaves the interpreter alone when no floor can be read' {
         # No floor is not the same as a floor of zero: without a number to
@@ -296,6 +296,6 @@ Describe 'bring_powershell_to_required_version' {
                 -Environment @{ YURUNA_DIR = (Join-Path $box.Root 'absent'); FAKE_ROOT = $box.Root; PATH = "$($box.BinDir):/usr/bin:/bin" }
             Assert-Match 'WARN Could not read the PowerShell floor' $r.Output 'the run says why it did not check'
             Assert-True (-not (Test-Path -LiteralPath (Join-Path $box.Root 'calls'))) 'no source is reached without a floor to compare against'
-        } finally { Remove-Item -LiteralPath $box.Root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $box.Root }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42ec7f23-19ab-4f5f-9dc3-533d820895fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,8 +25,7 @@ Describe 'config reads do not publish credential snapshots' {
         @{ RuntimeEnabled = $true }
         @{ RuntimeEnabled = $false }
     ) {
-        $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
-        $savedUsername = $env:USERNAME
+        $savedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'USERNAME'
         $fakeUser = 'snapshot-fixture-' + [guid]::NewGuid().ToString('n')
         $fallback = Join-Path ([IO.Path]::GetTempPath()) "yuruna-$fakeUser"
         $runtime = Join-Path $TestDrive 'runtime'
@@ -45,8 +44,7 @@ Describe 'config reads do not publish credential snapshots' {
             @(Get-ChildItem -LiteralPath $runtime -Force).Count | Should -Be 0
             Test-Path -LiteralPath $fallback | Should -BeFalse
         } finally {
-            Restore-YurunaTestEnvironment -Saved $savedRuntime
-            $env:USERNAME = $savedUsername
+            Restore-YurunaTestEnvironment -Saved $savedEnvironment
             Clear-TestConfigCache -Confirm:$false
             if (Test-Path -LiteralPath $fallback) { Remove-Item -LiteralPath $fallback -Recurse -Force }
         }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42c68b27-f0b2-4a32-92c7-e8448db1a932
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,8 +30,7 @@ Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameCh
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 $script:Chrome = Get-YurunaTestBrowser
 
-$script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-message-http-" + [Guid]::NewGuid().ToString('N'))
-$null = New-Item -ItemType Directory -Path $script:Sandbox -Force
+$script:Sandbox = New-YurunaTestTempDir -Prefix 'yuruna-message-http'
 Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'test/extension/extension-sdk/webui/assets/yuruna.core.js') `
     -Destination (Join-Path $script:Sandbox 'yuruna.core.js') -Force
 Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js') `
@@ -39,9 +38,7 @@ Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'test/extension/pool-control-
 }
 
 AfterAll {
-if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
-    Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue
-}
+Remove-YurunaTestTempDir $script:Sandbox
 }
 
 Describe 'the HTTP message migration keeps identity separate from prose' {

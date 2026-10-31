@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42aadd98-3c26-4f0c-9a81-eaa6c787aaa2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,17 +45,6 @@ Import-Module (Join-Path $here 'Test.EventSchema.psm1')      -Force -DisableName
 Import-Module (Join-Path $here 'Test.GuestQuarantine.psm1')  -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
-function New-QTempDir {
-    [CmdletBinding()]
-    [OutputType([string])]
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Test helper: creates a throwaway runtime dir the calling It block deletes in its finally.')]
-    param()
-    $p = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-quar-" + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $p -Force | Out-Null
-    return $p
-}
-
 }
 
 Describe 'Add-GuestQuarantineFailure (same-class streak + trip)' {
@@ -169,7 +158,7 @@ Describe 'New-GuestQuarantineEvent (schema)' {
 
 Describe 'Read/Save state round-trip' {
     It 'round-trips a quarantine entry through the state file' {
-        $rd = New-QTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-quar'
         try {
             $path = Join-Path $rd 'runner.quarantine.json'
             $s = New-GuestQuarantineState
@@ -182,29 +171,29 @@ Describe 'Read/Save state round-trip' {
             Assert-Equal -Expected 3 -Actual $e.consecutiveFailures
             Assert-Equal -Expected 'c1' -Actual $e.quarantinedAtCommit
             Assert-Equal -Expected 5 -Actual $e.skipCyclesRemaining
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'returns empty state for a missing file' {
-        $rd = New-QTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-quar'
         try {
             $back = Read-GuestQuarantineState -Path (Join-Path $rd 'nope.json')
             Assert-Equal -Expected 0 -Actual $back.guests.Count
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'resets to empty state on a corrupt file' {
-        $rd = New-QTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-quar'
         try {
             $path = Join-Path $rd 'runner.quarantine.json'
             [System.IO.File]::WriteAllText($path, '{ this is not json', [System.Text.UTF8Encoding]::new($false))
             $back = Read-GuestQuarantineState -Path $path
             Assert-Equal -Expected 0 -Actual $back.guests.Count -Because 'soft parse fallback resets state'
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
 }
 
 Describe 'Invoke-GuestQuarantineGate + Register-GuestQuarantineOutcome (orchestration)' {
     It 'trips, skips across cycles, and re-admits on a new commit' {
-        $rd = New-QTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-quar'
         try {
             [void](Register-GuestQuarantineOutcome -RuntimeDir $rd -GuestKey 'guest.z' -Outcome 'fail' -FailureClass 'wait_timeout' -GitCommit 'c1' -FailuresToQuarantine 2 -SkipCycles 3)
             $o2 = Register-GuestQuarantineOutcome -RuntimeDir $rd -GuestKey 'guest.z' -Outcome 'fail' -FailureClass 'wait_timeout' -GitCommit 'c1' -FailuresToQuarantine 2 -SkipCycles 3
@@ -216,21 +205,21 @@ Describe 'Invoke-GuestQuarantineGate + Register-GuestQuarantineOutcome (orchestr
             Assert-Equal -Expected 'released-new-commit' -Actual $g2.Reason
             $g3 = Invoke-GuestQuarantineGate -RuntimeDir $rd -GuestKey 'guest.z' -GitCommit 'c2' -ProjectGitCommit ''
             Assert-Equal -Expected 'not-tracked' -Actual $g3.Reason -Because 'released entry is gone'
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'clears the streak on a pass' {
-        $rd = New-QTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-quar'
         try {
             [void](Register-GuestQuarantineOutcome -RuntimeDir $rd -GuestKey 'guest.p' -Outcome 'fail' -FailureClass 'wait_timeout' -GitCommit 'c1' -FailuresToQuarantine 3 -SkipCycles 5)
             [void](Register-GuestQuarantineOutcome -RuntimeDir $rd -GuestKey 'guest.p' -Outcome 'pass')
             $back = Read-GuestQuarantineState -Path (Join-Path $rd 'runner.quarantine.json')
             Assert-True (-not $back.guests.Contains('guest.p')) 'a pass clears the streak'
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'emits a guest_quarantined event only when a failure trips the threshold' {
         $global:__QEmitted = @()
         function global:Send-CycleEventSafely { param($EventRecord) $global:__QEmitted += , $EventRecord }
-        $rd = New-QTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-quar'
         try {
             [void](Register-GuestQuarantineOutcome -RuntimeDir $rd -GuestKey 'guest.e' -Outcome 'fail' -FailureClass 'wait_timeout' -GitCommit 'c1' -FailuresToQuarantine 2 -SkipCycles 3)
             Assert-Equal -Expected 0 -Actual $global:__QEmitted.Count -Because 'first failure below threshold: no event'
@@ -241,7 +230,7 @@ Describe 'Invoke-GuestQuarantineGate + Register-GuestQuarantineOutcome (orchestr
         } finally {
             Remove-Item Function:\Send-CycleEventSafely -ErrorAction SilentlyContinue
             Remove-Variable -Name __QEmitted -Scope Global -ErrorAction SilentlyContinue
-            if (Test-Path $rd) { Remove-Item -Recurse -Force $rd }
+            Remove-YurunaTestTempDir $rd
         }
     }
 }

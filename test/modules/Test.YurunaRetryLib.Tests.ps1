@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,7 +122,7 @@ Describe 'yuruna-retry.sh transient gate + jitter (bash)' {
         if (-not $script:bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         Import-Module (Join-Path (Split-Path -Parent $script:libPath) 'Yuruna.Retry.psm1') -Force
         $variable = 'YURUNA_RETRY_CONSISTENCY_TEST'
-        $previous = [Environment]::GetEnvironmentVariable($variable)
+        $previous = Save-YurunaTestEnvironment -Name $variable
         try {
             foreach ($raw in @('', '0', '-1', 'bad', '1.5', '1', '02', '08', '0008', ' +8 ', '2147483647', '2147483648', '99999999999999999999999')) {
                 [Environment]::SetEnvironmentVariable($variable, $raw)
@@ -131,9 +131,7 @@ Describe 'yuruna-retry.sh transient gate + jitter (bash)' {
                 $actual = ((ConvertTo-BashStdin $driver) | & $script:bash.Source -s -- $raw 2>$null | Out-String).Trim()
                 Assert-StringEqual -Actual $actual -Expected "$expected" -Because "retry default differs for '$raw'"
             }
-        } finally {
-            [Environment]::SetEnvironmentVariable($variable, $previous)
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $previous }
     }
 
     It 'executes the default attempts on invalid configuration and preserves the command failure' {

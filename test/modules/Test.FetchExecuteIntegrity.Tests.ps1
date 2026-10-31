@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,7 +63,7 @@ function Get-GitHubSourceFixture {
         -RemoteUrl '' leaves the checkout with no remote at all.
     #>
     param([string]$RemoteUrl, [string]$FrameworkUrl)
-    $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ghsrc-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    $dir = New-YurunaTestTempDir -Prefix 'yuruna-ghsrc'
     New-Item -ItemType Directory -Force -Path (Join-Path $dir 'test') | Out-Null
     Set-Content -LiteralPath (Join-Path $dir 'test/test.config.yml') -Value "repositories:`n  frameworkUrl: $FrameworkUrl`n  ghToken: `"`"`n"
     Set-Content -LiteralPath (Join-Path $dir 'seed.txt') -Value 'seed'
@@ -111,7 +111,8 @@ function Invoke-BashDriver {
         stdin or leave a large heredoc blocked in a native Windows pipe.
     #>
     param([string]$BashPath, [string]$Script)
-    $driverPath = [IO.Path]::GetTempFileName()
+    $driverDir = New-YurunaTestTempDir -Prefix 'yuruna-integrity-driver'
+    $driverPath = Join-Path $driverDir 'driver.sh'
     try {
         [IO.File]::WriteAllText($driverPath, $Script.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
         $launch = @'
@@ -125,7 +126,7 @@ exec bash "$driver"
 '@
         $output = (& $BashPath -c $launch.Replace("`r`n", "`n") 'yuruna-integrity-fixture' $driverPath | Out-String).Trim()
         return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
-    } finally { Remove-Item -LiteralPath $driverPath -Force -ErrorAction SilentlyContinue }
+    } finally { Remove-YurunaTestTempDir $driverDir }
 }
 
 # Exercise the production context builder without importing host I/O modules.
@@ -260,7 +261,7 @@ Describe 'Get-FetchExecutionContext (host-side integrity binding)' {
         # A throwaway checkout carries a synthetic token, so the case does not
         # depend on a secret configured on the host that runs the suite.
         $token = 'ghp_' + ('Yz9' * 12)
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-token-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-token'
         try {
             foreach ($relative in @($sample, 'automation/yuruna-retry.sh')) {
                 $target = Join-Path $dir $relative
@@ -276,7 +277,7 @@ Describe 'Get-FetchExecutionContext (host-side integrity binding)' {
             $result.Command | Should -Not -Match ([regex]::Escape($token))
             $result.Launch | Should -Not -Match ([regex]::Escape($token))
             [Text.Encoding]::UTF8.GetString($result.Bytes) | Should -Not -Match ([regex]::Escape($token))
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
     It 'preserves the sensitive-step profile opt-out and full invocation IDs' {
         $context = @{ Step = @{ sensitive = $true }; RepoRoot = $repoRoot; StepInvocationId = 'step-sensitive-123'; SequenceInvocationId = 'sequence-sensitive-456' }
@@ -462,15 +463,12 @@ Describe 'The guest GitHub token reaches github.com alone' {
         Set-Content -LiteralPath (Join-Path $fakeHome '.config/yuruna/github-token') -Value 'file-token' -NoNewline
         $script = Join-Path $fakeHome 'askpass.sh'
         [IO.File]::WriteAllText($script, (Get-SeedAskpass -Seed $Seed))
-        $priorHome = $env:HOME; $priorToken = $env:GH_TOKEN
+        $saved = Save-YurunaTestEnvironment -Name 'HOME', 'GH_TOKEN'
         try {
             $env:HOME = $fakeHome
             if ($Token) { $env:GH_TOKEN = $Token } else { Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue }
             $answer = (& sh $script $Prompt | Out-String).Trim()
-        } finally {
-            $env:HOME = $priorHome
-            if ($null -eq $priorToken) { Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue } else { $env:GH_TOKEN = $priorToken }
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
         $answer | Should -BeExactly $Expected
     }
     It 'keeps the token out of every shell startup file in <Seed>' -TestCases @(
@@ -619,7 +617,7 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
             $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
             Assert-StringEqual -Actual $s.Repo -Expected 'owner/checkout-repo' -Because 'the slug must name the repository the commit came from'
             Assert-StringEqual -Actual $s.Ref -Expected (& git -C $dir rev-parse HEAD).Trim() -Because 'the ref is still this checkout HEAD'
-        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'reports the disagreement instead of silently preferring one side' {
@@ -631,7 +629,7 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
             Assert-True ($w.Count -gt 0) 'a repo mismatch must be reported'
             Assert-True ("$w" -match 'checkout-repo')   'the warning names the checkout repository'
             Assert-True ("$w" -match 'configured-repo') 'the warning names the configured repository'
-        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'stays quiet when the checkout and the configured URL agree' {
@@ -642,7 +640,7 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
             $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningVariable w -WarningAction SilentlyContinue
             Assert-StringEqual -Actual $s.Repo -Expected 'owner/same-repo' -Because 'the agreed slug is used'
             Assert-StringEqual -Actual $w.Count -Expected 0 -Because 'agreement is not worth a warning'
-        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     # A checkout with no remote cannot prove where HEAD lives, so the configured
@@ -656,7 +654,7 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
             $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningVariable w -WarningAction SilentlyContinue
             Assert-StringEqual -Actual $s.Repo -Expected 'owner/configured-repo' -Because 'with no remote, the configured URL is all there is'
             Assert-True ($w.Count -gt 0) 'the unproven pairing must be reported'
-        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'keeps frameworkUrl as the clone URL even when the fetch slug differs' {
@@ -668,7 +666,7 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
         try {
             $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
             Assert-StringEqual -Actual $s.FrameworkUrl -Expected 'https://github.com/owner/configured-repo' -Because 'the clone URL still comes from config'
-        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'ignores a non-GitHub remote so a mirror cannot become the fetch source' {
@@ -678,7 +676,7 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
             $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
             Assert-StringEqual -Actual (Get-YurunaCheckoutRemoteUrl -RepoRoot $dir) -Expected '' -Because 'a non-GitHub remote cannot serve raw content'
             Assert-StringEqual -Actual $s.Repo -Expected 'owner/configured-repo' -Because 'so the configured URL answers instead'
-        } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
@@ -1176,7 +1174,7 @@ Describe 'the Windows updater verifies host archives through the guest channel' 
             . ([scriptblock]::Create($script:DigestFn))
             $script:Repo = Join-Path $TestDrive 'framework'
             $null = New-Item -ItemType Directory -Path (Join-Path $script:Repo 'docs') -Force
-            Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '2026.10.30'
+            Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '2026.10.31'
             Set-Content -LiteralPath (Join-Path $script:Repo 'docs/x.md') -Value 'excluded'
             $null = New-YurunaTestGitRepository -Path $script:Repo -AddExisting -CommitMessage 'seed'
             $script:Commit = ([string](Invoke-YurunaTestGit -Path $script:Repo -Argument @('rev-parse', 'HEAD'))).Trim()

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 426ffdec-7946-4b27-9d2c-487151f04ec7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,12 +44,7 @@ BeforeAll {
     Import-Module (Join-Path $here 'Test.Status.psm1')                  -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.RunnerOuterLoop.psm1')         -Force -DisableNameChecking
     Import-Module (Join-Path $here 'Test.ConfigPreflight.psm1')         -Force -DisableNameChecking
-
-    function Initialize-TempRuntimeDir {
-        $dir = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-wdhist-" + [Guid]::NewGuid().ToString('n'))
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        return $dir
-    }
+    Import-Module (Join-Path $here 'Test.Assert.psm1')                  -Force -Global -DisableNameChecking
 
     # A document shaped like the one a cycle publishes while it is still
     # running: no finishedAt, folder still '.incomplete/', guests mid-flight.
@@ -129,7 +124,7 @@ BeforeAll {
 Describe 'A cycle the watchdog killed reaches the host page history' {
 
     It 'writes the row Complete-Run never got to write' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $older = [ordered]@{ cycleStartUtc = '2026-09-19T16:47:49Z'; overallStatus = 'pass' }
             $path  = Write-StatusDocument -Dir $dir -Document (New-RunningStatusDocument -History @($older))
@@ -159,11 +154,11 @@ Describe 'A cycle the watchdog killed reaches the host page history' {
             # rendering would leak into it, and '2026-09-19T17:49:59.0000000Z' is
             # not what the consumers of this file parse.
             $raw | Should -Not -Match '\.0000000'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'keeps the .incomplete folder the partial results actually live in' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $path = Write-StatusDocument -Dir $dir -Document (New-RunningStatusDocument)
             $null = Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' -Confirm:$false
@@ -173,11 +168,11 @@ Describe 'A cycle the watchdog killed reaches the host page history' {
             # after it. Nothing renames a killed cycle's folder, so a stripped
             # row here would link to a path that does not exist.
             $doc.history[0].cycleFolderUrl | Should -BeLike '*.incomplete/'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'carries the class the watchdog recorded instead of leaving it unknown' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $path   = Write-StatusDocument -Dir $dir -Document (New-RunningStatusDocument)
             $record = Write-SyntheticFailureRecord -Dir $dir -FailureClass 'wait_timeout'
@@ -191,11 +186,11 @@ Describe 'A cycle the watchdog killed reaches the host page history' {
             # failure-class breakdown as 'unknown'.
             $doc.lastFailure.failureClass         | Should -Be 'wait_timeout'
             $doc.history[0].lastFailure.failureClass | Should -Be 'wait_timeout'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'names a preamble stall when the kill left no record' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $path = Write-StatusDocument -Dir $dir -Document (New-RunningStatusDocument)
             $null = Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' `
@@ -204,22 +199,22 @@ Describe 'A cycle the watchdog killed reaches the host page history' {
             $doc = Read-StatusDocument -Path $path
             $doc.lastFailure.failureClass | Should -Be 'preamble_stall'
             $doc.lastFailure.stepName     | Should -Be 'config-gate'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'does not infer a watchdog kill from a bare exit alone' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $path = Write-StatusDocument -Dir $dir -Document (New-RunningStatusDocument)
             $null = Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' `
                 -Reason 'inner exited 137' -FailureRecordPath '' -Confirm:$false
 
             (Read-StatusDocument -Path $path).lastFailure.failureClass | Should -Be 'inner_exited'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'records one row for the fault-then-paused pair a single kill produces' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $path = Write-StatusDocument -Dir $dir -Document (New-RunningStatusDocument)
             # Exactly the sequence one kill drives: the inner is reaped, then the
@@ -230,11 +225,11 @@ Describe 'A cycle the watchdog killed reaches the host page history' {
                 -Reason 'failure-pause begin (inner exited 137)' -FailureRecordPath '' -Confirm:$false
 
             @((Read-StatusDocument -Path $path).history).Count | Should -Be 1
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'leaves alone a cycle that did close its own books' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $own  = [ordered]@{ cycleStartUtc = '2026-09-19T17:49:59Z'; overallStatus = 'pass' }
             $path = Write-StatusDocument -Dir $dir -Document (New-RunningStatusDocument -History @($own))
@@ -245,11 +240,11 @@ Describe 'A cycle the watchdog killed reaches the host page history' {
             @($doc.history).Count         | Should -Be 1
             # Complete-Run's row is the richer one; this path must not restate it.
             $doc.history[0].overallStatus | Should -Be 'pass'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'keeps a cause the inner had already classified' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $document = New-RunningStatusDocument
             $document.lastFailure = [ordered]@{ failureClass = 'script_error'; severity = 'hard' }
@@ -262,11 +257,11 @@ Describe 'A cycle the watchdog killed reaches the host page history' {
             # A cycle that got far enough to classify itself has the better
             # answer; the generic one must not overwrite it.
             (Read-StatusDocument -Path $path).lastFailure.failureClass | Should -Be 'script_error'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'trims the history to the same depth Complete-Run keeps' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $rows = 1..5 | ForEach-Object {
                 [ordered]@{ cycleStartUtc = "2026-09-1${_}T00:00:00Z"; overallStatus = 'pass' }
@@ -278,11 +273,11 @@ Describe 'A cycle the watchdog killed reaches the host page history' {
             $doc = Read-StatusDocument -Path $path
             @($doc.history).Count         | Should -Be 3
             $doc.history[0].overallStatus | Should -Be 'fail'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'adds no row for a state that still produces a verdict' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $path = Write-StatusDocument -Dir $dir -Document (New-RunningStatusDocument)
             $null = Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'cycle-start' -Confirm:$false
@@ -290,21 +285,21 @@ Describe 'A cycle the watchdog killed reaches the host page history' {
             $doc = Read-StatusDocument -Path $path
             @($doc.history).Count | Should -Be 0
             $doc.overallStatus    | Should -Be 'running'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
 Describe 'Get-RunnerFaultCause' {
 
     It 'prefers the record over the phrasing it was called with' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $record = Write-SyntheticFailureRecord -Dir $dir -FailureClass 'wait_timeout'
             $cause  = Get-RunnerFaultCause -FailureRecordPath $record -Reason 'inner exited 137' -StalledPhase 'config-gate'
             # One event, one class name: a reader of the record and a reader of
             # status.json must not come away with different vocabularies.
             $cause.failureClass | Should -Be 'wait_timeout'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'falls back to the reason when no record explains the kill' {
@@ -315,7 +310,7 @@ Describe 'Get-RunnerFaultCause' {
     }
 
     It 'survives a record that is not readable as JSON' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $bad = Join-Path $dir 'last_failure.json'
             Set-Content -LiteralPath $bad -Value '{ this is not json' -Encoding utf8
@@ -324,7 +319,7 @@ Describe 'Get-RunnerFaultCause' {
             # cost the cycle its only record.
             $cause = Get-RunnerFaultCause -FailureRecordPath $bad -Reason 'inner exited 137'
             $cause.failureClass | Should -Be 'inner_exited'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
@@ -429,7 +424,7 @@ Describe 'A diagnostic capture cannot spend a budget it has already used' {
 
 Describe 'Pre-cycle refusal preserves the previous completed cycle' {
     It 'retains framework update stage and diagnostics separately from the previous passing cycle' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $previous = New-RunningStatusDocument
             $previous.overallStatus = 'pass'; $previous.finishedAt = '2026-09-19T18:00:00Z'
@@ -455,11 +450,11 @@ Describe 'Pre-cycle refusal preserves the previous completed cycle' {
             $index.attempts[0].stage | Should -Be 'FrameworkPull'
             $record = Get-Content -LiteralPath (Join-Path $dir $index.attempts[0].recordPath) -Raw | ConvertFrom-Json
             $record.evidence.description | Should -Be $evidence.description
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'records its own attempt and artifacts without repainting the previous pass or cause' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $previous = New-RunningStatusDocument
             $previous.overallStatus = 'pass'; $previous.finishedAt = '2026-09-19T18:00:00Z'
@@ -489,23 +484,23 @@ Describe 'Pre-cycle refusal preserves the previous completed cycle' {
             $index = Get-Content -LiteralPath (Join-Path $dir 'runner-attempts/index.json') -Raw | ConvertFrom-Json
             @($index.attempts).Count | Should -Be 1
             $index.attempts[0].recordPath | Should -Be $evidence.recordPath
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
 Describe 'Attempt evidence distinguishes refusals and watchdog kills' {
     It 'ignores a leftover preamble marker when the child exited without a watchdog action' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             Set-Content -LiteralPath (Join-Path $dir 'runner.phase') -Value 'config-gate'
             $fault = Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:2'
             $fault.StalledPhase | Should -BeNullOrEmpty
             $fault.FailureClass | Should -Be 'inner_exited'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'attributes a prompt gate exit to validation and never to a crash or stall' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $spawned = [datetime]::UtcNow.AddSeconds(-27)
             Set-Content -LiteralPath (Join-Path $dir 'runner.configGate.json') -Value (@{ attemptGeneration = 'runner:2'; startedAtUtc = [datetime]::UtcNow.ToString('o'); passed = $false; exitCode = 1 } | ConvertTo-Json)
@@ -518,11 +513,11 @@ Describe 'Attempt evidence distinguishes refusals and watchdog kills' {
             $gating = Get-Content -Raw -LiteralPath (Join-Path $dir 'runner.gating.json') | ConvertFrom-Json
             $gating.consecutiveFailures | Should -Be 1
             $gating.consecutiveCrashes | Should -Be 0
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'recognizes a real watchdog action and rejects stale or mismatched attempt records' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $spawned = [datetime]::UtcNow.AddMinutes(-12)
             $killPath = Join-Path $dir 'runner.watchdog-kill.json'
@@ -534,7 +529,7 @@ Describe 'Attempt evidence distinguishes refusals and watchdog kills' {
             $fault.IsCrash | Should -BeTrue
             (Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:3' -SpawnedAtUtc $spawned).FailureClass | Should -Be 'inner_exited'
             (Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:2' -SpawnedAtUtc ([datetime]::UtcNow)).FailureClass | Should -Be 'inner_exited'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'publishes the trusted watchdog evidence link through fault status with recorded path <RecordedPath>' -TestCases @(
@@ -542,7 +537,7 @@ Describe 'Attempt evidence distinguishes refusals and watchdog kills' {
         @{ RecordedPath = '../untrusted.json' }
     ) {
         param($RecordedPath)
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $spawned = [datetime]::UtcNow.AddMinutes(-12)
             $document = New-RunningStatusDocument -CycleStartUtc $spawned.AddSeconds(1).ToString('o')
@@ -568,13 +563,13 @@ Describe 'Attempt evidence distinguishes refusals and watchdog kills' {
             $index = Get-Content -LiteralPath (Join-Path $dir 'runner-attempts/index.json') -Raw | ConvertFrom-Json
             $index.attempts[0].recordPath | Should -Be $result.runnerFault.recordPath
             $result.overallStatus | Should -Be 'fail'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
 Describe 'Fault status uses cycle generation before timestamp heuristics' {
     It 'does not rewrite a different generation even when its timestamp is recent' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $doc = New-RunningStatusDocument -CycleStartUtc ([datetime]::UtcNow.ToString('o'))
             $doc['cycleGeneration'] = 'old:1'
@@ -585,11 +580,11 @@ Describe 'Fault status uses cycle generation before timestamp heuristics' {
             $result.overallStatus | Should -Be 'running'
             @($result.history).Count | Should -Be 0
             $result.runnerFault.attemptGeneration | Should -Be 'new:1'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'keeps a completed failed cycle as a test verdict without inventing a runner fault' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $doc = New-RunningStatusDocument
             $doc['cycleGeneration'] = 'runner:2'; $doc.overallStatus = 'fail'; $doc.finishedAt = [datetime]::UtcNow.ToString('o')
@@ -600,13 +595,13 @@ Describe 'Fault status uses cycle generation before timestamp heuristics' {
             $result.overallStatus | Should -Be 'fail'
             $result.lastFailure.failureClass | Should -Be 'script_error'
             $result.runnerFault | Should -BeNullOrEmpty
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }
 
 Describe 'Reserved gate refusal code is confined to pre-cycle execution' {
     It 'recognizes a refusal without artifacts and keeps crash accounting at zero' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             Set-Content -LiteralPath (Join-Path $dir 'runner.phase') -Value 'config-gate'
             $fault = Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:2' -ExitCode 78 -SpawnedAtUtc ([datetime]::UtcNow.AddMinutes(-1))
@@ -614,26 +609,26 @@ Describe 'Reserved gate refusal code is confined to pre-cycle execution' {
             $fault.IsCrash | Should -BeFalse
             $null = Update-RunnerCrashGating -RuntimeDir $dir -SpawnedAtUtc ([datetime]::UtcNow.AddMinutes(-1)) -FailureClass $fault.FailureClass -IsCrash $fault.IsCrash -Confirm:$false
             (Get-Content -Raw -LiteralPath (Join-Path $dir 'runner.gating.json') | ConvertFrom-Json).consecutiveCrashes | Should -Be 0
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'does not reclassify exit 78 after a current cycle has started, even with a leftover phase marker' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             Set-Content -LiteralPath (Join-Path $dir 'runner.phase') -Value 'config-gate'
             $doc = New-RunningStatusDocument
             $doc['cycleGeneration'] = 'runner:2'
             $null = Write-StatusDocument -Dir $dir -Document $doc
             (Get-RunnerAttemptFault -RuntimeDir $dir -AttemptGeneration 'runner:2' -ExitCode 78).FailureClass | Should -Be 'inner_exited'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'reports failed fault-status writes truthfully' {
-        $dir = Initialize-TempRuntimeDir
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wdhist'
         try {
             $null = Write-StatusDocument -Dir $dir -Document (New-RunningStatusDocument)
             Mock -ModuleName Test.RunnerOuterLoop Write-YurunaStateFileJson { $false }
             Update-RunnerFaultStatus -RuntimeDir $dir -RunnerState 'fault' -FailureClass 'config_gate_failed' -Confirm:$false | Should -BeFalse
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }

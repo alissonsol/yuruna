@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42c1f2a7-5d3e-4b8a-9e61-7a4f0b2c9d13
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,8 +46,7 @@ BeforeAll {
     Get-Module -Name 'Yuruna.Host', 'default' -All | Remove-Module -Force -ErrorAction SilentlyContinue
     Import-Module (Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
     $script:Module = Get-Module Yuruna.Host
-    $script:TempRoot = Join-Path ([IO.Path]::GetTempPath()) ('yrn-kvmstart-' + [guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $script:TempRoot -Force
+    $script:TempRoot = New-YurunaTestTempDir -Prefix 'yrn-kvmstart'
 
     function New-NativeResult {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -160,7 +159,7 @@ BeforeAll {
 AfterAll {
     foreach ($nativeName in $script:NativeCommandStubs) { Remove-Item -LiteralPath "Function:global:$nativeName" -ErrorAction SilentlyContinue }
 
-    Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-YurunaTestTempDir $script:TempRoot
 }
 
 Describe 'Start-VirtualizationServiceIfStopped (KVM rung 2)' {

@@ -66,7 +66,7 @@ func TestFetchRegistrationNoActiveExtensions(t *testing.T) {
 func TestExtensionMetricFromActiveExtensions(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "42512149e3dc437ca677a40828382528"
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		BaseURL:          "http://10.0.0.1:8080",
 		ActiveExtensions: []string{"stash-service"},
@@ -94,7 +94,7 @@ func TestExtensionMetricAbsentWhenNoActiveExtension(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "42512149e3dc437ca677a40828382528"
 	// A host with NO activeExtensions (capability-only) must NOT appear.
-	s.hosts[hid] = &hostView{HostId: hid, LastSeenUnixMs: time.Now().UnixMilli()}
+	s.view().Hosts[hid] = &hostView{HostId: hid, LastSeenUnixMs: time.Now().UnixMilli()}
 
 	rec := httptest.NewRecorder()
 	s.handleMetrics(rec, metricsRequest())
@@ -106,11 +106,11 @@ func TestExtensionMetricAbsentWhenNoActiveExtension(t *testing.T) {
 // /go/stash 302s to the stash-service VM UI URL the owning host advertised in
 // extensionTargets, resolving hostId -> stashBaseUrl server-side (the Extension
 // cell's deep-link). The dashboard passes the RAW hostId label, so the undashed id
-// keys s.hosts directly.
+// keys the view's hosts directly.
 func TestGoStashRedirectsToAdvertisedTarget(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "42512149e3dc437ca677a40828382528"
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.5"},
 		LastSeenUnixMs:   time.Now().UnixMilli(),
@@ -131,7 +131,7 @@ func TestGoStashRedirectsToAdvertisedTarget(t *testing.T) {
 func TestGoStashUnknownTarget404(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "42512149e3dc437ca677a40828382528"
-	s.hosts[hid] = &hostView{HostId: hid, LastSeenUnixMs: time.Now().UnixMilli()}
+	s.view().Hosts[hid] = &hostView{HostId: hid, LastSeenUnixMs: time.Now().UnixMilli()}
 	rec := httptest.NewRecorder()
 	s.handleGoStash(rec, httptest.NewRequest("GET", "/go/stash?host="+hid, nil))
 	if rec.Code != http.StatusNotFound {
@@ -187,11 +187,11 @@ func TestStatusLabelPaused(t *testing.T) {
 		{"unreachable above attempt failure", fault(mk(false, &hostStatus{OverallStatus: "pass"})), "unreachable", 0},
 	}
 	for _, c := range cases {
-		if got := c.hv.statusLabel(); got != c.wantLabel {
-			t.Errorf("%s: statusLabel = %q, want %q", c.name, got, c.wantLabel)
+		if got := c.hv.StatusLabel(); got != c.wantLabel {
+			t.Errorf("%s: StatusLabel = %q, want %q", c.name, got, c.wantLabel)
 		}
-		if got := c.hv.statusCode(); got != c.wantCode {
-			t.Errorf("%s: statusCode = %d, want %d", c.name, got, c.wantCode)
+		if got := c.hv.StatusCode(); got != c.wantCode {
+			t.Errorf("%s: StatusCode = %d, want %d", c.name, got, c.wantCode)
 		}
 	}
 }

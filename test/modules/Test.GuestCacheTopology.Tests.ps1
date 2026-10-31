@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42782448-e44d-4353-957b-a836ffda43e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,7 @@
 #>
 
 BeforeAll {
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 $script:k8sPaths = @(
     (Join-Path $repoRoot 'guest/shared/ubuntu.k8s.sh')
@@ -369,8 +370,7 @@ Describe 'The cache-address derivation resolves each topology correctly' -Skip:(
             if ($startAt -lt 0 -or $endAt -lt 0) { return $null }
             $prologue = $text.Substring($startAt, $endAt - $startAt)
 
-            $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
-            New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+            $tmp = New-YurunaTestTempDir -Prefix 'yrn-cachetopo'
             try {
                 $hostEnv = Join-Path $tmp 'host.env'
                 if ($null -ne $HostEnvContent) { Set-Content -LiteralPath $hostEnv -Value $HostEnvContent -NoNewline }
@@ -395,7 +395,7 @@ Describe 'The cache-address derivation resolves each topology correctly' -Skip:(
                 & chmod +x $runner
                 return (& bash $runner 2>&1) -join "`n"
             } finally {
-                Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-YurunaTestTempDir $tmp
             }
         }
         $script:derivationScripts = @($script:projectCacheScripts | Where-Object {

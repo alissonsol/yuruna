@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42acc4f5-2748-4b33-95f6-25b431645860
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,12 +106,15 @@ function New-TempConfig {
         Justification = 'Test fixture: writes a throwaway temp config file, removed in AfterAll/finally; not user-facing state.')]
     [CmdletBinding()]
     param([string]$Content)
-    $p = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-naming-" + [guid]::NewGuid().ToString('N') + ".yml")
+    $p = Join-Path $script:NamingRoot ("config-" + [guid]::NewGuid().ToString('N') + ".yml")
     Set-Content -LiteralPath $p -Value $Content -Encoding utf8NoBOM
     return $p
 }
 
+$script:NamingRoot = New-YurunaTestTempDir -Prefix 'yrn-naming'
 }
+
+AfterAll { Remove-YurunaTestTempDir $script:NamingRoot }
 
 Describe 'Test-RetiredConfigKeyLine (whole-path, case-sensitive)' {
     It 'matches a retired key at its own path' {
@@ -377,7 +380,7 @@ exit 0
             return @{ ExitCode = $exitCode; Output = ($output -join "`n"); Report = $report }
         }
     }
-    AfterAll { Remove-Item -LiteralPath $script:ValidatorNamingRoot -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterAll { Remove-YurunaTestTempDir $script:ValidatorNamingRoot }
 
     It 'accepts an active retired pool URL on the first gate after successful migration' {
         $cfg = Join-Path $script:ValidatorNamingRoot 'active-old.yml'

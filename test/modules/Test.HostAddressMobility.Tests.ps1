@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f363d0-c7d5-4dcc-941a-c4422523b7e4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:RepoRoot   = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $script:LocateSh   = Join-Path $script:RepoRoot 'automation/yuruna-host-locate.sh'
     $script:LocatePs   = Join-Path $script:RepoRoot 'automation/yuruna-host-locate.ps1'
@@ -96,8 +97,7 @@ $Body
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
             Justification = 'Creates a self-contained temp fixture removed by the same test; no caller-visible state.')]
         param([string]$StatusIp = '10.99.99.99', [string]$HostId = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', [string]$CacheIp = '10.99.99.1')
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("yhl_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        $dir = New-YurunaTestTempDir -Prefix 'yhl'
         @(
             "YURUNA_STATUS_SERVICE_IP=$StatusIp"
             'YURUNA_STATUS_SERVICE_PORT=8080'
@@ -134,7 +134,7 @@ Describe 'guest resolver (yuruna-host-locate.sh)' {
             $out | Should -Match 'rc=1'
             ([regex]::Match($out, 'asked=(\d+)').Groups[1].Value -as [int]) |
                 Should -Be 3 -Because 'the resolver must re-ask the directory before giving up on a renumber it is still learning'
-        } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx }
     }
 
     It 'refuses a directory answer this guest cannot reach' {
@@ -147,7 +147,7 @@ Describe 'guest resolver (yuruna-host-locate.sh)' {
             $out = Invoke-LocateShell -Fixture $fx -DirectoryAnswer 'http://10.99.99.98:8080'
             $out | Should -Match 'rc=1'
             (Get-Content -Raw (Join-Path $fx 'host.env')) | Should -Match 'YURUNA_STATUS_SERVICE_IP=10\.99\.99\.99'
-        } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx }
     }
 
     It 'refuses answers that are wrong on their face, without probing them' {
@@ -159,7 +159,7 @@ Describe 'guest resolver (yuruna-host-locate.sh)' {
             }
             $out = Invoke-LocateShell -Fixture $fx -Body "__yhl_plausible 'http://10.99.99.5:8080'; echo `"rc=`$?`""
             $out | Should -Match 'rc=0'
-        } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx }
     }
 
     It 'rejects hostile origins even on the final directory attempt and never persists shell syntax' {
@@ -190,7 +190,7 @@ yuruna_host_locate; echo "rc=`$?"
                 Test-Path -LiteralPath $marker | Should -BeFalse
                 Test-Path -LiteralPath $probed | Should -BeFalse
             }
-        } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx }
     }
 
     It 'persists a validated literal endpoint and rejects unsafe direct persistence' {
@@ -210,7 +210,7 @@ yuruna_host_locate; echo "rc=$?"
             $out = Invoke-LocateShell -Fixture $fx -Body '__yhl_persist "192.0.2.10" "80;false"; echo "rc=$?"'
             $out | Should -Match 'rc=1'
             [IO.File]::ReadAllText((Join-Path $fx 'host.env')) | Should -BeExactly $before
-        } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx }
     }
 
     It 'declines without touching the directory when the identity coordinates are absent' {
@@ -224,7 +224,7 @@ yuruna_host_locate; echo "rc=$?"
             $out = Invoke-LocateShell -Fixture $fx -Body '__yhl_query_directory() { echo "DIRECTORY WAS ASKED"; }; yuruna_host_locate; echo "rc=$?"'
             $out | Should -Match 'rc=1'
             $out | Should -Not -Match 'DIRECTORY WAS ASKED'
-        } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx }
     }
 
     It 'parses one host out of a multi-host pool-status body by hostId' {
@@ -241,7 +241,7 @@ yuruna_host_locate; echo "rc=$?"
 printf '%s' "`$(cat '$fx/pool.json')" | tr '{' '\n' | grep -F '"hostId":"42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' | sed -n 's/.*"baseUrl":"\([^"]*\)".*/\1/p' | head -n 1
 "@
             (& bash -c $parse 2>&1) -join '' | Should -Be 'http://10.0.0.2:8080'
-        } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx }
     }
 }
 
@@ -275,8 +275,7 @@ Describe 'host beacon (Test.HostAddressBeacon.psm1)' {
         # The regression this exists for: sharing one field made an
         # unreachable directory re-log the change and rewrite the same files on
         # EVERY tick, forever, because the announce never advanced it.
-        $rt = Join-Path ([System.IO.Path]::GetTempPath()) ("yhb_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Force -Path $rt | Out-Null
+        $rt = New-YurunaTestTempDir -Prefix 'yhb'
         try {
             '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' | Set-Content -LiteralPath (Join-Path $rt 'host.uuid')
             # 10.99.99.1 answers nothing, so every announce fails.
@@ -290,18 +289,17 @@ Describe 'host beacon (Test.HostAddressBeacon.psm1)' {
             $null = Invoke-HostAddressBeaconTick -RuntimeDir $rt -CurrentAddress '10.0.0.7' -CacheAddress '10.99.99.1' -Confirm:$false
             $after = (Get-Item (Join-Path $rt 'ipaddresses.txt')).LastWriteTimeUtc
             $after | Should -Be $before -Because 'an unchanged address must not rewrite the record on every tick'
-        } finally { Remove-Item -LiteralPath $rt -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $rt }
     }
 
     It 'does nothing at all when the address has not moved and no beacon is due' {
-        $rt = Join-Path ([System.IO.Path]::GetTempPath()) ("yhb_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Force -Path $rt | Out-Null
+        $rt = New-YurunaTestTempDir -Prefix 'yhb'
         try {
             # No directory configured: the tick advances both states locally,
             # so the second call has nothing left to do.
             Invoke-HostAddressBeaconTick -RuntimeDir $rt -CurrentAddress '10.0.0.9' -CacheAddress '' -Confirm:$false | Should -BeTrue
             Invoke-HostAddressBeaconTick -RuntimeDir $rt -CurrentAddress '10.0.0.9' -CacheAddress '' -Confirm:$false | Should -BeFalse
-        } finally { Remove-Item -LiteralPath $rt -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $rt }
     }
 
     It 'ignores an empty address rather than publishing one' {
@@ -358,8 +356,7 @@ Describe 'host beacon directory lookup (Resolve-HostAddressBeaconDirectory)' {
     }
 
     It 'announces on the tick right after adopting, not a beacon period later' {
-        $rt = Join-Path ([System.IO.Path]::GetTempPath()) ("yhb_" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Force -Path $rt | Out-Null
+        $rt = New-YurunaTestTempDir -Prefix 'yhb'
         try {
             # With no directory the tick marks the address as announced, which
             # would otherwise hold the first real announce back a whole period.
@@ -368,7 +365,7 @@ Describe 'host beacon directory lookup (Resolve-HostAddressBeaconDirectory)' {
             Mock -ModuleName Test.HostAddressBeacon Get-PoolAggregatorServiceSeedUrl { 'https://10.1.2.3:9400' }
             Resolve-HostAddressBeaconDirectory -Pinned '' | Should -Be '10.1.2.3'
             (Get-HostAddressBeaconState).LastAnnouncedAddress | Should -Be ''
-        } finally { Remove-Item -LiteralPath $rt -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $rt }
     }
 
     It 'treats a failing lookup as no directory yet' {
@@ -470,7 +467,7 @@ __yhl_http_get() {
                     '__yhl_livecheck "http://10.99.99.99:8080"; echo "rc=$?"'
                 ) -join "`n"
                 return Invoke-LocateShell -Fixture $fx -Body $body -Env @{ YURUNA_GUEST_CHANNEL_KEY_FILE = (Join-Path $fx 'guest-channel.key') }
-            } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+            } finally { Remove-YurunaTestTempDir $fx }
         }
     }
 

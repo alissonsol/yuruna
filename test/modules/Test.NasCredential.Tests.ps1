@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 426f60c6-12ae-47e8-bf91-92c9c1eadd18
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,7 @@ BeforeAll {
         & chmod +x (Join-Path $bin 'mountpoint') (Join-Path $bin 'mount') (Join-Path $bin 'timeout') (Join-Path $bin 'stat')
         $cred = Join-Path $Root 'nas.cifs.cred'
         if ($PSBoundParameters.ContainsKey('Existing')) { [IO.File]::WriteAllText($cred, $Existing) }
-        $env:PATH_SAVED = $env:PATH
+        $saved = Save-YurunaTestEnvironment -Name 'PATH', 'YURUNA_HOST_CONFIG_DIR', 'YURUNA_HOST_ENV_FILE', 'YURUNA_NAS_CREDENTIAL_ATTEMPTS', 'YURUNA_NAS_CREDENTIAL_PAUSE_SECONDS'
         try {
             $env:PATH = "${bin}:$($env:PATH)"
             $env:YURUNA_HOST_CONFIG_DIR = $cdir
@@ -67,10 +67,7 @@ BeforeAll {
             if ($Mount) { $helperArgs += $Mount }
             $out = & /bin/sh $script:Helper @helperArgs 2>&1
             $code = $LASTEXITCODE
-        } finally {
-            $env:PATH = $env:PATH_SAVED
-            Remove-Item Env:PATH_SAVED, Env:YURUNA_HOST_CONFIG_DIR, Env:YURUNA_HOST_ENV_FILE, Env:YURUNA_NAS_CREDENTIAL_ATTEMPTS, Env:YURUNA_NAS_CREDENTIAL_PAUSE_SECONDS -ErrorAction SilentlyContinue
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
         return [pscustomobject]@{ Code = $code; Output = ($out -join "`n"); Cred = $cred; Args = (Join-Path $Root 'curl.args'); MountArgs = (Join-Path $Root 'mount.args') }
     }
 }

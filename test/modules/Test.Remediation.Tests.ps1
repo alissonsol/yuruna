@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42430431-3a59-45e7-9caa-8e653f023904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,8 +92,7 @@ Describe 'Invoke-Remediation forwards the enriched Context' {
 
 Describe 'Invoke-Remediation persists last_remediation.json' {
     It 'writes the durable decision record into YURUNA_LOG_DIR' {
-        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-remediation-$([guid]::NewGuid().ToString('N'))"
-        $null = New-Item -ItemType Directory -Path $tmp -Force
+        $tmp = New-YurunaTestTempDir -Prefix 'yrn-remediation'
         $savedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         try {
             $env:YURUNA_LOG_DIR = $tmp
@@ -115,12 +114,11 @@ Describe 'Invoke-Remediation persists last_remediation.json' {
             Assert-True ($bytes[0] -ne 0xEF) 'record is written without a UTF-8 BOM'
         } finally {
             Restore-YurunaTestEnvironment -Saved $savedLogDir
-            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $tmp
         }
     }
     It 'records the outer class when routing past a retry wrapper' {
-        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-remediation-$([guid]::NewGuid().ToString('N'))"
-        $null = New-Item -ItemType Directory -Path $tmp -Force
+        $tmp = New-YurunaTestTempDir -Prefix 'yrn-remediation'
         $savedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         try {
             $env:YURUNA_LOG_DIR = $tmp
@@ -130,7 +128,7 @@ Describe 'Invoke-Remediation persists last_remediation.json' {
             Assert-Equal -Expected 'retry_exhausted' -Actual $doc.outerFailureClass -Because 'masked outer class preserved in the record'
         } finally {
             Restore-YurunaTestEnvironment -Saved $savedLogDir
-            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $tmp
         }
     }
 }
@@ -293,20 +291,18 @@ Describe 'Invoke-Remediation guards a parsed-but-non-object last_failure.json' {
     # would otherwise reach .Contains() on a $null record.
 
     It 'routes a JSON null last_failure.json to the parse-error fallback without throwing' {
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-rem-nonobj-$([guid]::NewGuid().ToString('N'))"
-        $null = New-Item -ItemType Directory -Path $dir -Force
+        $dir = New-YurunaTestTempDir -Prefix 'yrn-rem-nonobj'
         try {
             $lf = Join-Path $dir 'last_failure.json'
             Set-Content -LiteralPath $lf -Value 'null' -Encoding utf8
             $r = Invoke-Remediation -LastFailurePath $lf
             Assert-Equal -Expected '(parse-error fallback)' -Actual ([string]$r.HandledBy) -Because 'a JSON null must route to the fallback, not throw at .Contains() on $null'
             Assert-Equal -Expected 'operator_intervention_required' -Actual ([string]$r.Recommendation) -Because 'the parse-error fallback recommends operator intervention'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'routes valid-but-non-object JSON (string / number / array) to the parse-error fallback' {
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-rem-nonobj-$([guid]::NewGuid().ToString('N'))"
-        $null = New-Item -ItemType Directory -Path $dir -Force
+        $dir = New-YurunaTestTempDir -Prefix 'yrn-rem-nonobj'
         try {
             $lf = Join-Path $dir 'last_failure.json'
             foreach ($content in @('"a string"', '42', '[1,2,3]')) {
@@ -314,18 +310,17 @@ Describe 'Invoke-Remediation guards a parsed-but-non-object last_failure.json' {
                 $r = Invoke-Remediation -LastFailurePath $lf
                 Assert-Equal -Expected '(parse-error fallback)' -Actual ([string]$r.HandledBy) -Because "non-object JSON ($content) must route to the fallback"
             }
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 
     It 'still reads a valid JSON-object last_failure.json normally' {
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-rem-nonobj-$([guid]::NewGuid().ToString('N'))"
-        $null = New-Item -ItemType Directory -Path $dir -Force
+        $dir = New-YurunaTestTempDir -Prefix 'yrn-rem-nonobj'
         try {
             $lf = Join-Path $dir 'last_failure.json'
             Set-Content -LiteralPath $lf -Value '{"failureClass":"ocr_timeout","severity":"hard","stepNumber":2}' -Encoding utf8
             $r = Invoke-Remediation -LastFailurePath $lf
             Assert-Equal -Expected 'ocr_timeout' -Actual ([string]$r.FailureClass) -Because 'a real object is parsed and classified normally'
             Assert-True ([string]$r.HandledBy -ne '(parse-error fallback)') 'a valid object does NOT hit the parse-error fallback'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $dir }
     }
 }

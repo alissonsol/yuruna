@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d51fa5-ad15-451c-8e70-d870a6c34b99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -135,14 +135,13 @@ Describe 'Write-YurunaPoolState (gating round-trips through pool.state.json)' {
     # the state file lands where nothing reads it. BeforeAll/AfterAll run in the run phase,
     # which keeps the dir the module writes and the dir the assertions read identical.
     BeforeAll {
-        $script:StateRuntimeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yps-" + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Force -Path $script:StateRuntimeDir | Out-Null
+        $script:StateRuntimeDir = New-YurunaTestTempDir -Prefix 'yps'
         $script:SavedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:StateRuntimeDir
     }
     AfterAll {
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeDir
-        Remove-Item -LiteralPath $script:StateRuntimeDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:StateRuntimeDir
     }
     It 'writes gating into the state file when present' {
         $gating = [ordered]@{ failuresBeforeAlert = 3; quorum = [ordered]@{ healthyThreshold = 0.5; degradedAfterSeconds = 1800 } }

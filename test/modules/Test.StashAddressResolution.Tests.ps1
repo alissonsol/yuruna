@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42393379-b183-472a-aafb-3e90a62215aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,7 +53,7 @@ Import-Module (Join-Path $StashRepoRoot 'test/modules/Test.VMUtility.psm1') -For
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-$StashTestHome = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-stash-$PID"
+$StashTestHome = New-YurunaTestTempDir -Prefix 'yrn-stash'
 function New-MarkerDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: writes only into the suite-owned temp root the suite removes when it ends.')]
@@ -367,7 +367,5 @@ Describe 'Removal cuts whole blocks and nothing else' {
 AfterAll {
 Remove-Item -Path 'Function:\Get-VMIp' -ErrorAction SilentlyContinue
 Remove-Item -Path 'Function:\Test-StashServiceHost' -ErrorAction SilentlyContinue
-if ($StashTestHome -and (Test-Path -LiteralPath $StashTestHome)) {
-    Remove-Item -LiteralPath $StashTestHome -Recurse -Force -ErrorAction SilentlyContinue
-}
+Remove-YurunaTestTempDir $StashTestHome
 }

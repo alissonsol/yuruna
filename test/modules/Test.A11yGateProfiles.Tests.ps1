@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 426838e1-71d2-46b1-bc18-fcfc5a3e6391
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,13 +95,13 @@ function Invoke-GateRun {
     # passed on: it tells a finding (1) from a missing browser (2).
     $command = "& '$($script:A11y.Replace("'", "''"))' -Serve '$($script:Fixture.Replace("'", "''"))' " +
         "-Width 1280 -Phone '360x780' -Scheme light -Browser $Engine; " + 'exit $LASTEXITCODE'
-    $saved = @{}
-    foreach ($key in $Environment.Keys) { $saved[$key] = [Environment]::GetEnvironmentVariable($key); [Environment]::SetEnvironmentVariable($key, $Environment[$key]) }
+    $saved = Save-YurunaTestEnvironment -Name @($Environment.Keys)
+    foreach ($key in $Environment.Keys) { [Environment]::SetEnvironmentVariable($key, $Environment[$key]) }
     try {
         $text = & (Get-Process -Id $PID).Path -NoProfile -Command $command 2>&1 | Out-String
         $code = $LASTEXITCODE
     } finally {
-        foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key]) }
+        Restore-YurunaTestEnvironment -Saved $saved
     }
     # Every view prints "ok   <tag>" or "FAIL <tag>" and then one indented
     # line per finding, so the output maps each view to what it found.

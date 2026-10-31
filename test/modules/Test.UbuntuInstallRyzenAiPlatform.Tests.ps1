@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 421942f3-d52f-4211-83d4-3fe55a882f99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,16 +53,16 @@
 
 BeforeDiscovery {
     $script:SymlinkPermitted = $false
-    $probeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-ln-probe-' + [guid]::NewGuid().ToString('N'))
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    $probeRoot = New-YurunaTestTempDir -Prefix 'yuruna-ln-probe'
     try {
-        $null = New-Item -ItemType Directory -Path $probeRoot -Force
         Set-Content -LiteralPath (Join-Path $probeRoot 'target') -Value 'probe' -Encoding ascii
         & ln -s (Join-Path $probeRoot 'target') (Join-Path $probeRoot 'link') 2>$null
         $script:SymlinkPermitted = [bool](Get-Item -LiteralPath (Join-Path $probeRoot 'link') -Force -ErrorAction SilentlyContinue).LinkType
     } catch {
         $script:SymlinkPermitted = $false
     } finally {
-        Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $probeRoot
     }
 }
 
@@ -161,7 +161,7 @@ function New-PlatformSandbox {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: creates a temp sandbox tree the test removes in its finally block; not user-facing state.')]
     param([Parameter(Mandatory)][hashtable]$Version)
-    $root = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ryzenai-{0}" -f [guid]::NewGuid().ToString('N'))
+    $root = New-YurunaTestTempDir -Prefix 'yuruna-ryzenai'
     foreach ($sub in @('bin', 'automation')) {
         New-Item -ItemType Directory -Path (Join-Path $root $sub) -Force | Out-Null
     }
@@ -226,7 +226,7 @@ Describe 'is_amd_ryzen_ai_platform' {
         try {
             $r = Invoke-PlatformShell -Root $root -Body 'is_amd_ryzen_ai_platform && echo PLATFORM'
             Assert-Match 'PLATFORM' $r.Output 'the release name the platform ships is recognized'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'does not claim an Ubuntu host or a host that names no release' {
         $root = New-PlatformSandbox -Version $script:Below
@@ -235,7 +235,7 @@ Describe 'is_amd_ryzen_ai_platform' {
             Assert-Match 'NOT-PLATFORM' $r.Output 'an Ubuntu release is not the platform'
             $r = Invoke-PlatformShell -Root $root -PrettyName '' -Body 'is_amd_ryzen_ai_platform || echo NOT-PLATFORM'
             Assert-Match 'NOT-PLATFORM' $r.Output 'an empty release name is not the platform'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -251,7 +251,7 @@ for t in git python3 curl qemu-img; do printf '%s=%s\n' "$t" "$(tool_version "$t
             foreach ($tool in $script:Below.Keys) {
                 Assert-Match ("(?m)^{0}={1}$" -f [regex]::Escape($tool), [regex]::Escape($script:Below[$tool])) $r.Output "$tool reads as $($script:Below[$tool])"
             }
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -262,7 +262,7 @@ Describe 'bring_amd_ryzen_ai_platform_to_floors' {
             $r = Invoke-PlatformShell -Root $root -PrettyName 'Ubuntu 26.04 LTS' -Body 'bring_amd_ryzen_ai_platform_to_floors; echo DONE'
             Assert-Match 'DONE' $r.Output 'the repair returns cleanly'
             Assert-True ((Get-SandboxCall -Root $root) -eq '') 'no source is enabled or reached on another distribution'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'raises curl, qemu-img and git through the sources that carry them' {
         $root = New-PlatformSandbox -Version $script:Below
@@ -280,7 +280,7 @@ Describe 'bring_amd_ryzen_ai_platform_to_floors' {
                 Assert-Match $pair $r.Output "the repair reports what the name answers afterwards ($pair)"
             }
             Assert-True ($r.Output -notmatch 'ISSUE') 'a repair that reaches every floor it can records no issue'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'keeps the platform python3 and says once why it stays below its floor' {
         # Any other interpreter on PATH breaks virt-install, so nothing may try to
@@ -292,7 +292,7 @@ Describe 'bring_amd_ryzen_ai_platform_to_floors' {
             Assert-True ($r.Output -notmatch 'ISSUE[^\n]*python3') 'the python3 gap is not an install issue'
             Assert-StringEqual -Expected '3.13.5' -Actual (Get-Content -LiteralPath (Join-Path $root 'python3.version') -Raw).Trim() `
                 'python3 is left exactly as the platform ships it'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'reaches no source for tools already at their floors' {
         $root = New-PlatformSandbox -Version $script:AtFloor
@@ -303,7 +303,7 @@ Describe 'bring_amd_ryzen_ai_platform_to_floors' {
             Assert-True ($calls -notmatch 'GIT-BUILD') 'git is not rebuilt'
             Assert-True ($r.Output -notmatch 'stays below') 'a python3 at its floor needs no explanation'
             Assert-Match 'git 2\.53\.0 meets the 2\.53\.0 floor' $r.Output 'each tool at its floor is reported as such'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'still builds git when backports cannot be enabled' {
         # Without backports the git headers come from the base archive, which
@@ -317,7 +317,7 @@ Describe 'bring_amd_ryzen_ai_platform_to_floors' {
             Assert-Match 'ISSUE Could not enable trixie-backports' $r.Output 'the missing source reaches the closing summary'
             Assert-True ($calls -notmatch 'SUDO DEBIAN_FRONTEND') 'no backports install is attempted'
             Assert-Match 'GIT-BUILD ver=2\.53\.0 suite=(\r?\n|$)' $calls 'git builds without a target release'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'records a failed source in the closing summary and carries on' {
         # Finishing silently below a floor is what the closing summary exists to
@@ -330,7 +330,7 @@ Describe 'bring_amd_ryzen_ai_platform_to_floors' {
             Assert-Match 'qemu-utils' (Get-SandboxCall -Root $root) 'a later tool is still attempted after an earlier one fails'
             Assert-Match 'ISSUE Building git 2\.53\.0 from its release tarball failed' $r.Output 'a failed build is recorded with the version it aimed for'
             Assert-Match 'FINISHED' $r.Output 'the install continues past every failure'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'names the binary that answered when a repair does not win the name' {
         # An install under /usr/local/bin only wins where that directory leads
@@ -341,7 +341,7 @@ Describe 'bring_amd_ryzen_ai_platform_to_floors' {
             $r = Invoke-PlatformShell -Root $root -Body 'bring_amd_ryzen_ai_platform_to_floors'
             Assert-Match 'WARN\s+git answers 2\.47\.3 after the repair, still below the 2\.53\.0 floor \(resolved: .*/bin/git\)' $r.Output `
                 'a repair that leaves the old version answering says which binary it is'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -381,7 +381,7 @@ Describe 'remove_standalone_python' {
             Assert-False (Test-LinkPresent (Join-Path $tree 'local/bin/python3.14')) 'a sibling link into the same version goes with it'
             Assert-True (Test-LinkPresent (Join-Path $tree 'local/bin/python3.12')) 'a link to another interpreter is left alone'
             Assert-False (Test-Path -LiteralPath (Join-Path $tree 'opt')) 'the version directory goes, and the tree it emptied with it'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'keeps an interpreter in the tree that only a python3.N link reaches' -Skip:(-not $script:SymlinkPermitted) {
         # python3.12 shadows nothing; only the python3 name breaks virt-install.
@@ -393,7 +393,7 @@ Describe 'remove_standalone_python' {
             Assert-False (Test-Path -LiteralPath (Join-Path $tree 'opt/3.14.8')) 'the shadowing version is removed'
             Assert-True (Test-Path -LiteralPath (Join-Path $tree 'opt/3.12.7')) 'the other interpreter is kept'
             Assert-True (Test-LinkPresent (Join-Path $tree 'local/bin/python3.12')) 'and so is its link'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'touches nothing when no python3 link points into the tree' {
         $root = New-PlatformSandbox -Version $script:Below
@@ -402,7 +402,7 @@ Describe 'remove_standalone_python' {
             $r = Invoke-Cleanup -Root $root -Tree $tree
             Assert-True (Test-Path -LiteralPath (Join-Path $tree 'opt/3.12.7')) 'an unlinked tree is never deleted'
             Assert-True ($r.Output -notmatch 'removed') 'nothing is reported removed'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'removes only the link for a --prefix install with no version directory' {
         $root = New-PlatformSandbox -Version $script:Below
@@ -412,7 +412,7 @@ Describe 'remove_standalone_python' {
             Assert-False (Test-LinkPresent (Join-Path $tree 'local/bin/python3')) 'the shadow still goes'
             Assert-True (Test-Path -LiteralPath (Join-Path $tree 'opt/bin')) 'a bin directory is not a version directory to delete'
             Assert-True (Test-Path -LiteralPath (Join-Path $tree 'opt/lib')) 'nor is anything beside it'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'does nothing on a host with no standalone tree' {
         $root = New-PlatformSandbox -Version $script:Below
@@ -421,7 +421,7 @@ Describe 'remove_standalone_python' {
             $r = Invoke-Cleanup -Root $root -Tree $tree
             Assert-Match 'DONE' $r.Output 'the cleanup returns cleanly'
             Assert-True ($r.Output -notmatch 'removed|ISSUE|WARN') 'nothing is reported when nothing is there'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -465,7 +465,7 @@ Describe 'local_git_incomplete' {
             $r = Invoke-PlatformShell -Root $root -Body "PATH=`"$(ConvertTo-MsysPath (Split-Path $git)):`$PATH`"; local_git_incomplete '$(ConvertTo-MsysPath $git)' && echo INCOMPLETE || echo COMPLETE"
             Assert-Match 'COMPLETE' $r.Output 'a full build is not rebuilt'
             Assert-True ($r.Output -notmatch 'INCOMPLETE') 'a full build is not reported incomplete'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'flags a build without git-subtree, and one without PCRE2' {
         $root = New-PlatformSandbox -Version $script:AtFloor
@@ -476,7 +476,7 @@ Describe 'local_git_incomplete' {
             $git = New-LocalGit -Root (Join-Path $root 'nopcre') -NoPcre
             $r = Invoke-PlatformShell -Root $root -Body "PATH=`"$(ConvertTo-MsysPath (Split-Path $git)):`$PATH`"; local_git_incomplete '$(ConvertTo-MsysPath $git)' && echo INCOMPLETE"
             Assert-Match 'INCOMPLETE' $r.Output 'a build that cannot run git grep -P is rebuilt'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'leaves alone a git that is not the build answering on PATH' {
         # The Debian git, or anyone else's, is never rebuilt on this test.
@@ -485,7 +485,7 @@ Describe 'local_git_incomplete' {
             $git = New-LocalGit -Root $root -NoSubtree -NoPcre
             $r = Invoke-PlatformShell -Root $root -Body "local_git_incomplete '$git' && echo INCOMPLETE || echo NOT-OURS"
             Assert-Match 'NOT-OURS' $r.Output 'only the build that answers the name is judged'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'rebuilds an incomplete build even when it meets the floor' {
         $root = New-PlatformSandbox -Version $script:AtFloor
@@ -494,7 +494,7 @@ Describe 'local_git_incomplete' {
             $r = Invoke-PlatformShell -Root $root -Body "local_git_incomplete() { return 0; }`nbring_amd_ryzen_ai_platform_to_floors"
             Assert-Match 'lacks PCRE2 or git-subtree' $r.Output 'the reason for the rebuild is given'
             Assert-Match 'GIT-BUILD ver=2\.53\.0' (Get-SandboxCall -Root $root) 'the build runs at the floor version'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -508,7 +508,7 @@ Describe 'git rebuild decisions' {
             Assert-True ((Get-SandboxCall -Root $root) -notmatch 'GIT-BUILD') 'a newer build is never rebuilt at the floor'
             Assert-Match 'WARN\s+/usr/local/bin/git 2\.54\.1 lacks PCRE2 or git-subtree but is newer than the 2\.53\.0 floor' $r.Output `
                 'the gap left in place is named'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'builds nothing when the git floor cannot be read' {
         $root = New-PlatformSandbox -Version $script:AtFloor
@@ -518,7 +518,7 @@ Describe 'git rebuild decisions' {
             Assert-True ((Get-SandboxCall -Root $root) -notmatch 'GIT-BUILD') 'no build is attempted without a version to build'
             Assert-True ($r.Output -notmatch 'ISSUE Building git') 'and no failed build is reported'
             Assert-True ($r.Output -notmatch 'newer than') 'nor a comparison against a floor that was never read'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -547,7 +547,7 @@ make() { printf 'MAKE %s\n' "$*" >> "$FAKE_ROOT/calls"; }
             Assert-Match 'MAKE -C \S+/git-2\.53\.0 -j\S+ prefix=/usr/local NO_TCLTK=1 USE_LIBPCRE2=YesPlease all' $calls 'core git is built with PCRE2'
             Assert-Match 'SUDO make -C \S+/git-2\.53\.0/contrib/subtree .*install' $calls 'git-subtree is installed'
             Assert-Match 'installed git-subtree beside it' $r.Output 'the subtree install is reported'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'refuses a tarball the pinned key did not sign' {
         $root = New-PlatformSandbox -Version $script:Below
@@ -558,7 +558,7 @@ make() { printf 'MAKE %s\n' "$*" >> "$FAKE_ROOT/calls"; }
                     "build_git_from_source 2.53.0 '$work' trixie-backports || echo REFUSED") -join "`n")
             Assert-Match 'REFUSED' $r.Output 'the build fails closed'
             Assert-True ((Get-SandboxCall -Root $root) -cnotmatch '(?m)^MAKE ') 'nothing is compiled from an unverified tarball'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -574,7 +574,7 @@ printf 'ERROR %s\n' "${PREFLIGHT_ERRORS[@]:-}"; printf 'WARNING %s\n' "${PREFLIG
 '@
             Assert-Match "ERROR 'virt-install' is on PATH but does not run: ModuleNotFoundError: No module named 'gi'" $r.Output 'the cause is named as an error'
             Assert-True ($r.Output -notmatch 'WARNING osinfo') 'no misleading osinfo warning is added'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'checks osinfo variants once virt-install runs' {
         $root = New-PlatformSandbox -Version $script:Below
@@ -587,7 +587,7 @@ printf 'ERRORS %s\n' "${#PREFLIGHT_ERRORS[@]}"; printf 'WARNING %s\n' "${PREFLIG
 '@
             Assert-Match 'ERRORS 0' $r.Output 'a working virt-install is not an error'
             Assert-Match "WARNING osinfo-db has neither 'ubuntu24.04' nor 'ubuntu22.04'" $r.Output 'the variant check still runs'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'skips the osinfo refresh when virt-install cannot start' {
         # Missing data would otherwise send the refresh after a database that
@@ -602,7 +602,7 @@ ensure_osinfo_db_has_ubuntu24; echo RETURNED
             Assert-Match 'WARN\s+virt-install does not run' $r.Output 'the skip and its reason are said'
             Assert-Match 'RETURNED' $r.Output 'the run continues'
             Assert-True ((Get-SandboxCall -Root $root) -notmatch 'CURL') 'no refresh is fetched'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -618,7 +618,7 @@ report_floor_check; echo FINISHED
             Assert-Match 'powershell-yaml is required' $r.Output 'the check''s own output is shown whole'
             Assert-Match 'NO_COLOR=1' $r.Output 'pwsh runs without color codes'
             Assert-Match 'FINISHED' $r.Output 'the install continues'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'records each shortfall a successful check reports' {
         $root = New-PlatformSandbox -Version $script:Below
@@ -629,7 +629,7 @@ report_floor_check
 '@
             Assert-Match '(?m)^ISSUE curl BELOW: found 8\.14\.1 is older than required 8\.18\.0\.$' $r.Output 'the shortfall is recorded without its prefix'
             Assert-True ($r.Output -notmatch 'ISSUE transcript') 'other output is not mistaken for a shortfall'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -643,7 +643,7 @@ Describe 'floor_check_tools' {
             $ubuntu = Invoke-PlatformShell -Root $root -PrettyName 'Ubuntu 26.04 LTS' -Body 'floor_check_tools'
             Assert-StringEqual -Expected 'PowerShell,git,qemu-img,wget,tesseract,curl,python3' -Actual $ubuntu.Output.Trim() `
                 'every other host is still checked for python3'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }
 
@@ -662,7 +662,7 @@ Describe 'osinfo diagnostics under the installer''s strict mode' {
             Assert-Match 'SURVIVED' $r.Output 'the run continues past the diagnostics'
             Assert-Match "virt-install --osinfo list exited 1: ModuleNotFoundError: No module named 'gi'" $r.Output `
                 'the failure and its last line are reported'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'survives a listing with no ubuntu entry, the case it exists to diagnose' {
         $root = New-PlatformSandbox -Version $script:Below
@@ -672,7 +672,7 @@ Describe 'osinfo diagnostics under the installer''s strict mode' {
             Assert-True ($r.Output -notmatch 'ERR-TRAP-FIRED') 'a grep with no match does not trip the ERR trap'
             Assert-Match 'count: 2 lines' $r.Output 'the listing is still measured'
             Assert-Match 'ubuntu\* short-ids visible: <none>' $r.Output 'the absence is reported'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
     It 'tells a virt-install that runs from one that cannot' {
         $root = New-PlatformSandbox -Version $script:Below
@@ -682,6 +682,6 @@ Describe 'osinfo diagnostics under the installer''s strict mode' {
             Set-Content -LiteralPath (Join-Path $root 'virt.fails') -Value 'yes'
             $broken = Invoke-PlatformShell -Root $root -Body "$script:Strict`nif ! why=`"`$(virt_install_runs)`"; then echo `"BROKEN: `$why`"; fi"
             Assert-Match "BROKEN: ModuleNotFoundError: No module named 'gi'" $broken.Output 'the cause is the last line it reported'
-        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }

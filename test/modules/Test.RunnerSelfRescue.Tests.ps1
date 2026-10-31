@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b2fd46-f55d-409b-bf93-6b7dbb5f5595
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,8 +82,7 @@ Describe 'Source polls during the failure pause' {
 
 Describe 'Invoke-RunnerOuterSupervisor' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('sup-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'sup'
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
         $script:Config = Join-Path $script:Dir 'test.config.yml'
@@ -97,7 +96,7 @@ Describe 'Invoke-RunnerOuterSupervisor' {
     }
     AfterEach {
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
 
     It 'logs an escaped exception, publishes a runner fault and enters the loop again' {
@@ -158,12 +157,11 @@ Describe 'Invoke-RunnerOuterSupervisor' {
 
 Describe 'Update-OuterFrameworkHealth' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('fwh-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'fwh'
         $script:Sha = 'good1'
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { $script:Sha }
     }
-    AfterEach { Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:Dir }
 
     It 'records the commit of a cycle that produced an outcome record as the last good one' {
         $h = Update-OuterFrameworkHealth -RuntimeDir $script:Dir -RepoRoot $PSScriptRoot -Outcome 'completed' -FromRecord
@@ -202,8 +200,7 @@ Describe 'Update-OuterFrameworkHealth' {
 
 Describe 'The resident pulls the framework when cycle processes keep dying before they can' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('rsc-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'rsc'
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $script:SavedLog = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
@@ -231,7 +228,7 @@ Describe 'The resident pulls the framework when cycle processes keep dying befor
     AfterEach {
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Restore-YurunaTestEnvironment -Saved $script:SavedLog
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
 
     It 'pulls from the resident from the second abort on, alerts once, and widens the hold' {
@@ -279,10 +276,11 @@ Describe 'Invoke-OuterFrameworkRescue reports what the pull did' {
 
 Describe 'Get-OuterMaxCycleSeconds' {
     BeforeEach {
-        $script:Config = Join-Path ([System.IO.Path]::GetTempPath()) ('mcs-' + [guid]::NewGuid().ToString('N') + '.yml')
+        $script:ConfigDir = New-YurunaTestTempDir -Prefix 'mcs'
+        $script:Config = Join-Path $script:ConfigDir 'test.config.yml'
         Mock -ModuleName Test.RunnerOuterLoop Write-Warning { }
     }
-    AfterEach { Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:ConfigDir }
     It 'reads <Value> as <Expected>' -TestCases @(
         @{ Value = '7200'; Expected = 7200 }
         @{ Value = '0'; Expected = 0 }
@@ -304,8 +302,7 @@ Describe 'Get-OuterMaxCycleSeconds' {
 
 Describe 'The resident stops a cycle process at testCycle.maxCycleSeconds' -Skip:$IsWindows {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('ceil-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'ceil'
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
         $script:GrandchildFile = Join-Path $script:Dir 'grandchild.pid'
@@ -331,7 +328,7 @@ Start-Sleep -Seconds 300
             Stop-Process -Id $grandchild -Force -ErrorAction SilentlyContinue
         }
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
 
     It 'kills the whole tree, records the stop for this attempt and reports a ceiling outcome' {
@@ -401,8 +398,7 @@ Start-Sleep -Seconds 300
 # hang nobody stopped. The resident now applies the watchdog's own bounds.
 Describe 'The resident guards a cycle whose step watchdog stood down' -Skip:$IsWindows {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('guard-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'guard'
         $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
         $script:GrandchildFile = Join-Path $script:Dir 'grandchild.pid'
@@ -433,7 +429,7 @@ Start-Sleep -Seconds 300
             Stop-Process -Id ([int](Get-Content -Raw -LiteralPath $script:GrandchildFile)) -Force -ErrorAction SilentlyContinue
         }
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
 
     It 'stops the tree at the step bound the watchdog recorded, as a wait_timeout for this attempt' {
@@ -495,10 +491,9 @@ Start-Sleep -Seconds 300
 
 Describe 'Cycle ceiling and guard helpers' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('ceilh-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'ceilh'
     }
-    AfterEach { Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:Dir }
 
     It 'derives <Expected> s from <Configured> s, a <Step> s step timeout and <Runs> run(s)' -TestCases @(
         @{ Configured = 21600; Step = 3600; Runs = 0; Expected = 21600 }

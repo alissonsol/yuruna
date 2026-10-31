@@ -969,7 +969,8 @@ script's whole purpose was achieved. A host that could not open its
 runtime dir must still be told its daemon never started.
 
 Source:
-[`test/service/Start-StashServiceVM.ps1`](../test/service/Start-StashServiceVM.ps1).
+[`test/service/Start-ExtensionService.stash.ps1`](../test/service/Start-ExtensionService.stash.ps1),
+the stash part of the shared start that `Start-StashServiceVM.ps1` runs.
 
 <a id="42d69dfa-0025"></a>
 
@@ -1764,6 +1765,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna](../README.md)

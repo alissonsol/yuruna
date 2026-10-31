@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f2943e-7155-4ed8-aedb-db7d6166f795
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -174,8 +174,7 @@ Describe 'Tesseract child environment and complete capture' {
         }
     }
         BeforeEach {
-            $script:SavedOmpLimit = [Environment]::GetEnvironmentVariable('OMP_THREAD_LIMIT')
-            $script:SavedOmpThreads = [Environment]::GetEnvironmentVariable('OMP_NUM_THREADS')
+            $script:SavedOmp = Save-YurunaTestEnvironment -Name 'OMP_THREAD_LIMIT', 'OMP_NUM_THREADS'
             Remove-Item Env:OMP_THREAD_LIMIT, Env:OMP_NUM_THREADS -ErrorAction SilentlyContinue
             $script:Probe = @{ Started = $true; ExitCode = 0; StdOut = "hello`r`nworld`r`n`r`n"; StdErr = "warning`n"
                 TimedOut = $false; DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; StartError = '' }
@@ -187,12 +186,7 @@ Describe 'Tesseract child environment and complete capture' {
                 return $script:Probe
             }
         }
-        AfterEach {
-            if ($null -eq $script:SavedOmpLimit) { Remove-Item Env:OMP_THREAD_LIMIT -ErrorAction SilentlyContinue }
-            else { [Environment]::SetEnvironmentVariable('OMP_THREAD_LIMIT', $script:SavedOmpLimit) }
-            if ($null -eq $script:SavedOmpThreads) { Remove-Item Env:OMP_NUM_THREADS -ErrorAction SilentlyContinue }
-            else { [Environment]::SetEnvironmentVariable('OMP_NUM_THREADS', $script:SavedOmpThreads) }
-        }
+        AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedOmp }
         It 'defaults to two threads in the child only and retains the generous timeout' {
             $result = Invoke-OcrFixture -FilePath 'tesseract' -ImagePath 'literal image.png'
             $script:CapturedEnvironment.OMP_THREAD_LIMIT | Should -BeExactly '2'
@@ -278,23 +272,10 @@ if ($args.Count -eq 4) {
         Mock Find-Tesseract -ModuleName Test.Tesseract { $script:NativePwsh }
     }
     BeforeEach {
-        $script:OriginalFixtureFail = [Environment]::GetEnvironmentVariable('YURUNA_OCR_FIXTURE_FAIL')
-        $script:OriginalFixtureEnv = [Environment]::GetEnvironmentVariable('YURUNA_OCR_FIXTURE_ENV')
-        $script:OriginalLimit = [Environment]::GetEnvironmentVariable('OMP_THREAD_LIMIT')
-        $script:OriginalThreads = [Environment]::GetEnvironmentVariable('OMP_NUM_THREADS')
+        $script:OriginalEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_OCR_FIXTURE_FAIL', 'YURUNA_OCR_FIXTURE_ENV', 'OMP_THREAD_LIMIT', 'OMP_NUM_THREADS'
         Remove-Item Env:YURUNA_OCR_FIXTURE_FAIL, Env:YURUNA_OCR_FIXTURE_ENV -ErrorAction SilentlyContinue
     }
-    AfterEach {
-        foreach ($entry in @(
-            @{ Name = 'YURUNA_OCR_FIXTURE_FAIL'; Value = $script:OriginalFixtureFail },
-            @{ Name = 'YURUNA_OCR_FIXTURE_ENV'; Value = $script:OriginalFixtureEnv },
-            @{ Name = 'OMP_THREAD_LIMIT'; Value = $script:OriginalLimit },
-            @{ Name = 'OMP_NUM_THREADS'; Value = $script:OriginalThreads }
-        )) {
-            if ($null -eq $entry.Value) { Remove-Item -LiteralPath ('Env:' + $entry.Name) -ErrorAction SilentlyContinue }
-            else { [Environment]::SetEnvironmentVariable($entry.Name, $entry.Value) }
-        }
-    }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:OriginalEnvironment }
     It 'applies the default only inside the actual native child' {
         Remove-Item Env:OMP_THREAD_LIMIT, Env:OMP_NUM_THREADS -ErrorAction SilentlyContinue
         $env:YURUNA_OCR_FIXTURE_ENV = 'yes'

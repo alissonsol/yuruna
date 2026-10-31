@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 429793e2-063a-4471-aed6-44421c62b4e4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,8 +134,7 @@ Describe 'VNC display allocation (host.macos.utm)' {
         if (-not $VncIsMac) { Set-ItResult -Skipped -Because 'requires macOS PlistBuddy'; return }
         # A connect probe cannot tell "nothing listening" from "listening and
         # refusing"; only a bind tells us whether QEMU will be able to bind.
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
         $taken = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
         try {
             Assert-True (-not (Test-VncPortFree -Port $taken)) 'an occupied port reports busy'
@@ -146,8 +145,7 @@ Describe 'VNC display allocation (host.macos.utm)' {
     It 'skips a taken display and stays inside the 10..89 range' {
         if (-not $VncIsMac) { Set-ItResult -Skipped -Because 'requires macOS PlistBuddy'; return }
         $preferred = 40
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 5900 + $preferred)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener -Port (5900 + $preferred)
         try {
             $chosen = Find-FreeVncDisplay -Preferred $preferred
             Assert-True ($chosen -ne $preferred) 'the occupied preference is not returned'

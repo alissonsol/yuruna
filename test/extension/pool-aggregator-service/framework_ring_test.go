@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 const (
@@ -76,12 +78,12 @@ func TestRingRowsCountOnlyCompletedCyclesThatNameTheirFullRevision(t *testing.T)
 
 func TestRingRequiresTheConfiguredNumberOfCanaryPasses(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.recordRingRows(ringCanaryA, []ringRow{{"2026-10-01T08:00:00Z", ringRevOld, true}})
-	if got := s.qualifyRing([]string{ringCanaryA, ringCanaryB}, 2); got.QualifyingRevision != "" {
+	s.recordRingRows(s.view(), ringCanaryA, []ringRow{{"2026-10-01T08:00:00Z", ringRevOld, true}})
+	if got := s.qualifyRing(s.view(), []string{ringCanaryA, ringCanaryB}, 2); got.QualifyingRevision != "" {
 		t.Fatalf("one pass qualified %s with two required", got.QualifyingRevision)
 	}
-	s.recordRingRows(ringCanaryB, []ringRow{{"2026-10-01T09:00:00Z", ringRevOld, true}})
-	got := s.qualifyRing([]string{ringCanaryA, ringCanaryB}, 2)
+	s.recordRingRows(s.view(), ringCanaryB, []ringRow{{"2026-10-01T09:00:00Z", ringRevOld, true}})
+	got := s.qualifyRing(s.view(), []string{ringCanaryA, ringCanaryB}, 2)
 	if got.QualifyingRevision != ringRevOld || got.QualifyingPasses != 2 {
 		t.Fatalf("answer = %+v, want %s with 2 passes", got, ringRevOld)
 	}
@@ -89,12 +91,12 @@ func TestRingRequiresTheConfiguredNumberOfCanaryPasses(t *testing.T) {
 
 func TestRingCountsOnlyTheNamedCanaries(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.recordRingRows(ringFollower, []ringRow{
+	s.recordRingRows(s.view(), ringFollower, []ringRow{
 		{"2026-10-01T08:00:00Z", ringRevNew, true},
 		{"2026-10-01T09:00:00Z", ringRevNew, true},
 	})
-	s.recordRingRows(ringCanaryA, []ringRow{{"2026-10-01T07:00:00Z", ringRevOld, true}})
-	got := s.qualifyRing([]string{ringCanaryA}, 1)
+	s.recordRingRows(s.view(), ringCanaryA, []ringRow{{"2026-10-01T07:00:00Z", ringRevOld, true}})
+	got := s.qualifyRing(s.view(), []string{ringCanaryA}, 1)
 	if got.QualifyingRevision != ringRevOld {
 		t.Fatalf("qualifying = %s, want %s: a non-canary's passes must not count", got.QualifyingRevision, ringRevOld)
 	}
@@ -102,12 +104,12 @@ func TestRingCountsOnlyTheNamedCanaries(t *testing.T) {
 
 func TestANewerRevisionThatOnlyFailedLeavesTheQualifiedOneInPlace(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.recordRingRows(ringCanaryA, []ringRow{
+	s.recordRingRows(s.view(), ringCanaryA, []ringRow{
 		{"2026-10-01T08:00:00Z", ringRevOld, true},
 		{"2026-10-01T09:00:00Z", ringRevNew, false},
 		{"2026-10-01T10:00:00Z", ringRevNew, false},
 	})
-	got := s.qualifyRing([]string{ringCanaryA}, 1)
+	got := s.qualifyRing(s.view(), []string{ringCanaryA}, 1)
 	if got.QualifyingRevision != ringRevOld {
 		t.Fatalf("qualifying = %s, want %s", got.QualifyingRevision, ringRevOld)
 	}
@@ -120,12 +122,12 @@ func TestANewerRevisionThatOnlyFailedLeavesTheQualifiedOneInPlace(t *testing.T) 
 // revision is the one canaries started running last, not the one read last.
 func TestRingOrdersRevisionsByCanaryCycleStartNotByArrival(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.recordRingRows(ringCanaryB, []ringRow{{"2026-10-01T12:00:00Z", ringRevNew, true}})
-	s.recordRingRows(ringCanaryA, []ringRow{
+	s.recordRingRows(s.view(), ringCanaryB, []ringRow{{"2026-10-01T12:00:00Z", ringRevNew, true}})
+	s.recordRingRows(s.view(), ringCanaryA, []ringRow{
 		{"2026-10-01T08:00:00Z", ringRevMiddle, true},
 		{"2026-10-01T13:00:00Z", ringRevMiddle, true},
 	})
-	got := s.qualifyRing([]string{ringCanaryA, ringCanaryB}, 1)
+	got := s.qualifyRing(s.view(), []string{ringCanaryA, ringCanaryB}, 1)
 	if got.QualifyingRevision != ringRevNew {
 		t.Fatalf("qualifying = %s, want %s (its first canary cycle is the latest)", got.QualifyingRevision, ringRevNew)
 	}
@@ -133,9 +135,9 @@ func TestRingOrdersRevisionsByCanaryCycleStartNotByArrival(t *testing.T) {
 
 func TestRingCountsARetiredCanaryIDForItsSuccessor(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.handovers[ringCanaryA] = ringCanaryB
-	s.recordRingRows(ringCanaryA, []ringRow{{"2026-10-01T08:00:00Z", ringRevOld, true}})
-	if got := s.qualifyRing([]string{ringCanaryB}, 1); got.QualifyingRevision != ringRevOld {
+	s.view().SetAliases(map[string]string{ringCanaryA: ringCanaryB})
+	s.recordRingRows(s.view(), ringCanaryA, []ringRow{{"2026-10-01T08:00:00Z", ringRevOld, true}})
+	if got := s.qualifyRing(s.view(), []string{ringCanaryB}, 1); got.QualifyingRevision != ringRevOld {
 		t.Fatalf("qualifying = %q, want the retired id's pass counted for its successor", got.QualifyingRevision)
 	}
 }
@@ -183,13 +185,14 @@ func TestRingFactsComeFromThePollAndSurviveARestart(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "framework-ring.json")
 	s := newPoolState("default", port)
 	s.ringStateFile = statePath
-	s.hosts[ringCanaryA] = &hostView{HostId: ringCanaryA, CurrentIP: u.Hostname(), LastSeenUnixMs: now.UnixMilli()}
+	s.view().Hosts[ringCanaryA] = &hostView{HostId: ringCanaryA, CurrentIP: u.Hostname(), LastSeenUnixMs: now.UnixMilli()}
 	s.pollWithFreshConnections("no-such-squid.log", "", now)
 	srv.Close()
 
-	s.mu.Lock()
-	first := s.qualifyRing([]string{ringCanaryA}, 1)
-	s.mu.Unlock()
+	var first ringAnswer
+	s.st.Do(func(view *poolstate.View) {
+		first = s.qualifyRing(view, []string{ringCanaryA}, 1)
+	})
 	if first.QualifyingRevision != ringRevNew {
 		t.Fatalf("after the poll the qualifying revision is %q, want %s", first.QualifyingRevision, ringRevNew)
 	}
@@ -200,7 +203,7 @@ func TestRingFactsComeFromThePollAndSurviveARestart(t *testing.T) {
 	restarted := newPoolState("default", port)
 	restarted.ringStateFile = statePath
 	restarted.loadRingState()
-	if got := restarted.qualifyRing([]string{ringCanaryA}, 1); got.QualifyingRevision != ringRevNew || got.QualifyingPasses != 1 {
+	if got := restarted.qualifyRing(restarted.view(), []string{ringCanaryA}, 1); got.QualifyingRevision != ringRevNew || got.QualifyingPasses != 1 {
 		t.Fatalf("after a restart the answer is %+v, want %s with 1 pass", got, ringRevNew)
 	}
 }
@@ -213,7 +216,7 @@ func TestAnUnreadableRingStateStartsEmpty(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.ringStateFile = statePath
 	s.loadRingState()
-	if got := s.qualifyRing([]string{ringCanaryA}, 1); got.QualifyingRevision != "" || len(got.Revisions) != 0 {
+	if got := s.qualifyRing(s.view(), []string{ringCanaryA}, 1); got.QualifyingRevision != "" || len(got.Revisions) != 0 {
 		t.Fatalf("an unreadable state produced %+v", got)
 	}
 }
@@ -246,19 +249,19 @@ func TestRingStoreStaysBounded(t *testing.T) {
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < ringMaxRevisions+10; i++ {
 		revision := fmt.Sprintf("%040x", i+1)
-		s.recordRingRows(ringCanaryA, []ringRow{{start.Add(time.Duration(i) * time.Hour).Format(time.RFC3339), revision, true}})
+		s.recordRingRows(s.view(), ringCanaryA, []ringRow{{start.Add(time.Duration(i) * time.Hour).Format(time.RFC3339), revision, true}})
 	}
-	if len(s.ring) != ringMaxRevisions {
-		t.Fatalf("store holds %d revisions, want %d", len(s.ring), ringMaxRevisions)
+	if len(s.view().Ring) != ringMaxRevisions {
+		t.Fatalf("store holds %d revisions, want %d", len(s.view().Ring), ringMaxRevisions)
 	}
-	if _, kept := s.ring[fmt.Sprintf("%040x", 1)]; kept {
+	if _, kept := s.view().Ring[fmt.Sprintf("%040x", 1)]; kept {
 		t.Fatal("the oldest revision survived the bound")
 	}
 	for i := 0; i < ringMaxCyclesPerHost+5; i++ {
 		later := start.Add(time.Duration(ringMaxRevisions+100) * time.Hour)
-		s.recordRingRows(ringCanaryB, []ringRow{{later.Add(time.Duration(i) * time.Minute).Format(time.RFC3339), ringRevOld, true}})
+		s.recordRingRows(s.view(), ringCanaryB, []ringRow{{later.Add(time.Duration(i) * time.Minute).Format(time.RFC3339), ringRevOld, true}})
 	}
-	if n := len(s.ring[ringRevOld][ringCanaryB]); n != ringMaxCyclesPerHost {
+	if n := len(s.view().Ring[ringRevOld][ringCanaryB]); n != ringMaxCyclesPerHost {
 		t.Fatalf("one host keeps %d cycles at a revision, want %d", n, ringMaxCyclesPerHost)
 	}
 }

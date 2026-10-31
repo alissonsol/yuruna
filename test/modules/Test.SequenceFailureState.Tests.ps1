@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -253,8 +253,7 @@ Describe 'the host''s own address moves in the failure record' {
     BeforeAll {
         Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.HostAddressBeacon.psm1') -Force -DisableNameChecking
         $script:savedMoveEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
-        $script:moveRuntimeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-fail-move-" + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:moveRuntimeDir -Force | Out-Null
+        $script:moveRuntimeDir = New-YurunaTestTempDir -Prefix 'yrn-fail-move'
         $env:YURUNA_RUNTIME_DIR = $script:moveRuntimeDir
         function Add-MoveRow {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -266,7 +265,7 @@ Describe 'the host''s own address moves in the failure record' {
     }
     AfterAll {
         Restore-YurunaTestEnvironment -Saved $script:savedMoveEnvironment
-        Remove-Item -Recurse -Force $script:moveRuntimeDir -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:moveRuntimeDir
     }
     It 'reports no reading when the beacon left no record' {
         $f = Reset-FailState

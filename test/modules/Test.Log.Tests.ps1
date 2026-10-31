@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4246d32b-8525-4736-8ed7-b3883787ca97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,8 +45,7 @@ function New-ArchiveFixture {
     [OutputType([hashtable])]
     param([string]$RootFailureJson)
     $saved = @{ Globals = (Save-YurunaTestGlobal -Name '__YurunaCycleFolder', '__YurunaLogFile', '__YurunaRunId'); Environment = (Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR') }
-    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-archive-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+    $tmp = New-YurunaTestTempDir -Prefix 'yrn-archive'
     $env:YURUNA_LOG_DIR = $tmp
     if ($RootFailureJson) {
         [System.IO.File]::WriteAllText((Join-Path $tmp 'last_failure.json'), $RootFailureJson, [System.Text.UTF8Encoding]::new($false))
@@ -85,7 +84,7 @@ function Restore-ArchiveFixture {
     param([Parameter(Mandatory)][hashtable]$Fixture)
     Restore-YurunaTestGlobal -Saved $Fixture.Saved.Globals
     Restore-YurunaTestEnvironment -Saved $Fixture.Saved.Environment
-    if ($Fixture.Tmp) { Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue }
+    Remove-YurunaTestTempDir $Fixture.Tmp
 }
 
 }
@@ -257,7 +256,7 @@ Describe 'Stop-LogFile last_failure.json archiving' {
 # the recovery decision read nothing, or a later guest's record.
 Describe 'The cycle failure index' {
     BeforeEach {
-        $script:SavedIndexEnv = @{ Generation = $env:YURUNA_CYCLE_GENERATION; Globals = (Save-YurunaTestGlobal -Name '__YurunaCycleStartUtc') }
+        $script:SavedIndexEnv = @{ Generation = (Save-YurunaTestEnvironment -Name 'YURUNA_CYCLE_GENERATION'); Globals = (Save-YurunaTestGlobal -Name '__YurunaCycleStartUtc') }
         $env:YURUNA_CYCLE_GENERATION = ('a' * 32) + ':7'
         Set-CycleStartHandle -Value ([datetime]::UtcNow.AddMinutes(-1).ToString('o'))
         $script:WriteRoot = {
@@ -267,7 +266,7 @@ Describe 'The cycle failure index' {
         $script:ReadIndex = { param($Fixture) Get-Content -LiteralPath (Join-Path $Fixture.Tmp 'cycle_failures.json') -Raw | ConvertFrom-Json -AsHashtable }
     }
     AfterEach {
-        $env:YURUNA_CYCLE_GENERATION = $script:SavedIndexEnv.Generation
+        Restore-YurunaTestEnvironment -Saved $script:SavedIndexEnv.Generation
         Restore-YurunaTestGlobal -Saved $script:SavedIndexEnv.Globals
     }
 

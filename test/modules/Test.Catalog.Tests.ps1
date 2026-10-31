@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42ff5f78-3c96-4742-aa2e-f64ce54e850a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,8 +119,7 @@ Describe 'the renderer reads what the compiler emits' {
     }
 
     It 'retries the default catalog before returning a missing-locale key' {
-        $root = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-catalog-fallback-' + [Guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-catalog-fallback'
         try {
             [IO.File]::WriteAllText((Join-Path $root 'en-US.sample.psd1'),
                 "@{ 'sample.only_default' = 'Default catalog text' }`n", [Text.UTF8Encoding]::new($false))
@@ -131,7 +130,7 @@ Describe 'the renderer reads what the compiler emits' {
                 -Actual (Format-CatalogMessage -Key 'sample.only_default' -Locale 'qps-Ploc' -Root $root) `
                 'a partial requested-locale table skipped the resident en-US fallback'
         } finally {
-            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $root
         }
     }
 }

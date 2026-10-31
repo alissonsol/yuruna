@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d44e40-22d7-4ce0-9ba2-dca8905a4b80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,17 +32,11 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path -Path (Split-Path -Parent $here) -ChildPath '..' -AdditionalChildPath 'automation', 'Yuruna.Common.psm1') -Force -DisableNameChecking
 
-# Fixtures live at file scope, above the first Describe. An It block runs in a
-# fresh script scope, so a $script:-qualified read from inside a test resolves
-# there and comes back $null; only an unqualified name walks the scope chain out
-# to this file's variables. The throwaway directory is named from $PID rather
-# than a GUID so every execution of this body (discovery pass, and once more
-# when the file is the entry script) computes the same path.
-$LeaseTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-lease-$PID"
-Remove-Item -LiteralPath $LeaseTestRoot -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path $LeaseTestRoot | Out-Null
-
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+# Fixtures live in this BeforeAll, above the first Describe: a Describe body
+# runs during discovery and its variables are gone before any It executes.
+$script:LeaseTestRoot = New-YurunaTestTempDir -Prefix 'yrn-lease'
 
 # The live host's interface table at the time of the failure being guarded
 # against: en0 on the LAN, bridge100 as the vmnet gateway every UTM guest is
@@ -260,25 +254,24 @@ Describe 'Get-UtmGuestSeedHostname' {
         # Cleanup belongs here, not at the end of the file: file-level code runs
         # during discovery, BEFORE any It, so a trailing Remove-Item would delete
         # the fixture the tests are about to read.
-        $root = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-lease-$PID"
-        if ($root -match 'yrn-lease-') { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        Remove-YurunaTestTempDir $script:LeaseTestRoot
     }
 
     It 'reads local-hostname out of a seeded bundle' {
-        $dataDir = Join-Path $LeaseTestRoot 'test-amazon-linux-2023-01.utm' -AdditionalChildPath 'Data'
+        $dataDir = Join-Path $script:LeaseTestRoot 'test-amazon-linux-2023-01.utm' -AdditionalChildPath 'Data'
         New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
         # Padding stands in for the ISO9660 headers around the plain-text
         # meta-data; the key is found by scanning the raw bytes.
         $seed = "`0`0`0CD001" + "instance-id: test-amazon-linux-2023-01`nlocal-hostname: ch01host1`n" + ("`0" * 64)
         [IO.File]::WriteAllText((Join-Path $dataDir 'seed.iso'), $seed, [Text.UTF8Encoding]::new($false))
-        Assert-Equal 'ch01host1' (Get-UtmGuestSeedHostname -VMName 'test-amazon-linux-2023-01' -BundleRoot $LeaseTestRoot)
+        Assert-Equal 'ch01host1' (Get-UtmGuestSeedHostname -VMName 'test-amazon-linux-2023-01' -BundleRoot $script:LeaseTestRoot)
     }
 
     It 'falls back to the VM name when no bundle or no key is present' {
-        Assert-Equal 'no-such-vm' (Get-UtmGuestSeedHostname -VMName 'no-such-vm' -BundleRoot $LeaseTestRoot)
-        $dataDir = Join-Path $LeaseTestRoot 'plain-vm.utm' -AdditionalChildPath 'Data'
+        Assert-Equal 'no-such-vm' (Get-UtmGuestSeedHostname -VMName 'no-such-vm' -BundleRoot $script:LeaseTestRoot)
+        $dataDir = Join-Path $script:LeaseTestRoot 'plain-vm.utm' -AdditionalChildPath 'Data'
         New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
         [IO.File]::WriteAllText((Join-Path $dataDir 'seed.iso'), "instance-id: plain-vm`n", [Text.UTF8Encoding]::new($false))
-        Assert-Equal 'plain-vm' (Get-UtmGuestSeedHostname -VMName 'plain-vm' -BundleRoot $LeaseTestRoot)
+        Assert-Equal 'plain-vm' (Get-UtmGuestSeedHostname -VMName 'plain-vm' -BundleRoot $script:LeaseTestRoot)
     }
 }

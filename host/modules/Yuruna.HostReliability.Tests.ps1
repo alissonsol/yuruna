@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4270c5ae-4f32-42b7-a8e4-08bd28d7d218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,7 +45,7 @@ Describe 'Cache host discovery honors explicit remote topology' {
         function Get-VM { throw 'Local discovery must not override an explicit pin.' }
         function Get-CachingProxyServiceVmIp { throw 'Local discovery must not override an explicit pin.' }
         function Read-CachingProxyServiceState { throw 'Local discovery must not override an explicit pin.' }
-        $prior = $env:YURUNA_CACHING_PROXY_SERVICE_IP
+        $prior = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
         try {
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = ' 192.0.2.5 '
             $script:CacheReachable = $true
@@ -54,7 +54,7 @@ Describe 'Cache host discovery honors explicit remote topology' {
             Resolve-CacheHostIp | Should -BeNullOrEmpty
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = 'invalid'
             Resolve-CacheHostIp | Should -BeNullOrEmpty
-        } finally { $env:YURUNA_CACHING_PROXY_SERVICE_IP = $prior }
+        } finally { Restore-YurunaTestEnvironment -Saved $prior }
     }
 }
 Describe 'Cache exposure follows the configured guest network' {
@@ -276,7 +276,7 @@ Describe 'An image the download agent serves is verified like a direct download'
     It 'records a failed checksum as an integrity failure for the runner to file' {
         Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking
         $record = Join-Path $script:Dir 'provision/guest.GetImage.json'
-        $prior = $env:YURUNA_PROVISION_RESULT
+        $prior = Save-YurunaTestEnvironment -Name 'YURUNA_PROVISION_RESULT'
         $env:YURUNA_PROVISION_RESULT = $record
         try {
             Mock -ModuleName Yuruna.UbuntuImage Test-UbuntuServerImageChecksum { $false }
@@ -284,7 +284,7 @@ Describe 'An image the download agent serves is verified like a direct download'
             $result = Read-YurunaProvisionResult -Path $record
             $result.kind | Should -Be 'integrity'
             $result.failureClass | Should -Be 'source_integrity' -Because 'the same bytes fail the same way, so a retry is no repair'
-        } finally { $env:YURUNA_PROVISION_RESULT = $prior }
+        } finally { Restore-YurunaTestEnvironment -Saved $prior }
     }
     It 'writes no sentinel for a swap that did not put the new image in place' {
         Mock -ModuleName Yuruna.UbuntuImage Test-UbuntuServerImageChecksum { $true }
@@ -922,7 +922,7 @@ Describe 'A host stage names the class of its failure' {
     ) {
         $record = Join-Path $TestDrive "$([guid]::NewGuid().ToString('N')).json"
         $dest = Join-Path $TestDrive "$([guid]::NewGuid().ToString('N')).img"
-        $prior = $env:YURUNA_PROVISION_RESULT
+        $prior = Save-YurunaTestEnvironment -Name 'YURUNA_PROVISION_RESULT'
         $env:YURUNA_PROVISION_RESULT = $record
         $body = if ($Fetch -eq 'throw') { "throw 'The response ended prematurely.'" } else { "[IO.File]::WriteAllText(`$OutFile, 'served bytes')" }
         $null = New-Item -Path Function:global:Save-CachedHttpUri -Value ([scriptblock]::Create("param(`$Uri, `$OutFile) `$null = `$Uri; $body")) -Force
@@ -932,7 +932,7 @@ Describe 'A host stage names the class of its failure' {
             $result = Read-YurunaProvisionResult -Path $record
             if ($Kind) { $result.kind | Should -Be $Kind } else { $result | Should -BeNullOrEmpty }
         } finally {
-            $env:YURUNA_PROVISION_RESULT = $prior
+            Restore-YurunaTestEnvironment -Saved $prior
             Remove-Item -LiteralPath Function:global:Save-CachedHttpUri -ErrorAction SilentlyContinue
         }
     }
@@ -947,14 +947,14 @@ Describe 'A host stage names the class of its failure' {
         [IO.File]::WriteAllText($uname, "#!/bin/sh`necho $Arch`n")
         & chmod +x $uname
         $record = Join-Path $TestDrive "$([guid]::NewGuid().ToString('N')).json"
-        $priorPath = $env:PATH; $priorRecord = $env:YURUNA_PROVISION_RESULT
+        $prior = Save-YurunaTestEnvironment -Name 'PATH', 'YURUNA_PROVISION_RESULT'
         try {
-            $env:PATH = "$bin$([IO.Path]::PathSeparator)$priorPath"
+            $env:PATH = "$bin$([IO.Path]::PathSeparator)$($prior.PATH)"
             $env:YURUNA_PROVISION_RESULT = $record
             $null = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $script:RepoRoot $Script) 2>&1
             $LASTEXITCODE | Should -Be 1
         } finally {
-            $env:PATH = $priorPath; $env:YURUNA_PROVISION_RESULT = $priorRecord
+            Restore-YurunaTestEnvironment -Saved $prior
         }
         $result = Read-YurunaProvisionResult -Path $record
         $result.kind | Should -Be 'unsupported'
@@ -986,9 +986,9 @@ Describe 'Hypervisor calls on contract paths are bounded' {
         $virsh = Join-Path $bin 'virsh'
         [IO.File]::WriteAllText($virsh, "#!/bin/sh`ncase `"`$*`" in *slow*) sleep 30;; *) echo 'error: refused' >&2; exit 1;; esac`n")
         & chmod +x $virsh
-        $priorPath = $env:PATH
+        $prior = Save-YurunaTestEnvironment -Name 'PATH'
         try {
-            $env:PATH = "$bin$([IO.Path]::PathSeparator)$priorPath"
+            $env:PATH = "$bin$([IO.Path]::PathSeparator)$($prior.PATH)"
             $names = 'Invoke-Virsh', 'Invoke-VirshBounded', 'Test-DriverNativeResultComplete', 'Test-VirshLastCallUnanswered'
             $stubs = { $script:VirshUri = 'qemu:///system'; $script:VirshCallTimeoutSeconds = 120; $script:VirshLastCallUnanswered = $false }
             $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -1006,7 +1006,7 @@ Describe 'Hypervisor calls on contract paths are bounded' {
             $refused.Exit | Should -Be 1
             $refused.Unanswered | Should -BeFalse
             $refused.Lines | Should -Contain 'error: refused'
-        } finally { $env:PATH = $priorPath }
+        } finally { Restore-YurunaTestEnvironment -Saved $prior }
     }
     It 'KVM Start-VM files a start libvirt never answered as hypervisor_unresponsive, and a refusal as provisioning_failure' {
         $stubs = {
@@ -1095,9 +1095,9 @@ function Start-VM { param([string]$Name) Start-Sleep -Seconds 30 }
             $script:HyperVLifecycleTimeoutSeconds = 2
             function Write-YurunaProvisionResult { param($Kind, $Message) $recorded.Add("$Kind") }
         }
-        $priorModulePath = $env:PSModulePath
+        $prior = Save-YurunaTestEnvironment -Name 'PSModulePath'
         try {
-            $env:PSModulePath = "$modules$([IO.Path]::PathSeparator)$priorModulePath"
+            $env:PSModulePath = "$modules$([IO.Path]::PathSeparator)$($prior.PSModulePath)"
             $vm = Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
                 Invoke-HyperVGuestBuildCmdlet -VMName vm -Command 'Hyper-V\Get-VM' -Parameter @{ Name = 'vm' }
             }
@@ -1118,7 +1118,7 @@ function Start-VM { param([string]$Name) Start-Sleep -Seconds 30 }
                 Should -Throw -ExpectedMessage 'host.hyperv_lifecycle_unanswered'
             $clock.Elapsed.TotalSeconds | Should -BeLessThan 20
             @($recorded) | Should -Be @('tool', 'unresponsive')
-        } finally { $env:PSModulePath = $priorModulePath }
+        } finally { Restore-YurunaTestEnvironment -Saved $prior }
     }
     It 'Hyper-V names the commit position beside a start the host refused for want of system resources' {
         # The refusal names the guest's size and nothing about the host, and the
@@ -1138,9 +1138,9 @@ function Set-VMMemory { param([string]$VMName, [bool]$DynamicMemoryEnabled) thro
             function Write-YurunaProvisionResult { param($Kind, $Message) $recorded.Add("${Kind}: $Message") }
             function Get-HostMemoryStatus { return @{ availableMb = 19661; committedBytes = 38440000000; commitLimitBytes = 48210000000; commitAvailableBytes = 9770000000; source = 'fixture' } }
         }
-        $priorModulePath = $env:PSModulePath
+        $prior = Save-YurunaTestEnvironment -Name 'PSModulePath'
         try {
-            $env:PSModulePath = "$modules$([IO.Path]::PathSeparator)$priorModulePath"
+            $env:PSModulePath = "$modules$([IO.Path]::PathSeparator)$($prior.PSModulePath)"
             { Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
                     Invoke-HyperVGuestBuildCmdlet -VMName vm -Command 'Hyper-V\Start-VM' -Parameter @{ Name = 'vm' } } } |
                 Should -Throw -ExpectedMessage '*0x800705AA*'
@@ -1150,7 +1150,7 @@ function Set-VMMemory { param([string]$VMName, [bool]$DynamicMemoryEnabled) thro
             @($recorded).Count | Should -Be 2
             $recorded[0] | Should -Match '^tool: Hyper-V\\Start-VM: .*0x800705AA.*; commit 35\.8 of 44\.9 GB charged, 9\.1 GB uncharged; 19\.2 GB physical available$'
             $recorded[1] | Should -Be 'tool: Hyper-V\Set-VMMemory: memory refused' -Because 'only a refusal for want of resources earns the memory position'
-        } finally { $env:PSModulePath = $priorModulePath }
+        } finally { Restore-YurunaTestEnvironment -Saved $prior }
     }
     It 'calls no hypervisor tool outside its bounded wrapper on <Driver>' -ForEach @(
         @{ Driver = 'ubuntu.kvm'; Files = @('host/ubuntu.kvm/modules/Yuruna.Host.psm1', 'host/ubuntu.kvm/modules/New-UbuntuServerVM.ps1',

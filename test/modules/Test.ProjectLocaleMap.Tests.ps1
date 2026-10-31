@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42a09e37-5c84-4b16-9d72-38ef61c0a4d5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,8 +56,7 @@ Import-Module (Join-Path $here 'Test.SequencePlanner.psm1') -Force -Global -Disa
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 $script:ProjectRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-project'
 $script:Validator = Join-Path $script:RepoRoot 'tools/Invoke-ProjectLocaleMap.ps1'
-$script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-project-map-' + [Guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $script:Sandbox -Force | Out-Null
+$script:Sandbox = New-YurunaTestTempDir -Prefix 'yuruna-project-map'
 
 # The tests that call this read the shipped project itself. A workspace
 # without that checkout has nothing to read, and that has to fail: skipped, a
@@ -162,9 +161,7 @@ function New-Entry {
 # At file level, not inside BeforeAll: Pester registers AfterAll only while it
 # discovers the file, so one declared from a running BeforeAll never runs.
 AfterAll {
-    if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
-        Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Remove-YurunaTestTempDir $script:Sandbox
 }
 
 Describe 'a project label survives every pairing of framework and project' {

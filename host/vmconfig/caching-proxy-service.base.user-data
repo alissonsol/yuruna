@@ -5599,7 +5599,7 @@ runcmd:
       fi
     }
     # --- REGION: https://yuruna.link/429f3d06-0070
-    mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/pool-aggregator-service/internal/loki /opt/pool-aggregator-service/internal/httpserve /opt/pool-aggregator-service/internal/hostpoll /opt/pool-aggregator-service/internal/incident /opt/extension-sdk/beacon /opt/extension-sdk/controlproof /opt/extension-sdk/hostinfo /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n /opt/extension-sdk/servicecfg /opt/extension-sdk/internal/gatethrottle /opt/extension-sdk/jsonbody
+    mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/pool-aggregator-service/internal/loki /opt/pool-aggregator-service/internal/httpserve /opt/pool-aggregator-service/internal/hostpoll /opt/pool-aggregator-service/internal/incident /opt/pool-aggregator-service/internal/poolstate /opt/extension-sdk/beacon /opt/extension-sdk/controlproof /opt/extension-sdk/hostinfo /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n /opt/extension-sdk/servicecfg /opt/extension-sdk/internal/gatethrottle /opt/extension-sdk/jsonbody
     cd /opt/pool-aggregator-service
     PA_OK=1
     for f in go.mod beacon/beacon.go controlproof/controlproof.go hostinfo/addresses.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go servicecfg/config.go internal/gatethrottle/throttle.go jsonbody/decode.go; do
@@ -5623,7 +5623,7 @@ runcmd:
         echo "== YURUNA: caching-proxy-parser-service build failed -- Recent 100 requests view will be unavailable =="
     fi
     cd /opt/pool-aggregator-service
-    for f in main.go handover.go framework_ring.go mcp.go localization.go backfill.go backfill_index.go backfill_loki.go backfill_prom.go backfill_record.go backfill_source.go backfill_state.go internal/catalog/registry.go internal/loki/client.go internal/loki/outbox.go internal/httpserve/httpserve.go internal/hostpoll/hostpoll.go internal/incident/incident.go go.mod pool-aggregator-service.service pool-history-backfill.service; do
+    for f in main.go handover.go framework_ring.go mcp.go localization.go backfill.go backfill_index.go backfill_loki.go backfill_prom.go backfill_record.go backfill_source.go backfill_state.go internal/catalog/registry.go internal/loki/client.go internal/loki/outbox.go internal/httpserve/httpserve.go internal/hostpoll/hostpoll.go internal/incident/incident.go internal/poolstate/poolstate.go internal/poolstate/views.go internal/poolstate/cycles.go internal/poolstate/addresses.go internal/poolstate/labcodes.go internal/poolstate/aliases.go go.mod pool-aggregator-service.service pool-history-backfill.service; do
       yr_fetch "test/extension/pool-aggregator-service/$f" "$f" || PA_OK=0
       # An empty file (404 from the chosen source, or a stale/incomplete mirror)
       # is caught here so the cause is obvious in /var/log/cloud-init-output.log

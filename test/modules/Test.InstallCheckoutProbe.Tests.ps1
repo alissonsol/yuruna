@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d7f870-73af-4342-b771-c578f6b19167
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,10 +103,9 @@ function Test-SaidMatch {
     return (@($script:Said | Where-Object { $_ -match $Pattern }).Count -gt 0)
 }
 
-# A standalone run executes this file body twice (discovery, then run), so the
-# trees are built per-It rather than at file scope. $PID keeps the root stable
-# across the two passes.
-$probeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-checkoutprobe-tests-$PID"
+# One root for the suite; each It's trees are built under it in BeforeEach and
+# removed with it in AfterEach.
+$probeRoot = New-YurunaTestTempDir -Prefix 'yuruna-checkoutprobe'
 
 function New-CheckoutFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -167,7 +166,7 @@ Describe 'install checkout probe -- the probe never damages the checkout' {
     }
 
     AfterEach {
-        Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $probeRoot
     }
 
     It 'renames a directory to its sibling probe name and back' {
@@ -240,7 +239,7 @@ Describe 'install checkout probe -- recovering a probe an interrupted run left b
     }
 
     AfterEach {
-        Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $probeRoot
     }
 
     It 'renames the whole tree back when only the probe name exists' {

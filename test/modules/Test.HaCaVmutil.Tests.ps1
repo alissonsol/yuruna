@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42fda77b-2565-4419-bec1-4390061f6c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,7 @@
 
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # --- REGION: Comment-proof structural guards over the source AST
 function Get-CompareScreenshotAst {
@@ -136,8 +137,7 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
         }
 
         It 'returns match=$true, similarity 1.0 for identical images' -Skip:(-not $IsWindows) {
-            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $dir = New-YurunaTestTempDir -Prefix 'vmu'
             try {
                 $a = Get-TestPng -Path (Join-Path $dir 'a.png') -R 10 -G 120 -B 200
                 $b = Get-TestPng -Path (Join-Path $dir 'b.png') -R 10 -G 120 -B 200
@@ -145,33 +145,30 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
                 $r.match      | Should -BeTrue
                 $r.similarity | Should -Be 1.0
                 $r.error      | Should -BeNullOrEmpty
-            } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+            } finally { Remove-YurunaTestTempDir $dir }
         }
         It 'returns match=$false for clearly different images' -Skip:(-not $IsWindows) {
-            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $dir = New-YurunaTestTempDir -Prefix 'vmu'
             try {
                 $black = Get-TestPng -Path (Join-Path $dir 'black.png') -R 0 -G 0 -B 0
                 $white = Get-TestPng -Path (Join-Path $dir 'white.png') -R 255 -G 255 -B 255
                 $r = Compare-Screenshot -ReferencePath $black -ActualPath $white -Threshold 0.85
                 $r.match      | Should -BeFalse
                 $r.similarity | Should -BeLessThan 0.85
-            } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+            } finally { Remove-YurunaTestTempDir $dir }
         }
         It 'resizes a size-mismatched actual and still compares (resize branch)' -Skip:(-not $IsWindows) {
-            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $dir = New-YurunaTestTempDir -Prefix 'vmu'
             try {
                 $ref = Get-TestPng -Path (Join-Path $dir 'ref.png') -Width 40 -Height 40 -R 30 -G 60 -B 90
                 $act = Get-TestPng -Path (Join-Path $dir 'act.png') -Width 20 -Height 20 -R 30 -G 60 -B 90
                 $r = Compare-Screenshot -ReferencePath $ref -ActualPath $act -Threshold 0.85
                 $r.error | Should -BeNullOrEmpty
                 $r.match | Should -BeTrue
-            } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+            } finally { Remove-YurunaTestTempDir $dir }
         }
         It 'reports the missing file for an absent reference or actual' -Skip:(-not $IsWindows) {
-            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $dir = New-YurunaTestTempDir -Prefix 'vmu'
             try {
                 $a = Get-TestPng -Path (Join-Path $dir 'a.png') -R 1 -G 2 -B 3
                 $missRef = Compare-Screenshot -ReferencePath (Join-Path $dir 'nope.png') -ActualPath $a -ErrorAction SilentlyContinue
@@ -180,11 +177,10 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
                 $missAct = Compare-Screenshot -ReferencePath $a -ActualPath (Join-Path $dir 'nope.png') -ErrorAction SilentlyContinue
                 $missAct.match | Should -BeFalse
                 $missAct.error | Should -Be 'Actual not found'
-            } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+            } finally { Remove-YurunaTestTempDir $dir }
         }
         It 'releases both source files after a successful compare (deletable)' -Skip:(-not $IsWindows) {
-            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $dir = New-YurunaTestTempDir -Prefix 'vmu'
             try {
                 $a = Get-TestPng -Path (Join-Path $dir 'a.png') -R 44 -G 88 -B 132
                 $b = Get-TestPng -Path (Join-Path $dir 'b.png') -R 44 -G 88 -B 132
@@ -193,11 +189,10 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
                 # a successful delete proves both source bitmaps were released.
                 { Remove-Item -LiteralPath $a -ErrorAction Stop } | Should -Not -Throw
                 { Remove-Item -LiteralPath $b -ErrorAction Stop } | Should -Not -Throw
-            } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+            } finally { Remove-YurunaTestTempDir $dir }
         }
         It 'releases the reference file when the actual image fails to load (throw path)' -Skip:(-not $IsWindows) {
-            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $dir = New-YurunaTestTempDir -Prefix 'vmu'
             try {
                 $ref     = Get-TestPng -Path (Join-Path $dir 'ref.png') -R 12 -G 34 -B 56
                 $corrupt = Join-Path $dir 'corrupt.png'
@@ -208,7 +203,7 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
                 # The reference bitmap was created (locking ref.png) before the actual's
                 # load threw; a successful delete proves the finally disposed it anyway.
                 { Remove-Item -LiteralPath $ref -ErrorAction Stop } | Should -Not -Throw
-            } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+            } finally { Remove-YurunaTestTempDir $dir }
         }
     }
 }

@@ -27,9 +27,9 @@ compute:Autoinstall((compute:Autoinstall)) -- subClassOf --> y:Process[y:Process
 compute:BackingImage((compute:BackingImage)) -- subClassOf --> compute:DiskImage((compute:DiskImage))
 compute:ClockSkew((compute:ClockSkew)) -- subClassOf --> y:Situation[y:Situation]
 compute:CloudImage((compute:CloudImage)) -- subClassOf --> compute:InstallationImage((compute:InstallationImage))
-compute:CloudInitConfiguration((compute:CloudInitConfiguration)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
-compute:CloudInitOverlay((compute:CloudInitOverlay)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
-compute:CloudInitSeed((compute:CloudInitSeed)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+compute:CloudInitConfiguration((compute:CloudInitConfiguration)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
+compute:CloudInitOverlay((compute:CloudInitOverlay)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
+compute:CloudInitSeed((compute:CloudInitSeed)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 compute:CommittedMemory((compute:CommittedMemory)) -- subClassOf --> y:Quantity[y:Quantity]
 compute:ComputingNode -- compute:hasInterface --> network:NetworkInterface
 compute:ComputingNode -- compute:hosts --> y:SystemElement
@@ -45,12 +45,13 @@ compute:FileDescriptor((compute:FileDescriptor)) -- subClassOf --> y:Identifier[
 compute:Firmware((compute:Firmware)) -- subClassOf --> y:SystemElement[y:SystemElement]
 compute:Framebuffer((compute:Framebuffer)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 compute:GraphicsConfigurationCheck((compute:GraphicsConfigurationCheck)) -- subClassOf --> diagnostics:DiagnosticCheck[diagnostics:DiagnosticCheck]
-compute:GraphicsDeviceModel((compute:GraphicsDeviceModel)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+compute:GraphicsDeviceModel((compute:GraphicsDeviceModel)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 compute:Guest((compute:Guest)) -- subClassOf --> compute:VirtualMachine((compute:VirtualMachine))
 compute:Guest((compute:Guest)) -- subClassOf --> r_Guest_hostedBy_Host_((Anonymous class))
 compute:Guest((compute:Guest)) -- subClassOf --> r_Guest_managedByHypervisor_Hypervisor_((Anonymous class))
 compute:Guest((compute:Guest)) -- subClassOf --> r_Guest_runsOperatingSystem_GuestOperatingSystem_((Anonymous class))
 compute:GuestIdentity((compute:GuestIdentity)) -- subClassOf --> y:Identifier[y:Identifier]
+compute:GuestKernelStall((compute:GuestKernelStall)) -- subClassOf --> y:Situation[y:Situation]
 compute:GuestOperatingSystem((compute:GuestOperatingSystem)) -- subClassOf --> compute:OperatingSystem((compute:OperatingSystem))
 compute:GuestProcessCheck((compute:GuestProcessCheck)) -- subClassOf --> diagnostics:DiagnosticCheck[diagnostics:DiagnosticCheck]
 compute:Host((compute:Host)) -- subClassOf --> compute:ComputingNode((compute:ComputingNode))
@@ -59,6 +60,7 @@ compute:HostIdentity((compute:HostIdentity)) -- subClassOf --> y:Identifier[y:Id
 compute:HostOperatingSystem((compute:HostOperatingSystem)) -- subClassOf --> compute:OperatingSystem((compute:OperatingSystem))
 compute:HyperV((compute:HyperV)) -- subClassOf --> compute:Hypervisor((compute:Hypervisor))
 compute:Hypervisor((compute:Hypervisor)) -- subClassOf --> y:SystemElement[y:SystemElement]
+compute:HypervisorUnresponsiveFailure((compute:HypervisorUnresponsiveFailure)) -- subClassOf --> diagnostics:InfrastructureFailure[diagnostics:InfrastructureFailure]
 compute:ISOImage((compute:ISOImage)) -- subClassOf --> compute:InstallationImage((compute:InstallationImage))
 compute:ImageArchitectureMismatch((compute:ImageArchitectureMismatch)) -- subClassOf --> compute:ProvisioningFailure((compute:ProvisioningFailure))
 compute:InstallationImage((compute:InstallationImage)) -- subClassOf --> y:Artifact[y:Artifact]
@@ -68,8 +70,6 @@ compute:LinuxOperatingSystem((compute:LinuxOperatingSystem)) -- subClassOf --> c
 compute:MacOSOperatingSystem((compute:MacOSOperatingSystem)) -- subClassOf --> compute:OperatingSystem((compute:OperatingSystem))
 compute:MachineIdentifier((compute:MachineIdentifier)) -- subClassOf --> y:Identifier[y:Identifier]
 compute:Memory((compute:Memory)) -- subClassOf --> y:SystemElement[y:SystemElement]
-compute:MemoryBallooning((compute:MemoryBallooning)) -- subClassOf --> y:Process[y:Process]
-compute:MemoryCapacity((compute:MemoryCapacity)) -- subClassOf --> y:Quantity[y:Quantity]
 compute:MemoryExhaustion((compute:MemoryExhaustion)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
 compute:MemoryHeadroom((compute:MemoryHeadroom)) -- subClassOf --> y:Quantity[y:Quantity]
 compute:NestedHost((compute:NestedHost)) -- subClassOf --> compute:Guest((compute:Guest))
@@ -77,9 +77,6 @@ compute:NestedHost((compute:NestedHost)) -- subClassOf --> compute:Host((compute
 compute:NestedVirtualization((compute:NestedVirtualization)) -- subClassOf --> y:Process[y:Process]
 compute:OpenGLContext((compute:OpenGLContext)) -- subClassOf --> y:SystemElement[y:SystemElement]
 compute:OperatingSystem((compute:OperatingSystem)) -- subClassOf --> y:SystemElement[y:SystemElement]
-compute:OperatingSystemProcess((compute:OperatingSystemProcess)) -- subClassOf --> y:SystemElement[y:SystemElement]
-compute:PhysicalHost((compute:PhysicalHost)) -- subClassOf --> compute:Host((compute:Host))
-compute:PhysicalHost((compute:PhysicalHost)) -- subClassOf --> compute:PhysicalMachine((compute:PhysicalMachine))
 compute:PhysicalMachine((compute:PhysicalMachine)) -- subClassOf --> compute:ComputingNode((compute:ComputingNode))
 compute:ProcessTree((compute:ProcessTree)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 compute:ProcessWaitCheck((compute:ProcessWaitCheck)) -- subClassOf --> diagnostics:DiagnosticCheck[diagnostics:DiagnosticCheck]
@@ -95,14 +92,14 @@ compute:SeedImage((compute:SeedImage)) -- subClassOf --> y:Artifact[y:Artifact]
 compute:ServiceGuest((compute:ServiceGuest)) -- subClassOf --> compute:Guest((compute:Guest))
 compute:ServiceGuest((compute:ServiceGuest)) -- subClassOf --> r_ServiceGuest_hosts_SoftwareService_((Anonymous class))
 compute:Snapshot((compute:Snapshot)) -- subClassOf --> y:Artifact[y:Artifact]
-compute:SnapshotManifest((compute:SnapshotManifest)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+compute:SnapshotManifest((compute:SnapshotManifest)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 compute:TPM((compute:TPM)) -- subClassOf --> y:SystemElement[y:SystemElement]
 compute:TestGuest((compute:TestGuest)) -- subClassOf --> compute:Guest((compute:Guest))
 compute:UEFI((compute:UEFI)) -- subClassOf --> compute:Firmware((compute:Firmware))
 compute:UTM((compute:UTM)) -- subClassOf --> y:SystemElement[y:SystemElement]
 compute:UbuntuOperatingSystem((compute:UbuntuOperatingSystem)) -- subClassOf --> compute:LinuxOperatingSystem((compute:LinuxOperatingSystem))
-compute:UnattendedInstallation((compute:UnattendedInstallation)) -- subClassOf --> y:Process[y:Process]
 compute:VMAdmission((compute:VMAdmission)) -- subClassOf --> y:Process[y:Process]
+compute:VMNotStoppedFailure((compute:VMNotStoppedFailure)) -- subClassOf --> testing:SequenceFailure[testing:SequenceFailure]
 compute:VirtualDisk((compute:VirtualDisk)) -- subClassOf --> y:SystemElement[y:SystemElement]
 compute:VirtualMachine -- compute:managedByHypervisor --> compute:Hypervisor
 compute:VirtualMachine((compute:VirtualMachine)) -- subClassOf --> compute:ComputingNode((compute:ComputingNode))
@@ -144,6 +141,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

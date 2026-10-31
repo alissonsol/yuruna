@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 426638a9-3c83-4796-8371-fa8298592238
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,7 @@ BeforeAll {
     $script:Driver = Get-MacUtmFakeDriver
     $script:CanShim = -not $IsWindows
     if ($script:CanShim) {
-        $script:FakeRoot = Join-Path ([IO.Path]::GetTempPath()) ("yrn-macprobe-" + [guid]::NewGuid().ToString('N'))
+        $script:FakeRoot = New-YurunaTestTempDir -Prefix 'yrn-macprobe'
         $script:Fake = New-MacUtmFakeHost -Root $script:FakeRoot
     }
 
@@ -577,7 +577,7 @@ Describe 'GUI-session classification' {
         # must not decide the unanswered case.
         $saved = @{
             Gate = & $script:MacCondition { ${function:Test-MacHostPlatform} }
-            Ssh = $env:SSH_CONNECTION; Tty = $env:SSH_TTY; Manager = $env:YRN_FAKE_MANAGER
+            Environment = Save-YurunaTestEnvironment -Name 'SSH_CONNECTION', 'SSH_TTY', 'YRN_FAKE_MANAGER'
         }
         Reset-MacUtmFakeHost -FakeHost $script:Fake
         Enter-MacUtmFakeHost -FakeHost $script:Fake
@@ -593,10 +593,7 @@ Describe 'GUI-session classification' {
             Assert-StringEqual 'launchctl managername' ((Get-Call 'launchctl') -join '|') $Case
         } finally {
             & $script:MacCondition { param($Gate) Set-Item -Path 'function:script:Test-MacHostPlatform' -Value $Gate } $saved.Gate
-            foreach ($pair in @(@('SSH_CONNECTION', $saved.Ssh), @('SSH_TTY', $saved.Tty), @('YRN_FAKE_MANAGER', $saved.Manager))) {
-                if ($null -eq $pair[1]) { Remove-Item -Path "Env:$($pair[0])" -ErrorAction SilentlyContinue }
-                else { [Environment]::SetEnvironmentVariable($pair[0], $pair[1]) }
-            }
+            Restore-YurunaTestEnvironment -Saved $saved.Environment
             Exit-MacUtmFakeHost -FakeHost $script:Fake
         }
     }

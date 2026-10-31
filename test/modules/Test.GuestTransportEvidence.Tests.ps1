@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42cba348-5965-4459-9ee1-5e87817e17e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,17 +38,12 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Log.psm1') -Global -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Ssh.psm1') -Global -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Diagnostic.psm1') -Force
     $script:diag = Get-Module Test.Diagnostic
-    # A port nothing listens on: bind an ephemeral port, read it, release it.
-    function Get-ClosedLoopbackPort {
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
-        try { return [int]$listener.LocalEndpoint.Port } finally { $listener.Stop() }
-    }
 }
 
 BeforeDiscovery {
@@ -181,7 +176,7 @@ Describe 'the restart clock sample probes the SSH port' {
         $probe.elapsedMs | Should -Be 0
     }
     It 'reports a closed port quickly, with the error the stack gave' {
-        $port = Get-ClosedLoopbackPort
+        $port = Get-YurunaTestFreePort
         $probe = Test.Diagnostic\Test-GuestSshPortProbe -Address 127.0.0.1 -Port $port -TimeoutMilliseconds 1500
         $probe.connected | Should -BeFalse
         $probe.error | Should -Not -BeNullOrEmpty

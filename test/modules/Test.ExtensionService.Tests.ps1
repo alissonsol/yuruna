@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -198,15 +198,8 @@ Describe 'Get-ExtensionServiceVmRoster' {
 }
 
 Describe 'the runtime marker' {
-    BeforeEach {
-        $script:dir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ext-" + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $script:dir -Force
-    }
-    AfterEach {
-        if ($script:dir -and (Test-Path -LiteralPath $script:dir)) {
-            Remove-Item -LiteralPath $script:dir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
+    BeforeEach { $script:dir = New-YurunaTestTempDir -Prefix 'yuruna-ext' }
+    AfterEach { Remove-YurunaTestTempDir $script:dir }
 
     It 'writes the address under BOTH the uniform key and the area''s own' {
         # A consumer built before the uniform key reads only the per-service one,
@@ -254,15 +247,8 @@ Describe 'the runtime marker' {
 }
 
 Describe 'the deployment identity a marker records' {
-    BeforeEach {
-        $script:dir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ext-" + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $script:dir -Force
-    }
-    AfterEach {
-        if ($script:dir -and (Test-Path -LiteralPath $script:dir)) {
-            Remove-Item -LiteralPath $script:dir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
+    BeforeEach { $script:dir = New-YurunaTestTempDir -Prefix 'yuruna-ext' }
+    AfterEach { Remove-YurunaTestTempDir $script:dir }
 
     It 'writes hostingMode only when a caller passes it, so existing markers stay byte-identical' {
         $stamp  = '2026-08-03T12:00:00Z'
@@ -373,15 +359,8 @@ Describe 'Get-ExtensionServiceHostProcessState' {
 }
 
 Describe 'Get-ActiveExtensionService' {
-    BeforeEach {
-        $script:dir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ext-" + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $script:dir -Force
-    }
-    AfterEach {
-        if ($script:dir -and (Test-Path -LiteralPath $script:dir)) {
-            Remove-Item -LiteralPath $script:dir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
+    BeforeEach { $script:dir = New-YurunaTestTempDir -Prefix 'yuruna-ext' }
+    AfterEach { Remove-YurunaTestTempDir $script:dir }
 
     It 'reports every marked service and its advertised target' {
         [void](Write-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $script:dir -Active $true -BaseUrl 'http://10.0.0.9')
@@ -731,7 +710,7 @@ Describe 'service readiness timeout overrides' {
     It 'shares positive-integer override behavior across the service areas' {
         foreach ($area in 'stash-service', 'pool-control-service', 'download-agent-service') {
             $variable = 'YURUNA_' + $area.ToUpperInvariant().Replace('-', '_') + '_READY_TIMEOUT_SECONDS'
-            $previous = [Environment]::GetEnvironmentVariable($variable)
+            $previous = Save-YurunaTestEnvironment -Name $variable
             try {
                 foreach ($value in @('', ' ', 'invalid', '0', '-1', '2147483648')) {
                     [Environment]::SetEnvironmentVariable($variable, $value)
@@ -744,7 +723,7 @@ Describe 'service readiness timeout overrides' {
                 [Environment]::SetEnvironmentVariable($variable, '')
                 Assert-Equal -Expected 90 -Actual (Get-ExtensionServiceReadyTimeoutSeconds -Area $area -DefaultSeconds 90) `
                     -Because "$area must honor the caller's fallback"
-            } finally { [Environment]::SetEnvironmentVariable($variable, $previous) }
+            } finally { Restore-YurunaTestEnvironment -Saved $previous }
         }
     }
 }

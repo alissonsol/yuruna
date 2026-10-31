@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 420b9d4a-e9ff-472b-9afa-d978ada39114
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -960,6 +960,36 @@ function Enter-A11yTab {
     }
 }
 
+# The navigation of a tab, repeated for one that stalled before it committed.
+function Invoke-A11yTabNavigate {
+    param([Parameter(Mandatory)][pscustomobject]$Engine, [Parameter(Mandatory)][pscustomobject]$Tab)
+    if ($Engine.Kind -eq 'chrome') {
+        Send-A11yMessage -Engine $Engine -Method 'Page.navigate' -SessionId $Tab.Session -Params @{ url = $Tab.View.Url } | Out-Null
+    } else {
+        Send-A11yMessage -Engine $Engine -Method 'browsingContext.navigate' -Params @{ context = $Tab.Context; url = $Tab.View.Url; wait = 'none' } | Out-Null
+    }
+}
+
+# Polls until the tab holds a complete document other than about:blank, or
+# the seconds run out; the last state read is returned either way.
+function Wait-A11yTabLoaded {
+    param([Parameter(Mandatory)][pscustomobject]$Engine, [Parameter(Mandatory)][pscustomobject]$Tab, [Parameter(Mandatory)][int]$Seconds)
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    $state = @('not-read', '')
+    do {
+        # A document being replaced can refuse the read; that is "not yet".
+        try {
+            $state = (Invoke-A11yTabScript -Engine $Engine -Tab $Tab -Expression 'JSON.stringify([document.readyState, location.href])') |
+                ConvertFrom-Json
+        } catch { $state = @('read-failed', [string]$_.Exception.Message) }
+        if ($state[0] -eq 'complete' -and $state[1] -ne 'about:blank') {
+            return [pscustomobject]@{ Loaded = $true; ReadyState = $state[0]; Url = $state[1] }
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return [pscustomobject]@{ Loaded = $false; ReadyState = $state[0]; Url = $state[1] }
+}
+
 # --- REGION: batches
 # Page-views are measured a batch at a time, each in a tab of its own with its
 # own viewport and color scheme, so the browser renders a batch in parallel.
@@ -970,34 +1000,47 @@ function Measure-A11yBatch {
     $open = [Collections.Generic.List[object]]::new()
     try {
         foreach ($view in $Batch) {
-            $tab = [pscustomobject]@{ View = $view; Target = $null; Session = $null; Context = $null; StateError = '' }
+            $tab = [pscustomobject]@{ View = $view; Target = $null; Session = $null; Context = $null; StateError = ''; LoadError = '' }
             $open.Add($tab)
             Open-A11yTab -Engine $Engine -Tab $tab
         }
         # A tab still showing about:blank has not committed its navigation,
-        # and its blank document already reads complete.
+        # and its blank document already reads complete. Under load a
+        # navigation can stall before it commits, and a second one usually
+        # lands. A tab that never loads is reported as such: its blank
+        # document would answer every rule as a markup finding (no lang, no
+        # landmarks) on a page the browser never showed.
         foreach ($tab in $open) {
-            $loadDeadline = [DateTime]::UtcNow.AddSeconds(30)
-            do {
-                $loadState = (Invoke-A11yTabScript -Engine $Engine -Tab $tab -Expression 'JSON.stringify([document.readyState, location.href])') |
-                    ConvertFrom-Json
-                if ($loadState[0] -eq 'complete' -and $loadState[1] -ne 'about:blank') { break }
-                Start-Sleep -Milliseconds 100
-            } while ([DateTime]::UtcNow -lt $loadDeadline)
+            $loadState = Wait-A11yTabLoaded -Engine $Engine -Tab $tab -Seconds 30
+            if ($loadState.Loaded) { continue }
+            Invoke-A11yTabNavigate -Engine $Engine -Tab $tab
+            $loadState = Wait-A11yTabLoaded -Engine $Engine -Tab $tab -Seconds 30
+            if (-not $loadState.Loaded) {
+                $tab.LoadError = ('the page did not finish loading within 30 s on either of two navigations (readyState {0} at {1})' -f
+                    $loadState.ReadyState, $loadState.Url)
+            }
         }
         Start-Sleep -Milliseconds 1600
         $staged = $false
         foreach ($tab in $open) {
-            if ($tab.View.State -eq 'default') { continue }
+            if ($tab.View.State -eq 'default' -or $tab.LoadError) { continue }
             Enter-A11yTab -Engine $Engine -Tab $tab
             $tab.StateError = [string](Invoke-A11yTabScript -Engine $Engine -Tab $tab -Expression $stateSetup[$tab.View.State])
             $staged = $true
         }
         if ($staged) { Start-Sleep -Milliseconds 400 }
         foreach ($tab in $open) {
+            $view = $tab.View
+            if ($tab.LoadError) {
+                if (-not $view.Report) { continue }
+                $script:measured++
+                Write-Line "FAIL $($view.Tag)"
+                Write-Line ("  {0,-22} {1}" -f 'load', $tab.LoadError)
+                $findings.Add("$($view.Tag): load: $($tab.LoadError)")
+                continue
+            }
             Enter-A11yTab -Engine $Engine -Tab $tab
             $data = (Invoke-A11yTabScript -Engine $Engine -Tab $tab -Expression $probe) | ConvertFrom-Json
-            $view = $tab.View
             if ($view.State -eq 'default') {
                 if (-not $Engine.Offers.ContainsKey($view.Url)) { $Engine.Offers[$view.Url] = @{} }
                 foreach ($offered in @('menu-open', 'unlock')) {

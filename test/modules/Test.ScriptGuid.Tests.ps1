@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d362a1-db11-4834-938e-bcea5a9d09f2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,9 +136,8 @@ Describe 'the working-tree script GUID census' {
         function New-ScriptGuidCensusFixture {
             [CmdletBinding(SupportsShouldProcess)]
             param()
-            $root = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-guid-census-' + [guid]::NewGuid().ToString('N'))
-            if (-not $PSCmdlet.ShouldProcess($root, 'Create private GUID census fixture')) { return $null }
-            [void][IO.Directory]::CreateDirectory($root)
+            if (-not $PSCmdlet.ShouldProcess('a private temporary folder', 'Create private GUID census fixture')) { return $null }
+            $root = New-YurunaTestTempDir -Prefix 'yuruna-guid-census'
             & git -C $root init --quiet
             if ($LASTEXITCODE -ne 0) { throw 'Private GUID census fixture initialization failed.' }
             return $root
@@ -202,7 +201,7 @@ Describe 'the working-tree script GUID census' {
         try {
             [IO.File]::WriteAllText((Join-Path $fixture 'quoted.ps1'), "Write-Output @'`n.GUID 42a701dd-4c44-4321-a234-123456789abc`n'@`n")
             [IO.File]::WriteAllText((Join-Path $fixture 'declared.ps1'),
-                "<#PSScriptInfo`n.VERSION 2026.10.30`n.GUID 42b802ee-5d55-4432-b345-23456789abcd`n#>`nWrite-Output @'`n.GUID 42a701dd-4c44-4321-a234-123456789abc`n'@`n")
+                "<#PSScriptInfo`n.VERSION 2026.10.31`n.GUID 42b802ee-5d55-4432-b345-23456789abcd`n#>`nWrite-Output @'`n.GUID 42a701dd-4c44-4321-a234-123456789abc`n'@`n")
             $found = @(Get-ScriptGuidRecord -RepoRoot $fixture | Sort-Object Rel)
             Assert-Equal -Expected 2 -Actual $found.Count
             Assert-StringEqual -Expected '42b802ee-5d55-4432-b345-23456789abcd' -Actual $found[0].Guid 'declared.ps1 declares the GUID of its block'

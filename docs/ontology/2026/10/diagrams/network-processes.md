@@ -20,12 +20,10 @@ with a property runs from its domain to its range.
 graph LR
 classDef Datatype fill:#9c6,stroke:#9c6;
 network:APIPA((network:APIPA)) -- subClassOf --> y:Process[y:Process]
-network:AbortedRequest((network:AbortedRequest)) -- subClassOf --> y:Situation[y:Situation]
 network:AddressChurn((network:AddressChurn)) -- subClassOf --> y:Situation[y:Situation]
 network:AddressConflict((network:AddressConflict)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
 network:AddressDiscoveryCheck((network:AddressDiscoveryCheck)) -- subClassOf --> diagnostics:DiagnosticCheck[diagnostics:DiagnosticCheck]
 network:CacheBust((network:CacheBust)) -- subClassOf --> y:Process[y:Process]
-network:CacheFreshness((network:CacheFreshness)) -- subClassOf --> y:State[y:State]
 network:CacheHit((network:CacheHit)) -- subClassOf --> y:Situation[y:Situation]
 network:CacheMiss((network:CacheMiss)) -- subClassOf --> y:Situation[y:Situation]
 network:CacheRevalidation((network:CacheRevalidation)) -- subClassOf --> y:Process[y:Process]
@@ -59,7 +57,6 @@ network:NameResolutionFailure((network:NameResolutionFailure)) -- subClassOf -->
 network:NetworkDiscovery((network:NetworkDiscovery)) -- subClassOf --> y:Process[y:Process]
 network:NetworkTimeoutFailure((network:NetworkTimeoutFailure)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
 network:PacketCapture((network:PacketCapture)) -- subClassOf --> diagnostics:DiagnosticCheck[diagnostics:DiagnosticCheck]
-network:PacketLoss((network:PacketLoss)) -- subClassOf --> y:Situation[y:Situation]
 network:PortBindingConflict((network:PortBindingConflict)) -- subClassOf --> network:AddressConflict((network:AddressConflict))
 network:PortForwarding((network:PortForwarding)) -- subClassOf --> y:Process[y:Process]
 network:ProxyCheck((network:ProxyCheck)) -- subClassOf --> diagnostics:DiagnosticCheck[diagnostics:DiagnosticCheck]
@@ -85,6 +82,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

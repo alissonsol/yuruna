@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 429aa9e5-4b47-42a5-adc9-b48244e14f6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
     $script:DiagnosticPath = Join-Path $script:RepoRoot 'automation/Get-SystemDiagnostic.ps1'
     $script:EmbedTool = Join-Path $script:RepoRoot 'tools/Update-SystemDiagnosticText.ps1'
@@ -212,7 +213,7 @@ Describe 'Get-SystemDiagnostic.ps1 loads nothing beside itself' {
         # journal. Those records are evidence, not errors from this script.
         # Give the journal probe controlled input without putting a companion
         # file beside the standalone diagnostic.
-        $priorPath = $env:PATH
+        $priorPath = Save-YurunaTestEnvironment -Name 'PATH'
         try {
             if ($IsLinux) {
                 $nativeDir = Join-Path $TestDrive 'standalone-native'
@@ -220,12 +221,12 @@ Describe 'Get-SystemDiagnostic.ps1 loads nothing beside itself' {
                 $journal = Join-Path $nativeDir 'journalctl'
                 [IO.File]::WriteAllText($journal, "#!/bin/sh`nprintf '%s\n' 'standalone journal fixture'`n")
                 & chmod +x $journal
-                $env:PATH = $nativeDir + [IO.Path]::PathSeparator + $priorPath
+                $env:PATH = $nativeDir + [IO.Path]::PathSeparator + $priorPath.PATH
             }
             $run = Invoke-DiagnosticBoundedCommand -FilePath $script:Pwsh -TimeoutSeconds 300 -ArgumentList @(
                 '-NoProfile', '-NonInteractive', '-File', $copy, '-SkipDocker', '-SkipKube',
                 '-CheckoutRoot', (Join-Path $TestDrive 'no-checkout'))
-        } finally { $env:PATH = $priorPath }
+        } finally { Restore-YurunaTestEnvironment -Saved $priorPath }
 
         $run.TimedOut | Should -BeFalse
         $run.ExitCode | Should -Be 0
@@ -575,12 +576,12 @@ Describe 'Invoke-DiagnosticBoundedCommand bounds a command without any module' {
             [IO.File]::WriteAllText($standIn, "#!/bin/sh`nprintf 'UUID Status Name\nAAAA started one\n'`n")
             & chmod +x $standIn
         }
-        $savedPath = $env:PATH
+        $savedPath = Save-YurunaTestEnvironment -Name 'PATH'
         try {
-            $env:PATH = $bin + [IO.Path]::PathSeparator + $savedPath
+            $env:PATH = $bin + [IO.Path]::PathSeparator + $savedPath.PATH
             Reset-DiagnosticRenderer -Root (Join-Path $TestDrive 'empty')
             $lines = @(Get-DiagnosticUtmctlListing -TimeoutSeconds 30)
-        } finally { $env:PATH = $savedPath }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedPath }
         $lines | Should -Be @('UUID Status Name', 'AAAA started one')
     }
 }

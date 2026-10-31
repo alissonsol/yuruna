@@ -14,7 +14,7 @@ served at those addresses.
 
 | Prefix | Namespace | Holds |
 | --- | --- | --- |
-| `y:` | `https://yuruna.com/ontology/2026/10/yuruna#` | The upper categories every area shares (`y:Entity` and its kinds `y:SystemElement`, `y:InformationArtifact`, `y:Process`, `y:Situation`, with `y:Artifact`, `y:Identifier`, `y:Quantity`, `y:State`, `y:SoftwareService`), the relations between them, and the annotation vocabulary. |
+| `y:` | `https://yuruna.com/ontology/2026/10/yuruna#` | The upper categories every area shares (`y:Entity` and its kinds `y:SystemElement`, `y:InformationArtifact`, `y:Process`, `y:Situation`, with `y:Artifact`, `y:ConfigurationArtifact`, `y:Policy`, `y:Identifier`, `y:Quantity`, `y:State`, `y:SoftwareService`), the relations between them, and the annotation vocabulary. |
 | `compute:` | `https://yuruna.com/ontology/2026/10/compute#` | Physical and virtual machines, hypervisors, operating systems, firmware, processors, memory, disks, images, snapshots, and guest provisioning. |
 | `diagnostics:` | `https://yuruna.com/ontology/2026/10/diagnostics#` | Incidents, failures and their classification, evidence, checks, recovery, telemetry, logs, metrics, dashboards, and alerts. |
 | `network:` | `https://yuruna.com/ontology/2026/10/network#` | Protocols, interfaces, links, addressing, name resolution, routing, proxies and caches, and the network conditions, failures, and checks. |
@@ -100,6 +100,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna ontology versions](../../README.md)

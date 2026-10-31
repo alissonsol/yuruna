@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42ad60ed-84b4-4a47-b987-ba4697aa06f2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,15 +55,13 @@ BeforeAll {
         Get-ChildItem -Path (Join-Path $repoRoot 'host') -Recurse -Filter 'New-VM.ps1' |
             Sort-Object FullName)
 
-    $script:TempRoot = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-statusseed-" + [guid]::NewGuid())
+    $script:TempRoot = New-YurunaTestTempDir -Prefix 'yuruna-statusseed'
     New-Item -ItemType Directory -Path (Join-Path $script:TempRoot 'test') -Force | Out-Null
     $script:TempConfig = Join-Path $script:TempRoot 'test/test.config.yml'
 }
 
 AfterAll {
-    if ($script:TempRoot -and (Test-Path -LiteralPath $script:TempRoot)) {
-        Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Remove-YurunaTestTempDir $script:TempRoot
 }
 
 Describe 'guest builders take the status-service port from one place' {
@@ -158,24 +156,22 @@ Describe 'the seed helper answers what the guests ask it' {
     }
 
     It 'falls back to the default when there is no config at all' {
-        $bare = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-statusseed-bare-" + [guid]::NewGuid())
-        New-Item -ItemType Directory -Path $bare -Force | Out-Null
+        $bare = New-YurunaTestTempDir -Prefix 'yuruna-statusseed-bare'
         try {
             $r = Get-YurunaStatusServiceSeed -RepoRoot $bare
             Assert-StringEqual '8080' $r.Port
             Assert-Null $r.Config 'a guest still builds and self-heals its host coordinates'
         } finally {
-            Remove-Item -LiteralPath $bare -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $bare
         }
     }
 
     It 'honors an explicit default port' {
-        $bare = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-statusseed-bare2-" + [guid]::NewGuid())
-        New-Item -ItemType Directory -Path $bare -Force | Out-Null
+        $bare = New-YurunaTestTempDir -Prefix 'yuruna-statusseed-bare2'
         try {
             Assert-StringEqual '7070' (Get-YurunaStatusServiceSeed -RepoRoot $bare -DefaultPort '7070').Port
         } finally {
-            Remove-Item -LiteralPath $bare -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $bare
         }
     }
 }

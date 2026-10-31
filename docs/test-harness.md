@@ -705,10 +705,24 @@ saved with `Save-YurunaTestEnvironment` and put back with
 `Restore-YurunaTestEnvironment`, which removes an entry that was absent and keeps
 an empty one empty; the hand copies cleared the entry or dropped the outer value,
 so seven suites left `YURUNA_RUNTIME_DIR`, and one `YURUNA_LOG_DIR`, pointing at a
-fixture folder or unset for whatever ran next in the process. The same guard
-fails a suite that sets a `user.email` by hand, keeps a git runner that runs git
-itself, writes one of those globals by hand outside a runspace of its own, or
-puts `YURUNA_RUNTIME_DIR` or `YURUNA_LOG_DIR` back by hand in a teardown.
+fixture folder or unset for whatever ran next in the process. A test whose
+subject sets entries it cannot name in advance saves them all with `-All` and
+restores with `-RemoveOthers`, which also removes what was added. A uniquely
+named fixture folder comes from `New-YurunaTestTempDir` and goes with
+`Remove-YurunaTestTempDir`; a file or a path that must not exist yet goes under
+such a folder. A loopback listener comes from `New-YurunaTestTcpListener` (on
+every address with `-AnyAddress`, unstarted with `-NoStart`), a port nothing
+listens on from `Get-YurunaTestFreePort`, two connected ends from
+`New-YurunaTestSocketPair`, and an HTTP stand-in from
+`Start-YurunaTestHttpResponder`: scripted replies (`New-YurunaTestHttpReply`) in
+order or by request pattern, each request read whole, optionally held open for a
+client deadline, and handed back by `Stop-YurunaTestHttpResponder`. The same
+guard fails a suite that sets a `user.email` by hand, keeps a git runner that
+runs git itself, writes one of those globals by hand outside a runspace of its
+own, puts a process environment entry back by hand in a teardown, joins the temp
+folder with a GUID or random name, or opens a listener or accepts a connection
+itself; a suite whose listener is the subject of its tests is listed with the
+reason.
 
 Host driver source is read the same way. `Get-YurunaTestFileAst` and
 `Get-YurunaTestSourceText` read `host/<driver>/modules/Yuruna.Host.psm1` as the
@@ -717,6 +731,16 @@ whole driver, each part file inlined where the root loads it, and
 driver's files, lifts one function from whichever file defines it and reads any
 path the same way. A suite never opens the root file alone, so code can move
 between the root and its parts without breaking the suites that read it.
+
+An extension-service start is read the same way. `Start-StashServiceVM.ps1`,
+`Start-PoolControlServiceVM.ps1` and `Start-DownloadAgentServiceVM.ps1` run the
+shared `test/service/Start-ExtensionService.ps1`, which runs the service's
+readiness part, `Start-ExtensionService.<key>.ps1`, in place;
+[`Test.ServiceStartSource.psm1`](../test/modules/Test.ServiceStartSource.psm1)
+reads what one start runs as one text or syntax tree, the shared script with
+that service's part where the script loads it, so a suite that orders a
+start's calls or searches it for a banner keeps working when code moves
+between the shared script and a part.
 
 `Assert-Equal` compares **by value**; `Assert-StringEqual` compares string
 renderings. They are separate exports because they genuinely differ -- on leading
@@ -1518,6 +1542,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna](../README.md)

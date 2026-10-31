@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42a1c8e3-5b47-4f60-9d2a-7e83b415cc09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,8 +61,7 @@ function Invoke-Gate {
     return @{ Output = $out; ExitCode = $LASTEXITCODE }
 }
 
-$script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-anchors-' + [Guid]::NewGuid().ToString('n'))
-New-Item -ItemType Directory -Path $script:Sandbox -Force | Out-Null
+$script:Sandbox = New-YurunaTestTempDir -Prefix 'yuruna-anchors'
 
 # The map shape is [ <slug or slug array>, <title>, <url or url array> ].
 function New-LinkMap {
@@ -80,9 +79,7 @@ $script:RealMap = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna.link/y
 }
 
 AfterAll {
-    if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
-        Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Remove-YurunaTestTempDir $script:Sandbox
 }
 
 Describe 'document anchor history survives partial updates and deletions' {

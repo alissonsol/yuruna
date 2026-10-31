@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42cf4f7f-3c33-488c-8cc6-1cb70b8f8836
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,10 +35,7 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 $script:Hook = Join-Path $script:RepoRoot 'tools/githooks/pre-commit'
-$script:SavedEnvironment = @{}
-foreach ($name in 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'YURUNA_TRANSLATE', 'YURUNA_HOOK_TEST_LOG') {
-    $script:SavedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
-}
+$script:SavedEnvironment = Save-YurunaTestEnvironment -Name 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'YURUNA_TRANSLATE', 'YURUNA_HOOK_TEST_LOG'
 # The user's global git configuration (signing, hooks, autocrlf) must not
 # reach the fixture repositories.
 $script:EmptyGitConfig = Join-Path $TestDrive 'empty-gitconfig'
@@ -176,15 +173,15 @@ function Invoke-HookCommit {
     param([Parameter(Mandatory)][hashtable]$Fixture, [string[]]$Path = @(), [hashtable]$Environment = @{}, [string[]]$Option = @())
     if ([IO.File]::Exists($Fixture.Log)) { [IO.File]::Delete($Fixture.Log) }
     $env:YURUNA_HOOK_TEST_LOG = $Fixture.Log
-    $saved = @{}
-    foreach ($name in $Environment.Keys) { $saved[$name] = [Environment]::GetEnvironmentVariable($name); if ($null -eq $Environment[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue } else { Set-Item -LiteralPath "Env:$name" -Value $Environment[$name] } }
+    $saved = Save-YurunaTestEnvironment -Name @($Environment.Keys)
+    foreach ($name in $Environment.Keys) { if ($null -eq $Environment[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue } else { Set-Item -LiteralPath "Env:$name" -Value $Environment[$name] } }
     try {
         $arguments = @('-C', $Fixture.Root, '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'fixture change') + $Option
         if ($Path.Count) { $arguments += @('--') + $Path }
         $output = & git @arguments 2>&1 | ForEach-Object { [string]$_ }
         $code = $LASTEXITCODE
     } finally {
-        foreach ($name in $saved.Keys) { if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue } else { Set-Item -LiteralPath "Env:$name" -Value $saved[$name] } }
+        Restore-YurunaTestEnvironment -Saved $saved
     }
     $calls = if ([IO.File]::Exists($Fixture.Log)) { @([IO.File]::ReadAllLines($Fixture.Log) | Where-Object { $_ } | ForEach-Object { ConvertFrom-Json -InputObject $_ }) } else { @() }
     return @{ Code = $code; Text = (@($output) -join "`n"); Calls = $calls; Tools = @($calls | ForEach-Object { $_.tool }) }
@@ -197,7 +194,7 @@ function Get-HeadName {
 }
 
 AfterAll {
-    foreach ($name in $script:SavedEnvironment.Keys) { if ($null -eq $script:SavedEnvironment[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue } else { Set-Item -LiteralPath "Env:$name" -Value $script:SavedEnvironment[$name] } }
+    Restore-YurunaTestEnvironment -Saved $script:SavedEnvironment
 }
 
 Describe 'the commit hook' {

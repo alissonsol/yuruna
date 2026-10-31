@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -382,8 +382,7 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
                 $n.Name -eq 'Repair-ScreenshotRing'
             }, $true)
         . ([scriptblock]::Create($repairRing.Extent.Text))
-        $ringFixture = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-ring-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $ringFixture -Force | Out-Null
+        $ringFixture = New-YurunaTestTempDir -Prefix 'yuruna-ring'
         [IO.File]::WriteAllBytes((Join-Path $ringFixture 'frame.png'), [byte[]](1, 2, 3))
         [IO.File]::WriteAllText((Join-Path $ringFixture 'frame.txt'), 'keep')
         $script:ringResolverCalled = $false
@@ -405,15 +404,14 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
             foreach ($functionName in 'Get-CycleScreenDir', 'Format-YurunaOperatorMessage', 'Repair-ScreenshotRing') {
                 Remove-Item -LiteralPath "Function:\$functionName" -ErrorAction SilentlyContinue
             }
-            Remove-Item -LiteralPath $ringFixture -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $ringFixture
             Remove-Variable -Name ringResolverCalled -Scope Script -ErrorAction SilentlyContinue
         }
 
         # Exercise the retry handler itself: one failed pre-login timeout must
         # cold-cycle, run boot recovery, and then make the next attempt. A
         # failurePattern must take the ordinary retry path without a power cut.
-        $runtimeFixture = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-retry-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $runtimeFixture -Force | Out-Null
+        $runtimeFixture = New-YurunaTestTempDir -Prefix 'yuruna-retry'
         $savedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $savedFailVariable = Get-Variable -Name Fail -Scope Script -ErrorAction SilentlyContinue
         $savedFailValue = if ($savedFailVariable) { $savedFailVariable.Value } else { $null }
@@ -511,7 +509,7 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
                 Remove-Item -LiteralPath "Function:\$functionName" -ErrorAction SilentlyContinue
             }
             Restore-YurunaTestEnvironment -Saved $savedRuntimeDir
-            Remove-Item -LiteralPath $runtimeFixture -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $runtimeFixture
             Remove-Variable -Name retryCall, failWithPattern, failOcrTail, recoverySteps -Scope Script -ErrorAction SilentlyContinue
             if ($savedFailVariable) { $script:Fail = $savedFailValue }
             else { Remove-Variable -Name Fail -Scope Script -ErrorAction SilentlyContinue }
@@ -1377,8 +1375,7 @@ Describe 'retry stops on a send the host can never make' {
         $script:InputRetryHandler = (Get-HandlerScriptBlockAst -Path $script:modulePath -Name 'retry').ScriptBlock.GetScriptBlock()
     }
     BeforeEach {
-        $script:InputRuntime = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-retry-input-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:InputRuntime -Force | Out-Null
+        $script:InputRuntime = New-YurunaTestTempDir -Prefix 'yuruna-retry-input'
         $script:SavedInputRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:InputRuntime
         $script:InputAttempts = 0
@@ -1424,7 +1421,7 @@ Describe 'retry stops on a send the host can never make' {
             Remove-Item -LiteralPath "Function:\$functionName" -ErrorAction SilentlyContinue
         }
         Restore-YurunaTestEnvironment -Saved $script:SavedInputRuntimeDir
-        Remove-Item -LiteralPath $script:InputRuntime -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:InputRuntime
     }
 
     It 'makes one attempt and files the inner cause as plan_invalid' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42fd45e3-d490-4fe2-a3d8-49d6577c6a35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,8 +81,7 @@ Describe 'Test.CachingProxyService CA-source helpers' {
     BeforeEach {
         $script:PreviousRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $script:PreviousProxyIp = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
-        $script:sandbox = Join-Path ([System.IO.Path]::GetTempPath()) ("cpca_" + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:sandbox -Force | Out-Null
+        $script:sandbox = New-YurunaTestTempDir -Prefix 'cpca'
         $env:YURUNA_RUNTIME_DIR = $script:sandbox
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
         Import-Module $script:module -Force -DisableNameChecking
@@ -92,7 +91,7 @@ Describe 'Test.CachingProxyService CA-source helpers' {
     AfterEach {
         Restore-YurunaTestEnvironment -Saved $script:PreviousRuntimeDir
         Restore-YurunaTestEnvironment -Saved $script:PreviousProxyIp
-        if ($script:sandbox) { Remove-Item -LiteralPath $script:sandbox -Recurse -Force -ErrorAction SilentlyContinue }
+        Remove-YurunaTestTempDir $script:sandbox
     }
 
     Context 'Test-CachingProxyServiceCaPem' {

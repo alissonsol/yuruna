@@ -2,7 +2,7 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
   GUID: 42cc404e-ebe1-4255-ab05-20cf88ed2a55
-  Version: 2026.10.30
+  Version: 2026.10.31
 
   Framework-free structural check for the per-row status badge colors. Run:
   node status-badges.test.js (exit 0 = pass). No repo JS test runner and no

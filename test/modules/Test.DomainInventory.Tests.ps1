@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42fa3c81-6d07-4b29-95e8-1c04a7b6f2d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -316,8 +316,7 @@ Describe 'the inventory measures the tree it ships with' {
             [IO.File]::WriteAllText($path, "# Fixture`n")
         }
         $output = Join-Path $TestDrive 'hooked-domain-inventory.json'
-        $saved = @{}
-        foreach ($name in 'GIT_INDEX_FILE', 'GIT_DIR') { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+        $saved = Save-YurunaTestEnvironment -Name 'GIT_INDEX_FILE', 'GIT_DIR'
         try {
             $env:GIT_DIR = Join-Path $framework '.git'
             $env:GIT_INDEX_FILE = Join-Path $framework '.git/index'
@@ -325,7 +324,7 @@ Describe 'the inventory measures the tree it ships with' {
                 -OutputPath $output -Update -Quiet 2>&1 | Out-String
             $code = $LASTEXITCODE
         } finally {
-            foreach ($name in $saved.Keys) { if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue } else { Set-Item -LiteralPath "Env:$name" -Value $saved[$name] } }
+            Restore-YurunaTestEnvironment -Saved $saved
         }
         Assert-Equal -Expected 0 -Actual $code -Because $run
         $config = (ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($output))).domains | Where-Object domain -CEQ 'project-config'

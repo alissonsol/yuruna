@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -4924,9 +4924,9 @@ $script:YurunaStaleTempPattern = [ordered]@{
     'a11y-profile'          = @{ Pattern = '^yuruna-a11y-[0-9a-f]{12}$'; Source = 'tools/Invoke-A11yCheck.ps1'; Literal = 'yuruna-a11y-' }
     'browser-profile'       = @{ Pattern = '^yuruna-browser-profile-[0-9a-f]{32}$'; Source = 'test/modules/Test.Assert.psm1'; Literal = 'yuruna-browser-profile' }
     'parser-test'           = @{ Pattern = '^yrn-(?:parser-follow|parser-missing|truncate)-\d+$'; Source = 'test/extension/caching-proxy-parser-service/main_linux_test.go'; Literal = 'yrn-parser-follow-' }
-    'project-map-test'      = @{ Pattern = '^yuruna-project-map-[0-9a-f]{32}$'; Source = 'test/modules/Test.ProjectLocaleMap.Tests.ps1'; Literal = 'yuruna-project-map-' }
+    'project-map-test'      = @{ Pattern = '^yuruna-project-map-[0-9a-f]{32}$'; Source = 'test/modules/Test.ProjectLocaleMap.Tests.ps1'; Literal = 'yuruna-project-map' }
     'dlagent-test'          = @{ Pattern = '^yrn-dlagent(?:-client)?-\d+$'; Source = 'test/modules/Test.DownloadAgentService.Tests.ps1'; Literal = 'yrn-dlagent-client-' }
-    'configpreflight-test'  = @{ Pattern = '^yuruna-configpreflight-tests-\d+$'; Source = 'test/modules/Test.ConfigPreflight.Tests.ps1'; Literal = 'yuruna-configpreflight-tests-' }
+    'configpreflight-test'  = @{ Pattern = '^yuruna-configpreflight-[0-9a-f]{32}$'; Source = 'test/modules/Test.ConfigPreflight.Tests.ps1'; Literal = 'yuruna-configpreflight' }
     'image-test'            = @{ Pattern = '^yuruna-image-test-[0-9a-f]{32}$'; Source = 'host/modules/Yuruna.Image.Tests.ps1'; Literal = 'yuruna-image-test' }
     'refresh-safe-test'     = @{ Pattern = '^yuruna-refresh-safe-[0-9a-f]{32}$'; Source = 'test/modules/Test.StatusServiceRefreshSafe.Tests.ps1'; Literal = 'yuruna-refresh-safe' }
     'chain-test'            = @{ Pattern = '^yrn-chain-[0-9a-f]{32}$'; Source = 'test/modules/Test.RunnerThreeProcess.Tests.ps1'; Literal = 'yrn-chain' }

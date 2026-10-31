@@ -27,7 +27,7 @@ func gateHost(s *poolState, hid, pool, status string, reachable bool) {
 	if status != "" {
 		hv.Status = &hostStatus{HostId: hid, OverallStatus: status}
 	}
-	s.hosts[hid] = hv
+	s.view().Hosts[hid] = hv
 }
 
 // fw builds a fail window with every fail sharing one class. Tests that need a
@@ -52,50 +52,50 @@ func TestEvaluateIncidents(t *testing.T) {
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
 	// 2 fails in window -> below threshold, no incident.
-	s.failWindow[hid] = fw("script_error", now.Add(-50*time.Minute), now.Add(-40*time.Minute))
-	if ev := s.evaluateIncidents(now); len(ev) != 0 || s.incident[hid] != nil {
-		t.Fatalf("2 fails must not open an incident; events=%d incident=%v", len(ev), s.incident[hid])
+	s.view().FailWindow[hid] = fw("script_error", now.Add(-50*time.Minute), now.Add(-40*time.Minute))
+	if ev := s.evaluateIncidents(s.view(), now); len(ev) != 0 || s.view().Incident[hid] != nil {
+		t.Fatalf("2 fails must not open an incident; events=%d incident=%v", len(ev), s.view().Incident[hid])
 	}
 
 	// 3rd fail -> opens exactly one incident, carrying the failure class.
-	s.failWindow[hid] = append(s.failWindow[hid], failRec{At: now.Add(-5 * time.Minute), Class: "script_error"})
-	ev := s.evaluateIncidents(now)
-	if len(ev) != 1 || !ev[0].Open || ev[0].Count != 3 || s.incident[hid] == nil {
-		t.Fatalf("3 fails must open one incident with count 3; got events=%+v incident=%v", ev, s.incident[hid])
+	s.view().FailWindow[hid] = append(s.view().FailWindow[hid], failRec{At: now.Add(-5 * time.Minute), Class: "script_error"})
+	ev := s.evaluateIncidents(s.view(), now)
+	if len(ev) != 1 || !ev[0].Open || ev[0].Count != 3 || s.view().Incident[hid] == nil {
+		t.Fatalf("3 fails must open one incident with count 3; got events=%+v incident=%v", ev, s.view().Incident[hid])
 	}
 	if ev[0].DominantClass != "script_error" || ev[0].ClassHist["script_error"] != 3 {
 		t.Fatalf("open event must carry the class histogram; got dominant=%q hist=%v", ev[0].DominantClass, ev[0].ClassHist)
 	}
-	openID := s.incident[hid].ID
+	openID := s.view().Incident[hid].ID
 
 	// 4th fail -> still open, no new event, peak rises, id stable.
-	s.failWindow[hid] = append(s.failWindow[hid], failRec{At: now.Add(-1 * time.Minute), Class: "script_error"})
-	if ev := s.evaluateIncidents(now); len(ev) != 0 {
+	s.view().FailWindow[hid] = append(s.view().FailWindow[hid], failRec{At: now.Add(-1 * time.Minute), Class: "script_error"})
+	if ev := s.evaluateIncidents(s.view(), now); len(ev) != 0 {
 		t.Fatalf("a further fail must not emit a new event; got %+v", ev)
 	}
-	if s.incident[hid].Peak != 4 {
-		t.Fatalf("peak want 4 got %d", s.incident[hid].Peak)
+	if s.view().Incident[hid].Peak != 4 {
+		t.Fatalf("peak want 4 got %d", s.view().Incident[hid].Peak)
 	}
-	if s.incident[hid].ID != openID {
+	if s.view().Incident[hid].ID != openID {
 		t.Fatalf("incident id must not change mid-incident")
 	}
 
 	// Hysteresis: advance so all but one fail age out -> stays open, no event.
 	mid := now.Add(58 * time.Minute) // cutoff = mid-60m = now-2m; only the now-1m fail survives
-	if ev := s.evaluateIncidents(mid); len(ev) != 0 {
+	if ev := s.evaluateIncidents(s.view(), mid); len(ev) != 0 {
 		t.Fatalf("dropping below N (but >0) must keep the incident open with no event; got %+v", ev)
 	}
-	if s.incident[hid] == nil {
+	if s.view().Incident[hid] == nil {
 		t.Fatalf("incident must remain open while any in-window fail remains")
 	}
-	if got := len(s.failWindow[hid]); got != 1 {
+	if got := len(s.view().FailWindow[hid]); got != 1 {
 		t.Fatalf("prune want 1 surviving fail got %d", got)
 	}
 
 	// All fails age out -> resolve exactly once, prune empty, state cleared. The
 	// resolve line carries the PEAK histogram (window has aged to 0 by now).
 	later := now.Add(3 * time.Hour)
-	ev = s.evaluateIncidents(later)
+	ev = s.evaluateIncidents(s.view(), later)
 	if len(ev) != 1 || ev[0].Open {
 		t.Fatalf("aged-out fails must resolve the incident once; got %+v", ev)
 	}
@@ -105,21 +105,21 @@ func TestEvaluateIncidents(t *testing.T) {
 	if ev[0].DominantClass != "script_error" || ev[0].ClassHist["script_error"] != 4 {
 		t.Fatalf("resolve event must carry the peak class histogram; got dominant=%q hist=%v", ev[0].DominantClass, ev[0].ClassHist)
 	}
-	if s.incident[hid] != nil {
+	if s.view().Incident[hid] != nil {
 		t.Fatalf("incident must be cleared after resolve")
 	}
-	if _, ok := s.failWindow[hid]; ok {
+	if _, ok := s.view().FailWindow[hid]; ok {
 		t.Fatalf("empty fail window must be deleted")
 	}
 
 	// Quiet host (no fails) -> nothing happens.
-	if ev := s.evaluateIncidents(later.Add(time.Hour)); len(ev) != 0 {
+	if ev := s.evaluateIncidents(s.view(), later.Add(time.Hour)); len(ev) != 0 {
 		t.Fatalf("a quiet pool must emit no incident events; got %+v", ev)
 	}
 }
 
 // TestIncidentRestartResolve simulates the state restored from the incident feed
-// on restart (rehydrateIncidentsFromLoki sets s.incident with the ORIGINAL
+// on restart (rehydrateIncidentsFromLoki sets the view's Incident with the ORIGINAL
 // id/startedAt) plus a seeded fail window, and verifies the incident stays open
 // even when currently below the threshold and resolves exactly once -- carrying
 // the original id + startedAt -- when the window empties. Guards the restart
@@ -135,19 +135,19 @@ func TestIncidentRestartResolve(t *testing.T) {
 
 	// As restored from {src=incident}: original id/startedAt + one surviving
 	// in-window fail (below N).
-	s.incident[hid] = &incidentState{ID: origID, StartedAt: origStart, Peak: 4, PeakClassHist: map[string]int{"script_error": 4}, DominantClass: "script_error"}
-	s.failWindow[hid] = fw("script_error", now.Add(-10*time.Minute))
+	s.view().Incident[hid] = &incidentState{ID: origID, StartedAt: origStart, Peak: 4, PeakClassHist: map[string]int{"script_error": 4}, DominantClass: "script_error"}
+	s.view().FailWindow[hid] = fw("script_error", now.Add(-10*time.Minute))
 
 	// Below threshold but already open -> stays open, emits nothing.
-	if ev := s.evaluateIncidents(now); len(ev) != 0 {
+	if ev := s.evaluateIncidents(s.view(), now); len(ev) != 0 {
 		t.Fatalf("restored sub-threshold incident must stay open silently; got %+v", ev)
 	}
-	if s.incident[hid] == nil || s.incident[hid].ID != origID {
+	if s.view().Incident[hid] == nil || s.view().Incident[hid].ID != origID {
 		t.Fatalf("restored incident must persist with its original id")
 	}
 
 	// Window empties -> resolve once, carrying the ORIGINAL id + startedAt.
-	ev := s.evaluateIncidents(now.Add(2 * time.Hour))
+	ev := s.evaluateIncidents(s.view(), now.Add(2*time.Hour))
 	if len(ev) != 1 || ev[0].Open {
 		t.Fatalf("emptied window must resolve the restored incident once; got %+v", ev)
 	}
@@ -157,7 +157,7 @@ func TestIncidentRestartResolve(t *testing.T) {
 	if !ev[0].StartedAt.Equal(origStart) {
 		t.Fatalf("resolve must carry the original startedAt %v; got %v", origStart, ev[0].StartedAt)
 	}
-	if s.incident[hid] != nil {
+	if s.view().Incident[hid] != nil {
 		t.Fatalf("incident must be cleared after resolve")
 	}
 }
@@ -184,44 +184,44 @@ func TestPoolWideIncident(t *testing.T) {
 	s.crossWin = 15 * time.Minute
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	for _, hid := range []string{"hostA", "hostB", "hostC"} {
-		s.failWindow[hid] = fw("network_timeout", now.Add(-5*time.Minute))
+		s.view().FailWindow[hid] = fw("network_timeout", now.Add(-5*time.Minute))
 	}
 
 	// 3 hosts within crossWin, all the SAME class -> one pool-wide incident, no
 	// per-host incidents, pinned to that class.
-	ev := s.evaluateIncidents(now)
+	ev := s.evaluateIncidents(s.view(), now)
 	pool := poolEvents(ev)
 	if len(pool) != 1 || !pool[0].Open || pool[0].Count != 3 {
 		t.Fatalf("3 hosts in crossWin must open one pool-wide incident (count 3); got %+v", ev)
 	}
-	if pool[0].Class != "network_timeout" || s.poolIncident.Class != "network_timeout" {
-		t.Fatalf("pool incident must pin the same class; got event=%q state=%q", pool[0].Class, s.poolIncident.Class)
+	if pool[0].Class != "network_timeout" || s.view().PoolIncident.Class != "network_timeout" {
+		t.Fatalf("pool incident must pin the same class; got event=%q state=%q", pool[0].Class, s.view().PoolIncident.Class)
 	}
-	if s.poolIncident == nil {
+	if s.view().PoolIncident == nil {
 		t.Fatalf("poolIncident must be set")
 	}
-	if len(s.incident) != 0 {
-		t.Fatalf("per-host incidents must not open at one fail each; got %d", len(s.incident))
+	if len(s.view().Incident) != 0 {
+		t.Fatalf("per-host incidents must not open at one fail each; got %d", len(s.view().Incident))
 	}
 	if len(pool[0].Hosts) != 3 {
 		t.Fatalf("pool open event must carry the 3 affected hosts; got %v", pool[0].Hosts)
 	}
-	poolID := s.poolIncident.ID
+	poolID := s.view().PoolIncident.ID
 
 	// Re-eval while open -> no new pool event, same id.
-	if p := poolEvents(s.evaluateIncidents(now.Add(time.Minute))); len(p) != 0 {
+	if p := poolEvents(s.evaluateIncidents(s.view(), now.Add(time.Minute))); len(p) != 0 {
 		t.Fatalf("re-eval must not emit a new pool event while open; got %+v", p)
 	}
-	if s.poolIncident == nil || s.poolIncident.ID != poolID {
+	if s.view().PoolIncident == nil || s.view().PoolIncident.ID != poolID {
 		t.Fatalf("pool incident must persist with the same id")
 	}
 
 	// Window empties -> resolve once, original id, state cleared.
-	pool = poolEvents(s.evaluateIncidents(now.Add(2 * time.Hour)))
+	pool = poolEvents(s.evaluateIncidents(s.view(), now.Add(2*time.Hour)))
 	if len(pool) != 1 || pool[0].Open || pool[0].ID != poolID {
 		t.Fatalf("emptied window must resolve the pool incident once with its original id; got %+v", pool)
 	}
-	if s.poolIncident != nil {
+	if s.view().PoolIncident != nil {
 		t.Fatalf("pool incident must be cleared after resolve")
 	}
 }
@@ -239,9 +239,9 @@ func TestPoolIncidentStickyResolve(t *testing.T) {
 	s.crossWin = 15 * time.Minute
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	for _, h := range []string{"a", "b", "c"} {
-		s.failWindow[h] = fw("network_timeout", now)
+		s.view().FailWindow[h] = fw("network_timeout", now)
 	}
-	if p := poolEvents(s.evaluateIncidents(now)); len(p) != 1 || !p[0].Open {
+	if p := poolEvents(s.evaluateIncidents(s.view(), now)); len(p) != 1 || !p[0].Open {
 		t.Fatalf("3-host burst must open the pool incident; got %+v", p)
 	}
 
@@ -252,8 +252,8 @@ func TestPoolIncidentStickyResolve(t *testing.T) {
 	tcur := now
 	for i := 0; i < 12; i++ {
 		tcur = tcur.Add(10 * time.Minute)
-		s.failWindow["a"] = append(s.failWindow["a"], failRec{At: tcur, Class: "network_timeout"})
-		ev := poolEvents(s.evaluateIncidents(tcur))
+		s.view().FailWindow["a"] = append(s.view().FailWindow["a"], failRec{At: tcur, Class: "network_timeout"})
+		ev := poolEvents(s.evaluateIncidents(s.view(), tcur))
 		if len(ev) == 1 && !ev[0].Open {
 			resolved = true
 			if d := tcur.Sub(now); d > 30*time.Minute {
@@ -265,7 +265,7 @@ func TestPoolIncidentStickyResolve(t *testing.T) {
 	if !resolved {
 		t.Fatalf("pool incident must resolve under single-host churn, but stayed open")
 	}
-	if s.poolIncident != nil {
+	if s.view().PoolIncident != nil {
 		t.Fatalf("pool incident must be cleared after resolve")
 	}
 }
@@ -292,16 +292,16 @@ func TestApplyIncidentLines(t *testing.T) {
 	if n := s.applyIncidentLines([][][2]string{poolStream, hostA, hostB}, now); n != 2 {
 		t.Fatalf("expected 2 restored (pool + hostA); got %d", n)
 	}
-	if s.poolIncident == nil || s.poolIncident.ID != "inc-pool-42" || s.poolIncident.PeakHosts != 4 {
-		t.Fatalf("pool incident must restore the latest open with id+peakHosts; got %+v", s.poolIncident)
+	if s.view().PoolIncident == nil || s.view().PoolIncident.ID != "inc-pool-42" || s.view().PoolIncident.PeakHosts != 4 {
+		t.Fatalf("pool incident must restore the latest open with id+peakHosts; got %+v", s.view().PoolIncident)
 	}
-	if !s.poolIncident.StartedAt.Equal(time.Date(2026, 6, 10, 11, 30, 0, 0, time.UTC)) {
-		t.Fatalf("pool startedAt must come from the open line; got %v", s.poolIncident.StartedAt)
+	if !s.view().PoolIncident.StartedAt.Equal(time.Date(2026, 6, 10, 11, 30, 0, 0, time.UTC)) {
+		t.Fatalf("pool startedAt must come from the open line; got %v", s.view().PoolIncident.StartedAt)
 	}
-	if s.incident["hostA"] == nil || s.incident["hostA"].ID != "inc-A-9" {
-		t.Fatalf("hostA incident must restore with its original id; got %+v", s.incident["hostA"])
+	if s.view().Incident["hostA"] == nil || s.view().Incident["hostA"].ID != "inc-A-9" {
+		t.Fatalf("hostA incident must restore with its original id; got %+v", s.view().Incident["hostA"])
 	}
-	if s.incident["hostB"] != nil {
+	if s.view().Incident["hostB"] != nil {
 		t.Fatalf("hostB's latest line is a resolve -> must NOT restore")
 	}
 
@@ -310,12 +310,12 @@ func TestApplyIncidentLines(t *testing.T) {
 	s.crossWin = 15 * time.Minute
 	s.incidentN = 100
 	for _, h := range []string{"x", "y", "z"} {
-		s.failWindow[h] = fw("network_timeout", now)
+		s.view().FailWindow[h] = fw("network_timeout", now)
 	}
-	if p := poolEvents(s.evaluateIncidents(now)); len(p) != 0 {
+	if p := poolEvents(s.evaluateIncidents(s.view(), now)); len(p) != 0 {
 		t.Fatalf("restored pool incident must not re-announce on the next poll; got %+v", p)
 	}
-	if s.poolIncident == nil || s.poolIncident.ID != "inc-pool-42" {
+	if s.view().PoolIncident == nil || s.view().PoolIncident.ID != "inc-pool-42" {
 		t.Fatalf("restored pool incident id must be preserved")
 	}
 }
@@ -336,25 +336,25 @@ func TestPoolWideSameClass(t *testing.T) {
 
 	// 3 hosts, 3 DIFFERENT classes -> NO pool incident (temporal-only would wrongly open).
 	s := newS()
-	s.failWindow["a"] = fw("script_error", now.Add(-2*time.Minute))
-	s.failWindow["b"] = fw("network_timeout", now.Add(-2*time.Minute))
-	s.failWindow["c"] = fw("wait_timeout", now.Add(-2*time.Minute))
-	if p := poolEvents(s.evaluateIncidents(now)); len(p) != 0 || s.poolIncident != nil {
+	s.view().FailWindow["a"] = fw("script_error", now.Add(-2*time.Minute))
+	s.view().FailWindow["b"] = fw("network_timeout", now.Add(-2*time.Minute))
+	s.view().FailWindow["c"] = fw("wait_timeout", now.Add(-2*time.Minute))
+	if p := poolEvents(s.evaluateIncidents(s.view(), now)); len(p) != 0 || s.view().PoolIncident != nil {
 		t.Fatalf("3 hosts with DIFFERENT classes must NOT open a pool incident; got %+v", p)
 	}
 
 	// 2 hosts class A + 2 hosts class B, crossN=3 -> no single class reaches 3 -> none.
 	s = newS()
-	s.failWindow["a"] = fw("script_error", now.Add(-2*time.Minute))
-	s.failWindow["b"] = fw("script_error", now.Add(-2*time.Minute))
-	s.failWindow["c"] = fw("network_timeout", now.Add(-2*time.Minute))
-	s.failWindow["d"] = fw("network_timeout", now.Add(-2*time.Minute))
-	if p := poolEvents(s.evaluateIncidents(now)); len(p) != 0 {
+	s.view().FailWindow["a"] = fw("script_error", now.Add(-2*time.Minute))
+	s.view().FailWindow["b"] = fw("script_error", now.Add(-2*time.Minute))
+	s.view().FailWindow["c"] = fw("network_timeout", now.Add(-2*time.Minute))
+	s.view().FailWindow["d"] = fw("network_timeout", now.Add(-2*time.Minute))
+	if p := poolEvents(s.evaluateIncidents(s.view(), now)); len(p) != 0 {
 		t.Fatalf("no single class reaching crossN must NOT open a pool incident; got %+v", p)
 	}
 	// A 3rd host fails script_error -> that class reaches 3 -> opens, pinned to it.
-	s.failWindow["e"] = fw("script_error", now.Add(-1*time.Minute))
-	p := poolEvents(s.evaluateIncidents(now))
+	s.view().FailWindow["e"] = fw("script_error", now.Add(-1*time.Minute))
+	p := poolEvents(s.evaluateIncidents(s.view(), now))
 	if len(p) != 1 || !p[0].Open || p[0].Class != "script_error" || p[0].Count != 3 {
 		t.Fatalf("3 hosts of one class must open a pool incident pinned to it; got %+v", p)
 	}
@@ -367,12 +367,12 @@ func TestIncidentDominantClass(t *testing.T) {
 	s.incidentN = 3
 	s.incidentWin = time.Hour
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	s.failWindow["h"] = []failRec{
+	s.view().FailWindow["h"] = []failRec{
 		{At: now.Add(-9 * time.Minute), Class: "wait_timeout"},
 		{At: now.Add(-8 * time.Minute), Class: "script_error"},
 		{At: now.Add(-7 * time.Minute), Class: "wait_timeout"},
 	}
-	ev := s.evaluateIncidents(now)
+	ev := s.evaluateIncidents(s.view(), now)
 	if len(ev) != 1 || ev[0].DominantClass != "wait_timeout" {
 		t.Fatalf("dominant must be the most-frequent class; got %+v", ev)
 	}
@@ -418,14 +418,14 @@ func TestApplyIncidentLinesClass(t *testing.T) {
 	if n := s.applyIncidentLines([][][2]string{poolStream, hostA, hostLegacy}, now); n != 3 {
 		t.Fatalf("expected 3 restored; got %d", n)
 	}
-	if s.poolIncident == nil || s.poolIncident.Class != "network_timeout" {
-		t.Fatalf("pool incident must restore its pinned class; got %+v", s.poolIncident)
+	if s.view().PoolIncident == nil || s.view().PoolIncident.Class != "network_timeout" {
+		t.Fatalf("pool incident must restore its pinned class; got %+v", s.view().PoolIncident)
 	}
-	if s.incident["hostA"] == nil || s.incident["hostA"].DominantClass != "script_error" {
-		t.Fatalf("hostA must restore dominantClass; got %+v", s.incident["hostA"])
+	if s.view().Incident["hostA"] == nil || s.view().Incident["hostA"].DominantClass != "script_error" {
+		t.Fatalf("hostA must restore dominantClass; got %+v", s.view().Incident["hostA"])
 	}
-	if s.incident["hostL"] == nil || s.incident["hostL"].DominantClass != "unknown" {
-		t.Fatalf("legacy line must default dominantClass to unknown; got %+v", s.incident["hostL"])
+	if s.view().Incident["hostL"] == nil || s.view().Incident["hostL"].DominantClass != "unknown" {
+		t.Fatalf("legacy line must default dominantClass to unknown; got %+v", s.view().Incident["hostL"])
 	}
 }
 
@@ -440,7 +440,7 @@ func TestApplyIncidentLinesReconcile(t *testing.T) {
 	s := newPoolState("test", 8080)
 	s.incidentWin = time.Hour
 	// Live window (as rehydrateFromLoki would have seeded it): 4 fails, zeta-dominated.
-	s.failWindow["hostA"] = []failRec{
+	s.view().FailWindow["hostA"] = []failRec{
 		{At: now.Add(-9 * time.Minute), Class: "zeta"},
 		{At: now.Add(-8 * time.Minute), Class: "zeta"},
 		{At: now.Add(-7 * time.Minute), Class: "zeta"},
@@ -453,7 +453,7 @@ func TestApplyIncidentLinesReconcile(t *testing.T) {
 	if n := s.applyIncidentLines([][][2]string{hostA}, now); n != 1 {
 		t.Fatalf("expected 1 restored; got %d", n)
 	}
-	inc := s.incident["hostA"]
+	inc := s.view().Incident["hostA"]
 	if inc == nil || inc.Peak != 4 {
 		t.Fatalf("peak must reconcile to the larger live window (4); got %+v", inc)
 	}
@@ -688,7 +688,7 @@ func TestHostInfoCommitLabels(t *testing.T) {
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleStartUtc: "c1", OverallStatus: "pass"}
 	hv.Status.GitCommits = append(hv.Status.GitCommits,
 		gitCommitRef{Sha: "1583275bcafef00d", RepoURL: "https://github.com/org/yuruna"})
-	s.hosts[hv.HostId] = hv
+	s.view().Hosts[hv.HostId] = hv
 
 	req := metricsRequest()
 	w := httptest.NewRecorder()
@@ -736,7 +736,7 @@ func TestHostIDDashedLabels(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hv := &hostView{HostId: hid, BaseURL: "http://192.168.7.13:8080", Reachable: true}
 	hv.Status = &hostStatus{HostId: hid, Host: "host.ubuntu.kvm", OverallStatus: "pass"}
-	s.hosts[hid] = hv
+	s.view().Hosts[hid] = hv
 
 	w := httptest.NewRecorder()
 	s.handleMetrics(w, metricsRequest())
@@ -795,8 +795,8 @@ func TestHostViewJSONHostnameFree(t *testing.T) {
 
 func TestPoolFor(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.hosts["42aaa"] = &hostView{HostId: "42aaa", PoolId: "lab"} // advertised pool
-	s.hosts["42bbb"] = &hostView{HostId: "42bbb", PoolId: ""}    // unpooled host
+	s.view().Hosts["42aaa"] = &hostView{HostId: "42aaa", PoolId: "lab"} // advertised pool
+	s.view().Hosts["42bbb"] = &hostView{HostId: "42bbb", PoolId: ""}    // unpooled host
 	// 42ccc not present at all (never probed)
 	cases := []struct {
 		host, want string
@@ -806,7 +806,7 @@ func TestPoolFor(t *testing.T) {
 		{"42ccc", "default"}, // unknown host -> flag fallback
 	}
 	for _, c := range cases {
-		if got := s.poolFor(c.host); got != c.want {
+		if got := s.poolFor(s.view(), c.host); got != c.want {
 			t.Fatalf("poolFor(%q) = %q, want %q", c.host, got, c.want)
 		}
 	}
@@ -877,53 +877,53 @@ func TestEvaluatePoolGate(t *testing.T) {
 
 	// (a) fraction AT the threshold (0.5) is not "below" -> never degraded/alerts.
 	s := newPoolState("default", 8080)
-	s.gating["lab"] = pol
+	s.view().Gating["lab"] = pol
 	gateHost(s, "42a", "lab", "pass", true) // healthy
 	gateHost(s, "42b", "lab", "fail", true) // unhealthy -> frac 0.5
 	for i := 0; i < 5; i++ {
-		s.evaluatePoolGate(base.Add(time.Duration(i) * time.Hour))
+		s.evaluatePoolGate(s.view(), base.Add(time.Duration(i)*time.Hour))
 	}
-	if s.poolGate["lab"].Degraded || s.poolGate["lab"].AlertFired {
-		t.Fatalf("(a) frac at threshold must not degrade/alert: %+v", s.poolGate["lab"])
+	if s.view().PoolGate["lab"].Degraded || s.view().PoolGate["lab"].AlertFired {
+		t.Fatalf("(a) frac at threshold must not degrade/alert: %+v", s.view().PoolGate["lab"])
 	}
 
 	// Below the threshold from here (both members failing -> frac 0).
 	s = newPoolState("default", 8080)
-	s.gating["lab"] = pol
+	s.view().Gating["lab"] = pol
 	gateHost(s, "42a", "lab", "fail", true)
 	gateHost(s, "42b", "lab", "fail", true)
 
 	// (b) below but < degradedAfter -> not degraded yet.
-	s.evaluatePoolGate(base)                      // belowSince = base
-	s.evaluatePoolGate(base.Add(5 * time.Minute)) // 5m < 10m
-	if s.poolGate["lab"].Degraded {
+	s.evaluatePoolGate(s.view(), base)                    // belowSince = base
+	s.evaluatePoolGate(s.view(), base.Add(5*time.Minute)) // 5m < 10m
+	if s.view().PoolGate["lab"].Degraded {
 		t.Fatalf("(b) below for 5m (<10m) must not be degraded")
 	}
 	// (c) sustained >= window -> degraded; (d) the alert needs 2 consecutive degraded polls.
-	s.evaluatePoolGate(base.Add(11 * time.Minute)) // degraded poll #1
-	if !s.poolGate["lab"].Degraded {
+	s.evaluatePoolGate(s.view(), base.Add(11*time.Minute)) // degraded poll #1
+	if !s.view().PoolGate["lab"].Degraded {
 		t.Fatalf("(c) sustained >=10m must be degraded")
 	}
-	if s.poolGate["lab"].AlertFired {
+	if s.view().PoolGate["lab"].AlertFired {
 		t.Fatalf("(d) one degraded poll must not fire (needs 2)")
 	}
-	s.evaluatePoolGate(base.Add(12 * time.Minute)) // degraded poll #2 -> fires
-	if !s.poolGate["lab"].AlertFired {
+	s.evaluatePoolGate(s.view(), base.Add(12*time.Minute)) // degraded poll #2 -> fires
+	if !s.view().PoolGate["lab"].AlertFired {
 		t.Fatalf("(d) alert must fire after 2 consecutive degraded polls")
 	}
 
 	// (e)+(f) recovery: heal one host -> frac 0.5 (not below). belowSince resets and
 	// degraded clears immediately; the alert re-arms only after 2 non-degraded polls.
-	s.hosts["42a"].Status.OverallStatus = "pass"
-	s.evaluatePoolGate(base.Add(13 * time.Minute)) // non-degraded poll #1
-	if s.poolGate["lab"].Degraded {
+	s.view().Hosts["42a"].Status.OverallStatus = "pass"
+	s.evaluatePoolGate(s.view(), base.Add(13*time.Minute)) // non-degraded poll #1
+	if s.view().PoolGate["lab"].Degraded {
 		t.Fatalf("(f) degraded must clear immediately on recovery")
 	}
-	if !s.poolGate["lab"].AlertFired {
+	if !s.view().PoolGate["lab"].AlertFired {
 		t.Fatalf("(e) alert must stay fired until 2 non-degraded polls")
 	}
-	s.evaluatePoolGate(base.Add(14 * time.Minute)) // non-degraded poll #2 -> re-arm
-	if s.poolGate["lab"].AlertFired {
+	s.evaluatePoolGate(s.view(), base.Add(14*time.Minute)) // non-degraded poll #2 -> re-arm
+	if s.view().PoolGate["lab"].AlertFired {
 		t.Fatalf("(e) alert must re-arm after 2 non-degraded polls")
 	}
 
@@ -933,9 +933,9 @@ func TestEvaluatePoolGate(t *testing.T) {
 	gateHost(s, "42x", "wild", "fail", true)
 	gateHost(s, "42y", "wild", "fail", true)
 	for i := 0; i <= 6; i++ {
-		s.evaluatePoolGate(base.Add(time.Duration(i*10) * time.Minute)) // 0..60m at 10m steps
+		s.evaluatePoolGate(s.view(), base.Add(time.Duration(i*10)*time.Minute)) // 0..60m at 10m steps
 	}
-	g := s.poolGate["wild"]
+	g := s.view().PoolGate["wild"]
 	if !g.Degraded {
 		t.Fatalf("(g) unauthored pool should still compute degraded for the gauge")
 	}
@@ -946,19 +946,19 @@ func TestEvaluatePoolGate(t *testing.T) {
 	// (h) a firing pool whose members all leave the view emits a rearm (so the
 	// kind=alert Loki feed closes) and the gate is pruned.
 	s = newPoolState("default", 8080)
-	s.gating["lab"] = pol
+	s.view().Gating["lab"] = pol
 	gateHost(s, "42a", "lab", "fail", true)
 	gateHost(s, "42b", "lab", "fail", true)
-	s.evaluatePoolGate(base)                       // belowSince = base
-	s.evaluatePoolGate(base.Add(11 * time.Minute)) // degraded #1
-	s.evaluatePoolGate(base.Add(12 * time.Minute)) // degraded #2 -> fired
-	if !s.poolGate["lab"].AlertFired {
+	s.evaluatePoolGate(s.view(), base)                     // belowSince = base
+	s.evaluatePoolGate(s.view(), base.Add(11*time.Minute)) // degraded #1
+	s.evaluatePoolGate(s.view(), base.Add(12*time.Minute)) // degraded #2 -> fired
+	if !s.view().PoolGate["lab"].AlertFired {
 		t.Fatalf("(h) precondition: alert should be firing")
 	}
-	delete(s.hosts, "42a")
-	delete(s.hosts, "42b")
-	ev := s.evaluatePoolGate(base.Add(13 * time.Minute))
-	if _, ok := s.poolGate["lab"]; ok {
+	delete(s.view().Hosts, "42a")
+	delete(s.view().Hosts, "42b")
+	ev := s.evaluatePoolGate(s.view(), base.Add(13*time.Minute))
+	if _, ok := s.view().PoolGate["lab"]; ok {
 		t.Fatalf("(h) emptied pool's gate should be pruned")
 	}
 	gotRearm := false
@@ -1022,7 +1022,7 @@ func TestHandleIngest(t *testing.T) {
 		s.httpClient = &http.Client{}
 		return s
 	}
-	addHost := func(s *poolState) { s.hosts[hid] = &hostView{HostId: hid, CurrentIP: "10.0.0.5", PoolId: "lab"} }
+	addHost := func(s *poolState) { s.view().Hosts[hid] = &hostView{HostId: hid, CurrentIP: "10.0.0.5", PoolId: "lab"} }
 	post := func(s *poolState, remoteAddr, auth, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/ingest", strings.NewReader(body))
 		req.RemoteAddr = remoteAddr
@@ -1134,7 +1134,7 @@ func TestHandleIngest(t *testing.T) {
 	{
 		s := newState("secret")
 		addHost(s)
-		s.hosts["42cccccccccccccccccccccccccccccc"] = &hostView{HostId: "42cccccccccccccccccccccccccccccc", CurrentIP: "10.0.0.5", PoolId: "lab"}
+		s.view().Hosts["42cccccccccccccccccccccccccccccc"] = &hostView{HostId: "42cccccccccccccccccccccccccccccc", CurrentIP: "10.0.0.5", PoolId: "lab"}
 		if w := post(s, "10.0.0.5:1", "Bearer secret", `{"event":"x"}`+"\n"); w.Code != http.StatusForbidden {
 			t.Fatalf("(j) hostId-less line + ambiguous IP want 403, got %d", w.Code)
 		}
@@ -1213,7 +1213,7 @@ func TestHandleGoCycle(t *testing.T) {
 	// (c) current-cycle fast path (no t): 302 to the LIVE base + current folder.
 	{
 		s := newPoolState("default", 8080)
-		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080",
+		s.view().Hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080",
 			Status: &hostStatus{CycleStartUtc: "c1", CycleFolderUrl: folder, StartedAt: "2026-06-12T10:48:00Z"}}
 		w := get(s, "host="+hid)
 		want := "http://10.0.0.5:8080/" + folder
@@ -1226,7 +1226,7 @@ func TestHandleGoCycle(t *testing.T) {
 	// guarantee), only the per-cycle folder degrades.
 	{
 		s := newPoolState("default", 8080)
-		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.9:8080"}
+		s.view().Hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.9:8080"}
 		w := get(s, "host="+hid+"&t=1000")
 		if w.Code != http.StatusFound || w.Header().Get("Location") != "http://10.0.0.9:8080" {
 			t.Fatalf("(d) degrade-to-root: code=%d loc=%q", w.Code, w.Header().Get("Location"))
@@ -1260,7 +1260,7 @@ func TestHandleGoCycleShare(t *testing.T) {
 	// dropped here rather than at each of them.
 	{
 		s := newPoolState("default", 8080)
-		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080",
+		s.view().Hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080",
 			Status: &hostStatus{CycleStartUtc: "c1", CycleFolderUrl: "log/" + leaf + "/", StartedAt: "2026-06-12T10:48:00Z"}}
 		w := get(s, "host="+hid)
 		want := "http://10.0.0.5:8080/share-cycle.html?cycle=" + leaf
@@ -1272,7 +1272,7 @@ func TestHandleGoCycleShare(t *testing.T) {
 	// carries it, so an archive URL built without it would 404 on the host.
 	{
 		s := newPoolState("default", 8080)
-		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080",
+		s.view().Hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080",
 			Status: &hostStatus{CycleStartUtc: "c1", CycleFolderUrl: "log/" + leaf + ".incomplete/", StartedAt: "2026-06-12T10:48:00Z"}}
 		w := get(s, "host="+hid)
 		want := "http://10.0.0.5:8080/share-cycle.html?cycle=" + leaf + ".incomplete"
@@ -1285,7 +1285,7 @@ func TestHandleGoCycleShare(t *testing.T) {
 	// failure to a button.
 	{
 		s := newPoolState("default", 8080)
-		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.9:8080"}
+		s.view().Hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.9:8080"}
 		if w := get(s, "host="+hid+"&t=1000"); w.Code != http.StatusNotFound {
 			t.Fatalf("(d) unresolved folder want 404, got %d", w.Code)
 		}
@@ -1312,7 +1312,7 @@ func TestHandleGoHost(t *testing.T) {
 	// always lands on the status page, never a cycle folder (the /go/cycle distinction).
 	{
 		s := newPoolState("default", 8080)
-		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080/",
+		s.view().Hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080/",
 			Status: &hostStatus{CycleStartUtc: "c1", CycleFolderUrl: "status/log/000001." + hid + "/"}}
 		w := get(s, "host="+hid)
 		if w.Code != http.StatusFound || w.Header().Get("Location") != "http://10.0.0.5:8080" {
@@ -1323,7 +1323,7 @@ func TestHandleGoHost(t *testing.T) {
 	// built from hostIdDashed, and an operator pastes an id in the form they were shown.
 	{
 		s := newPoolState("default", 8080)
-		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080"}
+		s.view().Hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080"}
 		w := get(s, "host=4253419c-1f0b-45a0-8260-f36a1521a857")
 		if w.Code != http.StatusFound || w.Header().Get("Location") != "http://10.0.0.5:8080" {
 			t.Fatalf("(d) dashed id: code=%d loc=%q", w.Code, w.Header().Get("Location"))
@@ -1350,7 +1350,7 @@ func TestEventTailContinuesPastFetchWindow(t *testing.T) {
 			if s.eventCur[testHostID].offset != int64(len(body)) {
 				t.Fatalf("tail stuck at %d of %d bytes", s.eventCur[testHostID].offset, len(body))
 			}
-			if s.footprint[testHostID] == nil || s.footprint[testHostID].verdict != "stable" {
+			if fp, held := s.view().Footprint(testHostID); !held || fp.Verdict != "stable" {
 				t.Fatal("event past fetch window was not applied")
 			}
 		})

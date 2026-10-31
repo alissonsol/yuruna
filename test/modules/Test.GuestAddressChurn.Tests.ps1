@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42089573-8998-4e24-a068-6a573905dd7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -154,11 +154,11 @@ Describe 'Wait progress line' {
     }
 
     It 'reports in-place as unsupported when the caller is marked non-interactive' {
-        $saved = $env:YURUNA_NONINTERACTIVE
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_NONINTERACTIVE'
         try {
             $env:YURUNA_NONINTERACTIVE = '1'
             Assert-True (-not (Test-YurunaProgressLineSupported)) 'an installer collecting our output must get lines, not carriage returns.'
-        } finally { $env:YURUNA_NONINTERACTIVE = $saved }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 }
 

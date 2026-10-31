@@ -46,7 +46,7 @@ type timelineCycle struct {
 }
 
 // statusTimelineCode is the yuruna_pool_host_status value of a final status, the
-// same mapping hostView.statusCode applies to a live host.
+// same mapping HostView.StatusCode applies to a live host.
 func statusTimelineCode(status string) int {
 	switch status {
 	case "pass":

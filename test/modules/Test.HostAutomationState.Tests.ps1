@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42e5dbd9-8c32-496e-ab48-855a0584ae9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -333,11 +333,14 @@ Describe 'the teardown steps every host shares' {
         # provisioned must not stop the operator disabling the rest.
         $restored = [System.Collections.Generic.List[string]]::new()
         $skipped  = [System.Collections.Generic.List[string]]::new()
-        $absent   = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-no-repo-" + [guid]::NewGuid())
-        Stop-YurunaServiceVMSet -RepoRoot $absent -Cmdlet (Get-StubCmdlet -Approve $true) `
-            -Restored $restored -Skipped $skipped
-        $skipped.Count  | Should -Be 4 -Because 'all four service stop scripts are absent there'
-        $restored.Count | Should -Be 0
+        $absentRoot = New-YurunaTestTempDir -Prefix 'yuruna-no-repo'
+        try {
+            $absent = Join-Path $absentRoot 'repo'
+            Stop-YurunaServiceVMSet -RepoRoot $absent -Cmdlet (Get-StubCmdlet -Approve $true) `
+                -Restored $restored -Skipped $skipped
+            $skipped.Count  | Should -Be 4 -Because 'all four service stop scripts are absent there'
+            $restored.Count | Should -Be 0
+        } finally { Remove-YurunaTestTempDir $absentRoot }
     }
 
     It 'runs nothing when the caller declines the action' {

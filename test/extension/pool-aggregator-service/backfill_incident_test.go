@@ -24,10 +24,10 @@ func liveIncidents(hostID string, fails []failRec, step time.Duration, until tim
 	next := 0
 	for now := fails[0].At; !now.After(until); now = now.Add(step) {
 		for next < len(fails) && !fails[next].At.After(now) {
-			s.failWindow[hostID] = append(s.failWindow[hostID], fails[next])
+			s.view().FailWindow[hostID] = append(s.view().FailWindow[hostID], fails[next])
 			next++
 		}
-		for _, ev := range s.evaluateIncidents(now) {
+		for _, ev := range s.evaluateIncidents(s.view(), now) {
 			if !ev.Pool {
 				events = append(events, ev)
 			}
@@ -178,12 +178,12 @@ func TestApplyIncidentLinesDecidesAcrossStreamsByTime(t *testing.T) {
 	}
 	for _, order := range [][][][2]string{{replayed, live}, {live, replayed}} {
 		s := newPoolState("lab", 8080)
-		if n := s.applyIncidentLines(order, now); n != 1 || s.incident[bfHostA] == nil || s.incident[bfHostA].ID != "inc-live" {
-			t.Fatalf("the open live incident must be restored whatever the stream order: n=%d %+v", n, s.incident[bfHostA])
+		if n := s.applyIncidentLines(order, now); n != 1 || s.view().Incident[bfHostA] == nil || s.view().Incident[bfHostA].ID != "inc-live" {
+			t.Fatalf("the open live incident must be restored whatever the stream order: n=%d %+v", n, s.view().Incident[bfHostA])
 		}
 	}
 	s := newPoolState("lab", 8080)
-	if n := s.applyIncidentLines([][][2]string{replayed}, now); n != 0 || s.incident[bfHostA] != nil {
+	if n := s.applyIncidentLines([][][2]string{replayed}, now); n != 0 || s.view().Incident[bfHostA] != nil {
 		t.Errorf("a host whose newest line is a resolve is not in an incident: %d", n)
 	}
 }

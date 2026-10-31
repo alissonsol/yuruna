@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42baeedc-3176-482c-b82b-04bd087fb651
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,7 +44,7 @@ BeforeAll {
     $script:MacConditionAst = [Management.Automation.Language.Parser]::ParseFile($script:MacConditionPath, [ref]$null, [ref]$null)
     $script:CanShim = -not $IsWindows
     if ($script:CanShim) {
-        $script:FakeRoot = Join-Path ([IO.Path]::GetTempPath()) ("yrn-macbound-" + [guid]::NewGuid().ToString('N'))
+        $script:FakeRoot = New-YurunaTestTempDir -Prefix 'yrn-macbound'
         $script:Fake = New-MacUtmFakeHost -Root $script:FakeRoot
     }
     $script:Skip = 'the stand-in tools are POSIX shell scripts'

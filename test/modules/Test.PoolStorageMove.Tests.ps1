@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d76e1e-670d-4849-af41-08ce879f3532
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,7 +66,7 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 
 function Get-MoveFixture {
     param([string[]]$Cycles = @('000001.2026-08-16.10-00-00.HOSTID'), [string]$Suffix = '')
-    $root = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-move-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    $root = New-YurunaTestTempDir -Prefix 'yuruna-move'
     $log = Join-Path $root 'log'
     $runtime = Join-Path $root 'runtime'
     $share = Join-Path $root 'share'
@@ -83,9 +83,7 @@ function Get-MoveFixture {
 
 function Clear-MoveFixture {
     param($Fixture)
-    if ($Fixture -and (Test-Path -LiteralPath $Fixture.Root)) {
-        Remove-Item -LiteralPath $Fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    if ($Fixture) { Remove-YurunaTestTempDir $Fixture.Root }
 }
 
 function Get-MoveConfigDoc {

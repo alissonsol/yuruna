@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42541303-69a5-4838-b859-71ad4fcefc3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,6 +60,7 @@ $script:startHostConfig = Join-Path $testDir 'service/Start-ConfigService.ps1'
 $script:startStash      = Join-Path $testDir 'service/Start-StashServiceVM.ps1'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.ServiceStartSource.psm1') -Force -DisableNameChecking
 
 function Get-ScriptAst {
     param([string]$Path)
@@ -171,16 +172,18 @@ $discoveryTestDir = Split-Path -Parent (Split-Path -Parent $PSCommandPath)   # .
 
 # Every service VM bring-up and teardown in test/service/, discovered rather than
 # listed so a service added later is held to the same invariant without a second
-# edit. An empty result would make its Describe vacuously pass, so the count is
-# asserted here -- a folder rename must fail loudly, not silently stop checking.
+# edit; the shared extension-service start and its per-service parts run the
+# bring-ups' code. An empty result would make its Describe vacuously pass, so the
+# count is asserted here -- a folder rename must fail loudly, not silently stop
+# checking.
 $serviceVmScriptCases = @(
-    Get-ChildItem -LiteralPath (Join-Path $discoveryTestDir 'service') -Filter '*ServiceVM.ps1' -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -like 'Start-*' -or $_.Name -like 'Stop-*' } |
+    Get-ChildItem -LiteralPath (Join-Path $discoveryTestDir 'service') -Filter '*.ps1' -File -ErrorAction SilentlyContinue |
+        Where-Object { (($_.Name -like 'Start-*' -or $_.Name -like 'Stop-*') -and $_.Name -like '*ServiceVM.ps1') -or $_.Name -like 'Start-ExtensionService*.ps1' } |
         Sort-Object Name |
         ForEach-Object { @{ Name = $_.Name; Path = $_.FullName } }
 )
-if ($serviceVmScriptCases.Count -lt 8) {
-    throw "Expected at least 8 Start-/Stop-*ServiceVM.ps1 scripts under $(Join-Path $discoveryTestDir 'service'), found $($serviceVmScriptCases.Count). The discovery glob is pointed at the wrong folder."
+if ($serviceVmScriptCases.Count -lt 12) {
+    throw "Expected at least 12 Start-/Stop-*ServiceVM.ps1 and Start-ExtensionService scripts under $(Join-Path $discoveryTestDir 'service'), found $($serviceVmScriptCases.Count). The discovery glob is pointed at the wrong folder."
 }
 
 Describe 'service VM scripts leave ErrorActionPreference at the inherited value' {
@@ -244,7 +247,8 @@ Describe 'Start-ConfigService.ps1 verifies the Linux child survived launch' {
 
 Describe 'Start-StashServiceVM.ps1 surfaces status-service unreachability' {
     It 'captures the start decision, TCP-probes the status port, and warns on unreachable' {
-        $ast = Get-ScriptAst $script:startStash
+        # The start runs the shared pipeline with the stash readiness part, read here in place.
+        $ast = Get-YurunaServiceStartAst -Path $script:startStash
         Assert-True (Test-AssignsFromCommand -Ast $ast -Command 'Start-YurunaStatusServiceIfEnabled') 'the start decision is captured in an assignment (not discarded)'
         Assert-True ((Get-CommandCall -Ast $ast -Name 'Test-TcpEndpointOpen').Count -ge 1) 'the status port is TCP-probed through the shared endpoint probe'
         # The warning must tie an unreachable status port to the degraded Extension-hosts

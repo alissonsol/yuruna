@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 425dfdd4-fd92-4c1a-9012-e60152b4c11b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,18 +61,13 @@ function New-LoopbackListener {
     [CmdletBinding()]
     [OutputType([System.Net.Sockets.TcpListener])]
     param()
-    $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-    $l.Start()
-    return $l
+    return New-YurunaTestTcpListener
 }
 function Get-ClosedLoopbackPort {
     [CmdletBinding()]
     [OutputType([int])]
     param()
-    $l = New-LoopbackListener
-    $port = $l.LocalEndpoint.Port
-    $l.Stop()
-    return $port
+    return Get-YurunaTestFreePort
 }
 
 }

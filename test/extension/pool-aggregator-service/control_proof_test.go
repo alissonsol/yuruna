@@ -127,7 +127,7 @@ func TestGoStashCarriesAVerifiableProofInTheFragment(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.authToken = proofToken
 	hid := "42512149e3dc437ca677a40828382528"
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		ExtensionTargets: map[string]string{"download-agent-service": "http://10.0.0.9"},
 		LastSeenUnixMs:   time.Now().UnixMilli(),
@@ -160,7 +160,7 @@ func TestGoStashCarriesAVerifiableProofInTheFragment(t *testing.T) {
 func TestGoStashCarriesNoFragmentWithoutAToken(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "42512149e3dc437ca677a40828382528"
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		ExtensionTargets: map[string]string{"stash-service": "http://10.0.0.5"},
 		LastSeenUnixMs:   time.Now().UnixMilli(),
@@ -181,7 +181,7 @@ func TestGoHostBindsItsProofToTheHost(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.authToken = proofToken
 	hid := "42512149e3dc437ca677a40828382528"
-	s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: true, LastSeenUnixMs: time.Now().UnixMilli()}
+	s.view().Hosts[hid] = &hostView{HostId: hid, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: true, LastSeenUnixMs: time.Now().UnixMilli()}
 	rec := httptest.NewRecorder()
 	s.handleGoHost(rec, httptest.NewRequest(http.MethodGet, "/go/host?host="+hid, nil))
 	_, frag, found := strings.Cut(rec.Header().Get("Location"), "#yctl=")
@@ -205,7 +205,7 @@ func TestGoHostMintsTheScopeItIsAskedFor(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.authToken = proofToken
 	hid := "42512149e3dc437ca677a40828382528"
-	s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: true, LastSeenUnixMs: time.Now().UnixMilli()}
+	s.view().Hosts[hid] = &hostView{HostId: hid, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: true, LastSeenUnixMs: time.Now().UnixMilli()}
 	rec := httptest.NewRecorder()
 	s.handleGoHost(rec, httptest.NewRequest(http.MethodGet, "/go/host?host="+hid+"&scope=pause", nil))
 	_, frag, found := strings.Cut(rec.Header().Get("Location"), "#yctl=")

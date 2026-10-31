@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42078042-0ea1-4de8-bb69-d88309b26736
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,42 +57,13 @@ function Get-FunctionAst {
     return Get-YurunaTestFunctionAst -Path $Path -Name $Name
 }
 
-# One-shot HTTP responder on loopback. A raw TcpListener rather than
-# HttpListener: HttpListener needs a URL ACL (or Administrator) to bind, which
-# an unattended test run cannot assume. The socket is bound by the caller and
-# handed to the job already listening, so the request can never arrive before
-# there is something to accept it.
-function Get-LoopbackHttpListener {
-    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-    $listener.Start()
-    return @{
-        Listener = $listener
-        BaseUrl  = "http://127.0.0.1:$(([System.Net.IPEndPoint]$listener.LocalEndpoint).Port)"
-    }
-}
-
-function Get-HttpResponderJob {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
-        Justification = 'All three values arrive through -ArgumentList into the job param() block; the analyzer does not follow that path.')]
-    param([System.Net.Sockets.TcpListener]$Listener, [int]$StatusCode, [string]$Body)
-    return Start-ThreadJob -ScriptBlock {
-        param($Listener, $StatusCode, $Body)
-        try {
-            $client = $Listener.AcceptTcpClient()
-            try {
-                $stream = $client.GetStream()
-                $buffer = [byte[]]::new(4096)
-                [void]$stream.Read($buffer, 0, $buffer.Length)   # drain the request line + headers
-                $reason  = if ($StatusCode -eq 200) { 'OK' } else { 'Not Found' }
-                $payload = [System.Text.Encoding]::UTF8.GetBytes($Body)
-                $head    = "HTTP/1.1 $StatusCode $reason`r`nContent-Type: application/json`r`nContent-Length: $($payload.Length)`r`nConnection: close`r`n`r`n"
-                $headBytes = [System.Text.Encoding]::ASCII.GetBytes($head)
-                $stream.Write($headBytes, 0, $headBytes.Length)
-                $stream.Write($payload, 0, $payload.Length)
-                $stream.Flush()
-            } finally { $client.Close() }
-        } finally { $Listener.Stop() }
-    } -ArgumentList $Listener, $StatusCode, $Body
+# One loopback responder answering a single request with this status and a
+# JSON body, the shape of the aggregator's extension-host route.
+function Start-PoolResponder {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test fixture: starts a loopback responder each case stops itself.')]
+    param([int]$StatusCode, [string]$Body)
+    return Start-YurunaTestHttpResponder -Reply (New-YurunaTestHttpReply -StatusCode $StatusCode -Body $Body -ContentType 'application/json')
 }
 
 }
@@ -108,55 +79,48 @@ Describe 'pool-extension-lookup' {
 
 
     It 'returns the address the pool reports for an area' {
-        $bound = Get-LoopbackHttpListener
-        $job   = Get-HttpResponderJob -Listener $bound.Listener -StatusCode 200 `
+        $bound = Start-PoolResponder -StatusCode 200 `
             -Body '{"area":"stash-service","host":"192.168.7.227","target":"http://192.168.7.227","source":"announce"}'
         try {
             $resolved = Get-PoolExtensionHostFrom -BaseUrl $bound.BaseUrl -Area 'stash-service' -TimeoutSeconds 5
             # The bare host, not the URL: callers compose an http probe, an scp
             # target, a guest env value.
             Assert-True ($resolved -eq '192.168.7.227') "expected 192.168.7.227, got '$resolved'"
-        } finally { $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally { $null = Stop-YurunaTestHttpResponder $bound }
     }
 
     It 'returns nothing when the pool serves no host for the area' {
-        $bound = Get-LoopbackHttpListener
-        $job   = Get-HttpResponderJob -Listener $bound.Listener -StatusCode 404 -Body 'no live host for that extension area'
+        $bound = Start-PoolResponder -StatusCode 404 -Body 'no live host for that extension area'
         try {
             $resolved = Get-PoolExtensionHostFrom -BaseUrl $bound.BaseUrl -Area 'stash-service' -TimeoutSeconds 5
             Assert-True ($resolved -eq '') "expected '' for a 404, got '$resolved'"
-        } finally { $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally { $null = Stop-YurunaTestHttpResponder $bound }
     }
 
     It 'returns nothing against a collector too old to know the route' {
         # An aggregator built before this endpoint answers the Go mux's own 404.
         # Same practical outcome as "no live host" -- the caller falls back --
         # so it must not surface as an error either.
-        $bound = Get-LoopbackHttpListener
-        $job   = Get-HttpResponderJob -Listener $bound.Listener -StatusCode 404 -Body '404 page not found'
+        $bound = Start-PoolResponder -StatusCode 404 -Body '404 page not found'
         try {
             $resolved = Get-PoolExtensionHostFrom -BaseUrl $bound.BaseUrl -Area 'stash-service' -TimeoutSeconds 5
             Assert-True ($resolved -eq '') "expected '' from an old collector, got '$resolved'"
-        } finally { $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally { $null = Stop-YurunaTestHttpResponder $bound }
     }
 
     It 'returns nothing, without throwing, when the aggregator is not there' {
-        # The pool host is down / unreachable: bind a port only to learn one
-        # nothing is listening on, then release it.
-        $bound = Get-LoopbackHttpListener
-        $dead  = $bound.BaseUrl
-        $bound.Listener.Stop()
+        # The pool host is down / unreachable: a port nothing is listening on.
+        $dead  = "http://127.0.0.1:$(Get-YurunaTestFreePort)"
         $resolved = Get-PoolExtensionHostFrom -BaseUrl $dead -Area 'stash-service' -TimeoutSeconds 3
         Assert-True ($resolved -eq '') "expected '' from a dead aggregator, got '$resolved'"
     }
 
     It 'treats an answer with no address as no answer' {
-        $bound = Get-LoopbackHttpListener
-        $job   = Get-HttpResponderJob -Listener $bound.Listener -StatusCode 200 -Body '{"area":"stash-service","host":""}'
+        $bound = Start-PoolResponder -StatusCode 200 -Body '{"area":"stash-service","host":""}'
         try {
             $resolved = Get-PoolExtensionHostFrom -BaseUrl $bound.BaseUrl -Area 'stash-service' -TimeoutSeconds 5
             Assert-True ($resolved -eq '') "expected '' for an empty host field, got '$resolved'"
-        } finally { $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally { $null = Stop-YurunaTestHttpResponder $bound }
     }
 
     It 'asks for the area it was given' {
@@ -194,8 +158,7 @@ Describe 'extension-host address list' {
 
 
     It 'answers with a list, so the caller can pick' {
-        $bound = Get-LoopbackHttpListener
-        $job   = Get-HttpResponderJob -Listener $bound.Listener -StatusCode 200 `
+        $bound = Start-PoolResponder -StatusCode 200 `
             -Body '{"area":"stash-service","host":"192.168.7.227","target":"http://192.168.7.227","source":"announce"}'
         try {
             # -VMName '': no host driver is loaded here, and pinning it off keeps
@@ -204,16 +167,14 @@ Describe 'extension-host address list' {
                 -AggregatorBaseUrl $bound.BaseUrl -TimeoutSeconds 5)
             Assert-True ($addresses.Count -eq 1) "expected one address, got $($addresses.Count)"
             Assert-True ($addresses[0] -eq '192.168.7.227') "expected 192.168.7.227, got '$($addresses[0])'"
-        } finally { $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally { $null = Stop-YurunaTestHttpResponder $bound }
     }
 
     It 'answers with an empty list, not $null, when nothing knows the area' {
         # An empty list is the whole point of the contract: the caller counts it
         # and moves on to its own last resort. A $null here would make .Count
         # throw under Set-StrictMode in exactly the client scripts that call this.
-        $bound = Get-LoopbackHttpListener
-        $dead  = $bound.BaseUrl
-        $bound.Listener.Stop()
+        $dead  = "http://127.0.0.1:$(Get-YurunaTestFreePort)"
         $addresses = @(Get-ExtensionHostAddress -HostType 'stash-service' -VMName '' `
             -AggregatorBaseUrl $dead -TimeoutSeconds 3)
         Assert-True ($null -ne $addresses) 'the lookup must never answer $null'
@@ -221,9 +182,9 @@ Describe 'extension-host address list' {
     }
 
     It 'puts an operator pin ahead of what it discovers' {
-        $bound = Get-LoopbackHttpListener
-        $job   = Get-HttpResponderJob -Listener $bound.Listener -StatusCode 200 `
+        $bound = Start-PoolResponder -StatusCode 200 `
             -Body '{"area":"stash-service","host":"192.168.7.227","source":"announce"}'
+        $pin = Save-YurunaTestEnvironment -Name 'YURUNA_EXTENSION_HOST_STASH_SERVICE'
         $env:YURUNA_EXTENSION_HOST_STASH_SERVICE = '192.168.7.138'
         try {
             $addresses = @(Get-ExtensionHostAddress -HostType 'stash-service' -VMName '' `
@@ -232,15 +193,15 @@ Describe 'extension-host address list' {
             Assert-True ($addresses[0] -eq '192.168.7.138') "the pin must come first, got '$($addresses[0])'"
             Assert-True ($addresses[1] -eq '192.168.7.227') "the pool's answer must follow, got '$($addresses[1])'"
         } finally {
-            Remove-Item Env:\YURUNA_EXTENSION_HOST_STASH_SERVICE -ErrorAction SilentlyContinue
-            $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $pin
+            $null = Stop-YurunaTestHttpResponder $bound
         }
     }
 
     It 'lists one address once, however many sources report it' {
-        $bound = Get-LoopbackHttpListener
-        $job   = Get-HttpResponderJob -Listener $bound.Listener -StatusCode 200 `
+        $bound = Start-PoolResponder -StatusCode 200 `
             -Body '{"area":"stash-service","host":"192.168.7.227","source":"announce"}'
+        $pin = Save-YurunaTestEnvironment -Name 'YURUNA_EXTENSION_HOST_STASH_SERVICE'
         $env:YURUNA_EXTENSION_HOST_STASH_SERVICE = '192.168.7.227'
         try {
             $addresses = @(Get-ExtensionHostAddress -HostType 'stash-service' -VMName '' `
@@ -249,18 +210,19 @@ Describe 'extension-host address list' {
             # probe budget twice on one service.
             Assert-True ($addresses.Count -eq 1) "expected the duplicate collapsed, got $($addresses -join ', ')"
         } finally {
-            Remove-Item Env:\YURUNA_EXTENSION_HOST_STASH_SERVICE -ErrorAction SilentlyContinue
-            $bound.Listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $pin
+            $null = Stop-YurunaTestHttpResponder $bound
         }
     }
 
     It 'drops an address that cannot be composed into a URL or an scp target' {
+        $pin = Save-YurunaTestEnvironment -Name 'YURUNA_EXTENSION_HOST_STASH_SERVICE'
         $env:YURUNA_EXTENSION_HOST_STASH_SERVICE = "192.168.7.138' rm -rf /"
         try {
             $addresses = @(Get-ExtensionHostAddress -HostType 'stash-service' -VMName '' `
                 -AggregatorBaseUrl 'http://127.0.0.1:1' -TimeoutSeconds 2)
             Assert-True ($addresses.Count -eq 0) "expected the quoted value dropped, got $($addresses -join ', ')"
-        } finally { Remove-Item Env:\YURUNA_EXTENSION_HOST_STASH_SERVICE -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $pin }
     }
 }
 

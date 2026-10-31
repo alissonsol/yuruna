@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42dc2c8b-375c-4869-8113-cd1b1b7a0e53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,6 +35,7 @@ BeforeDiscovery {
 }
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
     $source = Join-Path $PSScriptRoot 'Test.SequenceHandler.psm1'
     $tokens = $null; $errors = $null
@@ -71,7 +72,8 @@ BeforeAll {
     $script:realisticCommand = $script:fetchContext.Command
     function Invoke-LocalInput([string[]]$Lines) {
         $priorEncoding = [Console]::OutputEncoding
-        $driverPath = [IO.Path]::GetTempFileName()
+        $driverDir = New-YurunaTestTempDir -Prefix 'gui-fetch-driver'
+        $driverPath = Join-Path $driverDir 'driver.sh'
         try {
             [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
             # Bash heredoc delimiters must use the same LF endings as the
@@ -91,7 +93,7 @@ exec bash "$driver"
             $script:localExitCode = $LASTEXITCODE
         } finally {
             [Console]::OutputEncoding = $priorEncoding
-            Remove-Item -LiteralPath $driverPath -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $driverDir
         }
         return ($result -join "`n")
     }

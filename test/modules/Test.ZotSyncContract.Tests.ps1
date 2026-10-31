@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4230f2fc-1a17-4a20-b766-368eff24c01c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,7 @@ BeforeDiscovery {
 
 BeforeAll {
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $script:seedLines = Get-Content -LiteralPath (Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.base.user-data')
 $script:guestPaths = @(
     (Join-Path $repoRoot 'guest/shared/ubuntu.k8s.sh')
@@ -83,7 +84,7 @@ function Invoke-StubbedBash {
         [hashtable]$Files = @{},
         [hashtable]$Stubs = @{}
     )
-    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+    $tmp = New-YurunaTestTempDir -Prefix 'zot-sync'
     New-Item -ItemType Directory -Path (Join-Path $tmp 'bin') -Force | Out-Null
     try {
         foreach ($name in $Files.Keys) {
@@ -110,7 +111,7 @@ function Invoke-StubbedBash {
         return [pscustomobject]@{ Output = $output; ExitCode = $exitCode; Rows = $state['rows']; CurlLog = $state['curl.log']
             Page = $state['www/cache-health']; Meta = $state['www/zot-meta'] }
     } finally {
-        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $tmp
     }
 }
 

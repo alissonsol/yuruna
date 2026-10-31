@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42a887fd-7c8d-47f1-9a01-ca5c0ab67d4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,14 +36,6 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Provenance.psm1') -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
-
-# Only the PATH is computed at file scope; the directory itself is created in
-# BeforeAll and removed in AfterAll. A standalone run executes this file body
-# twice (discovery, then run), so a temp dir built here would be created and
-# torn down during discovery and every It would then probe a path that no
-# longer exists. $PID keeps the name identical across the two passes while
-# staying unique per test process.
-$script:provRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-provenance-tests-$PID"
 
 # Writes a placeholder base image and, optionally, its sidecar.
 #   -SidecarLine omitted  -> no sidecar file at all
@@ -91,11 +83,11 @@ function Get-ProvenanceEmission {
 Describe 'Test.Provenance' {
 
     BeforeAll {
-        New-Item -ItemType Directory -Path $script:provRoot -Force | Out-Null
+        $script:provRoot = New-YurunaTestTempDir -Prefix 'yuruna-provenance'
     }
 
     AfterAll {
-        Remove-Item -LiteralPath $script:provRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:provRoot
     }
 
     Context 'Get-BaseImageProvenance sidecar path' {

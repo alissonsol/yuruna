@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 423477ea-a0ec-419b-b7b3-939dd00dc84a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,8 +133,7 @@ function New-ExtensionArea {
     if (-not $realExtensionDir) {
         throw 'Test.Extension exposes no $script:ExtensionDir to redirect; the loader cannot be pointed at a synthetic tree.'
     }
-    $extRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ext-" + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $extRoot -Force | Out-Null
+    $extRoot = New-YurunaTestTempDir -Prefix 'yuruna-ext'
 
     # yzsolo    : healthy single-extension area, contract fully covered.
     # yzpartial : contract declares two verbs, the module exports one -> warns.
@@ -169,9 +168,7 @@ AfterAll {
     foreach ($m in @('yzsolo1', 'yzpart1', 'yznocon1', 'yzblank1', 'yzmulti1', 'yzmulti2')) {
         Remove-Module -Name $m -Force -ErrorAction SilentlyContinue
     }
-    if ($extRoot -and (Test-Path -LiteralPath $extRoot)) {
-        Remove-Item -LiteralPath $extRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Remove-YurunaTestTempDir $extRoot
 }
 
 

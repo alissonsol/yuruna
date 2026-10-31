@@ -64,22 +64,25 @@ func TestRehydrateRegisteredPoolsPreservesCountsIncidentsAndDeduplication(t *tes
 	lokiURL := loki.URL + "/loki/api/v1/push"
 	state.rehydrateFromLoki(lokiURL, "default", time.Hour, now)
 	state.rehydrateIncidentsFromLoki(lokiURL, "default", time.Hour, now)
-	if state.pass[passHost] != 1 || state.fail[failHost] != 1 {
-		t.Fatalf("registered-pool counters were lost: pass=%v fail=%v", state.pass, state.fail)
+	passTotals, failTotals := state.view().CycleTotals()
+	if passTotals[passHost] != 1 || failTotals[failHost] != 1 {
+		t.Fatalf("registered-pool counters were lost: pass=%v fail=%v", passTotals, failTotals)
 	}
-	if state.seen[passHost+"|pass-cycle"] != "pass" || !state.counted[passHost+"|pass-cycle"] ||
-		state.seen[failHost+"|fail-cycle"] != "fail" || !state.counted[failHost+"|fail-cycle"] {
+	passCycle, _ := state.view().Cycle(passHost + "|pass-cycle")
+	failCycle, _ := state.view().Cycle(failHost + "|fail-cycle")
+	if passCycle.Status != "pass" || !passCycle.Counted ||
+		failCycle.Status != "fail" || !failCycle.Counted {
 		t.Fatal("terminal transitions must retain both deduplication records")
 	}
-	if len(state.failWindow[failHost]) != 1 || state.failWindow[failHost][0].Class != "network_timeout" {
-		t.Fatalf("failure window was not restored: %+v", state.failWindow[failHost])
+	if len(state.view().FailWindow[failHost]) != 1 || state.view().FailWindow[failHost][0].Class != "network_timeout" {
+		t.Fatalf("failure window was not restored: %+v", state.view().FailWindow[failHost])
 	}
-	incident := state.incident[failHost]
+	incident := state.view().Incident[failHost]
 	if incident == nil || incident.ID != "original-incident" || !incident.StartedAt.Equal(started) {
 		t.Fatalf("original incident identity was lost: %+v", incident)
 	}
-	if state.poolIncident == nil || state.poolIncident.ID != "original-pool-incident" {
-		t.Fatalf("collector-scoped incident was lost: %+v", state.poolIncident)
+	if state.view().PoolIncident == nil || state.view().PoolIncident.ID != "original-pool-incident" {
+		t.Fatalf("collector-scoped incident was lost: %+v", state.view().PoolIncident)
 	}
 
 	cyclePushes := 0
@@ -115,10 +118,11 @@ func TestRehydrateRegisteredPoolsPreservesCountsIncidentsAndDeduplication(t *tes
 		return &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})}
 	state.pollOnce(client, filepath.Join(t.TempDir(), "absent-squid.log"), "http://fixture.invalid/push", now.Add(time.Second))
-	if cyclePushes != 0 || state.pass[passHost] != 1 || state.fail[failHost] != 1 {
-		t.Fatalf("first poll duplicated restored cycles: pushes=%d pass=%v fail=%v", cyclePushes, state.pass, state.fail)
+	passTotals, failTotals = state.view().CycleTotals()
+	if cyclePushes != 0 || passTotals[passHost] != 1 || failTotals[failHost] != 1 {
+		t.Fatalf("first poll duplicated restored cycles: pushes=%d pass=%v fail=%v", cyclePushes, passTotals, failTotals)
 	}
-	if state.incident[failHost] == nil || state.incident[failHost].ID != "original-incident" {
+	if state.view().Incident[failHost] == nil || state.view().Incident[failHost].ID != "original-incident" {
 		t.Fatal("first poll replaced the restored per-host incident")
 	}
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -514,13 +514,12 @@ Describe 'Wait-ForConsoleChange separates a still console from an unreadable one
     }
 
     BeforeEach {
-        $script:probeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-probe-{0}-{1}" -f $PID, [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Path $script:probeDir -Force | Out-Null
+        $script:probeDir = New-YurunaTestTempDir -Prefix 'yuruna-probe'
         $script:probe = & (Get-Module Test.SequenceEngine) { param($d) Reset-ProbeStubState -ScreenDir $d } $script:probeDir
     }
 
     AfterEach {
-        Remove-Item -LiteralPath $script:probeDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:probeDir
     }
 
     It 'calls a console with no readable text unreadable, not unchanged' {
@@ -662,15 +661,14 @@ Describe 'Wait-ForText keeps the cycle state its helper modules hold' {
         }
     }
     It 'leaves the event-delivery ledger as it was across two waits' {
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-wft-ledger-{0}" -f [guid]::NewGuid().ToString('N').Substring(0, 8))
-        $null = New-Item -ItemType Directory -Path $dir -Force
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-wft-ledger'
         try {
             & (Get-Module Test.Log) { $script:CycleEventDelivery.delivered = 7; $script:CycleEventDelivery.attempted = 7 }
             Assert-True (Invoke-GatedWait -ScreenDir $dir -Frames @('login:') -Pattern @('login:') -Since $false) 'the first wait matches'
             Assert-True (Invoke-GatedWait -ScreenDir $dir -Frames @('login:') -Pattern @('login:') -Since $false) 'the second wait matches'
             Assert-True ((Get-CycleEventDelivery).delivered -ge 7) 'the counts a cycle accumulated survive the waits it runs'
         } finally {
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $dir
         }
     }
 }
@@ -737,12 +735,11 @@ Describe 'Wait-ForText -SinceStepStart ignores what was already on screen' {
     }
 
     BeforeEach {
-        $script:textDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-wft-{0}-{1}" -f $PID, [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Path $script:textDir -Force | Out-Null
+        $script:textDir = New-YurunaTestTempDir -Prefix 'yuruna-wft'
     }
 
     AfterEach {
-        Remove-Item -LiteralPath $script:textDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:textDir
     }
 
     It 'exposes the parameter as a bool the sequence handler can splat' {
@@ -934,10 +931,9 @@ Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
         function Get-ProbeFailSlot { param([string]$Name) & (Get-Module Test.SequenceEngine) { param($n) $script:Fail[$n] } $Name }
     }
     BeforeEach {
-        $script:probeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-wfl-{0}-{1}" -f $PID, [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Path $script:probeDir -Force | Out-Null
+        $script:probeDir = New-YurunaTestTempDir -Prefix 'yuruna-wfl'
     }
-    AfterEach { Remove-Item -LiteralPath $script:probeDir -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:probeDir }
 
     It 'ends the wait at once on a livelocked guest when the caller asked' {
         $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -1160,10 +1156,9 @@ Describe 'Wait-ForText ends on a display the emulator keeps reporting inactive' 
         }
     }
     BeforeEach {
-        $script:probeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-wfd-{0}-{1}" -f $PID, [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Path $script:probeDir -Force | Out-Null
+        $script:probeDir = New-YurunaTestTempDir -Prefix 'yuruna-wfd'
     }
-    AfterEach { Remove-Item -LiteralPath $script:probeDir -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:probeDir }
 
     It 'ends the wait once the whole window shows no display and the second opinion finds the guest wedged' {
         $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -1278,10 +1273,9 @@ Describe 'Wait-ForText pays a capture repair''s grace only for a feed that moved
         function Get-RepairProbe { param([string]$Name) & (Get-Module Test.SequenceEngine) { param($n) $script:RepairProbe[$n] } $Name }
     }
     BeforeEach {
-        $script:repairDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-wfr-{0}-{1}" -f $PID, [guid]::NewGuid().ToString('N').Substring(0, 8))
-        New-Item -ItemType Directory -Path $script:repairDir -Force | Out-Null
+        $script:repairDir = New-YurunaTestTempDir -Prefix 'yuruna-wfr'
     }
-    AfterEach { Remove-Item -LiteralPath $script:repairDir -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:repairDir }
 
     It 'grants nothing for a repair the next frames show did not reach the feed, and keeps the run-up frames' {
         $warnings = Invoke-RepairWait -FrameMoves $false

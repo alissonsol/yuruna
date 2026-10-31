@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 421d3153-a504-4156-917e-10ff36bab08d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,11 +171,10 @@ Describe 'Get-YurunaGitCredentialArg -- makes GH_TOKEN work for plain git' {
     # These pin the -c injection that fixes it -- and, critically, that it stays
     # scoped to github.com and never embeds the token value.
     BeforeEach {
-        $script:savedToken = $env:GH_TOKEN
+        $script:savedToken = Save-YurunaTestEnvironment -Name 'GH_TOKEN'
     }
     AfterEach {
-        if ($null -eq $script:savedToken) { Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue }
-        else { $env:GH_TOKEN = $script:savedToken }
+        Restore-YurunaTestEnvironment -Saved $script:savedToken
     }
 
     It 'returns no args when GH_TOKEN is unset (plain git, unchanged)' {
@@ -202,16 +201,13 @@ Describe 'Get-YurunaGitCredentialArg -- makes GH_TOKEN work for plain git' {
             return
         }
         $env:GH_TOKEN = 'ghp_UNIT_TEST_token'
-        $prevPrompt = $env:GIT_TERMINAL_PROMPT
+        $prevPrompt = Save-YurunaTestEnvironment -Name 'GIT_TERMINAL_PROMPT'
         $env:GIT_TERMINAL_PROMPT = '0'
         try {
             $credArgs = @(Get-YurunaGitCredentialArg)
             $fill = "protocol=https`nhost=github.com`n`n"
             $out  = ($fill | & git @credArgs credential fill 2>&1 | Out-String)
-        } finally {
-            if ($null -eq $prevPrompt) { Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue }
-            else { $env:GIT_TERMINAL_PROMPT = $prevPrompt }
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $prevPrompt }
         Assert-True ($out -match 'username=x-access-token') 'git resolves the x-access-token username through the helper'
         Assert-True ($out -match 'password=ghp_UNIT_TEST_token') 'git resolves the GH_TOKEN value as the password through the helper'
     }
@@ -238,11 +234,10 @@ Describe 'Get-YurunaGhCliCredentialArg -- makes a gh CLI login work for plain gi
 
 Describe 'Get-YurunaGitAuthAttemptList -- one owner of the credential-source order' {
     BeforeEach {
-        $script:savedTokenOrder = $env:GH_TOKEN
+        $script:savedTokenOrder = Save-YurunaTestEnvironment -Name 'GH_TOKEN'
     }
     AfterEach {
-        if ($null -eq $script:savedTokenOrder) { Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue }
-        else { $env:GH_TOKEN = $script:savedTokenOrder }
+        Restore-YurunaTestEnvironment -Saved $script:savedTokenOrder
     }
     It 'is empty when the host has neither GH_TOKEN nor gh (plain git only)' {
         Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
@@ -261,11 +256,10 @@ Describe 'Get-YurunaGitAuthAttemptList -- one owner of the credential-source ord
 
 Describe 'Invoke-GitNetworkCommand -- chains the credential sources, plain git last' {
     BeforeEach {
-        $script:savedTokenChain = $env:GH_TOKEN
+        $script:savedTokenChain = Save-YurunaTestEnvironment -Name 'GH_TOKEN'
     }
     AfterEach {
-        if ($null -eq $script:savedTokenChain) { Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue }
-        else { $env:GH_TOKEN = $script:savedTokenChain }
+        Restore-YurunaTestEnvironment -Saved $script:savedTokenChain
     }
     It 'sources the ordered attempts and runs each through the prompt-proof once-runner' {
         Assert-True ($script:invokeGitNetworkText -match 'Get-YurunaGitAuthAttemptList') 'the ordered credential attempts must be sourced'
@@ -464,17 +458,14 @@ Describe 'external Git diagnostics use an invariant child locale' {
             throw 'synthetic child failure'
         }
         InModuleScope Test.HostGit {
-            $before = @{}
-            foreach ($name in @('LC_ALL', 'LANG', 'LANGUAGE')) { $before[$name] = [Environment]::GetEnvironmentVariable($name) }
+            $before = Save-YurunaTestEnvironment -Name 'LC_ALL', 'LANG', 'LANGUAGE'
             try {
                 $env:LC_ALL = 'pt_BR.UTF-8'; $env:LANG = 'de_DE.UTF-8'; $env:LANGUAGE = 'pt:de'
                 { Invoke-GitNetworkCommandOnce -GitArgs @('--version') -TimeoutSeconds 7 } | Should -Throw 'synthetic child failure'
                 $env:LC_ALL | Should -BeExactly 'pt_BR.UTF-8'
                 $env:LANG | Should -BeExactly 'de_DE.UTF-8'
                 $env:LANGUAGE | Should -BeExactly 'pt:de'
-            } finally {
-                foreach ($name in $before.Keys) { [Environment]::SetEnvironmentVariable($name, $before[$name]) }
-            }
+            } finally { Restore-YurunaTestEnvironment -Saved $before }
         }
     }
     It 'pins only the bounded Git child environment' {

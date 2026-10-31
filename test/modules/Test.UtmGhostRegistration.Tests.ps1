@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42caf871-b327-4fe1-9fdb-2ee70289ee2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,15 +60,15 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
         # No pause between delete attempts: the fake answers at once.
         $script:GhostRetryDelay = & $script:GhostDriver { $prior = $script:UtmDeleteRetryDelaySeconds; $script:UtmDeleteRetryDelaySeconds = 0; $prior }
 
-        # $PID keeps the paths distinct between concurrent runs.
-        $script:GhostRoot   = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-ghost-$PID"
+        Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+        $script:GhostRoot   = New-YurunaTestTempDir -Prefix 'yrn-ghost'
+        $script:SavedGhostEnvironment = Save-YurunaTestEnvironment -Name 'YRN_FAKE_REG', 'YRN_FAKE_STORE', 'YRN_FAKE_LOG', 'YRN_FAKE_DELETE_FAILS', 'YRN_FAKE_STATUS_MODE', 'YRN_FAKE_DENY_AFTER_DELETE'
         $script:GhostBinDir = Join-Path $script:GhostRoot 'bin'
         $script:GhostHome   = Join-Path $script:GhostRoot 'home'
         $script:GhostRegDir = Join-Path $script:GhostRoot 'registry'
         $script:GhostStore  = Join-Path $script:GhostHome 'yuruna/guest.nosync'
         $script:GhostLog    = Join-Path $script:GhostRoot 'calls.log'
-
-        Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
         # See https://yuruna.link/42e220c4-0014
         function Initialize-GhostFake {
@@ -133,14 +133,14 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
         function Invoke-WithGhostEnvironment {
             param([Parameter(Mandatory)][scriptblock]$Body)
             $prevHome = $HOME
-            $prevPath = $env:PATH
+            $prevPath = Save-YurunaTestEnvironment -Name 'PATH'
             try {
                 $env:PATH = $script:GhostBinDir + [IO.Path]::PathSeparator + $env:PATH
                 Set-Variable -Name HOME -Value $script:GhostHome -Scope Global -Force
                 return & $Body
             } finally {
                 Set-Variable -Name HOME -Value $prevHome -Scope Global -Force
-                $env:PATH = $prevPath
+                Restore-YurunaTestEnvironment -Saved $prevPath
             }
         }
 
@@ -156,12 +156,8 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
 
     AfterAll {
         if ($script:GhostDriver) { & $script:GhostDriver { param($d) $script:UtmDeleteRetryDelaySeconds = $d } $script:GhostRetryDelay }
-        foreach ($name in 'YRN_FAKE_REG', 'YRN_FAKE_STORE', 'YRN_FAKE_LOG', 'YRN_FAKE_DELETE_FAILS', 'YRN_FAKE_STATUS_MODE', 'YRN_FAKE_DENY_AFTER_DELETE') {
-            Remove-Item -Path "Env:$name" -ErrorAction SilentlyContinue
-        }
-        if ($script:GhostRoot -and (Test-Path -LiteralPath $script:GhostRoot)) {
-            Remove-Item -LiteralPath $script:GhostRoot -Recurse -Force -ErrorAction SilentlyContinue
-        }
+        Restore-YurunaTestEnvironment -Saved $script:SavedGhostEnvironment
+        Remove-YurunaTestTempDir $script:GhostRoot
     }
 
     It 'reports registration from the status probe, not from a bundle on disk' {
@@ -199,6 +195,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
         # store.
         Initialize-GhostFake
         New-GhostRegistration -VMName 'immovable-vm'
+        $knobs = Save-YurunaTestEnvironment -Name 'YRN_FAKE_DELETE_FAILS'
         $env:YRN_FAKE_DELETE_FAILS = '1'
         try {
             Invoke-WithGhostEnvironment {
@@ -206,7 +203,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
                 Assert-True (-not $ok) 'a delete that never took is reported as a failure'
                 Assert-True (Test-UtmVMRegistered -VMName 'immovable-vm') 'the name is still registered'
             }
-        } finally { $env:YRN_FAKE_DELETE_FAILS = '' }
+        } finally { Restore-YurunaTestEnvironment -Saved $knobs }
         Assert-StringEqual 0 (Get-GhostStoreCount) -Because 'the placeholder is removed once it is clear the delete will not use it'
     }
 
@@ -217,13 +214,14 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
         # still answers `utmctl status`, so it reads as a reusable VM.
         Initialize-GhostFake
         New-GhostRegistration -VMName 'locked-vm' -WithBundle
+        $knobs = Save-YurunaTestEnvironment -Name 'YRN_FAKE_DELETE_FAILS'
         $env:YRN_FAKE_DELETE_FAILS = '1'
         try {
             Invoke-WithGhostEnvironment {
                 $ok = Remove-UtmVMRegistration -VMName 'locked-vm' -Confirm:$false -InformationAction SilentlyContinue
                 Assert-True (-not $ok) 'the failure is reported'
             }
-        } finally { $env:YRN_FAKE_DELETE_FAILS = '' }
+        } finally { Restore-YurunaTestEnvironment -Saved $knobs }
         Assert-StringEqual 1 (Get-GhostStoreCount) -Because 'the bundle stays, so the registration stays removable'
     }
 
@@ -242,13 +240,14 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
         # absent would report a registration gone that nobody could see.
         Initialize-GhostFake
         New-GhostRegistration -VMName 'denied-vm'
+        $knobs = Save-YurunaTestEnvironment -Name 'YRN_FAKE_STATUS_MODE'
         $env:YRN_FAKE_STATUS_MODE = 'deny0'
         try {
             Invoke-WithGhostEnvironment {
                 $ok = Remove-UtmVMRegistration -VMName 'denied-vm' -Confirm:$false -WarningAction SilentlyContinue
                 Assert-True (-not $ok) 'an unreadable registration is not a removed one'
             }
-        } finally { $env:YRN_FAKE_STATUS_MODE = '' }
+        } finally { Restore-YurunaTestEnvironment -Saved $knobs }
         Assert-Equal 0 (Get-GhostCall 'delete').Count -Because 'nothing is deleted on an unknown state'
         Assert-StringEqual 0 (Get-GhostStoreCount) -Because 'no placeholder is created'
     }
@@ -259,6 +258,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
         # the delete leaves the registration unknown, so the bundle must stay.
         Initialize-GhostFake
         New-GhostRegistration -VMName 'late-denied-vm' -WithBundle
+        $knobs = Save-YurunaTestEnvironment -Name 'YRN_FAKE_DELETE_FAILS', 'YRN_FAKE_DENY_AFTER_DELETE'
         $env:YRN_FAKE_DELETE_FAILS = '1'
         $env:YRN_FAKE_DENY_AFTER_DELETE = '1'
         try {
@@ -271,8 +271,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
                 Assert-True (-not @($removed)[-1]) 'the removal reports failure'
             }
         } finally {
-            $env:YRN_FAKE_DELETE_FAILS = ''
-            $env:YRN_FAKE_DENY_AFTER_DELETE = ''
+            Restore-YurunaTestEnvironment -Saved $knobs
         }
         Assert-StringEqual 1 (Get-GhostStoreCount) -Because 'the bundle is kept under a registration that may still exist'
     }
@@ -289,10 +288,11 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
         # the two readings of one answer are pinned together.
         Initialize-GhostFake
         if ($Registered) { New-GhostRegistration -VMName 'state-vm' }
+        $knobs = Save-YurunaTestEnvironment -Name 'YRN_FAKE_STATUS_MODE'
         $env:YRN_FAKE_STATUS_MODE = $Mode
         try {
             $state = Invoke-WithGhostEnvironment { Get-VMState -VMName 'state-vm' }
-        } finally { $env:YRN_FAKE_STATUS_MODE = '' }
+        } finally { Restore-YurunaTestEnvironment -Saved $knobs }
         Assert-StringEqual $Expected $state -Because $Case
     }
 
@@ -300,6 +300,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
         if (-not $script:GhostCanShim) { Set-ItResult -Skipped -Because $script:GhostSkip; return }
         Initialize-GhostFake
         New-GhostRegistration -VMName 'state-vm'
+        $knobs = Save-YurunaTestEnvironment -Name 'YRN_FAKE_STATUS_MODE'
         $env:YRN_FAKE_STATUS_MODE = 'hang'
         try {
             Invoke-WithGhostEnvironment {
@@ -309,7 +310,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
                 Assert-StringEqual 'unknown' $record.State
                 Assert-StringEqual 'timeout' $record.Reason
             }
-        } finally { $env:YRN_FAKE_STATUS_MODE = '' }
+        } finally { Restore-YurunaTestEnvironment -Saved $knobs }
     }
 }
 

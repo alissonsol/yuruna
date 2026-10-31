@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4258b834-1062-42d9-98d6-f3e2b1ac55f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,19 +121,14 @@ Describe 'Native installer fixture preparation' {
         $index = if ($previousCount) { [int]$previousCount } else { 0 }
         $keyName = "GIT_CONFIG_KEY_$index"
         $valueName = "GIT_CONFIG_VALUE_$index"
-        $previousKey = [Environment]::GetEnvironmentVariable($keyName)
-        $previousValue = [Environment]::GetEnvironmentVariable($valueName)
+        $saved = Save-YurunaTestEnvironment -Name 'GIT_CONFIG_COUNT', $keyName, $valueName
         try {
             [Environment]::SetEnvironmentVariable($keyName, "url.$([uri]::new($upstream).AbsoluteUri).insteadOf")
             [Environment]::SetEnvironmentVariable($valueName, 'https://github.com/alissonsol/yuruna.git')
             $env:GIT_CONFIG_COUNT = [string]($index + 1)
             $advanced = Invoke-NativeInstallFixture -Action AdvanceOrigin -ExtraArguments @('-CandidateTree', $tree)
             $advanced.ExitCode | Should -Be 0 -Because $advanced.Output
-        } finally {
-            $env:GIT_CONFIG_COUNT = $previousCount
-            [Environment]::SetEnvironmentVariable($keyName, $previousKey)
-            [Environment]::SetEnvironmentVariable($valueName, $previousValue)
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
         ([string](& git -C $controlled rev-parse refs/heads/main)).Trim() | Should -BeExactly $candidate
         ([string](& git -C $script:Target rev-parse HEAD)).Trim() | Should -BeExactly $script:OldCommit
         ([string](& git -C $script:Old rev-parse HEAD)).Trim() | Should -BeExactly $script:OldCommit

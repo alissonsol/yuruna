@@ -31,19 +31,19 @@ func handoverState(t *testing.T) *poolState {
 	s := newPoolState("default", 8080)
 	s.handoverFile = filepath.Join(t.TempDir(), "handovers.json")
 	s.authToken = "test-secret"
-	s.hosts[oldHandoverID] = &hostView{HostId: oldHandoverID, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: false}
-	s.hosts[newHandoverID] = &hostView{HostId: newHandoverID, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: true}
+	s.view().Hosts[oldHandoverID] = &hostView{HostId: oldHandoverID, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: false}
+	s.view().Hosts[newHandoverID] = &hostView{HostId: newHandoverID, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: true}
 	return s
 }
 
 func TestHandoverPersistsRetirementAndCombinesCounts(t *testing.T) {
 	s := handoverState(t)
-	s.pass[oldHandoverID], s.pass[newHandoverID] = 3, 2
-	s.fail[oldHandoverID], s.fail[newHandoverID] = 1, 4
+	s.countCycles(oldHandoverID, 3, 1)
+	s.countCycles(newHandoverID, 2, 4)
 	if err := s.handoverHost(oldHandoverID, newHandoverID); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := s.hosts[oldHandoverID]; ok {
+	if _, ok := s.view().Hosts[oldHandoverID]; ok {
 		t.Fatal("retired host still appears in live state")
 	}
 	if base, _ := s.resolveHostBase(oldHandoverID, ""); base != "http://192.0.2.10:8080" {
@@ -83,10 +83,10 @@ func TestHandoverPersistsRetirementAndCombinesCounts(t *testing.T) {
 	if err := restarted.loadHandovers(); err != nil {
 		t.Fatal(err)
 	}
-	if restarted.seedHostStubLocked(oldHandoverID, "http://192.0.2.10:8080", time.Now()) {
+	if restarted.seedHostStubLocked(restarted.view(), oldHandoverID, "http://192.0.2.10:8080", time.Now()) {
 		t.Fatal("Loki presence restored a retired host")
 	}
-	if got := canonicalHostID(restarted.handovers, oldHandoverID); got != newHandoverID {
+	if got := restarted.view().CanonicalHostID(oldHandoverID); got != newHandoverID {
 		t.Fatalf("canonical ID after restart = %s", got)
 	}
 }
@@ -96,9 +96,9 @@ func TestHandoverRejectsUnsafePairsAndFailedPersistence(t *testing.T) {
 		name string
 		edit func(*poolState)
 	}{
-		{"old still reachable", func(s *poolState) { s.hosts[oldHandoverID].Reachable = true }},
-		{"new unreachable", func(s *poolState) { s.hosts[newHandoverID].Reachable = false }},
-		{"different address", func(s *poolState) { s.hosts[newHandoverID].BaseURL = "http://192.0.2.11:8080" }},
+		{"old still reachable", func(s *poolState) { s.view().Hosts[oldHandoverID].Reachable = true }},
+		{"new unreachable", func(s *poolState) { s.view().Hosts[newHandoverID].Reachable = false }},
+		{"different address", func(s *poolState) { s.view().Hosts[newHandoverID].BaseURL = "http://192.0.2.11:8080" }},
 		{"state directory missing", func(s *poolState) { s.handoverFile = filepath.Join(t.TempDir(), "missing", "handovers.json") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -107,7 +107,7 @@ func TestHandoverRejectsUnsafePairsAndFailedPersistence(t *testing.T) {
 			if err := s.handoverHost(oldHandoverID, newHandoverID); err == nil {
 				t.Fatal("unsafe or non-durable handover accepted")
 			}
-			if s.handovers[oldHandoverID] != "" || s.hosts[oldHandoverID] == nil {
+			if s.view().ReplacedBy(oldHandoverID) != "" || s.view().Hosts[oldHandoverID] == nil {
 				t.Fatal("state changed before durable acceptance")
 			}
 		})
@@ -132,7 +132,7 @@ func TestHandoverHTTPAuthAndHistory(t *testing.T) {
 	malformed.Header.Set("Authorization", "Bearer test-secret")
 	bad := httptest.NewRecorder()
 	s.handleHandoverHost(bad, malformed)
-	if bad.Code != http.StatusBadRequest || s.handovers[oldHandoverID] != "" {
+	if bad.Code != http.StatusBadRequest || s.view().ReplacedBy(oldHandoverID) != "" {
 		t.Fatalf("multiple JSON documents were accepted: %d", bad.Code)
 	}
 	if got := request("test-secret").Code; got != http.StatusOK {
@@ -172,8 +172,8 @@ func TestHandoverChainReplacesLedgerAndPreservesAllHistoricalIDs(t *testing.T) {
 	if err := s.handoverHost(oldHandoverID, newHandoverID); err != nil {
 		t.Fatal(err)
 	}
-	s.hosts[newHandoverID].Reachable = false
-	s.hosts[thirdID] = &hostView{HostId: thirdID, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: true}
+	s.view().Hosts[newHandoverID].Reachable = false
+	s.view().Hosts[thirdID] = &hostView{HostId: thirdID, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10", Reachable: true}
 	if err := s.handoverHost(newHandoverID, thirdID); err != nil {
 		t.Fatalf("second handover must replace the existing ledger: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestHandoverChainReplacesLedgerAndPreservesAllHistoricalIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{oldHandoverID, newHandoverID} {
-		if got := canonicalHostID(restarted.handovers, id); got != thirdID {
+		if got := restarted.view().CanonicalHostID(id); got != thirdID {
 			t.Fatalf("%s resolves to %s, want %s", id, got, thirdID)
 		}
 	}

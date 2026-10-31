@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f3d4d7-d8b5-4931-a70a-4825cc9dc2b2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,7 @@ function New-CrashedCycleFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: builds a throwaway temp log dir the calling It block removes in its finally.')]
     param([switch]$WithoutMarker)
-    $logDir = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-recovery-' + [guid]::NewGuid().ToString('N'))
+    $logDir = New-YurunaTestTempDir -Prefix 'yrn-recovery'
     $folder = Join-Path $logDir ($script:CycleLeaf + '.incomplete')
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
     # A transcript sibling proves the folder rename carries content along.
@@ -80,7 +80,7 @@ Describe 'Boot recovery detects a crashed cycle through its hidden marker' {
             Assert-Equal -Expected '.incomplete' -Actual $orphans[0].Name -Because 'the marker FILE is the signal when it survived the crash'
             Assert-True ($orphans[0] -is [System.IO.FileInfo]) `
                 'a dot-prefixed name is hidden to the provider -- the lookup must pass -Force or it yields nothing at all'
-        } finally { Remove-Item -LiteralPath $fx.LogDir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx.LogDir }
     }
 
     It 'falls back to the folder itself when the marker is already gone' {
@@ -89,7 +89,7 @@ Describe 'Boot recovery detects a crashed cycle through its hidden marker' {
             $orphans = @(Find-OrphanIncompleteCycle -LogDir $fx.LogDir)
             Assert-Equal -Expected 1 -Actual $orphans.Count -Because 'the .incomplete SUFFIX alone still signals a crash'
             Assert-True ($orphans[0] -is [System.IO.DirectoryInfo]) 'with no marker file the folder is the signal'
-        } finally { Remove-Item -LiteralPath $fx.LogDir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx.LogDir }
     }
 
     It 'ignores a cleanly-closed cycle folder' {
@@ -100,7 +100,7 @@ Describe 'Boot recovery detects a crashed cycle through its hidden marker' {
             Remove-Item -LiteralPath (Join-Path -Path $closed -ChildPath '.incomplete') -Force
             Assert-Equal -Expected 0 -Actual @(Find-OrphanIncompleteCycle -LogDir $fx.LogDir).Count `
                 -Because 'no suffix and no marker means the cycle closed cleanly'
-        } finally { Remove-Item -LiteralPath $fx.LogDir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx.LogDir }
     }
 }
 
@@ -115,7 +115,7 @@ Describe 'Boot recovery archives what it detects (a second sweep is a no-op)' {
             Assert-Equal -Expected 'marker_file' -Actual $result.signal -Because 'the marker file carries the forensic payload'
             Assert-True ($result.archivedAs -match '^\.aborted\..*\.json$') `
                 "the payload must be archived beside the cycle, got '$($result.archivedAs)'"
-        } finally { Remove-Item -LiteralPath $fx.LogDir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx.LogDir }
     }
 
     It 'carries the marker payload into the archive and leaves the sweep with nothing to do' {
@@ -143,7 +143,7 @@ Describe 'Boot recovery archives what it detects (a second sweep is a no-op)' {
                 -Because 'the archived payload lands beside the cycle it describes'
             Assert-Equal -Expected 0 -Actual @(Find-OrphanIncompleteCycle -LogDir $fx.LogDir).Count `
                 -Because 'a second sweep must be a no-op'
-        } finally { Remove-Item -LiteralPath $fx.LogDir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx.LogDir }
     }
 
     It 'archives the marker-less shape by renaming the folder alone' {
@@ -155,6 +155,6 @@ Describe 'Boot recovery archives what it detects (a second sweep is a no-op)' {
             Assert-True ($result.cycleFolder -match '\.aborted\.') 'the folder must still leave the .incomplete state'
             Assert-Equal -Expected 0 -Actual @(Find-OrphanIncompleteCycle -LogDir $fx.LogDir).Count `
                 -Because 'a second sweep must be a no-op'
-        } finally { Remove-Item -LiteralPath $fx.LogDir -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally { Remove-YurunaTestTempDir $fx.LogDir }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42fba86f-4ea4-4dbf-82c2-0ea57b04218c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,9 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 
 Describe 'Start/Stop-RunnerHeartbeat' {
     It 'seeds the file, advances it while running, then freezes on Stop' {
-        $f = [System.IO.Path]::GetTempFileName()
+        $dir = New-YurunaTestTempDir -Prefix 'yrn-beat-file'
+        $f = Join-Path $dir 'runner.stepHeartbeat'
+        [System.IO.File]::WriteAllText($f, '')
         try {
             Start-RunnerHeartbeat -Path $f -DueMs 40 -PeriodMs 40
             Start-Sleep -Milliseconds 250
@@ -54,7 +56,7 @@ Describe 'Start/Stop-RunnerHeartbeat' {
             Assert-Equal -Expected $mtC -Actual $mtD -Because 'mtime frozen after Stop'
         } finally {
             Stop-RunnerHeartbeat
-            Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $dir
         }
     }
     It 'stops the static timer after a forced module reload' {
@@ -77,14 +79,16 @@ Describe 'Start/Stop-RunnerHeartbeat' {
         Assert-True $true 'no throw on repeated Stop'
     }
     It 'Get-RunnerHeartbeatError returns a clean count on a healthy run' {
-        $f = [System.IO.Path]::GetTempFileName()
+        $dir = New-YurunaTestTempDir -Prefix 'yrn-beat-file'
+        $f = Join-Path $dir 'runner.stepHeartbeat'
+        [System.IO.File]::WriteAllText($f, '')
         try {
             Start-RunnerHeartbeat -Path $f -DueMs 40 -PeriodMs 40
             Start-Sleep -Milliseconds 200
             Assert-Equal -Expected 0 -Actual (Get-RunnerHeartbeatError) -Because 'no write errors on a writable path'
         } finally {
             Stop-RunnerHeartbeat
-            Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $dir
         }
     }
 }
@@ -95,11 +99,10 @@ Describe 'Start/Stop-RunnerHeartbeat' {
 # a wedged runspace, and the error reporting guarded a file nothing reads.
 Describe 'Write-RunnerStepHeartbeat reports a heartbeat it cannot write' {
     BeforeEach {
-        $script:BeatDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-beat-{0}" -f [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $script:BeatDir -Force
+        $script:BeatDir = New-YurunaTestTempDir -Prefix 'yrn-beat'
         & (Get-Module Test.RunnerHeartbeat) { $script:StepHeartbeatConsecutiveErrors = 0; $script:StepHeartbeatLastReportUtc = [DateTime]::MinValue }
     }
-    AfterEach { Remove-Item -LiteralPath $script:BeatDir -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:BeatDir }
 
     It 'counts failures, warns once a minute with an error log line, and resets on the next good write' {
         # A directory where the file belongs: every write fails the way a lock does.

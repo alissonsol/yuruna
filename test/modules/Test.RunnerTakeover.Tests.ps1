@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42213d20-67de-42c8-8f4a-9f107b0b9088
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,12 +50,12 @@ Import-Module (Join-Path $PSScriptRoot 'Test.RunnerOuterLoop.psm1') -Global -Dis
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
             Justification = 'A test fixture that starts two throwaway sleeps and kills them in the same test; a confirmation prompt would only stall an unattended suite.')]
         param()
-        $stamp  = "yuruna-tree-$PID-$(Get-Random)"
-        $marker = Join-Path ([System.IO.Path]::GetTempPath()) "$stamp.pid"
+        $dir    = New-YurunaTestTempDir -Prefix 'yuruna-tree'
+        $marker = Join-Path $dir 'child.pid'
         # A script FILE, not -c with an inline program: Start-Process joins
         # ArgumentList with spaces and quotes nothing, so an inline shell
         # program is re-split on its own spaces and sh runs only the first word.
-        $shPath = Join-Path ([System.IO.Path]::GetTempPath()) "$stamp.sh"
+        $shPath = Join-Path $dir 'tree.sh'
         Set-Content -LiteralPath $shPath -Value @(
             'sleep 300 &'
             "echo `$! > '$marker'"
@@ -69,8 +69,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.RunnerOuterLoop.psm1') -Global -Dis
                 try { $childPid = [int]((Get-Content -LiteralPath $marker -Raw).Trim()) } catch { $childPid = 0 }
             }
         }
-        Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $shPath -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $dir
         return [pscustomobject]@{ ParentPid = $parent.Id; ChildPid = $childPid }
     }
 
@@ -81,9 +80,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.RunnerOuterLoop.psm1') -Global -Dis
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
             Justification = 'A test fixture that starts throwaway sleeps and kills them in the same test; a confirmation prompt would only stall an unattended suite.')]
         param([string[]]$Lines, [string[]]$Markers, [int]$WaitMilliseconds = 4000)
-        $stamp = "yuruna-tree-$PID-$(Get-Random)"
-        $dir = Join-Path ([System.IO.Path]::GetTempPath()) $stamp
-        $null = New-Item -ItemType Directory -Path $dir -Force
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-tree'
         $exports = @(foreach ($name in $Markers) { "M_$name='$(Join-Path $dir "$name.pid")'; export M_$name" })
         $shPath = Join-Path $dir 'tree.sh'
         Set-Content -LiteralPath $shPath -Value (@($exports) + @($Lines)) -Encoding ascii
@@ -144,7 +141,7 @@ Describe 'Stop-YurunaProcessTree' {
             Assert-True (-not (Test-PidAlive $tree.Pids['grandchild'])) 'the GRANDCHILD must be gone too.'
         } finally {
             foreach ($id in @($tree.Pids.Values) + $tree.ParentPid) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
-            Remove-Item -LiteralPath $tree.Dir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $tree.Dir
         }
     }
 
@@ -169,7 +166,7 @@ Describe 'Stop-YurunaProcessTree' {
             Stop-Process -Id $tree.ParentPid -Force -ErrorAction SilentlyContinue
             $marker = Join-Path $tree.Dir 'late.pid'
             if (Test-Path -LiteralPath $marker) { Stop-Process -Id ([int]([string](Get-Content -LiteralPath $marker -Raw)).Trim()) -Force -ErrorAction SilentlyContinue }
-            Remove-Item -LiteralPath $tree.Dir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $tree.Dir
         }
     }
 
@@ -190,7 +187,7 @@ Describe 'Stop-YurunaProcessTree' {
             Assert-True (-not (Test-PidAlive $tree.Pids['grandchild'])) 'the grandchild must be gone.'
         } finally {
             foreach ($id in @($tree.Pids.Values) + $tree.ParentPid) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
-            Remove-Item -LiteralPath $tree.Dir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $tree.Dir
         }
     }
 

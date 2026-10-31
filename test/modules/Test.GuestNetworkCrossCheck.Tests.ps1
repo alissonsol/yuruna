@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 422dbaf3-8d25-41fa-abc0-e70b2229b2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,30 +99,6 @@ BeforeAll {
         else { $value = [bool]$Ping; Mock -CommandName Test-Connection -ModuleName $script:ModuleName -MockWith { $value }.GetNewClosure() }
         if ($Neighbor -eq 'throw') { Mock -CommandName Get-GuestNetworkCrossCheckNeighborState -ModuleName $script:ModuleName -MockWith { throw 'neighbor exploded' } }
         else { $state = $Neighbor; Mock -CommandName Get-GuestNetworkCrossCheckNeighborState -ModuleName $script:ModuleName -MockWith { $state }.GetNewClosure() }
-    }
-    # One-shot HTTP 200 on a listener the caller already started, with no
-    # Content-Type header, the way the caching proxy serves /cache-health.
-    function Start-UntypedHttpResponder {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
-            Justification = 'Both values arrive through -ArgumentList into the job param() block; the analyzer does not follow that path.')]
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-            Justification = 'Test helper: serves one response on a loopback listener the test owns.')]
-        param([System.Net.Sockets.TcpListener]$Listener, [string]$Body)
-        return Start-ThreadJob -ScriptBlock {
-            param($Listener, $Body)
-            try {
-                $client = $Listener.AcceptTcpClient()
-                try {
-                    $stream = $client.GetStream()
-                    [void]$stream.Read([byte[]]::new(4096), 0, 4096)
-                    $payload = [System.Text.Encoding]::UTF8.GetBytes($Body)
-                    $head = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: $($payload.Length)`r`nConnection: close`r`n`r`n")
-                    $stream.Write($head, 0, $head.Length)
-                    $stream.Write($payload, 0, $payload.Length)
-                    $stream.Flush()
-                } finally { $client.Close() }
-            } finally { $Listener.Stop() }
-        } -ArgumentList $Listener, $Body
     }
 }
 
@@ -264,16 +240,15 @@ Describe 'the check probes both ends and lands its files' {
     }
 
     It 'records the first line of a page served without a Content-Type as its text' {
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
-        $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
-        $job = Start-UntypedHttpResponder -Listener $listener -Body "yuruna caching-proxy health -- 2026-10-29T04:15:00Z`n`nzot /v2/ answered"
+        # No Content-Type header, the way the caching proxy serves /cache-health.
+        $responder = Start-YurunaTestHttpResponder -Reply (New-YurunaTestHttpReply -Body "yuruna caching-proxy health -- 2026-10-29T04:15:00Z`n`nzot /v2/ answered")
+        $port = $responder.Port
         try {
             $result = & (Get-Module $script:ModuleName) {
                 param([int]$ProbePort)
                 Test-GuestNetworkCrossCheckHttp -Uri "http://127.0.0.1:$ProbePort/cache-health" -TimeoutSec 5
             } $port
-        } finally { $listener.Stop(); $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        } finally { $null = Stop-YurunaTestHttpResponder $responder }
         $result.status | Should -Be 200
         $result.firstLine | Should -BeExactly 'yuruna caching-proxy health -- 2026-10-29T04:15:00Z' -Because 'Invoke-WebRequest returns an untyped body as bytes, which a [string] cast lists as numbers'
     }
@@ -337,6 +312,7 @@ Describe 'proxy listener evidence is separate from host reachability' {
     }
 
     It 'honors environment port overrides without loading a companion module' {
+        $ports = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT', 'YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT'
         $env:YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT = '5128'
         $env:YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT = '5129'
         try {
@@ -344,16 +320,13 @@ Describe 'proxy listener evidence is separate from host reachability' {
                 -CacheHost '192.0.2.42' -GuestAddress '192.0.2.129' -TcpProbe $script:OpenProbe
             $result.cacheHttpTcp.port | Should -Be 5128
             $result.cacheHttpsTcp.port | Should -Be 5129
-        } finally {
-            $env:YURUNA_CACHING_PROXY_SERVICE_HTTP_PORT = ''
-            $env:YURUNA_CACHING_PROXY_SERVICE_HTTPS_PORT = ''
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $ports }
     }
 }
 
 Describe 'missing inputs are readings, not faults' {
-    BeforeEach { $script:SavedCacheIp = $env:YURUNA_CACHING_PROXY_SERVICE_IP }
-    AfterEach { $env:YURUNA_CACHING_PROXY_SERVICE_IP = $script:SavedCacheIp }
+    BeforeEach { $script:SavedCacheIp = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP' }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedCacheIp }
 
     It 'reads guest-unreachable-proxy-unknown with no cache host anywhere, without probing HTTP' {
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''

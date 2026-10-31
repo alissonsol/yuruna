@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42fa2e2a-4fa0-4919-9c5c-c40875c57b71
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ BeforeAll {
         'broken/bad.sh'   = "#!/bin/bash`nset -euo pipefail`n`nif [ -n `"`$1`" ; then`n  echo `"yes`"`nfi`n"
         'noisy/noisy.sh'  = "#!/bin/bash`nset -euo pipefail`n`ntarget=`$1`necho `$target`n"
         'hook/pre-commit' = "#!/bin/sh`nif [ -z `"`$1`" ; then`n  exit 1`nfi`nexit 0`n"
-        'plain/VERSION'   = "2026.10.30`n"
+        'plain/VERSION'   = "2026.10.31`n"
         'plain/notes'     = "not a shell script`n"
     }
 
@@ -110,13 +110,13 @@ BeforeAll {
             [Parameter(Position = 0)][string[]]$Arguments = @(),
             [string]$SearchPath
         )
-        $restore = $env:PATH
+        $restore = Save-YurunaTestEnvironment -Name 'PATH'
         try {
             if ($PSBoundParameters.ContainsKey('SearchPath')) { $env:PATH = $SearchPath }
             $output = & $script:Pwsh -NoProfile -File $script:SandboxGate @Arguments 2>&1
             [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($output | Out-String) }
         } finally {
-            $env:PATH = $restore
+            Restore-YurunaTestEnvironment -Saved $restore
         }
     }
 }
@@ -208,10 +208,12 @@ Describe 'explicit scopes name one file or directory and always select source' {
 
     It 'refuses an absolute scope outside the repository that does not exist' {
         if ($script:GateBlocker) { Set-ItResult -Skipped -Because $script:GateBlocker; return }
-        $missing = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-absent-' + [Guid]::NewGuid().ToString('n') + '.sh')
-        $run = Invoke-GateUnderTest @('-Path', $missing)
-        Assert-Equal 2 $run.ExitCode "A missing external path must fail. Output: $($run.Output)"
-        Assert-Match 'does not exist' $run.Output 'The refusal must say the scope does not exist.'
+        $base = New-YurunaTestTempDir -Prefix 'yuruna-absent'
+        try {
+            $run = Invoke-GateUnderTest @('-Path', (Join-Path $base 'absent.sh'))
+            Assert-Equal 2 $run.ExitCode "A missing external path must fail. Output: $($run.Output)"
+            Assert-Match 'does not exist' $run.Output 'The refusal must say the scope does not exist.'
+        } finally { Remove-YurunaTestTempDir $base }
     }
 }
 

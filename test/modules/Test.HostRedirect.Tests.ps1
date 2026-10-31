@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42059317-b175-4928-938e-8776d088f5e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -103,7 +103,7 @@ $note = '#requires -RunAsAdministrator'
 Write-Output $note
 '@
 
-    $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-redirect-' + [guid]::NewGuid().ToString('N'))
+    $root = New-YurunaTestTempDir -Prefix 'yrn-redirect'
     New-Item -ItemType Directory -Path (Join-Path $root 'test/modules') -Force | Out-Null
     Copy-Item (Join-Path $repoRoot 'test/modules/Test.HostDetection.psm1') (Join-Path $root 'test/modules') -Force
     # The relocated host detector carries its real rendering dependencies,
@@ -135,7 +135,7 @@ function Remove-RedirectFixture {
     # fixture exercises its own complete relocated checkout.
     Get-Module -All | Where-Object { $_.Path -and $_.Path.StartsWith($Fixture.Root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::Ordinal) } |
         Remove-Module -Force
-    Remove-Item -LiteralPath $Fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-YurunaTestTempDir $Fixture.Root
 }
 }
 

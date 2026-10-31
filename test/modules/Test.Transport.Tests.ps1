@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42869a92-a8d2-410d-9364-cdfba1a4ed8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -318,22 +318,18 @@ Describe 'VNC key taps reach the server with their release' {
 
     It 'puts a down KeyEvent and then an up KeyEvent for the same keysym on the wire' {
         . ([scriptblock]::Create((Get-TransportFunctionText -Name 'Send-VncKeyTap')))
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
+        $pair = New-YurunaTestSocketPair
+        $client = $pair.Client
+        $server = $pair.Server
         try {
-            $client = [System.Net.Sockets.TcpClient]::new()
-            $client.Connect([System.Net.IPAddress]::Loopback, ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port)
-            $server = $listener.AcceptTcpClient()
-            try {
-                Send-VncKeyTap -Client $client -KeySym 0x70
-                $received = [byte[]]::new(16)
-                $stream = $server.GetStream()
-                $stream.ReadTimeout = 5000
-                $read = 0
-                while ($read -lt 16) { $got = $stream.Read($received, $read, 16 - $read); if ($got -le 0) { break }; $read += $got }
-                Assert-Equal -Expected '04010000000000700400000000000070' -Actual ([Convert]::ToHexString($received)) -Because 'down(p) then up(p), RFB KeyEvent layout'
-            } finally { $server.Dispose(); $client.Dispose() }
-        } finally { $listener.Stop() }
+            Send-VncKeyTap -Client $client -KeySym 0x70
+            $received = [byte[]]::new(16)
+            $stream = $server.GetStream()
+            $stream.ReadTimeout = 5000
+            $read = 0
+            while ($read -lt 16) { $got = $stream.Read($received, $read, 16 - $read); if ($got -le 0) { break }; $read += $got }
+            Assert-Equal -Expected '04010000000000700400000000000070' -Actual ([Convert]::ToHexString($received)) -Because 'down(p) then up(p), RFB KeyEvent layout'
+        } finally { $server.Dispose(); $client.Dispose() }
     }
 
     It 'turns off Nagle on the VNC connection' {
@@ -389,8 +385,7 @@ function Format-YurunaOperatorMessage { param($Key, $Arguments) $null = $Argumen
     }
 
     It 'opens a new connection for the next key instead of writing it into the closed one' {
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
         $taps = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
         $server = [powershell]::Create()
         try {
@@ -419,25 +414,21 @@ function Format-YurunaOperatorMessage { param($Key, $Arguments) $null = $Argumen
     }
 
     It 'tells an open connection from one its server closed, after reading what the server sent unasked' {
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
+        $pair = New-YurunaTestSocketPair
+        $client = $pair.Client
+        $peer = $pair.Server
         try {
-            $client = [System.Net.Sockets.TcpClient]::new()
-            $client.Connect([System.Net.IPAddress]::Loopback, ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port)
-            $peer = $listener.AcceptTcpClient()
-            try {
-                Assert-True (& $script:wireModule { param($c) Test-VncConnectionOpen -Client $c } $client) 'an idle open connection is open'
-                # An RFB Bell message: one byte the server may send at any time.
-                $peer.GetStream().WriteByte(2)
-                $deadline = [DateTime]::UtcNow.AddSeconds(10)
-                while ($client.Available -lt 1 -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
-                Assert-True (& $script:wireModule { param($c) Test-VncConnectionOpen -Client $c } $client) 'a connection with a message waiting is open'
-                Assert-Equal -Expected 0 -Actual $client.Available -Because 'the unasked message is read and dropped'
-                $peer.Dispose()
-                while (-not $client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
-                Assert-True (-not (& $script:wireModule { param($c) Test-VncConnectionOpen -Client $c } $client)) 'a connection its server closed is not open'
-            } finally { $peer.Dispose(); $client.Dispose() }
-        } finally { $listener.Stop() }
+            Assert-True (& $script:wireModule { param($c) Test-VncConnectionOpen -Client $c } $client) 'an idle open connection is open'
+            # An RFB Bell message: one byte the server may send at any time.
+            $peer.GetStream().WriteByte(2)
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            while ($client.Available -lt 1 -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+            Assert-True (& $script:wireModule { param($c) Test-VncConnectionOpen -Client $c } $client) 'a connection with a message waiting is open'
+            Assert-Equal -Expected 0 -Actual $client.Available -Because 'the unasked message is read and dropped'
+            $peer.Dispose()
+            while (-not $client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+            Assert-True (-not (& $script:wireModule { param($c) Test-VncConnectionOpen -Client $c } $client)) 'a connection its server closed is not open'
+        } finally { $peer.Dispose(); $client.Dispose() }
     }
 }
 

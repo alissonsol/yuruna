@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b7c9e1-5a4d-4f83-9c26-7d1e08a35b44
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -154,7 +154,7 @@ Describe 'Set-MacUtmctlLink' {
         # The macOS path runs against stand-in tools: only the platform gate
         # and the bundle location are replaced, in the module's own scope.
         Import-Module (Join-Path $PSScriptRoot 'Test.MacUtmFakeHost.psm1') -Force -Global -DisableNameChecking
-        $fake = New-MacUtmFakeHost -Root (Join-Path ([IO.Path]::GetTempPath()) ("yrn-maclink-" + [guid]::NewGuid().ToString('N')))
+        $fake = New-MacUtmFakeHost -Root (New-YurunaTestTempDir -Prefix 'yrn-maclink')
         $condition = (Get-Command -Name 'Set-MacUtmctlLink').Module
         $saved = & $condition { @{ Gate = ${function:Test-MacHostPlatform}; Bundle = $script:MacUtmctlBundlePath } }
         Enter-MacUtmFakeHost -FakeHost $fake -Utmctl 'bundle'

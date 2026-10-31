@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 421ee60b-7cf9-4ac6-8c6b-77960d28d454
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,7 @@ $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.HostContract.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.RecoveryContract.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Install-HostStub {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -176,14 +177,13 @@ Describe 'Stop-ConcurrentVM does not claim a clean host it never saw' {
 Describe 'Invoke-HostVmAdmission' {
     BeforeEach {
         Install-HostStub
-        $script:Runtime = Join-Path ([System.IO.Path]::GetTempPath()) ('vmadm-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Runtime -Force | Out-Null
+        $script:Runtime = New-YurunaTestTempDir -Prefix 'vmadm'
         Mock -ModuleName Test.HostContract Write-Warning { }
         $script:Record = Join-Path $script:Runtime 'vm-admission.json'
     }
     AfterEach {
         Remove-HostStub
-        Remove-Item -LiteralPath $script:Runtime -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Runtime
     }
 
     It 'lets a clean host through and records that it did' {
@@ -276,12 +276,11 @@ Describe 'Invoke-HostVmAdmission' {
 
 Describe 'Read-VmAdmissionRecord' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmrec-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'vmrec'
         $script:File = Join-Path $script:Dir 'vm-admission.json'
         $script:Spawned = [datetime]::UtcNow.AddMinutes(-5)
     }
-    AfterEach { Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue }
+    AfterEach { Remove-YurunaTestTempDir $script:Dir }
 
     It 'reports a refusal recorded after the cycle was spawned' {
         $stamp = [datetime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)

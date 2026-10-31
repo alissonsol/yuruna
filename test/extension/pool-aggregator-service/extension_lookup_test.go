@@ -22,11 +22,11 @@ func TestExtensionHostsResolvesStashAndPoolControlService(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "422dd0cac87e4cc6831c3228f12ae689"
 	now := time.Now()
-	s.announce[announceKey(hid, stashArea)] = &announceView{
+	s.view().Announce[announceKey(hid, stashArea)] = &announceView{
 		HostId: hid, Area: stashArea, Target: "http://192.168.7.227",
 		LastSeenUnixMs: now.UnixMilli(),
 	}
-	s.announce[announceKey(hid, poolControlServiceArea)] = &announceView{
+	s.view().Announce[announceKey(hid, poolControlServiceArea)] = &announceView{
 		HostId: hid, Area: poolControlServiceArea, Target: "http://192.168.7.88",
 		LastSeenUnixMs: now.UnixMilli(),
 	}
@@ -68,7 +68,7 @@ func TestExtensionHostsResolvesStashAndPoolControlService(t *testing.T) {
 func TestExtensionHostsSingleArea(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "422dd0cac87e4cc6831c3228f12ae689"
-	s.announce[announceKey(hid, stashArea)] = &announceView{
+	s.view().Announce[announceKey(hid, stashArea)] = &announceView{
 		HostId: hid, Area: stashArea, Target: "http://192.168.7.227",
 		LastSeenUnixMs: time.Now().UnixMilli(),
 	}
@@ -107,19 +107,19 @@ func TestExtensionHostsLiveAnnounceBeatsRegistration(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "422dd0cac87e4cc6831c3228f12ae689"
 	now := time.Now()
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		ExtensionTargets: map[string]string{stashArea: "http://10.0.0.9"},
 		LastSeenUnixMs:   now.UnixMilli(),
 	}
-	s.announce[announceKey(hid, stashArea)] = &announceView{
+	s.view().Announce[announceKey(hid, stashArea)] = &announceView{
 		HostId: hid, Area: stashArea, Target: "http://10.0.0.5",
-		LastSeenUnixMs: now.UnixMilli(), sourceIP: "10.0.0.5",
+		LastSeenUnixMs: now.UnixMilli(), SourceIP: "10.0.0.5",
 	}
 	// Both sources name a reachable address; the ranking is what decides, which
 	// is the point of this case.
 	seedExtensionHealth(s, hid, stashArea, "http://10.0.0.5")
-	entries := s.resolveExtensionHostsLocked(now)
+	entries := s.resolveExtensionHostsLocked(s.view(), now)
 	if got := entries[stashArea].Host; got != "10.0.0.5" {
 		t.Errorf("host = %q, want the announced 10.0.0.5", got)
 	}
@@ -140,17 +140,17 @@ func TestExtensionHostsRehydratedAnnounceLosesToRegistration(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "422dd0cac87e4cc6831c3228f12ae689"
 	now := time.Now()
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		ExtensionTargets: map[string]string{stashArea: "http://10.0.0.9"},
 		LastSeenUnixMs:   now.UnixMilli(),
 	}
-	s.announce[announceKey(hid, stashArea)] = &announceView{
+	s.view().Announce[announceKey(hid, stashArea)] = &announceView{
 		HostId: hid, Area: stashArea, Target: "http://10.0.0.5",
 		LastSeenUnixMs: now.UnixMilli(), // sourceIP deliberately unset
 	}
 	seedExtensionHealth(s, hid, stashArea, "http://10.0.0.9")
-	entries := s.resolveExtensionHostsLocked(now)
+	entries := s.resolveExtensionHostsLocked(s.view(), now)
 	if got := entries[stashArea].Host; got != "10.0.0.9" {
 		t.Errorf("host = %q, want the registration-advertised 10.0.0.9", got)
 	}
@@ -170,17 +170,17 @@ func TestExtensionHostsRehydratedAnnounceBeatsAddresslessRegistration(t *testing
 	s := newPoolState("default", 8080)
 	hid := "422dd0cac87e4cc6831c3228f12ae689"
 	now := time.Now()
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		ActiveExtensions: []string{stashArea}, // runs it, publishes no address
 		LastSeenUnixMs:   now.UnixMilli(),
 	}
-	s.announce[announceKey(hid, stashArea)] = &announceView{
+	s.view().Announce[announceKey(hid, stashArea)] = &announceView{
 		HostId: hid, Area: stashArea, Target: "http://10.0.0.5",
 		LastSeenUnixMs: now.UnixMilli(), // sourceIP unset: rehydrated, not live
 	}
 	seedExtensionHealth(s, hid, stashArea, "http://10.0.0.5")
-	entries := s.resolveExtensionHostsLocked(now)
+	entries := s.resolveExtensionHostsLocked(s.view(), now)
 	if got := entries[stashArea].Host; got != "10.0.0.5" {
 		t.Errorf("host = %q, want the announced 10.0.0.5 -- the registration named none", got)
 	}
@@ -196,11 +196,11 @@ func TestExtensionHostsSkipsExpiredAnnounce(t *testing.T) {
 	s.announceTtl = 45 * time.Minute
 	hid := "422dd0cac87e4cc6831c3228f12ae689"
 	now := time.Now()
-	s.announce[announceKey(hid, stashArea)] = &announceView{
+	s.view().Announce[announceKey(hid, stashArea)] = &announceView{
 		HostId: hid, Area: stashArea, Target: "http://10.0.0.5",
 		LastSeenUnixMs: now.Add(-90 * time.Minute).UnixMilli(),
 	}
-	entries := s.resolveExtensionHostsLocked(now)
+	entries := s.resolveExtensionHostsLocked(s.view(), now)
 	if _, ok := entries[stashArea]; ok {
 		t.Errorf("expired announce was served: %+v", entries[stashArea])
 	}
@@ -214,18 +214,18 @@ func TestExtensionHostsPicksDeterministically(t *testing.T) {
 	now := time.Now()
 	older := "4200000000000000000000000000000a"
 	newer := "4200000000000000000000000000000b"
-	s.announce[announceKey(older, stashArea)] = &announceView{
+	s.view().Announce[announceKey(older, stashArea)] = &announceView{
 		HostId: older, Area: stashArea, Target: "http://10.0.0.5",
 		LastSeenUnixMs: now.Add(-5 * time.Minute).UnixMilli(),
 	}
-	s.announce[announceKey(newer, stashArea)] = &announceView{
+	s.view().Announce[announceKey(newer, stashArea)] = &announceView{
 		HostId: newer, Area: stashArea, Target: "http://10.0.0.6",
 		LastSeenUnixMs: now.UnixMilli(),
 	}
 	seedExtensionHealth(s, older, stashArea, "http://10.0.0.5")
 	seedExtensionHealth(s, newer, stashArea, "http://10.0.0.6")
 	for i := 0; i < 5; i++ {
-		if got := s.resolveExtensionHostsLocked(now)[stashArea].Host; got != "10.0.0.6" {
+		if got := s.resolveExtensionHostsLocked(s.view(), now)[stashArea].Host; got != "10.0.0.6" {
 			t.Fatalf("attempt %d: host = %q, want the freshest 10.0.0.6", i, got)
 		}
 	}
@@ -237,10 +237,10 @@ func TestExtensionHostsIgnoresTargetlessAnnounce(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "422dd0cac87e4cc6831c3228f12ae689"
 	now := time.Now()
-	s.announce[announceKey(hid, stashArea)] = &announceView{
+	s.view().Announce[announceKey(hid, stashArea)] = &announceView{
 		HostId: hid, Area: stashArea, Target: "", LastSeenUnixMs: now.UnixMilli(),
 	}
-	if _, ok := s.resolveExtensionHostsLocked(now)[stashArea]; ok {
+	if _, ok := s.resolveExtensionHostsLocked(s.view(), now)[stashArea]; ok {
 		t.Errorf("a target-less announce was served as an address")
 	}
 }

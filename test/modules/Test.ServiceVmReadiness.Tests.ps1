@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42a24e8a-bb70-4de1-b78f-9bbdd82d9ea7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,6 +58,7 @@ Import-Module (Join-Path $here 'Test.Prelude.psm1')   -Force -DisableNameCheckin
 Import-Module (Join-Path $here 'Test.ServiceVm.psm1') -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.ServiceStartSource.psm1') -Force -DisableNameChecking
 
 # Pester is not installed on every host that runs this repo's scripts, and the
 # assertions here are plain throws, so the harness the file needs is three
@@ -71,7 +72,8 @@ if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
 }
 
 $StashScriptPath = Join-Path $repoRoot 'test/service/Start-StashServiceVM.ps1'
-$script:StashSource     = Get-Content -Raw -LiteralPath $StashScriptPath
+# What the stash start runs: the shared pipeline with the stash readiness part in place.
+$script:StashSource     = Get-YurunaServiceStartText -Path $StashScriptPath
 $script:SetupSource     = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'install/setup.ps1')
 
 # Stands in for the per-host VM driver. Restore-YurunaServiceVM resolves these by
@@ -389,11 +391,12 @@ Describe 'A service that is merely powered on is not a service' {
     It 'reports a running VM whose port answers as healthy' {
         # Asserted so the rule above cannot be satisfied by never reporting a
         # running VM healthy, which would rebuild every service on every re-run.
+        # The port is fixed because the caching-proxy roster entry probes 3128;
+        # a host that already serves it answers in the listener's place.
         $listener = $null
         try {
             try {
-                $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 3128)
-                $listener.Start()
+                $listener = New-YurunaTestTcpListener -Port 3128
             } catch { $listener = $null }
             if (-not (Test-YurunaServiceVmPort -Address '127.0.0.1' -Port 3128)) {
                 throw 'nothing could be made to answer 127.0.0.1:3128, so the healthy path was not exercised.'

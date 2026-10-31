@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 420cd1af-0555-401a-9098-1c8630bba45a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,17 +89,6 @@ function Get-LhCollected {
         ForEach-Object { $_ | ConvertFrom-Json -AsHashtable })
 }
 
-function New-LhTempDir {
-    [CmdletBinding()]
-    [OutputType([string])]
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Test helper: creates a throwaway runtime dir the calling It block deletes in its finally.')]
-    param()
-    $p = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-lh-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $p -Force | Out-Null
-    return $p
-}
-
 # One synthetic area, so the assertions do not move when a real extension area
 # gains or loses a health surface.
 function New-LhManifest {
@@ -143,7 +132,7 @@ function Set-LhRecord {
 Describe 'Lab-health gate' {
 
     BeforeEach {
-        $script:dir = New-LhTempDir
+        $script:dir = New-YurunaTestTempDir -Prefix 'yrn-lh'
         $script:SavedEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
         $env:YURUNA_RUNTIME_DIR = $script:dir
         Clear-LabHealthVerdictCache -Confirm:$false
@@ -155,7 +144,7 @@ Describe 'Lab-health gate' {
 
     AfterEach {
         if ($script:dir -and (Test-Path -LiteralPath $script:dir)) {
-            Remove-Item -Recurse -Force -LiteralPath $script:dir -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $script:dir
         }
         Restore-YurunaTestEnvironment -Saved $script:SavedEnvironment
     }

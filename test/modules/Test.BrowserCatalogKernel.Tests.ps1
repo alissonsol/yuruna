@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42e19a4c-5b73-4c81-9f26-3d0a8b7e6c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,14 +64,11 @@ $script:Runtimes = @(
 
 $script:Chrome = Get-YurunaTestBrowser
 
-$script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-kernel-" + [Guid]::NewGuid().ToString('N'))
-$null = New-Item -ItemType Directory -Path $script:Sandbox -Force
+$script:Sandbox = New-YurunaTestTempDir -Prefix 'yuruna-kernel'
 }
 
 AfterAll {
-if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
-    Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue
-}
+Remove-YurunaTestTempDir $script:Sandbox
 }
 
 Describe 'the kernel is one file, copied' {

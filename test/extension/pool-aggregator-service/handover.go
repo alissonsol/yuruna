@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 // handoverLedger survives a collector restart and the Loki presence rehydrate.
@@ -29,17 +31,6 @@ type handoverLedger struct {
 }
 
 var errHandoverPersistence = errors.New("host handover could not be persisted")
-
-func canonicalHostID(aliases map[string]string, id string) string {
-	for i := 0; i < len(aliases); i++ {
-		next := aliases[id]
-		if next == "" {
-			break
-		}
-		id = next
-	}
-	return id
-}
 
 func validateHandovers(aliases map[string]string) error {
 	for old, next := range aliases {
@@ -78,12 +69,13 @@ func (s *poolState) loadHandovers() error {
 	if err := validateHandovers(ledger.Aliases); err != nil {
 		return err
 	}
-	s.handovers = ledger.Aliases
+	s.st.Do(func(view *poolstate.View) { view.SetAliases(ledger.Aliases) })
 	return nil
 }
 
 // persistHandovers writes a complete replacement on the same filesystem and
-// syncs it before acknowledging the handover. Caller holds s.mu.
+// syncs it before acknowledging the handover. Called under the view's lock, so
+// two handovers cannot interleave their ledger writes.
 func (s *poolState) persistHandovers(aliases map[string]string) error {
 	if s.handoverFile == "" {
 		return errors.New("host handover state file is not configured")
@@ -127,55 +119,58 @@ func (s *poolState) persistHandovers(aliases map[string]string) error {
 	return nil
 }
 
+// handoverHost retires oldID in favor of newID: persisted first, then applied to
+// the pool view, under the view's lock.
 func (s *poolState) handoverHost(oldID, newID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if current := s.handovers[oldID]; current != "" {
+	var err error
+	s.st.Do(func(view *poolstate.View) { err = s.handoverHostLocked(view, oldID, newID) })
+	return err
+}
+
+func (s *poolState) handoverHostLocked(view *poolstate.View, oldID, newID string) error {
+	if current := view.ReplacedBy(oldID); current != "" {
 		if current == newID {
 			// A retry after a lost response also repairs a ledger removed while
 			// this process stayed up; success still means persisted state.
-			if err := s.persistHandovers(s.handovers); err != nil {
+			if err := s.persistHandovers(view.Aliases()); err != nil {
 				return fmt.Errorf("%w: %v", errHandoverPersistence, err)
 			}
 			return nil
 		}
 		return errors.New("old host identity was already handed to another host")
 	}
-	if s.handovers[newID] != "" {
+	if view.ReplacedBy(newID) != "" {
 		return errors.New("the new host identity is already retired")
 	}
-	old, next := s.hosts[oldID], s.hosts[newID]
+	old, next := view.Hosts[oldID], view.Hosts[newID]
 	if old == nil || next == nil {
 		return errors.New("both host identities must still be known to the aggregator")
 	}
 	if old.Reachable || !next.Reachable || old.BaseURL == "" || old.BaseURL != next.BaseURL {
 		return errors.New("the old identity must be unreachable and the new identity reachable at the same address")
 	}
-	copyAliases := make(map[string]string, len(s.handovers)+1)
-	for k, v := range s.handovers {
-		copyAliases[k] = v
-	}
+	copyAliases := view.Aliases()
 	copyAliases[oldID] = newID
 	if err := s.persistHandovers(copyAliases); err != nil {
 		return fmt.Errorf("%w: %v", errHandoverPersistence, err)
 	}
-	s.handovers = copyAliases
-	delete(s.hosts, oldID)
-	delete(s.incident, oldID)
-	if oldFailures := s.failWindow[oldID]; len(oldFailures) != 0 {
-		s.failWindow[newID] = append(s.failWindow[newID], oldFailures...)
-		sort.Slice(s.failWindow[newID], func(i, j int) bool { return s.failWindow[newID][i].At.Before(s.failWindow[newID][j].At) })
+	view.SetAliases(copyAliases)
+	delete(view.Hosts, oldID)
+	delete(view.Incident, oldID)
+	if oldFailures := view.FailWindow[oldID]; len(oldFailures) != 0 {
+		view.FailWindow[newID] = append(view.FailWindow[newID], oldFailures...)
+		sort.Slice(view.FailWindow[newID], func(i, j int) bool { return view.FailWindow[newID][i].At.Before(view.FailWindow[newID][j].At) })
 	}
-	delete(s.failWindow, oldID)
-	delete(s.footprint, oldID)
-	for k := range s.announce {
+	delete(view.FailWindow, oldID)
+	view.DropFootprint(oldID)
+	for k := range view.Announce {
 		if strings.HasPrefix(k, oldID+"|") {
-			delete(s.announce, k)
+			delete(view.Announce, k)
 		}
 	}
-	for k := range s.extHealth {
+	for k := range view.ExtHealth {
 		if strings.HasPrefix(k, oldID+"|") {
-			delete(s.extHealth, k)
+			delete(view.ExtHealth, k)
 		}
 	}
 	// Preserve pass/fail and cycle dedup state under the old key. Output paths
@@ -230,15 +225,12 @@ func (s *poolState) handleHandoverHost(w http.ResponseWriter, r *http.Request) {
 
 // hostAliasIDs returns the canonical identity and sorted historical IDs.
 func (s *poolState) hostAliasIDs(id string) (string, []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	canonical := canonicalHostID(s.handovers, id)
-	ids := []string{canonical}
-	for old := range s.handovers {
-		if canonicalHostID(s.handovers, old) == canonical {
-			ids = append(ids, old)
-		}
-	}
+	var canonical string
+	var ids []string
+	s.st.Do(func(view *poolstate.View) {
+		canonical = view.CanonicalHostID(id)
+		ids = append([]string{canonical}, view.RetiredIDs(canonical)...)
+	})
 	sort.Strings(ids)
 	return canonical, ids
 }

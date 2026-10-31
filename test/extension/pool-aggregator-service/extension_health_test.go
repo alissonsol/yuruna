@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 // The pool advertises an extension address only after it has reached that
@@ -24,7 +26,7 @@ import (
 // the poll loop takes. Tests that build state by hand need it: an address no
 // probe has confirmed is refused by design.
 func seedExtensionHealth(s *poolState, hostID, area, target string) {
-	s.extHealth[announceKey(hostID, area)] = &extHealthView{
+	s.view().ExtHealth[announceKey(hostID, area)] = &extHealthView{
 		Target: target, Confirmed: true, LastOkUnixMs: time.Now().UnixMilli(),
 	}
 }
@@ -37,16 +39,16 @@ func TestUnconfirmedRegistrationIsNotResolvable(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "4287d16ff2c346a98ea90fd3a0c307da"
 	now := time.Now()
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		ActiveExtensions: []string{stashArea},
 		ExtensionTargets: map[string]string{stashArea: "http://192.168.64.13"},
 		LastSeenUnixMs:   now.UnixMilli(),
 	}
-	if _, ok := s.resolveExtensionHostsLocked(now)[stashArea]; ok {
+	if _, ok := s.resolveExtensionHostsLocked(s.view(), now)[stashArea]; ok {
 		t.Fatalf("an address the pool has never reached was served as the area's answer")
 	}
-	cand := s.extensionCandidatesLocked(now)[announceKey(hid, stashArea)]
+	cand := s.extensionCandidatesLocked(s.view(), now)[announceKey(hid, stashArea)]
 	if !cand.Suppressed || cand.SuppressedTarget != "http://192.168.64.13" {
 		t.Errorf("candidate = %+v, want it suppressed carrying the refused address", cand)
 	}
@@ -60,14 +62,14 @@ func TestConfirmedRegistrationResolves(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "4287d16ff2c346a98ea90fd3a0c307da"
 	now := time.Now()
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		ActiveExtensions: []string{stashArea},
 		ExtensionTargets: map[string]string{stashArea: "http://192.168.7.217"},
 		LastSeenUnixMs:   now.UnixMilli(),
 	}
 	seedExtensionHealth(s, hid, stashArea, "http://192.168.7.217")
-	if got := s.resolveExtensionHostsLocked(now)[stashArea].Host; got != "192.168.7.217" {
+	if got := s.resolveExtensionHostsLocked(s.view(), now)[stashArea].Host; got != "192.168.7.217" {
 		t.Errorf("host = %q, want the confirmed 192.168.7.217", got)
 	}
 }
@@ -79,18 +81,18 @@ func TestConfirmedTargetSurvivesTheGrace(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "4287d16ff2c346a98ea90fd3a0c307da"
 	now := time.Now()
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		ExtensionTargets: map[string]string{stashArea: "http://10.0.0.5"},
 		LastSeenUnixMs:   now.UnixMilli(),
 	}
-	s.extHealth[announceKey(hid, stashArea)] = &extHealthView{
+	s.view().ExtHealth[announceKey(hid, stashArea)] = &extHealthView{
 		Target: "http://10.0.0.5", Confirmed: true,
 		LastOkUnixMs:    now.Add(-2 * time.Minute).UnixMilli(),
 		FirstFailUnixMs: now.Add(-time.Minute).UnixMilli(),
 		LastError:       "connect timeout",
 	}
-	entry, ok := s.resolveExtensionHostsLocked(now)[stashArea]
+	entry, ok := s.resolveExtensionHostsLocked(s.view(), now)[stashArea]
 	if !ok {
 		t.Fatalf("a confirmed service was dropped one minute into a %s grace", extensionHealthGrace)
 	}
@@ -109,18 +111,18 @@ func TestTargetRefusedPastTheGrace(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "4287d16ff2c346a98ea90fd3a0c307da"
 	now := time.Now()
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		ExtensionTargets: map[string]string{stashArea: "http://10.0.0.5"},
 		LastSeenUnixMs:   now.UnixMilli(),
 	}
-	s.extHealth[announceKey(hid, stashArea)] = &extHealthView{
+	s.view().ExtHealth[announceKey(hid, stashArea)] = &extHealthView{
 		Target: "http://10.0.0.5", Confirmed: true,
 		LastOkUnixMs:    now.Add(-30 * time.Minute).UnixMilli(),
 		FirstFailUnixMs: now.Add(-extensionHealthGrace - time.Minute).UnixMilli(),
 		LastError:       "connect timeout",
 	}
-	if _, ok := s.resolveExtensionHostsLocked(now)[stashArea]; ok {
+	if _, ok := s.resolveExtensionHostsLocked(s.view(), now)[stashArea]; ok {
 		t.Errorf("an address unanswered for longer than %s was still served", extensionHealthGrace)
 	}
 }
@@ -141,25 +143,27 @@ func TestRefreshExtensionHealthSuppressesSilentAnnounce(t *testing.T) {
 	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	target := dead.URL
 	dead.Close()
-	s.announce[announceKey(hid, stashArea)] = &announceView{
+	s.view().Announce[announceKey(hid, stashArea)] = &announceView{
 		HostId: hid, Area: stashArea, Target: target,
-		LastSeenUnixMs: now.UnixMilli(), sourceIP: "127.0.0.1",
+		LastSeenUnixMs: now.UnixMilli(), SourceIP: "127.0.0.1",
 	}
-	s.extHealth[announceKey(hid, stashArea)] = &extHealthView{
+	s.view().ExtHealth[announceKey(hid, stashArea)] = &extHealthView{
 		Target: target, Confirmed: true,
 		FirstFailUnixMs: now.Add(-extensionHealthGrace - time.Minute).UnixMilli(),
 		LastError:       "connect refused",
 	}
 	s.refreshExtensionHealth(newInternalHTTPClient(probeTimeout), now)
-	if _, ok := s.announce[announceKey(hid, stashArea)]; !ok {
+	if _, ok := s.view().Announce[announceKey(hid, stashArea)]; !ok {
 		t.Fatalf("a service silent for longer than %s was removed from the announce view; it should be kept, suppressed, so the refused address stays reportable", extensionHealthGrace)
 	}
 	// Suppressed, so it answers nothing: area resolution must not hand the dead
 	// address to a consumer.
-	s.mu.Lock()
-	cand := s.extensionCandidatesLocked(now)[announceKey(hid, stashArea)]
-	resolved, resolvable := s.resolveExtensionHostsLocked(now)[stashArea]
-	s.mu.Unlock()
+	var cand, resolved extensionHostEntry
+	var resolvable bool
+	s.st.Do(func(view *poolstate.View) {
+		cand = s.extensionCandidatesLocked(view, now)[announceKey(hid, stashArea)]
+		resolved, resolvable = s.resolveExtensionHostsLocked(view, now)[stashArea]
+	})
 	if !cand.Suppressed {
 		t.Errorf("the entry for an address unanswered past %s is not suppressed", extensionHealthGrace)
 	}
@@ -207,17 +211,17 @@ func TestSuppressedAnnounceRebindsOnNewAddress(t *testing.T) {
 	}
 	deadURL := "http://" + gone.Addr().String()
 	_ = gone.Close()
-	s.announce[key] = &announceView{
+	s.view().Announce[key] = &announceView{
 		HostId: hid, Area: stashArea, Target: deadURL,
-		LastSeenUnixMs: now.UnixMilli(), sourceIP: lanIP,
+		LastSeenUnixMs: now.UnixMilli(), SourceIP: lanIP,
 	}
-	s.extHealth[key] = &extHealthView{
+	s.view().ExtHealth[key] = &extHealthView{
 		Target: deadURL, Confirmed: true,
 		FirstFailUnixMs: now.Add(-extensionHealthGrace - time.Minute).UnixMilli(),
 		LastError:       "connect refused",
 	}
 	s.refreshExtensionHealth(newInternalHTTPClient(probeTimeout), now)
-	if _, ok := s.announce[key]; !ok {
+	if _, ok := s.view().Announce[key]; !ok {
 		t.Fatalf("the entry was removed before the service could re-announce")
 	}
 
@@ -237,16 +241,18 @@ func TestSuppressedAnnounceRebindsOnNewAddress(t *testing.T) {
 	go func() { _ = srv.Serve(ln) }()
 	defer srv.Close()
 	liveURL := "http://" + ln.Addr().String()
-	s.announce[key] = &announceView{
+	s.view().Announce[key] = &announceView{
 		HostId: hid, Area: stashArea, Target: liveURL,
-		LastSeenUnixMs: now.UnixMilli(), sourceIP: lanIP,
+		LastSeenUnixMs: now.UnixMilli(), SourceIP: lanIP,
 	}
 	s.refreshExtensionHealth(newInternalHTTPClient(probeTimeout), now)
 
-	s.mu.Lock()
-	cand := s.extensionCandidatesLocked(now)[key]
-	resolved, resolvable := s.resolveExtensionHostsLocked(now)[stashArea]
-	s.mu.Unlock()
+	var cand, resolved extensionHostEntry
+	var resolvable bool
+	s.st.Do(func(view *poolstate.View) {
+		cand = s.extensionCandidatesLocked(view, now)[key]
+		resolved, resolvable = s.resolveExtensionHostsLocked(view, now)[stashArea]
+	})
 	if cand.Suppressed {
 		t.Errorf("the re-announced address %s stayed suppressed: %s", liveURL, cand.SuppressReason)
 	}
@@ -324,16 +330,16 @@ func TestRefreshExtensionHealthConfirmsLiveTarget(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "422dd0cac87e4cc6831c3228f12ae689"
 	now := time.Now()
-	s.announce[announceKey(hid, stashArea)] = &announceView{
+	s.view().Announce[announceKey(hid, stashArea)] = &announceView{
 		HostId: hid, Area: stashArea, Target: target,
-		LastSeenUnixMs: now.UnixMilli(), sourceIP: lanIP,
+		LastSeenUnixMs: now.UnixMilli(), SourceIP: lanIP,
 	}
 	s.refreshExtensionHealth(newInternalHTTPClient(probeTimeout), now)
-	h := s.extHealth[announceKey(hid, stashArea)]
+	h := s.view().ExtHealth[announceKey(hid, stashArea)]
 	if h == nil || !h.Confirmed {
 		t.Fatalf("health = %+v, want a confirmed verdict for a service answering %s", h, extensionHealthPath)
 	}
-	if got := s.resolveExtensionHostsLocked(now)[stashArea].Target; got != target {
+	if got := s.resolveExtensionHostsLocked(s.view(), now)[stashArea].Target; got != target {
 		t.Errorf("target = %q, want the confirmed %s", got, target)
 	}
 }
@@ -372,12 +378,12 @@ func TestExtensionHostsListingReportsSuppressed(t *testing.T) {
 	good := "422dd0cac87e4cc6831c3228f12ae689"
 	bad := "4287d16ff2c346a98ea90fd3a0c307da"
 	now := time.Now()
-	s.announce[announceKey(good, stashArea)] = &announceView{
+	s.view().Announce[announceKey(good, stashArea)] = &announceView{
 		HostId: good, Area: stashArea, Target: "http://192.168.7.217",
-		LastSeenUnixMs: now.UnixMilli(), sourceIP: "192.168.7.217",
+		LastSeenUnixMs: now.UnixMilli(), SourceIP: "192.168.7.217",
 	}
 	seedExtensionHealth(s, good, stashArea, "http://192.168.7.217")
-	s.hosts[bad] = &hostView{
+	s.view().Hosts[bad] = &hostView{
 		HostId:           bad,
 		ActiveExtensions: []string{stashArea},
 		ExtensionTargets: map[string]string{stashArea: "http://192.168.64.13"},
@@ -421,7 +427,7 @@ func TestMetricsSeparatesUnreachableExtension(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "4287d16ff2c346a98ea90fd3a0c307da"
 	now := time.Now()
-	s.hosts[hid] = &hostView{
+	s.view().Hosts[hid] = &hostView{
 		HostId:           hid,
 		BaseURL:          "http://192.168.7.101:8080",
 		ActiveExtensions: []string{stashArea},
@@ -459,7 +465,7 @@ func TestOldPollCannotReplaceNewlyConfirmedAddress(t *testing.T) {
 	}()
 	key := announceKey(hid, stashArea)
 	target := "http://192.0.2.7:45677"
-	s.hosts[hid] = &hostView{HostId: hid, ExtensionTargets: map[string]string{stashArea: target}, LastSeenUnixMs: now.UnixMilli()}
+	s.view().Hosts[hid] = &hostView{HostId: hid, ExtensionTargets: map[string]string{stashArea: target}, LastSeenUnixMs: now.UnixMilli()}
 	seedExtensionHealth(s, hid, stashArea, target)
 	client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", old.Listener.Addr().String())
@@ -471,16 +477,16 @@ func TestOldPollCannotReplaceNewlyConfirmedAddress(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("probe never started")
 	}
-	s.mu.Lock()
-	s.extHealth[key] = &extHealthView{Target: "http://192.0.2.8:45678", Confirmed: true, LastOkUnixMs: now.UnixMilli()}
-	s.mu.Unlock()
+	s.st.Do(func(view *poolstate.View) {
+		view.ExtHealth[key] = &extHealthView{Target: "http://192.0.2.8:45678", Confirmed: true, LastOkUnixMs: now.UnixMilli()}
+	})
 	close(release)
 	select {
 	case <-finished:
 	case <-time.After(5 * time.Second):
 		t.Fatal("probe never finished")
 	}
-	if got := s.extHealth[key]; got.Target != "http://192.0.2.8:45678" || !got.Confirmed || got.LastError != "" {
+	if got := s.view().ExtHealth[key]; got.Target != "http://192.0.2.8:45678" || !got.Confirmed || got.LastError != "" {
 		t.Fatalf("new address overwritten: %+v", got)
 	}
 }

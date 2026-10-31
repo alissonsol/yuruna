@@ -1391,7 +1391,8 @@ pool-control, and download-agent services. Pool-control's actual
 `-HostSideProof` keeps its existing build and process-launch gates; its
 `-WhatIf` path returns at the common early boundary.
 
-Stash, pool-control and download-agent starts follow these common phases:
+Stash, pool-control and download-agent starts run one pipeline,
+`test/service/Start-ExtensionService.ps1`, and follow these common phases:
 validate the VM name and Windows elevation, initialize host access, check
 storage, resolve the VM builder, start the host status service, verify the
 framework source, build the VM, register/start UTM if applicable, confirm
@@ -1402,6 +1403,23 @@ verdict only gates recovery; the final verdict always reads the resulting endpoi
 The caching proxy additionally owns host proxy settings, CA/config-service
 setup, bridge preparation and multiple port mappings; its healthy-VM
 adoption and lifecycle lock remain specific to those responsibilities.
+
+`Start-StashServiceVM.ps1`, `Start-PoolControlServiceVM.ps1` and
+`Start-DownloadAgentServiceVM.ps1` confirm the operation and hand the shared
+start their service key, area and own path, as the three stop scripts hand
+theirs to `Stop-ExtensionService.ps1`; pool-control's `-HostSideProof` keeps
+its host-side launch in its own script. The shared start runs every phase up
+to the VM build and names what differs between the three services in one
+table. The phases from the guest address on differ per service and live in
+`Start-ExtensionService.<key>.ps1`, which the shared start dot-sources as the
+part's scriptblock, `(Get-Command -CommandType ExternalScript -Name
+$startPart).ScriptBlock`, inside the operation's `try` block: the part shares
+the start's scope, and its `exit` ends the start through the `finally` that
+closes the operation, where an `exit` in a dot-sourced script file would end
+only that file and fall through. Every part ends at an `exit` and refuses to
+run unless the shared start named it (`Test.ExtensionServiceStart`). Suites
+read what one start runs, the shared script with that service's part in
+place, through `Test.ServiceStartSource`.
 
 Every lifecycle script's `Initialize service runtime` region carries the same
 pointers, https://yuruna.link/42fffc2c-000b and https://yuruna.link/42162449-0004,
@@ -1639,7 +1657,7 @@ $Port, so without this check we would record a PID file pointing at a dead
 process and then burn the full readiness timeout on a port that will never
 accept. If it is already gone, surface the captured startup log now.
 
-**`test/service/Start-DownloadAgentServiceVM.ps1`, `test/service/Start-PoolControlServiceVM.ps1`, `test/service/Start-StashServiceVM.ps1`.**
+**`test/service/Start-ExtensionService.ps1`.**
 
 The start is on record, and this service's operation lock held, before
 anything is built: a Stop issued meanwhile waits for the lock instead of
@@ -1648,7 +1666,7 @@ the request. Taken after the group relaunch, because a lock taken in the
 parent would block the relaunched child. A request that cannot be recorded
 changes nothing.
 
-**`test/service/Start-PoolControlServiceVM.ps1`.**
+**`test/service/Start-ExtensionService.pool-control.ps1`.**
 
 No trailing slash, which is not cosmetic: the service's own announce derives
 its address from the connection it arrives on and so never carries one. The
@@ -2716,6 +2734,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna](../README.md)

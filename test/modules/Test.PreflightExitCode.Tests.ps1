@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 426af937-d4d4-455e-a8ad-f831548a296b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,13 +48,16 @@ Describe 'preflight-exit-code' {
     It 'a refused deploy exits non-zero (Set-Resource, Set-Component, Set-Workload)' {
         # A project root that cannot resolve: every entrypoint must refuse here,
         # and refusing is only visible to `set -e` as a non-zero exit code.
-        $missingRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-no-such-root-$([guid]::NewGuid())"
-        foreach ($e in 'Set-Resource', 'Set-Component', 'Set-Workload') {
-            $script = Join-Path $script:autoDir "$e.ps1"
-            & pwsh -NoProfile -File $script $missingRoot 'localhost' *> $null
-            Assert-True ($LASTEXITCODE -ne 0) `
-                "$e exited $LASTEXITCODE on a refused deploy; bash 'set -e' reads 0 as success and marches on"
-        }
+        $base = New-YurunaTestTempDir -Prefix 'yuruna-no-such-root'
+        try {
+            $missingRoot = Join-Path $base 'project'
+            foreach ($e in 'Set-Resource', 'Set-Component', 'Set-Workload') {
+                $script = Join-Path $script:autoDir "$e.ps1"
+                & pwsh -NoProfile -File $script $missingRoot 'localhost' *> $null
+                Assert-True ($LASTEXITCODE -ne 0) `
+                    "$e exited $LASTEXITCODE on a refused deploy; bash 'set -e' reads 0 as success and marches on"
+            }
+        } finally { Remove-YurunaTestTempDir $base }
     }
     It 'the refusal guards exit 1 rather than returning $false' {
         # `return $false` at script scope does NOT set the process exit code.

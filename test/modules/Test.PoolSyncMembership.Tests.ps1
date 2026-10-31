@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f48182-9ec5-4e1c-bd71-e3bf9945ef6e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,7 +123,7 @@ Describe 'Sync-YurunaPoolConfiguration bounds the pull by one deadline and surfa
         # the fetch budget. fetch is computed at deadline-set so it is the full 5s; reset
         # is <= 4s. A reset budget re-inflated to a full/literal value (bypassing the
         # deadline) would fail the reset filter's upper bound.
-        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('poolsync-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $tmp = New-YurunaTestTempDir -Prefix 'poolsync'
         New-Item -ItemType Directory -Path (Join-Path $tmp '.git') -Force | Out-Null
         $shimmed = $false
         try {
@@ -147,7 +147,7 @@ Describe 'Sync-YurunaPoolConfiguration bounds the pull by one deadline and surfa
             }
         } finally {
             if ($shimmed) { Remove-Item function:\ConvertFrom-Yaml -Force -ErrorAction SilentlyContinue }
-            if (Test-Path -LiteralPath $tmp) { [System.IO.Directory]::Delete($tmp, $true) }
+            Remove-YurunaTestTempDir $tmp
         }
     }
 }

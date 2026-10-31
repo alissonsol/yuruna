@@ -40,7 +40,7 @@ func TestHostEventLinksRetainedPreflightAfterRecovery(t *testing.T) {
 	defer host.Close()
 	s := newPoolState("default", 8080)
 	s.httpClient = host.Client()
-	s.hosts[hid] = &hostView{HostId: hid, BaseURL: host.URL,
+	s.view().Hosts[hid] = &hostView{HostId: hid, BaseURL: host.URL,
 		Status: &hostStatus{OverallStatus: "pass", StartedAt: "2026-10-18T01:22:23Z", CycleFolderUrl: folder}}
 	for _, tc := range []struct {
 		name, at, status, suffix string
@@ -102,7 +102,7 @@ func TestPreflightLinkFallbackAndPathContainment(t *testing.T) {
 			defer host.Close()
 			s := newPoolState("default", 8080)
 			s.httpClient = host.Client()
-			s.hosts[hid] = &hostView{BaseURL: host.URL, Status: &hostStatus{CycleFolderUrl: "log/previous-pass/"}}
+			s.view().Hosts[hid] = &hostView{BaseURL: host.URL, Status: &hostStatus{CycleFolderUrl: "log/previous-pass/"}}
 			at, _ := time.Parse(time.RFC3339, "2026-10-18T01:40:00Z")
 			w := httptest.NewRecorder()
 			s.handleGoHostEvent(w, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/go/host-event?host=%s&t=%d&status=9", hid, at.UnixMilli()), nil))

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f41a3a-96b8-4ab6-ac90-5f5f7b020de7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -113,23 +113,25 @@ $script:UnsubscribedEventCode = 'test.selfcheck.unit'
 
 $script:SavedPublicUrl = Save-YurunaTestEnvironment -Name 'YURUNA_STATUS_PUBLIC_URL'
 
-$TempRoot = [System.IO.Path]::GetTempPath()
-$PayloadDir = Join-Path $TempRoot ('yuruna-notify-payload-' + [guid]::NewGuid().ToString('N'))
+# One folder for the suite; each fixture below is a child that stays uncreated
+# until the block that needs it makes it.
+$script:NotifyTempRoot = New-YurunaTestTempDir -Prefix 'yuruna-notify'
+$PayloadDir = Join-Path $script:NotifyTempRoot 'payload'
 $script:PayloadFailureFile = Join-Path $PayloadDir 'last_failure.json'
 # The payload builder reads the log ROOT when the cycle folder holds no record
 # yet, which is every in-cycle caller. Pin that root at a private path -- left
 # uncreated except by the test that exercises it -- so a workstation whose real
 # log root still holds a last_failure.json from an earlier failing cycle cannot
 # classify these payloads on the suite's behalf.
-$script:PayloadLogRoot = Join-Path $TempRoot ('yuruna-notify-logroot-' + [guid]::NewGuid().ToString('N'))
+$script:PayloadLogRoot = Join-Path $script:NotifyTempRoot 'logroot'
 $script:PayloadLogRootFailureFile = Join-Path $script:PayloadLogRoot 'last_failure.json'
 $script:SuiteLogEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
 $env:YURUNA_LOG_DIR = $script:PayloadLogRoot
-$LedgerDir = Join-Path $TempRoot ('yuruna-notify-ledger-' + [guid]::NewGuid().ToString('N'))
+$LedgerDir = Join-Path $script:NotifyTempRoot 'ledger'
 $script:LedgerMissingDir = Join-Path $LedgerDir 'no-such-subfolder'
-$script:DispatchDir = Join-Path $TempRoot ('yuruna-notify-dispatch-' + [guid]::NewGuid().ToString('N'))
-$script:EnvelopeDir = Join-Path $TempRoot ('yuruna-notify-envelope-' + [guid]::NewGuid().ToString('N'))
-$script:ResolveDir = Join-Path $TempRoot ('yuruna-notify-resolve-' + [guid]::NewGuid().ToString('N'))
+$script:DispatchDir = Join-Path $script:NotifyTempRoot 'dispatch'
+$script:EnvelopeDir = Join-Path $script:NotifyTempRoot 'envelope'
+$script:ResolveDir = Join-Path $script:NotifyTempRoot 'resolve'
 
 }
 
@@ -290,13 +292,14 @@ Describe 'Get-FailureEventData' {
         Assert-Equal -Expected 'em' -Actual $p['description']
     }
     It 'deep-links the cycle folder through the published status URL when there is one' {
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_STATUS_PUBLIC_URL'
         $env:YURUNA_STATUS_PUBLIC_URL = 'https://yuruna.example/dash/'
         try {
             $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX'
             $leaf = Split-Path -Leaf $PayloadDir
             Assert-Equal -Expected "https://yuruna.example/dash/status/log/$leaf/" -Actual $p['cycleFolderUrl'] -Because 'the trailing slash of the base URL is not doubled'
         } finally {
-            Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $saved
         }
     }
     It 'guesses the status URL from the cycle hostname when none is published' {
@@ -322,7 +325,7 @@ Describe 'Get-FailureEventData' {
 
 Describe 'Get-FailureEventData per-guest attribution' {
     BeforeAll {
-        $script:AttrRoot = Join-Path $TempRoot ('yuruna-notify-attr-' + [guid]::NewGuid().ToString('N'))
+        $script:AttrRoot = Join-Path $script:NotifyTempRoot 'attr'
         $script:AttrCycle = Join-Path $script:AttrRoot 'cycle'
         $script:AttrLogRoot = Join-Path $script:AttrRoot 'logroot'
         $script:AttrSavedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
@@ -951,4 +954,5 @@ Describe 'dispatcher transport lookup' {
 AfterAll {
     Restore-YurunaTestEnvironment -Saved $script:SuiteLogEnvironment
     Restore-YurunaTestGlobal -Saved $script:SavedCycleGlobals
+    Remove-YurunaTestTempDir $script:NotifyTempRoot
 }

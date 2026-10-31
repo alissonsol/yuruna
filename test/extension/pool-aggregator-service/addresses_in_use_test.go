@@ -82,7 +82,14 @@ func TestAddressesInUseReportsIncompleteWhenLogUnreadable(t *testing.T) {
 // must not imply a pool verdict it has no inputs for.
 func TestAddressMetricsDoNotClaimAPoolVerdict(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.addrInUse, s.addrInUseHosts, s.addrDistinct = 7, 3, 5
+	// Five proxy clients and three hosts, one of them also a proxy client: 7 in
+	// use, 3 from host records, 5 distinct in the log.
+	v := s.view()
+	for i, ip := range []string{"192.0.2.5", "192.0.2.6", "192.0.2.7"} {
+		id := fmt.Sprintf("42a%029d", i)
+		v.Hosts[id] = &hostView{HostId: id, CurrentIP: ip}
+	}
+	v.RecordAddressScan(map[string]bool{"192.0.2.1": true, "192.0.2.2": true, "192.0.2.3": true, "192.0.2.4": true, "192.0.2.5": true}, false, time.Now())
 	rec := httptest.NewRecorder()
 	s.handleMetrics(rec, metricsRequest())
 	body := rec.Body.String()

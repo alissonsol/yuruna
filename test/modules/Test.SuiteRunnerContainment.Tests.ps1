@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4237ad83-6e92-4eb7-a7bf-243c8271c38d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.SuiteRunnerFixture.psm1') -Force -DisableNameChecking
     $script:Runner = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../tools/Invoke-TestSuite.ps1'))
     $script:PassingSuite = "Describe 'ok' { It 'a' { 1 | Should -Be 1 }; It 'b' { 2 | Should -Be 2 } }"
@@ -145,14 +146,11 @@ Describe 'direct' {
             $shim = Join-Path (Split-Path -Parent $script:Runner) '_InvokeOneSuite.ps1'
             $xml = Join-Path $root 'direct.xml'
             # Clear the variables a surrounding runner set, so the shim sees a direct run.
-            $saved = @{}
-            foreach ($name in 'YURUNA_TEST_TEMP_ROOT', 'TMPDIR', 'TMP', 'TEMP', 'DOTNET_EnableDiagnostics') { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+            $saved = Save-YurunaTestEnvironment -Name 'YURUNA_TEST_TEMP_ROOT', 'TMPDIR', 'TMP', 'TEMP', 'DOTNET_EnableDiagnostics'
             try {
                 [Environment]::SetEnvironmentVariable('YURUNA_TEST_TEMP_ROOT', $null)
                 $output = & ([Environment]::ProcessPath) -NoProfile -NonInteractive -File $shim -Suite $suite -Xml $xml 2>&1 | Out-String
-            } finally {
-                foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
-            }
+            } finally { Restore-YurunaTestEnvironment -Saved $saved }
             Test-Path -LiteralPath $record | Should -BeTrue -Because $output
             $folder, $tmpdir, $diagnostics = (Get-Content -LiteralPath $record -Raw).Trim() -split '\|'
             [IO.Path]::GetFileName($folder) | Should -Match '^yrn-suite-[0-9a-f]{12}$'
@@ -287,12 +285,12 @@ Describe 'shim scope' {
             Set-Content -LiteralPath $suite -Value $body -Encoding utf8NoBOM
             $shim = Join-Path (Split-Path -Parent $script:Runner) '_InvokeOneSuite.ps1'
             $xmlPath = Join-Path $root 'direct.xml'
-            $savedTempRoot = [Environment]::GetEnvironmentVariable('YURUNA_TEST_TEMP_ROOT')
+            $savedTempRoot = Save-YurunaTestEnvironment -Name 'YURUNA_TEST_TEMP_ROOT'
             try {
                 [Environment]::SetEnvironmentVariable('YURUNA_TEST_TEMP_ROOT', $null)
                 $output = & ([Environment]::ProcessPath) -NoProfile -NonInteractive -File $shim -Suite $suite -Xml $xmlPath 2>&1 | Out-String
                 $LASTEXITCODE | Should -Be 0 -Because $output
-            } finally { [Environment]::SetEnvironmentVariable('YURUNA_TEST_TEMP_ROOT', $savedTempRoot) }
+            } finally { Restore-YurunaTestEnvironment -Saved $savedTempRoot }
             $xml = [xml](Get-Content -LiteralPath $xmlPath -Raw)
             $xml.'test-results'.total | Should -Be '2'
             $xml.'test-results'.failures | Should -Be '0' -Because $xml.OuterXml
@@ -306,8 +304,7 @@ Describe 'parallel suite workers avoid the shared startup JIT profile' {
         @{ Launcher = 'direct shim' }
     ) {
         $root = New-FixtureTree
-        $savedProfile = [Environment]::GetEnvironmentVariable('DOTNET_MultiCoreJitProfile')
-        $savedCache = [Environment]::GetEnvironmentVariable('XDG_CACHE_HOME')
+        $savedProfile = Save-YurunaTestEnvironment -Name 'DOTNET_MultiCoreJitProfile', 'XDG_CACHE_HOME'
         try {
             # A surrounding runner must not supply the protection under test.
             [Environment]::SetEnvironmentVariable('DOTNET_MultiCoreJitProfile', $null)
@@ -348,21 +345,20 @@ Describe 'startup JIT profile containment' {
             } else {
                 $shim = Join-Path (Split-Path -Parent $script:Runner) '_InvokeOneSuite.ps1'
                 $xmlPath = Join-Path $root 'direct.xml'
-                $savedTempRoot = [Environment]::GetEnvironmentVariable('YURUNA_TEST_TEMP_ROOT')
+                $savedTempRoot = Save-YurunaTestEnvironment -Name 'YURUNA_TEST_TEMP_ROOT'
                 try {
                     [Environment]::SetEnvironmentVariable('YURUNA_TEST_TEMP_ROOT', $null)
                     $output = & ([Environment]::ProcessPath) -NoProfile -NonInteractive -File $shim `
                         -Suite (Join-Path $root 'test/modules/Alpha.Tests.ps1') -Xml $xmlPath 2>&1 | Out-String
                     $LASTEXITCODE | Should -Be 0 -Because $output
-                } finally { [Environment]::SetEnvironmentVariable('YURUNA_TEST_TEMP_ROOT', $savedTempRoot) }
+                } finally { Restore-YurunaTestEnvironment -Saved $savedTempRoot }
                 $xml = [xml](Get-Content -LiteralPath $xmlPath -Raw)
                 $xml.'test-results'.total | Should -Be '2'
                 $xml.'test-results'.failures | Should -Be '0' -Because $xml.OuterXml
             }
             [Environment]::GetEnvironmentVariable('DOTNET_MultiCoreJitProfile') | Should -BeNullOrEmpty -Because 'child containment must leave the calling environment unchanged'
         } finally {
-            [Environment]::SetEnvironmentVariable('DOTNET_MultiCoreJitProfile', $savedProfile)
-            [Environment]::SetEnvironmentVariable('XDG_CACHE_HOME', $savedCache)
+            Restore-YurunaTestEnvironment -Saved $savedProfile
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
         }
     }

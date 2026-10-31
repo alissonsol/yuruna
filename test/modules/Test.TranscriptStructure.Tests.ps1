@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42e7a1d5-3b90-4c68-8f24-05c6b93e1a7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,8 +165,7 @@ Describe 'a step boundary is available as data, not only as a line' {
         Import-Module (Join-Path $here 'Test.Log.psm1') -Force -Global -DisableNameChecking
         Import-Module $script:Orchestrator -Force -Global -DisableNameChecking
 
-        $sandbox = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-steps-" + [Guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $sandbox -Force
+        $sandbox = New-YurunaTestTempDir -Prefix 'yuruna-steps'
         $savedFolderGlobals = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
         try {
             Set-CycleFolderAnchor -Path $sandbox
@@ -190,7 +189,7 @@ Describe 'a step boundary is available as data, not only as a line' {
                 'the outcome should be a stable token, lower-case, not the printed word'
         } finally {
             Restore-YurunaTestGlobal -Saved $savedFolderGlobals
-            Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $sandbox
         }
     }
 }

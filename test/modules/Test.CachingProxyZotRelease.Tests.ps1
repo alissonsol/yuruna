@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42332a75-ac63-4075-9383-e02c25254b0b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking -Global
     Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxyService.psm1') -Force -DisableNameChecking -Global
@@ -122,8 +123,7 @@ Describe 'The cycle-start registry wait stops on an incompatible zot release' {
         Mock Test-CachingProxyRegistryReady -ModuleName Test.CachingProxyService {
             @{ Ready = $false; Terminal = $true; Reason = "the cache's zot v2.1.23 is incompatible"; StatusCode = 200; Uri = 'u' }
         }
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
         try {
             $r = Wait-CachingProxyServiceSettled -CacheIp '127.0.0.1' -Port $listener.LocalEndpoint.Port `
                 -RegistryPort 5000 -RegistryTimeoutSeconds 600 -RequireRegistry -RequiredConsecutive 2 -IntervalSeconds 0 -TimeoutSeconds 20

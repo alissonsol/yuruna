@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 424573db-29bc-4e57-8b79-371b47df0dd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,6 +71,7 @@ $script:startAgent = Join-Path $testDir 'service/Start-DownloadAgentServiceVM.ps
 $script:stopAgent  = Join-Path $testDir 'service/Stop-DownloadAgentServiceVM.ps1'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.ServiceStartSource.psm1') -Force -DisableNameChecking
 
 function Get-ScriptAst {
     param([string]$Path)
@@ -154,6 +155,9 @@ Describe 'Download-agent lifecycle entry points honor the entry-point contract' 
                 $delegationText = Get-Content -Raw -LiteralPath $Path
                 Assert-True ($delegationText.Contains("'Stop-ExtensionService.ps1'") -and $delegationText.Contains("-ServiceKey 'download-agent'")) 'the wrapper runs the shared stop script for the download-agent service'
                 $ast = Get-ScriptAst (Join-Path (Split-Path -Parent $Path) 'Stop-ExtensionService.ps1')
+            } else {
+                # The start runs the shared pipeline with this service's readiness part, which owns the contract.
+                $ast = Get-YurunaServiceStartAst -Path $Path
             }
             Assert-True ((Get-CommandCall -Ast $ast -Name 'Use-LogLevelFromEnv').Count -ge 1) 'the log-level cascade is applied (a real invocation, not a comment)'
             $exitCalls = @(Get-CommandCall -Ast $ast -Name 'Get-EntryPointExitCode')
@@ -167,7 +171,7 @@ Describe 'Download-agent lifecycle entry points honor the entry-point contract' 
 
 Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advertises one' {
     It 'polls the real port inside a wall-clock deadline loop' {
-        $ast = Get-ScriptAst $script:startAgent
+        $ast = Get-YurunaServiceStartAst -Path $script:startAgent
         $waits = @(Get-CommandCall -Ast $ast -Name 'Wait-YurunaServiceVmDaemon')
         Assert-True ($waits.Count -ge 1) 'the readiness wait goes through the shared daemon waiter'
         Assert-True ((Get-NamedArgumentText -CommandAst $waits[0] -ParameterName 'Port') -eq '80') 'the wait targets the daemon port :80'
@@ -182,7 +186,7 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
     }
 
     It 'discriminates "still building" from "serving but unreachable" by asking the guest' {
-        $ast = Get-ScriptAst $script:startAgent
+        $ast = Get-YurunaServiceStartAst -Path $script:startAgent
         $sshCalls = @(Get-CommandCall -Ast $ast -Name 'Invoke-GuestSsh')
         Assert-True ($sshCalls.Count -ge 1) "the guest is asked for the failure diagnostics; found $($sshCalls.Count)"
         $waits = @(Get-CommandCall -Ast $ast -Name 'Wait-YurunaServiceVmDaemon')
@@ -194,7 +198,7 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
     }
 
     It 'binds the marker''s active to the readiness verdict, which starts false' {
-        $ast = Get-ScriptAst $script:startAgent
+        $ast = Get-YurunaServiceStartAst -Path $script:startAgent
         $markerWrites = @(Get-CommandCall -Ast $ast -Name 'Write-DownloadAgentServiceMarker')
         Assert-True ($markerWrites.Count -ge 1) 'the marker is written through the module helper'
         $active = Get-NamedArgumentText -CommandAst $markerWrites[0] -ParameterName 'Active'
@@ -210,7 +214,7 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
     }
 
     It 'publishes the Shared-NAT-aware address and refreshes the registration' {
-        $ast = Get-ScriptAst $script:startAgent
+        $ast = Get-YurunaServiceStartAst -Path $script:startAgent
         $resolves = @(Get-CommandCall -Ast $ast -Name 'Resolve-DownloadAgentServiceBaseUrl')
         Assert-True ($resolves.Count -ge 1) 'the published address goes through the Shared-NAT-aware resolver'
         Assert-True ((Get-NamedArgumentText -CommandAst $resolves[0] -ParameterName 'NetworkMode') -eq '$bundleMode') 'the resolver is told the bundle''s real network mode'
@@ -229,7 +233,7 @@ Describe 'Start-DownloadAgentServiceVM.ps1 waits for the daemon before it advert
     }
 
     It 'gates the build on the pool-storage credential before anything is created' {
-        $ast = Get-ScriptAst $script:startAgent
+        $ast = Get-YurunaServiceStartAst -Path $script:startAgent
         $storageGate = Get-FirstCallOffset -Ast $ast -Name 'Test-PoolStorageStoredCredential'
         Assert-True ($storageGate -ge 0) 'the stored-credential hard gate is present'
         Assert-True ((Get-CommandCall -Ast $ast -Name 'Connect-YurunaPoolStorage').Count -ge 1) 'the soft gate verifies the credential actually authenticates'

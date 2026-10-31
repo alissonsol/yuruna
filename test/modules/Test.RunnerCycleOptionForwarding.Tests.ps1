@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 421c8f6e-9b0a-4c1d-8e2f-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,12 +35,11 @@ BeforeAll {
     Import-Module (Join-Path $script:Here 'Test.RunnerOuterLoop.psm1') -Force -DisableNameChecking -Global
     Import-Module (Join-Path $script:Here 'Test.StateFile.psm1')       -Force -DisableNameChecking -Global
 
-    $script:TmpDir = Join-Path ([IO.Path]::GetTempPath()) ("yrn-cycfwd-" + [Guid]::NewGuid().ToString('n'))
-    New-Item -ItemType Directory -Path $script:TmpDir -Force | Out-Null
+    $script:TmpDir = New-YurunaTestTempDir -Prefix 'yrn-cycfwd'
 }
 
 AfterAll {
-    Remove-Item -LiteralPath $script:TmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-YurunaTestTempDir $script:TmpDir
 }
 
 Describe 'Invoke-OuterCycleDispatch -- forwards every operator option to the child argv (mocked spawn)' {

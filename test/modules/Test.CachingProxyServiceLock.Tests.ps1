@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 424bc4ee-97e2-4b3d-8eae-1a1eaa47317c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,17 +35,6 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.CachingProxyServiceLock.psm1') -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
-
-function New-LockTempDir {
-    [CmdletBinding()]
-    [OutputType([string])]
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Test helper: creates a throwaway runtime dir the calling It block deletes in its finally.')]
-    param()
-    $p = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-cplk-" + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $p -Force | Out-Null
-    return $p
-}
 
 # Sidecar timestamp in the exact format the module writes (acquiredAtUtc).
 function Get-UtcStamp {
@@ -165,30 +154,30 @@ Describe 'Test-CachingProxyServiceAdoptable probes the live address' {
 
 Describe 'Enter/Exit-CachingProxyServiceLock (drain-style mutex)' {
     It 'acquires a free lock and releases it' {
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $h = Enter-CachingProxyServiceLock -RuntimeDir $rd -Role 'rebuild' -TimeoutSeconds 0
             Assert-True $h.Acquired 'free lock acquires'
             Assert-True (Test-Path (Join-Path $rd 'caching-proxy-service.lock')) 'lock file created'
             Exit-CachingProxyServiceLock -Handle $h
             Assert-Equal -Expected $false -Actual (Test-Path (Join-Path $rd 'caching-proxy-service.lock')) -Because 'release removes the lock'
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'fail-fasts (try-once) against a live FOREIGN holder and reports its pid/role' {
         # Staged with a real foreign PID, not a second same-process acquire: a
         # self-owned lock is now RECLAIMED as our own leftover (see below), so a
         # same-process fixture no longer exercises mutual exclusion at all.
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $foreignPid = Write-ForeignLockFixture -RuntimeDir $rd -Role 'rebuild' -AcquiredAtUtc (Get-UtcStamp -SecondsAgo 5)
             $h = Enter-CachingProxyServiceLock -RuntimeDir $rd -Role 'portmap' -TimeoutSeconds 0
             Assert-Equal -Expected $false -Actual $h.Acquired -Because 'a live foreign holder blocks a try-once acquire'
             Assert-Equal -Expected $foreignPid -Actual $h.HolderPid -Because 'holder pid surfaced'
             Assert-Equal -Expected 'rebuild' -Actual $h.HolderRole -Because 'holder role surfaced'
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'drains a stale (dead-PID) holder and acquires' {
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $pidPath = Join-Path $rd 'caching-proxy-service.lock'
             Set-Content -Path $pidPath -Value '999999' -NoNewline
@@ -198,10 +187,10 @@ Describe 'Enter/Exit-CachingProxyServiceLock (drain-style mutex)' {
             $h = Enter-CachingProxyServiceLock -RuntimeDir $rd -Role 'rebuild' -TimeoutSeconds 0
             Assert-True $h.Acquired 'stale lock drained + acquired'
             Exit-CachingProxyServiceLock -Handle $h
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'waits out a live FOREIGN holder up to the timeout, then reports not-acquired' {
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $null = Write-ForeignLockFixture -RuntimeDir $rd -Role 'rebuild' -AcquiredAtUtc (Get-UtcStamp -SecondsAgo 5)
             $t0 = [DateTime]::UtcNow
@@ -209,14 +198,14 @@ Describe 'Enter/Exit-CachingProxyServiceLock (drain-style mutex)' {
             $elapsed = ([DateTime]::UtcNow - $t0).TotalSeconds
             Assert-Equal -Expected $false -Actual $hWait.Acquired -Because 'a live foreign holder inside the age ceiling is not reclaimed'
             Assert-True ($elapsed -ge 1.5) "bounded wait honored the timeout (elapsed $([Math]::Round($elapsed,1))s)"
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'reclaims THIS process own leftover lock instead of waiting it out' {
         # The operator-reported bug: a bring-up that exits on one of its error paths
         # without releasing leaves a lock recording the long-lived interactive pwsh
         # it ran inside. That PID never dies, so the stale drain can never fire and
         # every later run in the same shell is refused.
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $h1 = Enter-CachingProxyServiceLock -RuntimeDir $rd -Role 'rebuild' -TimeoutSeconds 0
             Assert-True $h1.Acquired 'first acquire'
@@ -225,13 +214,13 @@ Describe 'Enter/Exit-CachingProxyServiceLock (drain-style mutex)' {
             Assert-True $h2.Acquired 'a self-owned leftover is reclaimed, not refused'
             Assert-True (@($reclaimWarn).Count -ge 1) 'the reclaim is warned, not silent'
             Exit-CachingProxyServiceLock -Handle $h2
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'drains a live FOREIGN holder that is past the abandoned-age ceiling' {
         # 7 h, past the 6 h ceiling. The recorded PID is live and is not ours, so
         # neither the stale drain nor the self-owned reclaim applies -- only age does.
         # This is the case a BRAND-NEW terminal hits after a leak in another shell.
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $foreignPid = Write-ForeignLockFixture -RuntimeDir $rd -Role 'rebuild' -AcquiredAtUtc (Get-UtcStamp -SecondsAgo 25200)
             $h = Enter-CachingProxyServiceLock -RuntimeDir $rd -Role 'rebuild' -TimeoutSeconds 0 `
@@ -239,19 +228,19 @@ Describe 'Enter/Exit-CachingProxyServiceLock (drain-style mutex)' {
             Assert-True $h.Acquired "an abandoned lock (recorded PID $foreignPid) is drained"
             Assert-True (@($ageWarn).Count -ge 1) 'the age drain is warned, not silent'
             Exit-CachingProxyServiceLock -Handle $h
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'never drains on an UNKNOWN age (sidecar without acquiredAtUtc)' {
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $foreignPid = Write-ForeignLockFixture -RuntimeDir $rd -Role 'rebuild'
             $h = Enter-CachingProxyServiceLock -RuntimeDir $rd -Role 'rebuild' -TimeoutSeconds 0
             Assert-Equal -Expected $false -Actual $h.Acquired -Because 'an unreadable age must not license a drain'
             Assert-Equal -Expected $foreignPid -Actual $h.HolderPid -Because 'the live foreign holder is still honored'
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'is idempotent on double-release and never removes a lock it does not own' {
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $h = Enter-CachingProxyServiceLock -RuntimeDir $rd -Role 'rebuild' -TimeoutSeconds 0
             Exit-CachingProxyServiceLock -Handle $h
@@ -261,21 +250,21 @@ Describe 'Enter/Exit-CachingProxyServiceLock (drain-style mutex)' {
             Set-Content -Path $foreign -Value '999999' -NoNewline
             Exit-CachingProxyServiceLock -Handle @{ Acquired = $true; PidPath = $foreign; StartPath = "$foreign.start" }
             Assert-True (Test-Path $foreign) 'Exit must not remove a lock owned by another pid (999999 != our pid)'
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
 }
 
 Describe 'Clear-CachingProxyServiceLock (the operator reset behind Stop-CachingProxyServiceVM)' {
     It 'reports no-lock when there is nothing to clear' {
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $c = Clear-CachingProxyServiceLock -RuntimeDir $rd
             Assert-Equal -Expected 'no-lock' -Actual $c.Reason
             Assert-Equal -Expected $false -Actual $c.Removed
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'removes a stale (dead-PID) lock' {
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $pidPath = Join-Path $rd 'caching-proxy-service.lock'
             Set-Content -Path $pidPath -Value '999999' -NoNewline
@@ -284,10 +273,10 @@ Describe 'Clear-CachingProxyServiceLock (the operator reset behind Stop-CachingP
             Assert-Equal -Expected 'stale' -Actual $c.Reason
             Assert-True $c.Removed 'stale lock removed'
             Assert-Equal -Expected $false -Actual (Test-Path $pidPath) -Because 'both lock files are gone'
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'removes THIS process own leftover lock' {
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $h = Enter-CachingProxyServiceLock -RuntimeDir $rd -Role 'rebuild' -TimeoutSeconds 0
             Assert-True $h.Acquired 'staged a self-owned lock'
@@ -295,19 +284,19 @@ Describe 'Clear-CachingProxyServiceLock (the operator reset behind Stop-CachingP
             Assert-Equal -Expected 'self' -Actual $c.Reason
             Assert-True $c.Removed 'self-owned lock removed'
             Assert-Equal -Expected $false -Actual (Test-Path (Join-Path $rd 'caching-proxy-service.lock')) -Because 'lock file gone'
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'removes a live FOREIGN lock that is past the age ceiling' {
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $null = Write-ForeignLockFixture -RuntimeDir $rd -Role 'rebuild' -AcquiredAtUtc (Get-UtcStamp -SecondsAgo 25200)
             $c = Clear-CachingProxyServiceLock -RuntimeDir $rd
             Assert-Equal -Expected 'abandoned-age' -Actual $c.Reason
             Assert-True $c.Removed 'abandoned lock removed'
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
     It 'refuses to steal a live FOREIGN lock inside the ceiling, and reports its pid' {
-        $rd = New-LockTempDir
+        $rd = New-YurunaTestTempDir -Prefix 'yrn-cplk'
         try {
             $foreignPid = Write-ForeignLockFixture -RuntimeDir $rd -Role 'rebuild' -AcquiredAtUtc (Get-UtcStamp -SecondsAgo 60)
             $c = Clear-CachingProxyServiceLock -RuntimeDir $rd
@@ -315,7 +304,7 @@ Describe 'Clear-CachingProxyServiceLock (the operator reset behind Stop-CachingP
             Assert-Equal -Expected $false -Actual $c.Removed -Because 'a reset must not steal the lock from a real concurrent rebuild'
             Assert-Equal -Expected $foreignPid -Actual $c.HolderPid -Because 'the caller needs the pid to name in its warning'
             Assert-True (Test-Path (Join-Path $rd 'caching-proxy-service.lock')) 'the live holder keeps its lock'
-        } finally { if (Test-Path $rd) { Remove-Item -Recurse -Force $rd } }
+        } finally { Remove-YurunaTestTempDir $rd }
     }
 }
 

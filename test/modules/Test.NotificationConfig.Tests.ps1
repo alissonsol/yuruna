@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42c69d36-b3fb-4b9c-9a06-d3691835d73e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,7 +64,8 @@ $NotifModule = Import-Module $modulePath -Force -DisableNameChecking -PassThru
 # on a Pester-version-specific InModuleScope signature).
 function Get-NotificationConfigShape {
     param([string]$Content)
-    $tmp = [System.IO.Path]::GetTempFileName()
+    $dir = New-YurunaTestTempDir -Prefix 'notification-config'
+    $tmp = Join-Path $dir 'notification.yml'
     [System.IO.File]::WriteAllText($tmp, $Content)
     try {
         $r = & $NotifModule {
@@ -73,7 +74,7 @@ function Get-NotificationConfigShape {
             $script:ConfigPath = $Path
             try { Read-NotificationConfig } finally { $script:ConfigPath = $saved }
         } $tmp
-    } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    } finally { Remove-YurunaTestTempDir $dir }
     $isDict = $r -is [System.Collections.IDictionary]
     [pscustomobject]@{
         IsDict           = $isDict

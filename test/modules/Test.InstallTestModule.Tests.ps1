@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42318205-4701-4ec4-97ce-64b0837ff71b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -316,9 +316,9 @@ exit 0
 '@
         $windowsPowerShellUser = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell' | Join-Path -ChildPath 'Modules'
         $custom = Join-Path $TestDrive 'user-scoped-modules'
-        $saved = $env:PSModulePath
+        $saved = Save-YurunaTestEnvironment -Name 'PSModulePath'
         try {
-            $env:PSModulePath = @($windowsPowerShellUser, $custom, $saved) -join [IO.Path]::PathSeparator
+            $env:PSModulePath = @($windowsPowerShellUser, $custom, $saved.PSModulePath) -join [IO.Path]::PathSeparator
             $out = @(Install-YurunaTestModule -Root $root) -join "`n"
             $child = ($out -split "`n" | Where-Object { $_ -like 'CHILD-PATH: *' } | Select-Object -First 1)
             Assert-NotNull $child 'the child reported its module path'
@@ -326,7 +326,7 @@ exit 0
             Assert-True ($entries -notcontains $windowsPowerShellUser) 'Windows PowerShell''s per-user directory does not reach the child'
             Assert-True ($entries -contains $custom) 'a user-scoped entry still reaches the child'
             Assert-True ($env:PSModulePath.StartsWith($windowsPowerShellUser)) 'the installer keeps its own module path afterwards'
-        } finally { $env:PSModulePath = $saved }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
     It 'records an issue when pwsh is not on PATH yet' {
         $root = New-ModuleScriptRoot -Root (Join-Path $TestDrive 'win-nopwsh') -Body 'exit 0'

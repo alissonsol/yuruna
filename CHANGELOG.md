@@ -4,9 +4,25 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.10.31
+
+- **Shared service start.** The stash, pool-control and download-agent VMs
+  start through one pipeline, and the download-agent start asks once.
+- **Also in this release.** The pool aggregator's state lives in a package
+  that releases its lock when a handler panics, and test suites take temp
+  folders, environment restores and loopback listeners from shared helpers
+  that a guard enforces.
+
 ## 2026.10.30
 
-- **TBD.** To be done.
+- **Bounded host work.** Hypervisor calls, deploy tools and VM builds run under
+  time caps, config writes take a lock, and guest SSH keys and installer
+  digests are pinned.
+- **Also in this release.** Failure records name wedged guest kernels, clock
+  jumps, host address moves and commit exhaustion, waits end early on a dead
+  kernel, guests recreate lost SSH host keys, cached PowerShell Gallery
+  packages outlast gallery outages, snapshot renames keep SSH pins and MACs,
+  and tooltips open by keyboard.
 
 ## 2026.10.26
 
@@ -77,7 +93,7 @@ tagged release.
   
 ## 2026.10.11.1
 
-- **Same-day hotfix for the caching proxy.** Same-day hotfix enables `zot`’s
+- **Same-day hotfix for the caching proxy.** Same-day hotfix enables `zot`'s
   `docker2s2` and reports refused Kubernetes images. Rebuild caching-proxy-service
   VMs created with 2026.10.11.
 - **Patch-version publishing.** Version updates encode same-day CalVer
@@ -656,6 +672,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna](README.md)

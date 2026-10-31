@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42d64f5a-8fc4-44e1-a87f-16aacb2e4fa0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,8 +99,7 @@ function Initialize-TestRuntimeDir {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-runnerstate-' + [guid]::NewGuid().ToString('N'))
-    $null = New-Item -ItemType Directory -Path $dir -Force
+    $dir = New-YurunaTestTempDir -Prefix 'yuruna-runnerstate'
     $env:YURUNA_RUNTIME_DIR = $dir
     return $dir
 }
@@ -144,7 +143,7 @@ Describe 'Get-RunnerStatePath' {
         try {
             Assert-Equal -Expected (Join-Path $dir 'runner.state.json') -Actual (Get-RunnerStatePath)
         } finally {
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-YurunaTestTempDir $dir
         }
     }
     It 'falls back to the platform temp dir when the runtime dir is not published yet' {
@@ -160,7 +159,7 @@ Describe 'Get-RunnerState' {
     AfterAll {
         $dir = $env:YURUNA_RUNTIME_DIR
         Restore-YurunaTestEnvironment -Saved $script:BlockEnvironment
-        if ($dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        if ($dir) { Remove-YurunaTestTempDir $dir }
     }
     BeforeEach { Remove-Item -LiteralPath (Get-RunnerStatePath) -Force -ErrorAction SilentlyContinue }
 
@@ -208,7 +207,7 @@ Describe 'Initialize-RunnerState' {
     AfterAll {
         $dir = $env:YURUNA_RUNTIME_DIR
         Restore-YurunaTestEnvironment -Saved $script:BlockEnvironment
-        if ($dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        if ($dir) { Remove-YurunaTestTempDir $dir }
         Initialize-TestRunId -RunId ''
     }
     BeforeEach { Remove-Item -LiteralPath (Get-RunnerStatePath) -Force -ErrorAction SilentlyContinue }
@@ -280,7 +279,7 @@ Describe 'Set-RunnerState' {
     AfterAll {
         $dir = $env:YURUNA_RUNTIME_DIR
         Restore-YurunaTestEnvironment -Saved $script:BlockEnvironment
-        if ($dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        if ($dir) { Remove-YurunaTestTempDir $dir }
         Initialize-TestRunId -RunId ''
         Initialize-TestCycleStartUtc -CycleStartUtc ''
     }

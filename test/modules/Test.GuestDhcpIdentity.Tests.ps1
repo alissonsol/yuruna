@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4223adbe-1c67-4f91-9007-d00e25adf8ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,6 +63,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
 BeforeAll {
     # test/modules/<this file> -> test/modules -> test -> repo root.
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+    Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:SharedConfig = Join-Path $script:RepoRoot 'host/vmconfig/guest-dhcp.network-config'
 
     # See https://yuruna.link/42e220c4-0014
@@ -305,11 +306,6 @@ Describe 'the ledger that decides whether a rebuilt guest kept its address' {
 
     BeforeAll {
         Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.VMUtility.psm1') -Force -Global -DisableNameChecking
-        function Get-LedgerTempDir {
-            $d = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-gaddr-" + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Force -Path $d | Out-Null
-            return $d
-        }
     }
 
     It 'never calls a first sighting a violation' {
@@ -317,58 +313,58 @@ Describe 'the ledger that decides whether a rebuilt guest kept its address' {
         # that has just added a guest and one that is leaking addresses look the
         # same on that first build, and only the second is worth failing for --
         # so the benefit of the doubt goes to the case that is indistinguishable.
-        $d = Get-LedgerTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-gaddr'
         try {
             $r = Register-GuestAddressObservation -RuntimeDir $d -Identity 'amisad-build' -Address '192.168.7.59' -Confirm:$false
             $r.bounded       | Should -BeTrue
             $r.firstSighting | Should -BeTrue
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'calls a rebuild that came back on the same address bounded' {
-        $d = Get-LedgerTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-gaddr'
         try {
             $null = Register-GuestAddressObservation -RuntimeDir $d -Identity 'amisad-build' -Address '192.168.7.59' -Confirm:$false
             $r = Register-GuestAddressObservation -RuntimeDir $d -Identity 'amisad-build' -Address '192.168.7.59' -Confirm:$false
             $r.bounded       | Should -BeTrue
             $r.firstSighting | Should -BeFalse
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'flags a rebuild of the SAME identity that was handed a different address' {
         # This is the whole signal: identity held constant, address moved. It
         # means the server is not keying on anything the guest keeps, so the
         # footprint is bounded by elapsed time instead of by guest count.
-        $d = Get-LedgerTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-gaddr'
         try {
             $null = Register-GuestAddressObservation -RuntimeDir $d -Identity 'amisad-build' -Address '192.168.7.59' -Confirm:$false
             $r = Register-GuestAddressObservation -RuntimeDir $d -Identity 'amisad-build' -Address '192.168.7.204' -Confirm:$false
             $r.bounded  | Should -BeFalse
             $r.previous | Should -Be '192.168.7.59'
             $r.current  | Should -Be '192.168.7.204'
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'keeps identities apart rather than comparing a guest against its neighbor' {
-        $d = Get-LedgerTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-gaddr'
         try {
             $null = Register-GuestAddressObservation -RuntimeDir $d -Identity 'amisad-build' -Address '192.168.7.59' -Confirm:$false
             $r = Register-GuestAddressObservation -RuntimeDir $d -Identity 'amisad-edge-a' -Address '192.168.7.61' -Confirm:$false
             $r.bounded       | Should -BeTrue
             $r.firstSighting | Should -BeTrue
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'treats an unreadable ledger as empty rather than failing the teardown it runs inside' {
         # Losing the history costs one cycle of detection. Throwing here would
         # cost the teardown, which is the more expensive of the two by far.
-        $d = Get-LedgerTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-gaddr'
         try {
             Set-Content -Path (Join-Path $d 'guestaddress.ledger.json') -Value '{ not json'
             $r = Register-GuestAddressObservation -RuntimeDir $d -Identity 'amisad-build' -Address '192.168.7.59' -Confirm:$false
             $r.bounded       | Should -BeTrue
             $r.firstSighting | Should -BeTrue
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 
     It 'counts a guest it could not resolve as unchecked, never as passing' {
@@ -376,13 +372,13 @@ Describe 'the ledger that decides whether a rebuilt guest kept its address' {
         # the ordinary case on a failure path, and letting it report as bounded
         # would make a cycle where nothing could be checked read exactly like a
         # cycle where everything was.
-        $d = Get-LedgerTempDir
+        $d = New-YurunaTestTempDir -Prefix 'yrn-gaddr'
         try {
             Reset-GuestAddressFootprintTally -Confirm:$false
             $r = Assert-GuestAddressBounded -VMName 'no-such-vm' -Identity 'no-such-vm' -RuntimeDir $d -Confirm:$false
             $r.checked | Should -BeFalse
             (Get-GuestAddressFootprintTally).checked | Should -Be 0
-        } finally { Remove-Item -Recurse -Force $d }
+        } finally { Remove-YurunaTestTempDir $d }
     }
 }
 

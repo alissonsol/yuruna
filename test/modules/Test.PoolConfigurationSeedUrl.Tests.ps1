@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42657c1d-d334-49f4-8ac3-79b2e8df3f52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,8 +52,11 @@ $script:nasConfig = @{
 }
 
 Describe 'Get-PoolConfigurationSeedUrl resolution order' {
-    BeforeEach { $env:YURUNA_CACHING_PROXY_SERVICE_IP = '' }
-    AfterEach  { $env:YURUNA_CACHING_PROXY_SERVICE_IP = '' }
+    BeforeEach {
+        $script:SavedCacheIp = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
+        $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
+    }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedCacheIp }
 
     Context 'an explicit configurationGitUrl wins' {
         It 'returns the configured value even when pool storage could supply one' {

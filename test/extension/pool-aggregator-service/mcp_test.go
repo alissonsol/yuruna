@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 func mcpPost(t *testing.T, h http.Handler, body string) map[string]any {
@@ -92,17 +94,17 @@ func TestMcpServerInfoCarriesTheStampedVersion(t *testing.T) {
 func TestCycleLinksToolAnswersTheClickDestinations(t *testing.T) {
 	s := newPoolState("default", 8080)
 	const hostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	s.mu.Lock()
-	s.hosts[hostID] = &hostView{
-		HostId:  hostID,
-		BaseURL: "http://192.168.7.92:8080",
-		Status: &hostStatus{
-			HostId:         hostID,
-			StartedAt:      "2026-08-22T09:18:47Z",
-			CycleFolderUrl: "log/000246.2026-08-22.09-18-47." + hostID + "/",
-		},
-	}
-	s.mu.Unlock()
+	s.st.Do(func(view *poolstate.View) {
+		view.Hosts[hostID] = &hostView{
+			HostId:  hostID,
+			BaseURL: "http://192.168.7.92:8080",
+			Status: &hostStatus{
+				HostId:         hostID,
+				StartedAt:      "2026-08-22T09:18:47Z",
+				CycleFolderUrl: "log/000246.2026-08-22.09-18-47." + hostID + "/",
+			},
+		}
+	})
 
 	h := s.mcpServer("2026.10.30").Handler()
 	got := mcpPost(t, h, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pool_cycle_links",`+

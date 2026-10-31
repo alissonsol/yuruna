@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42c11373-6ab6-4218-89d7-d152de3a1e3a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,8 +133,10 @@ Describe 'the native path ceiling is enforced where the lab found it' {
 }
 
 Describe 'Resolve-OcrImagePath hands back a real path and Clear-OcrImagePath respects ownership' {
+    BeforeAll { $script:OcrPathDir = New-YurunaTestTempDir -Prefix 'yuruna-ocrpath' }
+    AfterAll { Remove-YurunaTestTempDir $script:OcrPathDir }
     It 'returns the original path, uncopied, for a path the engine can open' {
-        $f = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ocrpath-short-{0}.png" -f $PID)
+        $f = Join-Path $script:OcrPathDir 'short.png'
         Set-Content -LiteralPath $f -Value 'x' -NoNewline
         try {
             $h = Resolve-OcrImagePath -ImagePath $f
@@ -146,7 +148,7 @@ Describe 'Resolve-OcrImagePath hands back a real path and Clear-OcrImagePath res
     It 'leaves the capture on disk when the handle does not own a copy' {
         # The destructive misread of this contract: treating every handle as a
         # copy would delete the very frames the failure path exists to preserve.
-        $f = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ocrpath-keep-{0}.png" -f $PID)
+        $f = Join-Path $script:OcrPathDir 'keep.png'
         Set-Content -LiteralPath $f -Value 'x' -NoNewline
         try {
             Clear-OcrImagePath -Handle (Resolve-OcrImagePath -ImagePath $f)
@@ -154,7 +156,7 @@ Describe 'Resolve-OcrImagePath hands back a real path and Clear-OcrImagePath res
         } finally { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
     }
     It 'deletes the temporary file when the handle does own a copy' {
-        $f = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ocrpath-owned-{0}.png" -f $PID)
+        $f = Join-Path $script:OcrPathDir 'owned.png'
         Set-Content -LiteralPath $f -Value 'x' -NoNewline
         try {
             Clear-OcrImagePath -Handle @{ Path = $f; IsCopy = $true }
@@ -163,7 +165,7 @@ Describe 'Resolve-OcrImagePath hands back a real path and Clear-OcrImagePath res
     }
     It 'is a no-op on a null handle and on a second release' {
         Clear-OcrImagePath -Handle $null
-        $gone = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-ocrpath-gone-{0}.png" -f $PID)
+        $gone = Join-Path $script:OcrPathDir 'gone.png'
         Clear-OcrImagePath -Handle @{ Path = $gone; IsCopy = $true }
         Assert-True $true 'neither call may throw; a cleanup error must never become the OCR error'
     }

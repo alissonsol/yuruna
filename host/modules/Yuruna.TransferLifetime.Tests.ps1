@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f1b39c-5884-49aa-8979-f180da646601
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -13,43 +13,22 @@
 param()
 if (-not (Get-Command Describe -ErrorAction SilentlyContinue)) { throw 'Run this suite with Pester.' }
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot '../../test/modules/Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     $script:AgentModule = Import-Module (Join-Path $PSScriptRoot 'Yuruna.DownloadAgent.psm1') -Force -PassThru -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Yuruna.HostDownload.psm1') -Force -DisableNameChecking
+    # Answers one request and then holds the connection open until it is
+    # closed: with no reply at all, or with ten bytes of a 100,000-byte body.
     function Get-StalledResponder {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '', Justification = 'The listener and signal are explicit thread-job arguments.')]
         param([switch]$NoHeaders)
-        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-        $listener.Start()
-        $signal = [Threading.ManualResetEventSlim]::new($false)
-        $job = Start-ThreadJob -ArgumentList $listener, $signal, $NoHeaders.IsPresent -ScriptBlock {
-            param($Listener, $Signal, $NoHeaders)
-            $peer = $null
-            try {
-                $peer = $Listener.AcceptTcpClient()
-                $stream = $peer.GetStream()
-                $buffer = [byte[]]::new(8192)
-                [void]$stream.Read($buffer, 0, $buffer.Length)
-                if (-not $NoHeaders) {
-                    $bytes = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: 100000`r`nConnection: close`r`n`r`n1234567890")
-                    $stream.Write($bytes, 0, $bytes.Length)
-                    $stream.Flush()
-                }
-                [void]$Signal.Wait(15000)
-            } finally {
-                if ($peer) { $peer.Dispose() }
-                $Listener.Stop()
-            }
-        }
-        return @{ Url = "http://127.0.0.1:$($listener.LocalEndpoint.Port)/bytes"; Listener = $listener; Signal = $signal; Job = $job }
+        $reply = if ($NoHeaders) { '' } else { "HTTP/1.1 200 OK`r`nContent-Length: 100000`r`nConnection: close`r`n`r`n1234567890" }
+        $responder = Start-YurunaTestHttpResponder -Reply $reply -HoldOpen
+        $responder | Add-Member -NotePropertyName Url -NotePropertyValue "$($responder.BaseUrl)/bytes"
+        return $responder
     }
     function Close-StalledResponder {
         param($Responder)
-        $Responder.Signal.Set()
-        $Responder.Listener.Stop()
-        $Responder.Job | Wait-Job -Timeout 3 | Out-Null
-        $Responder.Job | Remove-Job -Force
-        $Responder.Signal.Dispose()
+        $null = Stop-YurunaTestHttpResponder $Responder
     }
 }
 Describe 'Download bodies obey total and idle deadlines' {
@@ -98,30 +77,10 @@ Describe 'Download bodies obey total and idle deadlines' {
 }
 Describe 'Interrupted agent responses resume from the bytes already staged' {
     It 'finishes a truncated body through a Range request' {
-        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-        $listener.Start()
-        $url = "http://127.0.0.1:$($listener.LocalEndpoint.Port)/bytes"
-        $job = Start-ThreadJob -ArgumentList $listener -ScriptBlock {
-            param($Listener)
-            try {
-                foreach ($attempt in 1, 2) {
-                    $peer = $Listener.AcceptTcpClient()
-                    try {
-                        $stream = $peer.GetStream()
-                        $buffer = [byte[]]::new(8192)
-                        $count = $stream.Read($buffer, 0, $buffer.Length)
-                        $requestText = [Text.Encoding]::ASCII.GetString($buffer, 0, $count)
-                        if ($attempt -eq 1) { $reply = "HTTP/1.1 200 OK`r`nContent-Length: 10`r`nConnection: close`r`n`r`n12345" }
-                        else {
-                            $requestText
-                            $reply = "HTTP/1.1 206 Partial Content`r`nContent-Length: 5`r`nContent-Range: bytes 5-9/10`r`nConnection: close`r`n`r`n67890"
-                        }
-                        $bytes = [Text.Encoding]::ASCII.GetBytes($reply)
-                        $stream.Write($bytes, 0, $bytes.Length)
-                    } finally { $peer.Dispose() }
-                }
-            } finally { $Listener.Stop() }
-        }
+        $server = Start-YurunaTestHttpResponder -Reply @(
+            "HTTP/1.1 200 OK`r`nContent-Length: 10`r`nConnection: close`r`n`r`n12345",
+            "HTTP/1.1 206 Partial Content`r`nContent-Length: 5`r`nContent-Range: bytes 5-9/10`r`nConnection: close`r`n`r`n67890")
+        $url = "$($server.BaseUrl)/bytes"
         $path = Join-Path $TestDrive 'resumed'
         try {
             $result = & $script:AgentModule { param($Url, $Path)
@@ -129,9 +88,8 @@ Describe 'Interrupted agent responses resume from the bytes already staged' {
             } $url $path
             $result.Ok | Should -BeTrue
             [IO.File]::ReadAllText($path) | Should -Be '1234567890'
-            $job | Wait-Job -Timeout 3 | Out-Null
-            ($job | Receive-Job | Out-String) | Should -Match 'Range: bytes=5-'
-        } finally { $listener.Stop(); $job | Remove-Job -Force }
+        } finally { $requests = @(Stop-YurunaTestHttpResponder $server) }
+        $requests[1] | Should -Match 'Range: bytes=5-'
     }
 }
 
@@ -140,39 +98,16 @@ Describe 'A download cut short resumes at its next attempt, and only on the same
         # Answers one scripted reply per connection and hands back each
         # request's text, so a case can read the headers the engine sent.
         function Get-ScriptedResponder {
-            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '', Justification = 'The listener and replies are explicit thread-job arguments.')]
             param([string[]]$Reply)
-            $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-            $listener.Start()
-            $job = Start-ThreadJob -ArgumentList $listener, $Reply -ScriptBlock {
-                param($Listener, $Replies)
-                try {
-                    foreach ($reply in $Replies) {
-                        $peer = $Listener.AcceptTcpClient()
-                        try {
-                            $stream = $peer.GetStream()
-                            $buffer = [byte[]]::new(8192)
-                            $count = $stream.Read($buffer, 0, $buffer.Length)
-                            [Text.Encoding]::ASCII.GetString($buffer, 0, $count)
-                            $bytes = [Text.Encoding]::ASCII.GetBytes($reply)
-                            $stream.Write($bytes, 0, $bytes.Length)
-                            $stream.Flush()
-                        } finally { $peer.Dispose() }
-                    }
-                } finally { $Listener.Stop() }
-            }
-            $responder = @{ Url = "http://127.0.0.1:$($listener.LocalEndpoint.Port)/disk.img"; Listener = $listener; Job = $job }
+            $responder = Start-YurunaTestHttpResponder -Reply $Reply
+            $responder | Add-Member -NotePropertyName Url -NotePropertyValue "$($responder.BaseUrl)/disk.img"
             $script:OpenResponders.Add($responder)
             return $responder
         }
         function Close-ScriptedResponder {
             param($Responder)
-            $Responder.Listener.Stop()
-            $Responder.Job | Wait-Job -Timeout 5 | Out-Null
-            $requests = @($Responder.Job | Receive-Job -ErrorAction SilentlyContinue)
-            $Responder.Job | Remove-Job -Force -ErrorAction SilentlyContinue
             [void]$script:OpenResponders.Remove($Responder)
-            return $requests
+            return @(Stop-YurunaTestHttpResponder $Responder)
         }
         $script:Cut = "HTTP/1.1 200 OK`r`nContent-Length: 10`r`nETag: `"v1`"`r`nConnection: close`r`n`r`n12345"
     }

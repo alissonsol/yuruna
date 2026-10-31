@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 const (
@@ -39,7 +41,7 @@ func newArchiveFixture(t *testing.T, committed bool) (root string, state *poolSt
 			t.Fatalf("write sentinel: %v", err)
 		}
 	}
-	return root, &poolState{archiveRoot: root}
+	return root, &poolState{st: poolstate.New(), archiveRoot: root}
 }
 
 func TestArchiveServesCommittedCycle(t *testing.T) {
@@ -152,7 +154,7 @@ func TestArchiveContainsSymlinkEscape(t *testing.T) {
 func TestArchiveResolvesRootPerRequest(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "hosts")
-	s := &poolState{archiveRoot: root}
+	s := &poolState{st: poolstate.New(), archiveRoot: root}
 	target := "/archive/" + testArchiveHost + "/test-cycles/" + testArchiveCycle + "/cycle.html"
 
 	rr := httptest.NewRecorder()
@@ -177,7 +179,7 @@ func TestArchiveResolvesRootPerRequest(t *testing.T) {
 }
 
 func TestArchiveRouteAbsentWithoutRoot(t *testing.T) {
-	s := &poolState{}
+	s := &poolState{st: poolstate.New()}
 	if s.archiveCommitted(testArchiveHost, testArchiveCycle) {
 		t.Fatal("no archive root configured, yet a cycle reported as committed")
 	}
@@ -203,7 +205,7 @@ func TestArchiveResolutionRequiresSentinel(t *testing.T) {
 
 func TestResolveFolderByArchivePicksCycleCoveringTime(t *testing.T) {
 	root := t.TempDir()
-	s := &poolState{archiveRoot: root}
+	s := &poolState{st: poolstate.New(), archiveRoot: root}
 	for _, leaf := range []string{
 		"000121.2026-08-16.10-00-00." + testArchiveHost,
 		"000122.2026-08-16.12-00-00." + testArchiveHost,

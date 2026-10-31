@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42994830-6205-4cf7-a39c-84254b1669c3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,15 +37,14 @@ param()
 BeforeAll {
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path $here 'Test.RecoveryContract.psm1') -Force -Global -DisableNameChecking
 
 function New-Scratch {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Test fixture: creates a throwaway directory under the OS temp directory.')]
     param([string]$Prefix = 'rc')
-    $dir = Join-Path ([System.IO.Path]::GetTempPath()) ($Prefix + '-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    return $dir
+    return New-YurunaTestTempDir -Prefix $Prefix
 }
 
 function Write-Json {
@@ -142,9 +141,9 @@ Describe 'Vocabulary' {
 }
 
 Describe 'Cycle generation' {
-    BeforeEach { $script:SavedGeneration = $env:YURUNA_CYCLE_GENERATION }
+    BeforeEach { $script:SavedGeneration = Save-YurunaTestEnvironment -Name 'YURUNA_CYCLE_GENERATION' }
     AfterEach {
-        if ($null -eq $script:SavedGeneration) { Remove-Item Env:YURUNA_CYCLE_GENERATION -ErrorAction SilentlyContinue } else { $env:YURUNA_CYCLE_GENERATION = $script:SavedGeneration }
+        Restore-YurunaTestEnvironment -Saved $script:SavedGeneration
     }
     It 'mints `<instance`>:1 for a one-shot entry point' {
         New-CycleGeneration | Should -Match '^[0-9a-f]{32}:1$'
@@ -533,11 +532,11 @@ Describe 'ConvertTo-ExitRecoveryResult and Save-RecoveryResult' {
     BeforeEach {
         $script:Log = New-Scratch 'el'
         $script:Runtime = New-Scratch 'er'
-        $script:SavedGeneration = $env:YURUNA_CYCLE_GENERATION
+        $script:SavedGeneration = Save-YurunaTestEnvironment -Name 'YURUNA_CYCLE_GENERATION'
     }
     AfterEach {
         Remove-Item -LiteralPath $script:Log, $script:Runtime -Recurse -Force -ErrorAction SilentlyContinue
-        if ($null -eq $script:SavedGeneration) { Remove-Item Env:YURUNA_CYCLE_GENERATION -ErrorAction SilentlyContinue } else { $env:YURUNA_CYCLE_GENERATION = $script:SavedGeneration }
+        Restore-YurunaTestEnvironment -Saved $script:SavedGeneration
     }
 
     It 'is a pass for exit 0 with no failed step' {

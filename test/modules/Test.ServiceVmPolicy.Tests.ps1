@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 429a9b8e-d547-4b8a-8e37-5d6306ea49b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -211,18 +211,17 @@ echo "REASON=`$SERVICE_VM_DETECT_REASON"
                 [pscustomobject]@{ Key = $vm.Key; VMName = $vm.VMName; DisplayName = $vm.DisplayName; HealthPort = $vm.HealthPort; HostingMode = 'vm' }
             }
             if ($World.Squid) {
-                $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-                $listener.Start()
+                $listener = New-YurunaTestTcpListener
                 $identity[0] | Add-Member -NotePropertyName Advertised -NotePropertyValue ([pscustomobject]@{
                         Address = '127.0.0.1'; Port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port; Url = ''; Origin = 'cp-state' })
             }
-            $savedPath = $env:PATH
+            $savedPath = Save-YurunaTestEnvironment -Name 'PATH'
             try {
                 $env:PATH = "${bin}:/usr/bin:/bin"
                 $verdict = Test-YurunaServiceVmRunning -Identity $identity -UnknownMeans Preserve -HostType 'host.macos.utm' -HypervisorProbe $probe `
                     -StateRoot (Join-Path $Root 'no-root') -RuntimeDir (Join-Path $Root 'no-runtime') -Deadline (New-YurunaDeadline -TotalMilliseconds 6000)
             } finally {
-                $env:PATH = $savedPath
+                Restore-YurunaTestEnvironment -Saved $savedPath
                 if ($listener) { $listener.Stop() }
             }
             return $verdict
@@ -396,8 +395,7 @@ Describe 'evidence rules' {
     }
 
     It 'asks each advertised endpoint once, in parallel, within two seconds' {
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
         try {
             $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
             $rows = @(

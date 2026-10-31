@@ -26,7 +26,7 @@ network:ARP((network:ARP)) -- subClassOf --> network:Protocol((network:Protocol)
 network:AddressFootprint((network:AddressFootprint)) -- subClassOf --> y:Quantity[y:Quantity]
 network:Bandwidth((network:Bandwidth)) -- subClassOf --> y:Quantity[y:Quantity]
 network:BaseURL((network:BaseURL)) -- subClassOf --> network:URL((network:URL))
-network:BridgedNetworking((network:BridgedNetworking)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+network:BridgedNetworking((network:BridgedNetworking)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 network:CIFS((network:CIFS)) -- subClassOf --> network:Protocol((network:Protocol))
 network:CacheHitRatio((network:CacheHitRatio)) -- subClassOf --> y:Quantity[y:Quantity]
 network:CacheWarmSet((network:CacheWarmSet)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
@@ -37,7 +37,7 @@ network:DHCPClientIdentifier((network:DHCPClientIdentifier)) -- subClassOf --> y
 network:DHCPLease -- network:leasesAddress --> network:IPAddress
 network:DHCPLease((network:DHCPLease)) -- subClassOf --> r_DHCPLease_leasesAddress_IPAddress_((Anonymous class))
 network:DHCPLease((network:DHCPLease)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-network:DHCPReservation((network:DHCPReservation)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+network:DHCPReservation((network:DHCPReservation)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 network:DNS((network:DNS)) -- subClassOf --> network:Protocol((network:Protocol))
 network:DNSRecord((network:DNSRecord)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 network:DUID((network:DUID)) -- subClassOf --> y:Identifier[y:Identifier]
@@ -45,7 +45,7 @@ network:DefaultRoute((network:DefaultRoute)) -- subClassOf --> network:Route((ne
 network:DeterministicMACAddress((network:DeterministicMACAddress)) -- subClassOf --> network:MACAddress((network:MACAddress))
 network:Ethernet((network:Ethernet)) -- subClassOf --> network:Protocol((network:Protocol))
 network:FQDN((network:FQDN)) -- subClassOf --> y:Identifier[y:Identifier]
-network:FirewallRule((network:FirewallRule)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+network:FirewallRule((network:FirewallRule)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 network:GuestHostBinding((network:GuestHostBinding)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 network:GuestReachableHostAddress((network:GuestReachableHostAddress)) -- subClassOf --> network:IPAddress((network:IPAddress))
 network:HTTP((network:HTTP)) -- subClassOf --> network:Protocol((network:Protocol))
@@ -64,30 +64,28 @@ network:Latency((network:Latency)) -- subClassOf --> y:Quantity[y:Quantity]
 network:LatencyPercentile((network:LatencyPercentile)) -- subClassOf --> y:Quantity[y:Quantity]
 network:LinkLocalAddress((network:LinkLocalAddress)) -- subClassOf --> network:IPAddress((network:IPAddress))
 network:MACAddress((network:MACAddress)) -- subClassOf --> y:Identifier[y:Identifier]
-network:MTU((network:MTU)) -- subClassOf --> y:Quantity[y:Quantity]
 network:NeighborTable((network:NeighborTable)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-network:NetworkProfile((network:NetworkProfile)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
-network:NoUpstreamMode((network:NoUpstreamMode)) -- subClassOf --> software:Policy[software:Policy]
+network:NoUpstreamMode((network:NoUpstreamMode)) -- subClassOf --> y:Policy[y:Policy]
 network:OAuth2((network:OAuth2)) -- subClassOf --> network:Protocol((network:Protocol))
 network:ObservedAddressCount((network:ObservedAddressCount)) -- subClassOf --> y:Quantity[y:Quantity]
-network:OfflineMode((network:OfflineMode)) -- subClassOf --> software:Policy[software:Policy]
+network:OfflineMode((network:OfflineMode)) -- subClassOf --> y:Policy[y:Policy]
 network:OpenIDConnect((network:OpenIDConnect)) -- subClassOf --> network:Protocol((network:Protocol))
 network:Port((network:Port)) -- subClassOf --> y:Identifier[y:Identifier]
 network:Prefix((network:Prefix)) -- subClassOf --> y:Identifier[y:Identifier]
 network:PrefixLength((network:PrefixLength)) -- subClassOf --> y:Quantity[y:Quantity]
 network:PrivateAddress((network:PrivateAddress)) -- subClassOf --> network:IPAddress((network:IPAddress))
 network:Protocol((network:Protocol)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-network:ProxyBypass((network:ProxyBypass)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+network:ProxyBypass((network:ProxyBypass)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 network:ProxyProtocol((network:ProxyProtocol)) -- subClassOf --> network:Protocol((network:Protocol))
 network:ProxyProtocolHeader((network:ProxyProtocolHeader)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 network:RemoteFramebufferProtocol((network:RemoteFramebufferProtocol)) -- subClassOf --> network:Protocol((network:Protocol))
-network:ResolverConfiguration((network:ResolverConfiguration)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+network:ResolverConfiguration((network:ResolverConfiguration)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 network:Route -- network:hasGateway --> network:Gateway
-network:Route((network:Route)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+network:Route((network:Route)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 network:RouteMetric((network:RouteMetric)) -- subClassOf --> y:Quantity[y:Quantity]
 network:RouterAdvertisement((network:RouterAdvertisement)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 network:RoutingTable -- network:hasRoute --> network:Route
-network:RoutingTable((network:RoutingTable)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+network:RoutingTable((network:RoutingTable)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 network:SFTP((network:SFTP)) -- subClassOf --> network:Protocol((network:Protocol))
 network:SMB((network:SMB)) -- subClassOf --> network:Protocol((network:Protocol))
 network:SSH((network:SSH)) -- subClassOf --> network:Protocol((network:Protocol))
@@ -95,16 +93,15 @@ network:ServerNameIndication((network:ServerNameIndication)) -- subClassOf --> y
 network:SocketReceiveQueue((network:SocketReceiveQueue)) -- subClassOf --> y:Quantity[y:Quantity]
 network:SocketSendQueue((network:SocketSendQueue)) -- subClassOf --> y:Quantity[y:Quantity]
 network:StaleContent((network:StaleContent)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-network:StaticAddressConfiguration((network:StaticAddressConfiguration)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
-network:StaticHostMapping((network:StaticHostMapping)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+network:StaticHostMapping((network:StaticHostMapping)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 network:TCP((network:TCP)) -- subClassOf --> network:Protocol((network:Protocol))
 network:TLS((network:TLS)) -- subClassOf --> network:Protocol((network:Protocol))
 network:Throughput((network:Throughput)) -- subClassOf --> y:Quantity[y:Quantity]
 network:Topology((network:Topology)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
-network:TopologySelectionPolicy((network:TopologySelectionPolicy)) -- subClassOf --> software:Policy[software:Policy]
+network:TopologySelectionPolicy((network:TopologySelectionPolicy)) -- subClassOf --> y:Policy[y:Policy]
 network:UDP((network:UDP)) -- subClassOf --> network:Protocol((network:Protocol))
 network:URL((network:URL)) -- subClassOf --> y:Identifier[y:Identifier]
-network:UplinkBinding((network:UplinkBinding)) -- subClassOf --> software:ConfigurationArtifact[software:ConfigurationArtifact]
+network:UplinkBinding((network:UplinkBinding)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 network:WiFi((network:WiFi)) -- subClassOf --> network:Protocol((network:Protocol))
 subgraph r_DHCPClientIdentifier_identifiesClient_DHCPClient_[Restriction &exist; R C]
 r_DHCPClientIdentifier_identifiesClient_DHCPClient_thing((thing)) --> r_DHCPClientIdentifier_identifiesClient_DHCPClient_network:identifiesClient[network:identifiesClient]
@@ -125,6 +122,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

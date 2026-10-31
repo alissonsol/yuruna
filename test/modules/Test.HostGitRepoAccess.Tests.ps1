@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 424d0ae7-c25c-4fdf-b29d-12a4768bb7d1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,7 +55,7 @@ Import-Module $modulePath -Force
 
 # Real repos: only remote.origin.url is read, so they need no commits, and the
 # config edits are local (no network).
-$script:tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-repoaccess-tests-" + [guid]::NewGuid().ToString('N'))
+$script:tmpRoot = New-YurunaTestTempDir -Prefix 'yuruna-repoaccess-tests'
 $script:cloned   = Join-Path $script:tmpRoot 'framework-clone'
 $script:noOrigin = Join-Path $script:tmpRoot 'no-origin-clone'
 $script:notARepo = Join-Path $script:tmpRoot 'plain-directory'
@@ -67,9 +67,7 @@ foreach ($r in @($script:cloned, $script:noOrigin)) { & git -C $r init --quiet 2
 }
 
 AfterAll {
-    if ($script:tmpRoot -and (Test-Path -LiteralPath $script:tmpRoot)) {
-        Remove-Item -LiteralPath $script:tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Remove-YurunaTestTempDir $script:tmpRoot
 }
 
 Describe 'Get-GitRepositoryName -- one repository, one name' {

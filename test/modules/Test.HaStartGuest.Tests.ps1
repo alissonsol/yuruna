@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42a8c19c-6467-464c-bbe1-27786a9557d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,10 +93,17 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
     }
 
     Context 'the generic failure message carries the caller phase label' {
+        BeforeAll {
+            $script:nolog = New-YurunaTestTempDir -Prefix 'nolog'
+            # A -ModuleName mock body runs in that module's session state, so a
+            # test-scope $script: var is $null there; the path is baked in as a literal.
+            $script:noLogMock = [scriptblock]::Create("'" + ((Join-Path $script:nolog 'absent') -replace "'", "''") + "'")
+        }
+        AfterAll { Remove-YurunaTestTempDir $script:nolog }
         It 'Start-GuestOS uses the "Start" label' {
             foreach ($m in 'Test.SequenceEngine', 'Test.Start-GuestOS') {
                 Mock Invoke-SequenceByName    -ModuleName $m { $false }
-                Mock Initialize-YurunaLogDir  -ModuleName $m { Join-Path ([System.IO.Path]::GetTempPath()) ('nolog-' + [guid]::NewGuid().ToString('N')) }
+                Mock Initialize-YurunaLogDir  -ModuleName $m $script:noLogMock
             }
             $r = Start-GuestOS -HostType h -GuestKey g -VMName vm -RepoRoot r -SequencesDir s -SequenceNames @('seqX')
             $r.success      | Should -BeFalse
@@ -105,7 +112,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
         It 'Start-GuestWorkload uses the "Workload" label' {
             foreach ($m in 'Test.SequenceEngine', 'Test.Start-GuestWorkload') {
                 Mock Invoke-SequenceByName    -ModuleName $m { $false }
-                Mock Initialize-YurunaLogDir  -ModuleName $m { Join-Path ([System.IO.Path]::GetTempPath()) ('nolog-' + [guid]::NewGuid().ToString('N')) }
+                Mock Initialize-YurunaLogDir  -ModuleName $m $script:noLogMock
             }
             $r = Start-GuestWorkload -HostType h -GuestKey g -VMName vm -RepoRoot r -SequencesDir s -SequenceNames @('seqY')
             $r.success      | Should -BeFalse
@@ -115,8 +122,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
 
     Context 'a sidecar written during the sequence promotes the message to the step location' {
         It 'formats "Step [n/total] action - description" from a fresh last_failure.json' {
-            $script:halog = Join-Path ([System.IO.Path]::GetTempPath()) ('halog-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $script:halog -Force | Out-Null
+            $script:halog = New-YurunaTestTempDir -Prefix 'halog'
             $payload = [ordered]@{
                 stepNumber = 3; totalSteps = 7
                 action = 'TypeText'; description = 'enter the admin password'
@@ -134,12 +140,11 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
                 $r.success      | Should -BeFalse
                 $r.errorMessage | Should -Be "Step [3/7] TypeText - enter the admin password (sequence: seqX)"
             } finally {
-                Remove-Item -LiteralPath $script:halog -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-YurunaTestTempDir $script:halog
             }
         }
         It 'keeps the generic message when the sidecar predates the sequence (mtime gate)' {
-            $script:hastale = Join-Path ([System.IO.Path]::GetTempPath()) ('hastale-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $script:hastale -Force | Out-Null
+            $script:hastale = New-YurunaTestTempDir -Prefix 'hastale'
             $stale = Join-Path $script:hastale 'last_failure.json'
             $payload = [ordered]@{ stepNumber = 9; totalSteps = 9; action = 'Reboot'; description = 'stale run' } | ConvertTo-Json
             Set-Content -LiteralPath $stale -Value $payload -Encoding utf8
@@ -153,7 +158,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
                 $r = Start-GuestWorkload -HostType h -GuestKey g -VMName vm -RepoRoot r -SequencesDir s -SequenceNames @('seqZ')
                 $r.errorMessage | Should -Be "Workload sequence 'seqZ' failed"
             } finally {
-                Remove-Item -LiteralPath $script:hastale -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-YurunaTestTempDir $script:hastale
             }
         }
     }

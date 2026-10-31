@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42bd03c8-a33c-4517-9a8b-e97307c8b49f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -126,9 +126,11 @@ Describe 'setup -logLevel -- every script the setup starts honors the inherited 
             if (-not (Test-Path -LiteralPath $path)) { continue }
             $checked++
             $text = Get-Content -LiteralPath $path -Raw
-            # A wrapper that hands its work to the shared stop script is judged by that script.
-            $shared = Join-Path (Split-Path -Parent $path) 'Stop-ExtensionService.ps1'
-            if ($text -match 'Stop-ExtensionService\.ps1' -and (Test-Path -LiteralPath $shared)) { $text += "`n" + (Get-Content -LiteralPath $shared -Raw) }
+            # A wrapper that hands its work to the shared start or stop script is judged by that script.
+            foreach ($sharedName in 'Start-ExtensionService.ps1', 'Stop-ExtensionService.ps1') {
+                $shared = Join-Path (Split-Path -Parent $path) $sharedName
+                if ($text -match [regex]::Escape($sharedName) -and (Test-Path -LiteralPath $shared)) { $text += "`n" + (Get-Content -LiteralPath $shared -Raw) }
+            }
             if ($text -notmatch 'Use-LogLevelFromEnv') {
                 $missing.Add($name)
             }

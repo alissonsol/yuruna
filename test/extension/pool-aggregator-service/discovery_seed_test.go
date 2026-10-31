@@ -43,10 +43,10 @@ func TestSeedHostStubLocked(t *testing.T) {
 	now := time.Now().UTC()
 
 	// (a) seeds a NEW host as an unreachable probe candidate at the parsed IP.
-	if !s.seedHostStubLocked("42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "http://192.168.7.13:8080", now) {
+	if !s.seedHostStubLocked(s.view(), "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "http://192.168.7.13:8080", now) {
 		t.Fatal("(a) expected a new host to be seeded")
 	}
-	hv := s.hosts["42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+	hv := s.view().Hosts["42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
 	if hv == nil || hv.CurrentIP != "192.168.7.13" || hv.BaseURL != "http://192.168.7.13:8080" {
 		t.Fatalf("(a) stub = %+v, want CurrentIP 192.168.7.13", hv)
 	}
@@ -58,19 +58,19 @@ func TestSeedHostStubLocked(t *testing.T) {
 	}
 
 	// (b) never clobbers an existing (possibly live) entry.
-	s.hosts["42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] = &hostView{HostId: "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", CurrentIP: "1.2.3.4", Reachable: true}
-	if s.seedHostStubLocked("42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "http://9.9.9.9:8080", now) {
+	s.view().Hosts["42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] = &hostView{HostId: "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", CurrentIP: "1.2.3.4", Reachable: true}
+	if s.seedHostStubLocked(s.view(), "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "http://9.9.9.9:8080", now) {
 		t.Error("(b) seed must not overwrite an existing host")
 	}
-	if got := s.hosts["42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]; got.CurrentIP != "1.2.3.4" || !got.Reachable {
+	if got := s.view().Hosts["42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]; got.CurrentIP != "1.2.3.4" || !got.Reachable {
 		t.Errorf("(b) existing host mutated: %+v", got)
 	}
 
 	// (c) rejects empty hostId / unparseable-or-hostless baseURL.
-	if s.seedHostStubLocked("42cccccccccccccccccccccccccccccc", "", now) {
+	if s.seedHostStubLocked(s.view(), "42cccccccccccccccccccccccccccccc", "", now) {
 		t.Error("(c) empty baseURL must not seed")
 	}
-	if s.seedHostStubLocked("", "http://1.1.1.1:8080", now) {
+	if s.seedHostStubLocked(s.view(), "", "http://1.1.1.1:8080", now) {
 		t.Error("(c) empty hostId must not seed")
 	}
 }
@@ -79,7 +79,7 @@ func TestApplyPresenceLines(t *testing.T) {
 	s := newPoolState("default", 8080)
 	now := time.Now().UTC()
 	// A live host already in the view must NOT be reseeded (seed never clobbers).
-	s.hosts["42live1111111111111111111111111"] = &hostView{HostId: "42live1111111111111111111111111", CurrentIP: "1.1.1.1", Reachable: true}
+	s.view().Hosts["42live1111111111111111111111111"] = &hostView{HostId: "42live1111111111111111111111111", CurrentIP: "1.1.1.1", Reachable: true}
 
 	hostA := [][2]string{ // newest-first within a stream: the first line wins
 		{"200", `{"hostId":"42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","baseUrl":"http://10.0.0.9:8080"}`},
@@ -91,10 +91,10 @@ func TestApplyPresenceLines(t *testing.T) {
 	if n := s.applyPresenceLines([][][2]string{hostA, hostLive, junk}, now); n != 1 {
 		t.Fatalf("seeded = %d, want 1 (only hostA is new + valid)", n)
 	}
-	if hv := s.hosts["42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]; hv == nil || hv.CurrentIP != "10.0.0.9" {
+	if hv := s.view().Hosts["42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]; hv == nil || hv.CurrentIP != "10.0.0.9" {
 		t.Errorf("hostA seed = %+v, want newest IP 10.0.0.9", hv)
 	}
-	if hv := s.hosts["42live1111111111111111111111111"]; hv.CurrentIP != "1.1.1.1" || !hv.Reachable {
+	if hv := s.view().Hosts["42live1111111111111111111111111"]; hv.CurrentIP != "1.1.1.1" || !hv.Reachable {
 		t.Errorf("live host must be untouched, got %+v", hv)
 	}
 }
@@ -159,15 +159,15 @@ func TestRehydrateFromLokiSeedsHostIPs(t *testing.T) {
 	now := time.Now().UTC()
 	s.rehydrateFromLoki(lokiURL, "default", 7*24*time.Hour, now)
 
-	hv := s.hosts[hid]
+	hv := s.view().Hosts[hid]
 	if hv == nil {
 		t.Fatal("host not seeded from its transition baseUrl")
 	}
 	if hv.CurrentIP != "192.168.7.13" || hv.Reachable {
 		t.Errorf("seed = %+v, want CurrentIP 192.168.7.13 + unreachable", hv)
 	}
-	if s.pass[hid] != 1 {
-		t.Errorf("pass count = %d, want 1 (rehydrate still restores counts)", s.pass[hid])
+	if passes, _ := s.cycleTotals(hid); passes != 1 {
+		t.Errorf("pass count = %d, want 1 (rehydrate still restores counts)", passes)
 	}
 }
 
@@ -185,7 +185,7 @@ func TestRehydrateHostPresenceFromLokiSeeds(t *testing.T) {
 	now := time.Now().UTC()
 	s.rehydrateHostPresenceFromLoki(lokiURL, "default", 7*24*time.Hour, now)
 
-	hv := s.hosts[hid]
+	hv := s.view().Hosts[hid]
 	if hv == nil || hv.CurrentIP != "192.168.7.42" || hv.Reachable {
 		t.Fatalf("presence seed = %+v, want CurrentIP 192.168.7.42 + unreachable", hv)
 	}

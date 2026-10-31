@@ -193,11 +193,11 @@ func TestPollOnceControlStickiness(t *testing.T) {
 	host := u.Hostname()
 	s := newPoolState("default", port)
 	s.authToken = token
-	s.hosts[hid] = &hostView{HostId: hid, CurrentIP: host, LastSeenUnixMs: now.UnixMilli()}
+	s.view().Hosts[hid] = &hostView{HostId: hid, CurrentIP: host, LastSeenUnixMs: now.UnixMilli()}
 	client := srv.Client()
 
 	s.pollOnce(client, "no-such-squid.log", "", now)
-	if got := s.hosts[hid].Control; got != controlReady {
+	if got := s.view().Hosts[hid].Control; got != controlReady {
 		t.Fatalf("a host sharing the proxy's token must read %q, got %q", controlReady, got)
 	}
 
@@ -205,7 +205,7 @@ func TestPollOnceControlStickiness(t *testing.T) {
 	// stale "ready" must not survive.
 	setControl(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) })
 	s.pollOnce(client, "no-such-squid.log", "", now)
-	if got := s.hosts[hid].Control; got != controlUnknown {
+	if got := s.view().Hosts[hid].Control; got != controlUnknown {
 		t.Fatalf("a route-less host must demote to %q, got %q", controlUnknown, got)
 	}
 
@@ -214,12 +214,12 @@ func TestPollOnceControlStickiness(t *testing.T) {
 		fmt.Fprintf(w, `{"ok":true,"tokenConfigured":false,"tokenTag":"","utcNow":%q}`, now.Format(time.RFC3339))
 	})
 	s.pollOnce(client, "no-such-squid.log", "", now)
-	if got := s.hosts[hid].Control; got != controlNone {
+	if got := s.view().Hosts[hid].Control; got != controlNone {
 		t.Fatalf("an un-enrolled host must read %q, got %q", controlNone, got)
 	}
 	srv.Close()
 	s.pollOnce(client, "no-such-squid.log", "", now)
-	if hv := s.hosts[hid]; hv.Reachable || hv.Control != controlNone {
+	if hv := s.view().Hosts[hid]; hv.Reachable || hv.Control != controlNone {
 		t.Fatalf("an unreachable host must keep its last verdict, got reachable=%v control=%q", hv.Reachable, hv.Control)
 	}
 }
@@ -233,10 +233,10 @@ func TestHostInfoControlLabelNeverCarriesTheTag(t *testing.T) {
 	s.authToken = token
 	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Control: controlReady}
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleStartUtc: "c1", OverallStatus: "pass"}
-	s.hosts[hv.HostId] = hv
+	s.view().Hosts[hv.HostId] = hv
 	// A second host that was never asked: it must read "unknown", not inherit
 	// the first host's verdict and not silently read as un-enrolled.
-	s.hosts["b0b0b0b0"] = &hostView{HostId: "b0b0b0b0", BaseURL: "http://192.168.7.14:8080"}
+	s.view().Hosts["b0b0b0b0"] = &hostView{HostId: "b0b0b0b0", BaseURL: "http://192.168.7.14:8080"}
 
 	w := httptest.NewRecorder()
 	s.handleMetrics(w, metricsRequest())

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 424634a3-2e75-44bb-9daf-24331e800d3a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,12 +39,9 @@ Import-Module (Join-Path $here 'Test.HostBootstrap.psm1') -Force -DisableNameChe
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-# Paths only at file scope; the temp repo trees are built in BeforeAll and
-# removed in AfterAll. A standalone run executes this file body twice
-# (discovery, then run), so a tree built here would be created and deleted
-# during discovery and every It would then import a driver that no longer
-# exists. $PID is stable across the two passes.
-$script:bootRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-hostbootstrap-tests-$PID"
+# One root for the suite; the temp repo trees under it are built in the
+# Describe's BeforeAll and removed with it in AfterAll.
+$script:bootRoot = New-YurunaTestTempDir -Prefix 'yuruna-hostbootstrap'
 
 # Builds <Root>/host/<short-host>/modules/Yuruna.Host.psm1 -- the layout
 # Initialize-YurunaHost searches -- spelled out literally rather than through
@@ -110,7 +107,7 @@ Describe 'Initialize-YurunaHost' {
 
     AfterAll {
         Remove-Module -Name 'Yuruna.Host' -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $script:bootRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:bootRoot
     }
 
     Context 'driver resolution and import' {

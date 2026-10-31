@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 428b7f5c-e722-4d67-858d-b11427a01f39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,10 +46,9 @@ $script:RealMoveItem = Get-Command Move-Item -CommandType Cmdlet
 # The throwaway repositories must not inherit the developer's git configuration:
 # commit signing would prompt, and a file system monitor would leave a daemon
 # holding the directory.
-$script:GitEnvNames = @('GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_TERMINAL_PROMPT')
-$script:SavedGitEnv = @{}
-foreach ($name in $script:GitEnvNames) { $script:SavedGitEnv[$name] = [Environment]::GetEnvironmentVariable($name) }
-$script:EmptyGitConfig = Join-Path ([System.IO.Path]::GetTempPath()) ('recactions-gitconfig-' + [guid]::NewGuid().ToString('N'))
+$script:SavedGitEnv = Save-YurunaTestEnvironment -Name 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_TERMINAL_PROMPT'
+$script:EmptyGitConfigDir = New-YurunaTestTempDir -Prefix 'recactions-gitconfig'
+$script:EmptyGitConfig = Join-Path $script:EmptyGitConfigDir 'gitconfig'
 [System.IO.File]::WriteAllText($script:EmptyGitConfig, '')
 $env:GIT_CONFIG_GLOBAL = $script:EmptyGitConfig
 $env:GIT_CONFIG_NOSYSTEM = '1'
@@ -218,8 +217,8 @@ function Register-ToyAction {
 }
 
 AfterAll {
-    foreach ($name in $script:GitEnvNames) { [Environment]::SetEnvironmentVariable($name, $script:SavedGitEnv[$name]) }
-    Remove-Item -LiteralPath $script:EmptyGitConfig -Force -ErrorAction SilentlyContinue
+    Restore-YurunaTestEnvironment -Saved $script:SavedGitEnv
+    Remove-YurunaTestTempDir $script:EmptyGitConfigDir
     Clear-RecoveryAction
     Register-BuiltinRecoveryAction
 }
@@ -922,7 +921,7 @@ Describe 'The bounded git status' {
         $index = Join-Path $repo '.git/index'
         $before = (Get-FileHash -LiteralPath $index).Hash
 
-        $savedOptionalLocks = [Environment]::GetEnvironmentVariable('GIT_OPTIONAL_LOCKS', 'Process')
+        $savedOptionalLocks = Save-YurunaTestEnvironment -Name 'GIT_OPTIONAL_LOCKS'
         try {
             $env:GIT_OPTIONAL_LOCKS = '1'
             $probe = InModuleScope Test.RecoveryActions -Parameters @{ P = $repo } -ScriptBlock { param($P) Invoke-RecoveryGitStatus -RepoPath $P }
@@ -932,25 +931,17 @@ Describe 'The bounded git status' {
 
             & git -C $repo status --porcelain 2>&1 | Out-Null
             (Get-FileHash -LiteralPath $index).Hash | Should -Not -Be $before -Because 'the control: an ordinary status does rewrite the index here'
-        } finally {
-            if ($null -eq $savedOptionalLocks) {
-                Remove-Item -LiteralPath Env:GIT_OPTIONAL_LOCKS
-            } else {
-                [Environment]::SetEnvironmentVariable('GIT_OPTIONAL_LOCKS', $savedOptionalLocks, 'Process')
-            }
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedOptionalLocks }
     }
 
     It 'reports a missing git as -1 rather than throwing' {
         $emptyBin = Join-Path $script:Base 'bin'
         New-Item -ItemType Directory -Path $emptyBin | Out-Null
-        $savedPath = $env:PATH
+        $savedPath = Save-YurunaTestEnvironment -Name 'PATH'
         try {
             $env:PATH = $emptyBin
             $result = InModuleScope Test.RecoveryActions -Parameters @{ P = $script:Base } -ScriptBlock { param($P) Invoke-RecoveryGitStatus -RepoPath $P }
-        } finally {
-            $env:PATH = $savedPath
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedPath }
         $result.ExitCode | Should -Be -1
         $result.Output | Should -Be 'git is missing'
     }
@@ -965,12 +956,10 @@ Describe 'The bounded git status' {
         BeforeEach {
             $script:Bin = Join-Path $script:Base 'bin'
             New-Item -ItemType Directory -Path $script:Bin | Out-Null
-            $script:SavedPath = $env:PATH
+            $script:SavedPath = Save-YurunaTestEnvironment -Name 'PATH'
             $env:PATH = $script:Bin + [System.IO.Path]::PathSeparator + $env:PATH
         }
-        AfterEach {
-            $env:PATH = $script:SavedPath
-        }
+        AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedPath }
 
         It 'kills a status that outlasts the bound and reports 124' {
             [System.IO.File]::WriteAllText((Join-Path $script:Bin 'git.cmd'), "@echo off`r`nping -n 31 127.0.0.1 > nul`r`n")

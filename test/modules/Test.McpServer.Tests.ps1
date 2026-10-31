@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b151d1-856e-48cb-8f07-88010f773bcb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -554,14 +554,13 @@ Describe 'the transcript pointer is decided, not discovered' {
 
     It 'leaves the variable it borrowed exactly as it found it' {
         $prior = 'sentinel-value'
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_TRANSCRIPT_PATH'
         $env:YURUNA_TRANSCRIPT_PATH = $prior
         try {
             $null = Invoke-McpEntryPoint -Script 'Set-HostAlias.ps1'
             Assert-StringEqual -Expected $prior -Actual "$env:YURUNA_TRANSCRIPT_PATH" `
                 -Because "the server runs inside someone else's process environment"
-        } finally {
-            $env:YURUNA_TRANSCRIPT_PATH = ''
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 }
 

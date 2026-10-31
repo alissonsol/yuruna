@@ -2034,7 +2034,7 @@ guest install.
 `Start-CachingProxyServiceVM.ps1` **adopts a healthy proxy by default** instead of
 rebuilding it. Each run probes the existing `yuruna-caching-proxy-service` VM at
 the address the host driver resolves now (running + squid `:3128` + ssl-bump
-`:3129` + Grafana `:3000` + a valid CA cert); a healthy one skips the ~15-min destroy / image /
+`:3129` + Grafana `:3000`; the `:80` CA cert only warns); a healthy one skips the ~15-min destroy / image /
 New-VM / discovery and only re-asserts the host-side services and port maps. The
 recorded address never decides on its own: DHCP can hand it to another machine,
 and a recorded address that differs from the live one is reported and replaced in
@@ -2373,7 +2373,7 @@ daemon behind the proxy sees the address the operator actually typed and builds
 every link from it; without it the backend would see `127.0.0.1` and publish a
 page of links that work only for a browser running on the VM itself.
 
-Enable `rewrite`, `proxy`, and `proxy_http` before applying the landing configuration and retain it only if `apache2ctl configtest` succeeds. Otherwise remove the landing configuration and keep Apache's ordinary file service alive: a convenience page must not take down CA certificate delivery or exporter endpoints.
+Enable `rewrite`, `proxy`, and `proxy_http` before applying the landing configuration and retain it only if `apache2ctl configtest` succeeds. Otherwise remove the landing configuration and keep Apache's ordinary file service alive: a convenience page must not take down CA cert delivery or exporter endpoints.
 
 <a id="42f6b05f-0045"></a>
 
@@ -3054,6 +3054,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.30
+Last review: 2026.10.31
 
 Back to [Yuruna](../README.md)

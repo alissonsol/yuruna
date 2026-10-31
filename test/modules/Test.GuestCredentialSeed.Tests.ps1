@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42f88b85-1359-4e89-a7fb-e0e5795a448b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
     $script:Sh = Get-Command sh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     $script:Pwsh = (Get-Process -Id $PID).Path
@@ -61,7 +62,7 @@ BeforeAll {
         $fakeHome = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Path (Join-Path $fakeHome '.config/yuruna') -Force
         if ($FileToken) { [IO.File]::WriteAllText((Join-Path $fakeHome '.config/yuruna/github-token'), $FileToken) }
-        $priorHome = $env:HOME; $priorToken = $env:GH_TOKEN
+        $prior = Save-YurunaTestEnvironment -Name 'HOME', 'GH_TOKEN'
         try {
             $env:HOME = $fakeHome
             if ($Token) { $env:GH_TOKEN = $Token } else { Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue }
@@ -69,10 +70,7 @@ BeforeAll {
             $exe = $Command[0]
             $rest = @($Command | Select-Object -Skip 1)
             return ($Request | & $exe @rest 2>&1 | Out-String).Replace("`r", '')
-        } finally {
-            $env:HOME = $priorHome
-            if ($null -eq $priorToken) { Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue } else { $env:GH_TOKEN = $priorToken }
-        }
+        } finally { Restore-YurunaTestEnvironment -Saved $prior }
     }
 
     $script:GitHubGet = "protocol=https`nhost=github.com`n`n"

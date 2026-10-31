@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 427dc7e5-42e7-4d34-bef6-83be459c7402
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,9 +22,8 @@
 BeforeAll {
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $script:Pwsh = [Environment]::ProcessPath
-    $script:FixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-host-provision-' + [guid]::NewGuid())
-    $null = New-Item -ItemType Directory -Path $script:FixtureRoot
     Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    $script:FixtureRoot = New-YurunaTestTempDir -Prefix 'yuruna-host-provision'
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
 
     function Invoke-ProvisionFixture {
@@ -248,9 +247,7 @@ $result = Yuruna.Host\Remove-VM -VMName 'test-provision' -Confirm:$false
 }
 
 AfterAll {
-    if ($script:FixtureRoot -and (Test-Path -LiteralPath $script:FixtureRoot)) {
-        Remove-Item -LiteralPath $script:FixtureRoot -Recurse -Force
-    }
+    Remove-YurunaTestTempDir $script:FixtureRoot
 }
 
 Describe 'Per-guest builder log-module lifetime' {

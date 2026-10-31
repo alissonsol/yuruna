@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4265798a-3d2b-45d8-a5ad-6776ff4a2ad9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,8 +54,7 @@ function Reset-DeliveryLedger {
 
 Describe 'Cycle event delivery ledger' {
     BeforeEach {
-        $script:Dir = Join-Path ([System.IO.Path]::GetTempPath()) ('evdel-' + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
+        $script:Dir = New-YurunaTestTempDir -Prefix 'evdel'
         $script:SavedGlobals = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
         $script:SavedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
         Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $script:Dir }
@@ -67,7 +66,7 @@ Describe 'Cycle event delivery ledger' {
     AfterEach {
         Restore-YurunaTestGlobal -Saved $script:SavedGlobals
         Restore-YurunaTestEnvironment -Saved $script:SavedLogDir
-        Remove-Item -LiteralPath $script:Dir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-YurunaTestTempDir $script:Dir
     }
 
     It 'counts a delivered event' {

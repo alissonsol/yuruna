@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 4244dbae-a452-49ac-b6cb-0ab2d797bde7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,17 @@ $script:ServiceDir = Join-Path $script:TestRoot 'service'
 Import-Module (Join-Path $here 'Test.ServiceVm.psm1') -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.ServiceStartSource.psm1') -Force -DisableNameChecking
+
+# A launcher's text, and for one that forwards to the shared extension-service
+# start, what that start runs for its service as well: the launcher alone
+# prints nothing the operator reads.
+function Get-LauncherText {
+    param([string]$Path)
+    $text = Get-Content -Raw -LiteralPath $Path
+    if ($text -match "'Start-ExtensionService\.ps1'") { $text += "`n" + (Get-YurunaServiceStartText -Path $Path) }
+    $text
+}
 
 }
 
@@ -103,8 +114,7 @@ Describe 'Test-YurunaServiceVmPort' {
     It 'is true for a port that IS listening' {
         # A real listener, so the success path is exercised rather than assumed
         # from the failure path.
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-        $listener.Start()
+        $listener = New-YurunaTestTcpListener
         try {
             $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
             Assert-True (Test-YurunaServiceVmPort -Address '127.0.0.1' -Port $port) 'live listener answers'
@@ -223,7 +233,7 @@ Describe 'the service-VM launchers are quiet by default' {
         $svcDir   = Join-Path $repoRoot 'test/service'
         $loud = [Collections.Generic.List[string]]::new()
         foreach ($s in (Get-ChildItem -LiteralPath $svcDir -File -Filter 'Start-*ServiceVM.ps1')) {
-            $n = @([regex]::Matches((Get-Content -Raw -LiteralPath $s.FullName),
+            $n = @([regex]::Matches((Get-LauncherText -Path $s.FullName),
                     '(?m)^\s*Write-(Output|Information)\b')).Count
             if ($n -gt 30) { $loud.Add("$($s.Name): $n default-level writes") }
         }
@@ -237,7 +247,7 @@ Describe 'the service-VM launchers are quiet by default' {
         $repoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
         $svcDir   = Join-Path $repoRoot 'test/service'
         foreach ($s in (Get-ChildItem -LiteralPath $svcDir -File -Filter 'Start-*ServiceVM.ps1')) {
-            $text = Get-Content -Raw -LiteralPath $s.FullName
+            $text = Get-LauncherText -Path $s.FullName
             $outcome = [regex]::Matches($text, '(?m)^\s*Write-(Output|Information)[^\n]*(complete|READY|ADOPTED|is serving)')
             Assert-True ($outcome.Count -gt 0) "$($s.Name) reports no success outcome at the default level"
         }
@@ -252,7 +262,7 @@ Describe 'the service-VM launchers are quiet by default' {
         $svcDir   = Join-Path $repoRoot 'test/service'
         $quiet = [Collections.Generic.List[string]]::new()
         foreach ($s in (Get-ChildItem -LiteralPath $svcDir -File -Filter 'Start-*ServiceVM.ps1')) {
-            $refusal = [regex]::Match((Get-Content -Raw -LiteralPath $s.FullName),
+            $refusal = [regex]::Match((Get-LauncherText -Path $s.FullName),
                 '(?ms)^[ \t]*# --- REGION: Elevation check\r?$.*?^[ \t]*exit\b')
             Assert-True $refusal.Success "$($s.Name) has no elevation refusal ending in exit"
             if ($refusal.Value -match '(?m)^\s*Write-Verbose\b') { $quiet.Add($s.Name) }

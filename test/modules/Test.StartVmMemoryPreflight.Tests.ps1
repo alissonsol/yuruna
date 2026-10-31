@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b5c288-370d-4abd-9a24-488e540acb2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -260,9 +260,8 @@ function Invoke-StartCase {
     if ($errorCodeFunction) { . ([scriptblock]::Create($errorCodeFunction.Extent.Text)) }
     . ([scriptblock]::Create($script:Lifted['Start-HyperVVM']))
 
-    $savedSystemRoot = $env:SystemRoot
-    $emptyRoot = Join-Path ([IO.Path]::GetTempPath()) ('yrn-startvm-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $emptyRoot -Force | Out-Null
+    $savedSystemRoot = Save-YurunaTestEnvironment -Name 'SystemRoot'
+    $emptyRoot = New-YurunaTestTempDir -Prefix 'yrn-startvm'
     $env:SystemRoot = $emptyRoot
     try {
         $result = if ($AsWhatIf) {
@@ -271,8 +270,8 @@ function Invoke-StartCase {
             Start-HyperVVM -VMName 'stand-in.guest' -MemoryWaitSeconds $MemoryWaitSeconds 6>$null
         }
     } finally {
-        $env:SystemRoot = $savedSystemRoot
-        Remove-Item -LiteralPath $emptyRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Restore-YurunaTestEnvironment -Saved $savedSystemRoot
+        Remove-YurunaTestTempDir $emptyRoot
     }
     return @{ Result = $result; Starts = $seen.Starts; Definitions = $seen.Definitions; Sleeps = $seen.Sleeps; StorageReads = $seen.StorageReads }
 }

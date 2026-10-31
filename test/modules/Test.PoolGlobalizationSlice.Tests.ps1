@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.30
+.VERSION 2026.10.31
 .GUID 42b0f66e-8f3f-4913-bbbf-f26bbcff321d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,8 +34,7 @@ $script:WebRoot = Join-Path $script:RepoRoot 'test/extension/pool-control-servic
 $script:Chrome = Get-YurunaTestBrowser
 
 
-$script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-pool-globalization-" + [Guid]::NewGuid().ToString('N'))
-$null = New-Item -ItemType Directory -Path $script:Sandbox -Force
+$script:Sandbox = New-YurunaTestTempDir -Prefix 'yuruna-pool-globalization'
 foreach ($relative in @(
     'test/extension/extension-sdk/webui/assets/yuruna.core.js'
     'test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js'
@@ -282,9 +281,7 @@ window.setTimeout(function () {
 }
 
 AfterAll {
-if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
-    Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue
-}
+Remove-YurunaTestTempDir $script:Sandbox
 }
 
 Describe 'the pool repository-access slice renders through shipped pseudo assets' {

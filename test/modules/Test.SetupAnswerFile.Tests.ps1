@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 427bf883-f57a-449e-98af-a9cec3b9704c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,6 +52,9 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $setupPs1 = Join-Path $repoRoot 'install/setup.ps1'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+# The config write lock and journal the lifted writer takes; setup.ps1 imports
+# the same module in the step that calls it.
+Import-Module (Join-Path $here 'Test.ConfigSync.psm1') -Force -Global -DisableNameChecking
 
 # The script's own definitions, dot-sourced into this session. Anything that
 # drifts in setup.ps1 drifts here on the next run, which is the point.
@@ -131,6 +134,40 @@ function Get-ReaderKeyPath {
 # Read and warned about rather than honored: an older file may still carry it,
 # and the run says so instead of silently ignoring a key the operator wrote.
 $script:obsoleteReaderKey = @('lab.createDefaultPool')
+
+# Another process holds the config's write lock, keeps the bytes it read, and
+# writes them back with one edit before releasing. A writer that does not wait
+# for the lock loses its own change to that write.
+$script:LockModule = Join-Path $here 'Test.SingleFlightLock.psm1'
+function Start-ConfigLockHolderJob {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
+        Justification = 'The arguments arrive through -ArgumentList into the job param() block; the analyzer does not follow that path.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test fixture: starts a disposable lock holder against a throwaway temp config.')]
+    param([string]$ConfigPath, [string]$ReadyPath, [string]$Find, [string]$Replace, [int]$HoldSeconds)
+    return Start-Job -ScriptBlock {
+        param([string]$LockModule, [string]$ConfigPath, [string]$ReadyPath, [string]$Find, [string]$Replace, [int]$HoldSeconds)
+        Import-Module $LockModule -DisableNameChecking
+        $lock = Enter-YurunaSingleFlightLock -Path ([IO.Path]::GetFullPath($ConfigPath) + '.lock') -WaitMilliseconds 0
+        if (-not $lock.Held) { return "lock not held: $($lock.Reason)" }
+        try {
+            $edited = [IO.File]::ReadAllText($ConfigPath).Replace($Find, $Replace)
+            [IO.File]::WriteAllText($ReadyPath, 'held')
+            Start-Sleep -Seconds $HoldSeconds
+            [IO.File]::WriteAllText($ConfigPath, $edited)
+            return $edited
+        } finally { Exit-YurunaSingleFlightLock -Lock $lock }
+    } -ArgumentList $script:LockModule, $ConfigPath, $ReadyPath, $Find, $Replace, $HoldSeconds
+}
+function Wait-ConfigLockHolderReady {
+    param($Job, [string]$ReadyPath)
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    while (-not (Test-Path -LiteralPath $ReadyPath)) {
+        if ($Job.State -notin @('NotStarted', 'Running')) { throw "the lock holder ended before taking the lock: $(($Job | Receive-Job) -join "`n")" }
+        if ([DateTime]::UtcNow -gt $deadline) { throw 'the lock holder did not take the lock within 60 s' }
+        Start-Sleep -Milliseconds 100
+    }
+}
 
 }
 
@@ -278,6 +315,25 @@ Describe 'projectUrl in test.config.yml across setup runs' {
             Assert-Match '^console: projectUrl: file:///Users/operator/git/amisad\.dev -> https://example/other-project ' $console[0] 'the line names the value that was replaced, never only the new one'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
+    It 'reports an answer-file replacement while the previous configuration is still on disk' {
+        $d = New-YurunaTestTempDir -Prefix 'yrn-setup-url'
+        try {
+            $script:projectUrlReportPath = New-SetupConfigFile -Directory $d -ProjectUrl 'file:///Users/operator/git/amisad.dev'
+            $before = [IO.File]::ReadAllText($script:projectUrlReportPath)
+            $script:projectUrlContentsAtReport = $null
+            $script:projectUrlReplacementReport = $null
+            Mock Write-SetupMessage {
+                param([string]$Message)
+                $script:projectUrlContentsAtReport = [IO.File]::ReadAllText($script:projectUrlReportPath)
+                $script:projectUrlReplacementReport = $Message
+            }
+            $r = Set-SetupProjectUrl -ConfigPath $script:projectUrlReportPath -ProjectUrl 'https://example/other-project' -FromAnswerFile
+            Assert-Equal 'replaced' $r.Outcome 'the explicit answer replaces the operator value'
+            Assert-StringEqual $before $script:projectUrlContentsAtReport 'the operator sees the replacement before the file changes'
+            Assert-Match '^projectUrl: file:///Users/operator/git/amisad\.dev -> https://example/other-project ' $script:projectUrlReplacementReport 'the report names both values'
+            Assert-True (([IO.File]::ReadAllText($script:projectUrlReportPath)) -match 'projectUrl: https://example/other-project') 'the replacement lands after the report'
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
     It 'fills a blank key with the default and says it was blank' {
         $d = New-YurunaTestTempDir -Prefix 'yrn-setup-url'
         try {
@@ -306,6 +362,29 @@ Describe 'projectUrl in test.config.yml across setup runs' {
             $cfg = Join-Path $d 'test.config.yml'
             Set-Content -LiteralPath $cfg -Value @('repositories:', '  frameworkUrl: https://github.com/alissonsol/yuruna')
             Assert-Throw { Set-SetupProjectUrl -ConfigPath $cfg -ProjectUrl 'https://example/p' -InformationAction SilentlyContinue } 'no projectUrl key found' 'a missing key is an error, not a silent no-op'
+        } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'replaces the URL in the file as another process left it while waiting for the config lock, and journals what it replaces' {
+        $d = New-YurunaTestTempDir -Prefix 'yrn-setup-url'
+        try {
+            $cfg = New-SetupConfigFile -Directory $d -ProjectUrl 'file:///Users/operator/git/amisad.dev'
+            $ready = Join-Path $d 'holder.ready'
+            $job = Start-ConfigLockHolderJob -ConfigPath $cfg -ReadyPath $ready -Find 'port: 8080' -Replace 'port: 8081' -HoldSeconds 4
+            try {
+                Wait-ConfigLockHolderReady -Job $job -ReadyPath $ready
+                $watch = [Diagnostics.Stopwatch]::StartNew()
+                $r = Set-SetupProjectUrl -ConfigPath $cfg -ProjectUrl 'https://example/other-project' -FromAnswerFile -InformationAction SilentlyContinue
+                $watch.Stop()
+                $edited = [string]($job | Wait-Job -Timeout 60 | Receive-Job)
+            } finally { $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+            Assert-Equal -Expected 'replaced' -Actual $r.Outcome -Because 'a value the operator supplied for this run wins'
+            Assert-True ($watch.Elapsed.TotalSeconds -ge 3) "the writer waited for the lock holder (took $($watch.Elapsed.TotalSeconds) s)"
+            $after = @(Get-Content -LiteralPath $cfg)
+            Assert-Equal -Expected '  projectUrl: https://example/other-project' -Actual $after[3] -Because 'this writer''s change landed'
+            Assert-Equal -Expected '  port: 8081' -Actual $after[5] -Because 'the other process''s edit survives'
+            $entries = @(Get-ChildItem -LiteralPath "$cfg.journal" -Filter '*-setup-project-url.backup' -File -ErrorAction SilentlyContinue)
+            Assert-Equal -Expected 1 -Actual $entries.Count -Because 'one journal entry under the writer''s name'
+            Assert-StringEqual -Expected $edited -Actual ([IO.File]::ReadAllText($entries[0].FullName)) -Because 'the entry holds the bytes read after the holder released the lock'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }

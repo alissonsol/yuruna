@@ -4145,6 +4145,11 @@
       "description": "Whole ShouldProcess-prompt message in host/ubuntu.kvm/Disable-TestAutomation.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
+    "host.kvm_config_port_rule_delete": {
+      "message": "Delete the config-service rule Yuruna added",
+      "description": "ShouldProcess action in host/ubuntu.kvm/Disable-TestAutomation.ps1 for removing the ufw allow rule of the config service port; the target names the rule.",
+      "lifecycle": "active"
+    },
     "host.operator_50978cbbff00be18": {
       "message": "Rename-VM: PlistBuddy could not update UTM Registry for UUID {uuid} (Name exit={regExitName}, Path exit={regExitPath}).",
       "description": "Whole Write-Warning message in host/macos.utm/modules/Yuruna.Host.psm1; preserve command names, paths, codes, and argument boundaries.",
@@ -4717,6 +4722,18 @@
           "type": "detail",
           "trust": "external",
           "example": "$($fwResult.Message)"
+        }
+      }
+    },
+    "host.kvm_config_port_firewall": {
+      "message": "  config service firewall: {message}",
+      "description": "Write-Output in host/ubuntu.kvm/Enable-TestAutomation.ps1 reporting the ufw outcome for the config service port; the two leading spaces indent it under the setup step. Keep the placeholder unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Added ufw allow 8443/tcp so LAN clients can reach this host on TCP :8443."
         }
       }
     },
@@ -7813,7 +7830,7 @@
       }
     },
     "host.operator_a0e97dcbb626019f": {
-      "message": "Only the ufw status-port rule will be removed -- it is provably ours. Group membership, the $HOME ACL, libvirtd/virtlogd and the GNOME keys are left exactly as they are, and reported.",
+      "message": "Only the ufw rules Yuruna marked as its own will be removed. Group membership, the $HOME ACL, libvirtd/virtlogd and the GNOME keys are left exactly as they are, and reported.",
       "description": "Whole Write-Warning message in host/ubuntu.kvm/Disable-TestAutomation.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -12919,19 +12936,53 @@
       }
     },
     "host.hyperv_bounded_call_no_answer": {
-      "message": "The Hyper-V call ended without returning an answer (job state: {state}; reason: {reason}).",
-      "description": "Error record from Invoke-HyperVBoundedCall in host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1 when the thread job running a Hyper-V call ends without the answer object its body always emits, so the body never finished; the caller reports a failed call instead of an empty success. state is the job's state; reason is the job's failure reason, empty when it gave none.",
+      "message": "The Hyper-V call ended without returning an answer (child process exit code: {exitCode}; reason: {reason}).",
+      "description": "Error record from Invoke-HyperVBoundedCall in host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1 when the child pwsh process running a Hyper-V call exits, or cannot start, without writing the answer it always writes, so the call never finished; the caller reports a failed call instead of an empty success. exitCode is the child's exit code, -1 when it did not start; reason is its error output or the launch failure, empty when it gave none.",
       "lifecycle": "active",
       "placeholders": {
-        "state": {
-          "type": "token",
+        "exitCode": {
+          "type": "detail",
           "trust": "internal",
-          "example": "Failed"
+          "example": "1"
         },
         "reason": {
           "type": "detail",
           "trust": "external",
           "example": "The term 'Hyper-V\\Get-VM' is not recognized as a name of a cmdlet."
+        }
+      }
+    },
+    "host.hyperv_worker_lookup_unanswered": {
+      "message": "  The vmwp.exe worker lookup for VM {vmId} did not answer within {seconds} seconds; will retry Stop-VM.",
+      "description": "Write-Warning in Stop-HyperVVMForce (host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1) when the capped child that asks WMI for the VM's vmwp.exe worker reaches its cap, so no worker is killed and the TurnOff is retried. It is kept apart from host.operator_631642be837a8711, which reports a lookup that answered and found no worker. seconds is the lookup's cap.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "1be1d34c-5633-449f-aaa9-c4e7190cb91b"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "30"
+        }
+      }
+    },
+    "host.hyperv_worker_lookup_failed": {
+      "message": "  The vmwp.exe worker lookup for VM {vmId} failed; will retry Stop-VM. Error: {message}",
+      "description": "Write-Warning in Stop-HyperVVMForce (host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1) when the capped child that asks WMI for the VM's vmwp.exe worker returns an error instead of a worker list, such as a child that ended without its answer, so no worker is killed and the TurnOff is retried. message is that error's text, which can be a rendered host.hyperv_bounded_call_no_answer.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "1be1d34c-5633-449f-aaa9-c4e7190cb91b"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "The Hyper-V call ended without returning an answer (child process exit code: 1; reason: )."
         }
       }
     },
@@ -13227,6 +13278,781 @@
           "example": "The response ended prematurely."
         }
       }
+    },
+    "host.kvm_journal_group_missing": {
+      "message": "group 'systemd-journal' does not exist, so the test runner's diagnostics cannot read the system journal or the previous boot's kernel log. systemd creates it from sysusers.d; 'sudo systemd-sysusers' restores it, then re-run this script.",
+      "description": "Write-Warning in host/ubuntu.kvm/Enable-TestAutomation.ps1 (Group membership) when getent finds no systemd-journal group; preserve the group name and the command.",
+      "lifecycle": "active"
+    },
+    "host.kvm_journal_group_session_stale": {
+      "message": "  'systemd-journal' membership is in /etc/group; this shell's group set is stale. Log out and back in, then start the test runner from that new session so its diagnostics can read the system journal.",
+      "description": "Write-Output in host/ubuntu.kvm/Enable-TestAutomation.ps1 (Group membership) when the account is in systemd-journal in /etc/group but not in this session's group set; the two leading spaces indent it under the setup step. Preserve the group name and the path.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_requires_linux": {
+      "message": "Deep diagnostics mode is for an Ubuntu KVM host, and this host is not running Linux. Nothing was changed.",
+      "description": "Write-Error in host/ubuntu.kvm/Enable-DeepDiagnostics.ps1 and host/ubuntu.kvm/Disable-DeepDiagnostics.ps1 (from Get-DeepDiagnosticsRefusal in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) when the host is not Linux.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_requires_systemd": {
+      "message": "Deep diagnostics mode needs systemd as the running init system, and /run/systemd/system does not exist on this host. Nothing was changed.",
+      "description": "Write-Error in host/ubuntu.kvm/Enable-DeepDiagnostics.ps1 and host/ubuntu.kvm/Disable-DeepDiagnostics.ps1 (from Get-DeepDiagnosticsRefusal in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) when systemd is not the running init system. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_target_invalid": {
+      "message": "-NetconsoleTarget '{target}' is not an IPv4 address with an optional port, such as 192.168.1.20 or 192.168.1.20:6666. Nothing was changed.",
+      "description": "Write-Error in host/ubuntu.kvm/Enable-DeepDiagnostics.ps1 (from Get-DeepDiagnosticsRefusal in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) when the -NetconsoleTarget value does not parse. Keep the parameter name and the two example addresses unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "target": {
+          "type": "detail",
+          "trust": "external",
+          "example": "192.168.1.300"
+        }
+      }
+    },
+    "host.deep_diagnostics_state_unreadable": {
+      "message": "{path} exists but is not a deep diagnostics state file ({message}). Nothing was changed; restore the file or move it aside before running again.",
+      "description": "Write-Error in host/ubuntu.kvm/Enable-DeepDiagnostics.ps1 and host/ubuntu.kvm/Disable-DeepDiagnostics.ps1 (from Read-DeepDiagnosticsState in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) when the state file does not parse or names another schema. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Unexpected character encountered while parsing value"
+        }
+      }
+    },
+    "host.deep_diagnostics_sudo_unavailable": {
+      "message": "Deep diagnostics mode changes root-owned settings, and sudo did not run a command without asking for a password. Nothing was changed. Run the script again from a terminal where you can enter the sudo password, or as root.",
+      "description": "Write-Error in Invoke-DeepDiagnosticsEnable and Invoke-DeepDiagnosticsDisable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) when sudo -n true fails after the script primed sudo. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_plan_header": {
+      "message": "Deep diagnostics mode on {hostName}: planned changes",
+      "description": "Write-Information heading in Write-DeepDiagnosticsPlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); the lines after it list each component and each value it changes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostName": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "alius-alien01"
+        }
+      }
+    },
+    "host.deep_diagnostics_plan_apply": {
+      "message": "  {component} ({title}): will be applied",
+      "description": "Write-Information line per component in Write-DeepDiagnosticsPlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); component is a fixed English token, title is the translated host.deep_diagnostics_title_* text. Keep the two leading spaces.",
+      "lifecycle": "active",
+      "placeholders": {
+        "component": {
+          "type": "token",
+          "trust": "internal",
+          "example": "watchdog"
+        },
+        "title": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "hardware watchdog reset"
+        }
+      }
+    },
+    "host.deep_diagnostics_plan_current": {
+      "message": "  {component} ({title}): already in place",
+      "description": "Write-Information line per component in Write-DeepDiagnosticsPlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for a component with nothing to change. Keep the two leading spaces.",
+      "lifecycle": "active",
+      "placeholders": {
+        "component": {
+          "type": "token",
+          "trust": "internal",
+          "example": "watchdog"
+        },
+        "title": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "hardware watchdog reset"
+        }
+      }
+    },
+    "host.deep_diagnostics_plan_skip": {
+      "message": "  {component} ({title}): skipped -- {reason}",
+      "description": "Write-Information line per component in Write-DeepDiagnosticsPlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for a component that cannot apply on this host; reason is one of the translated host.deep_diagnostics_* reasons. Keep the two leading spaces.",
+      "lifecycle": "active",
+      "placeholders": {
+        "component": {
+          "type": "token",
+          "trust": "internal",
+          "example": "watchdog"
+        },
+        "title": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "hardware watchdog reset"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "no -NetconsoleTarget was given"
+        }
+      }
+    },
+    "host.deep_diagnostics_change": {
+      "message": "    {key}: {previous} -> {new}",
+      "description": "Write-Information line in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1 reporting one value a component changes (Enable) or restores (Disable), always before it is written; key is a sysctl name, a path, a unit or a setting name. Keep the four leading spaces and the arrow.",
+      "lifecycle": "active",
+      "placeholders": {
+        "key": {
+          "type": "detail",
+          "trust": "external",
+          "example": "kernel.panic"
+        },
+        "previous": {
+          "type": "detail",
+          "trust": "external",
+          "example": "10"
+        },
+        "new": {
+          "type": "detail",
+          "trust": "external",
+          "example": "30"
+        }
+      }
+    },
+    "host.deep_diagnostics_plan_note": {
+      "message": "    note: {note}",
+      "description": "Write-Information line in Write-DeepDiagnosticsPlan and Write-DeepDiagnosticsRestorePlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); note is another translated host.deep_diagnostics_* sentence. Keep the four leading spaces.",
+      "lifecycle": "active",
+      "placeholders": {
+        "note": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "kernel.hardlockup_panic is not exposed by this kernel, so it is left out."
+        }
+      }
+    },
+    "host.deep_diagnostics_state_record": {
+      "message": "Every value above is recorded in {path} before the first change; Disable-DeepDiagnostics.ps1 restores the host from that record.",
+      "description": "Write-Information after the plan in Write-DeepDiagnosticsPlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1). Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        }
+      }
+    },
+    "host.deep_diagnostics_title_sysctl": {
+      "message": "panic and reboot on lockups and oopses",
+      "description": "Component title shown in parentheses after the sysctl component name in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Lowercase noun phrase.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_title_pstore": {
+      "message": "crash records in UEFI storage",
+      "description": "Component title for pstore in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Lowercase noun phrase.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_title_watchdog": {
+      "message": "hardware watchdog reset",
+      "description": "Component title for watchdog in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Lowercase noun phrase.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_title_journald": {
+      "message": "persistent journal synced every 10 seconds",
+      "description": "Component title for journald in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Lowercase noun phrase.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_title_rasdaemon": {
+      "message": "hardware error log",
+      "description": "Component title for rasdaemon in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Lowercase noun phrase.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_title_netconsole": {
+      "message": "kernel log sent to another machine",
+      "description": "Component title for netconsole in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Lowercase noun phrase.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_title_vitals": {
+      "message": "host vitals in the kernel log every 10 seconds",
+      "description": "Component title for vitals in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Lowercase noun phrase.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_title_boot_evidence": {
+      "message": "evidence bundle at every boot",
+      "description": "Component title for bootEvidence in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Lowercase noun phrase.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_value_absent": {
+      "message": "absent",
+      "description": "Value word in a \"key: previous -> new\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for a file or directory that does not exist.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_value_yuruna_file": {
+      "message": "the deep diagnostics version",
+      "description": "Value word in a \"key: previous -> new\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for the file Enable-DeepDiagnostics.ps1 writes.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_value_saved_content": {
+      "message": "other content, kept in {statePath}",
+      "description": "Value phrase in a \"key: previous -> new\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for a file that existed before and whose content the state file keeps. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "statePath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        }
+      }
+    },
+    "host.deep_diagnostics_value_restored_content": {
+      "message": "the earlier content kept in {statePath}",
+      "description": "Value phrase in a Disable \"key: current -> restored\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for a file put back to its recorded content. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "statePath": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        }
+      }
+    },
+    "host.deep_diagnostics_value_removed": {
+      "message": "removed",
+      "description": "Value word in a \"key: previous -> new\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1).",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_value_loaded": {
+      "message": "loaded",
+      "description": "Value word for a kernel module in a \"key: previous -> new\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1).",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_value_not_loaded": {
+      "message": "not loaded",
+      "description": "Value word for a kernel module in a \"key: previous -> new\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1).",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_value_installed": {
+      "message": "installed",
+      "description": "Value word for an apt package in a \"key: previous -> new\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1).",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_value_not_installed": {
+      "message": "not installed",
+      "description": "Value word for an apt package in a \"key: previous -> new\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1).",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_value_none": {
+      "message": "none",
+      "description": "Value word in a \"key: previous -> new\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) when nothing was set before.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_key_netconsole": {
+      "message": "netconsole target",
+      "description": "Key label in a \"key: previous -> new\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for the address netconsole sends to.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_key_pstore_backend": {
+      "message": "pstore backend",
+      "description": "Key label in a \"key: previous -> new\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for the pstore storage backend.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_sysctl_not_exposed": {
+      "message": "{key} is not exposed by this kernel, so it is left out.",
+      "description": "Plan note in Get-DeepDiagnosticsSysctlPlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for a sysctl the running kernel does not offer. Keep the sysctl name unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "key": {
+          "type": "detail",
+          "trust": "external",
+          "example": "kernel.panic"
+        }
+      }
+    },
+    "host.deep_diagnostics_setting_overridden": {
+      "message": "{path} sets {key}={value} and is read after the deep diagnostics drop-in, so its value wins at boot.",
+      "description": "Plan note in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1 when a sysctl.d or journald.conf.d file that sorts later sets one of the same keys. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        },
+        "key": {
+          "type": "detail",
+          "trust": "external",
+          "example": "kernel.panic"
+        },
+        "value": {
+          "type": "detail",
+          "trust": "external",
+          "example": "0"
+        }
+      }
+    },
+    "host.deep_diagnostics_pstore_legacy_bios": {
+      "message": "this host booted with legacy BIOS, and efi-pstore needs UEFI",
+      "description": "Skip reason for the pstore component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1; shown after \"skipped --\".",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_pstore_unsupported": {
+      "message": "this kernel has no pstore support",
+      "description": "Skip reason for the pstore component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1; shown after \"skipped --\".",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_pstore_unit_masked": {
+      "message": "systemd-pstore.service is masked; unmask it to archive crash records at boot",
+      "description": "Skip reason for the pstore component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1; shown after \"skipped --\". Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_pstore_backend": {
+      "message": "pstore already uses the {backend} backend",
+      "description": "Plan note for the pstore component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1 when another backend is registered.",
+      "lifecycle": "active",
+      "placeholders": {
+        "backend": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "efi_pstore"
+        }
+      }
+    },
+    "host.deep_diagnostics_pstore_no_backend": {
+      "message": "efi_pstore loaded, but pstore still reports no backend ({backend})",
+      "description": "Failure reason for the pstore component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1 after loading efi_pstore. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "backend": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "efi_pstore"
+        }
+      }
+    },
+    "host.deep_diagnostics_watchdog_daemon": {
+      "message": "{unit} is running and holds the watchdog device; stop and disable it to let systemd use the device",
+      "description": "Skip reason for the watchdog component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1; shown after \"skipped --\".",
+      "lifecycle": "active",
+      "placeholders": {
+        "unit": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "watchdog.service"
+        }
+      }
+    },
+    "host.deep_diagnostics_watchdog_held": {
+      "message": "{device} is open by another process, and a watchdog device takes one user at a time; stop that process to let systemd use it",
+      "description": "Skip reason for the watchdog component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1; shown after \"skipped --\".",
+      "lifecycle": "active",
+      "placeholders": {
+        "device": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "/dev/watchdog0"
+        }
+      }
+    },
+    "host.deep_diagnostics_watchdog_nowayout": {
+      "message": "{device} has nowayout set: once armed it cannot be stopped without a reboot, so Disable-DeepDiagnostics.ps1 could not restore this host",
+      "description": "Skip or failure reason for the watchdog component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "device": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "/dev/watchdog0"
+        }
+      }
+    },
+    "host.deep_diagnostics_watchdog_softdog": {
+      "message": "only softdog is registered ({device}). softdog runs on the processors that freeze, so it cannot fire on a hard freeze, and a hardware driver would not register as watchdog0 while it is loaded; unload it (sudo modprobe -r softdog) and run again",
+      "description": "Skip reason for the watchdog component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "device": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "/dev/watchdog0"
+        }
+      }
+    },
+    "host.deep_diagnostics_watchdog_no_driver": {
+      "message": "no hardware watchdog is registered and no driver is known for CPU vendor '{vendor}'; softdog is not used because it cannot fire on a hard freeze",
+      "description": "Skip reason for the watchdog component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vendor": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "CentaurHauls"
+        }
+      }
+    },
+    "host.deep_diagnostics_watchdog_no_device": {
+      "message": "{module} loaded but registered no hardware watchdog, which usually means the firmware disabled it (see: sudo dmesg | grep -i {module})",
+      "description": "Failure reason for the watchdog component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1 after loading the vendor driver. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "module": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "iTCO_wdt"
+        }
+      }
+    },
+    "host.deep_diagnostics_netconsole_no_target": {
+      "message": "no -NetconsoleTarget was given",
+      "description": "Skip reason for the netconsole component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1; shown after \"skipped --\". Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_netconsole_how_to": {
+      "message": "To send the kernel log to another machine as it happens, run pwsh test/lab/Receive-Netconsole.ps1 there, then run this again with -NetconsoleTarget <IPv4 of that machine>[:port].",
+      "description": "Write-Information at the end of Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) when no netconsole target is set. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_netconsole_no_dispatcher": {
+      "message": "NetworkManager is not installed, so the target is set at boot only and not again when this host's address changes",
+      "description": "Plan note for the netconsole component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_netconsole_not_enabled": {
+      "message": "the netconsole target did not come up; see: journalctl -t yuruna-netconsole",
+      "description": "Failure reason for the netconsole component in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_existing_unreadable": {
+      "message": "{path} exists but cannot be read, so it could not be put back later; it was left as it is",
+      "description": "Skip reason in Add-DeepDiagnosticsFileStep (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) when a file Enable would replace cannot be read. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        }
+      }
+    },
+    "host.deep_diagnostics_step_failed": {
+      "message": "{command} failed (exit {exitCode}): {output}",
+      "description": "Failure reason in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1 for one privileged command; output is the command's own text. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "command": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "apt-get install -y -q rasdaemon"
+        },
+        "exitCode": {
+          "type": "token",
+          "trust": "external",
+          "example": "100"
+        },
+        "output": {
+          "type": "detail",
+          "trust": "external",
+          "example": "E: Unable to locate package rasdaemon"
+        }
+      }
+    },
+    "host.deep_diagnostics_reason_interrupted": {
+      "message": "Enable-DeepDiagnostics.ps1 stopped before this component was in place",
+      "description": "Reason recorded in the state file by Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for a component not yet applied; it remains only when the run was interrupted. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_reason_declined": {
+      "message": "not confirmed",
+      "description": "Skip reason in Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for a component the operator declined under -Confirm.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_applying": {
+      "message": "Applying {component} ({title})...",
+      "description": "Write-Information progress line in Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1).",
+      "lifecycle": "active",
+      "placeholders": {
+        "component": {
+          "type": "token",
+          "trust": "internal",
+          "example": "watchdog"
+        },
+        "title": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "hardware watchdog reset"
+        }
+      }
+    },
+    "host.deep_diagnostics_component_failed": {
+      "message": "{component} was not applied: {reason}",
+      "description": "Write-Warning in Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); the other components still apply.",
+      "lifecycle": "active",
+      "placeholders": {
+        "component": {
+          "type": "token",
+          "trust": "internal",
+          "example": "watchdog"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "no -NetconsoleTarget was given"
+        }
+      }
+    },
+    "host.deep_diagnostics_summary_header": {
+      "message": "Deep diagnostics mode:",
+      "description": "Write-Information heading of the closing summary in Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1).",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_summary_applied": {
+      "message": "  {component}: applied",
+      "description": "Summary line in Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1). Keep the two leading spaces.",
+      "lifecycle": "active",
+      "placeholders": {
+        "component": {
+          "type": "token",
+          "trust": "internal",
+          "example": "watchdog"
+        }
+      }
+    },
+    "host.deep_diagnostics_summary_skipped": {
+      "message": "  {component}: skipped -- {reason}",
+      "description": "Summary line in Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1). Keep the two leading spaces.",
+      "lifecycle": "active",
+      "placeholders": {
+        "component": {
+          "type": "token",
+          "trust": "internal",
+          "example": "watchdog"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "no -NetconsoleTarget was given"
+        }
+      }
+    },
+    "host.deep_diagnostics_summary_failed": {
+      "message": "  {component}: failed -- {reason}",
+      "description": "Summary line in Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1). Keep the two leading spaces.",
+      "lifecycle": "active",
+      "placeholders": {
+        "component": {
+          "type": "token",
+          "trust": "internal",
+          "example": "watchdog"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "no -NetconsoleTarget was given"
+        }
+      }
+    },
+    "host.deep_diagnostics_nothing_to_change": {
+      "message": "Deep diagnostics mode is already in place on this host; nothing changed.",
+      "description": "Write-Information in Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) when a second run finds nothing to change.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_receiver_command": {
+      "message": "Keep the receiver running on the target machine: pwsh test/lab/Receive-Netconsole.ps1 -Port {port}",
+      "description": "Write-Information at the end of Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) when a netconsole target is set. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "token",
+          "trust": "internal",
+          "example": "6666"
+        }
+      }
+    },
+    "host.deep_diagnostics_verify": {
+      "message": "To check the path end to end, run: echo '<5>yuruna-deep-diagnostics: check' | sudo tee /dev/kmsg -- the line appears in 'journalctl -k -n 5' here and, with netconsole, in the receiver's log.",
+      "description": "Write-Information at the end of Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1). Keep both commands exactly as written.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_enable_incomplete": {
+      "message": "{count} component(s) failed and the others are in place; fix the cause and run Enable-DeepDiagnostics.ps1 again.",
+      "description": "Write-Warning at the end of Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); the script exits 2. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        }
+      }
+    },
+    "host.deep_diagnostics_should_record": {
+      "message": "Record the current values and apply deep diagnostics mode",
+      "description": "ShouldProcess action text in Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); the target shown beside it is the state file path. Keep it a short imperative phrase.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_should_apply": {
+      "message": "Apply",
+      "description": "ShouldProcess action text in Invoke-DeepDiagnosticsEnable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); the target shown beside it is a component name and title. Keep it a short imperative phrase.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_should_restore": {
+      "message": "Restore the values recorded before deep diagnostics mode",
+      "description": "ShouldProcess action text in Invoke-DeepDiagnosticsDisable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); the target shown beside it is the state file path. Keep it a short imperative phrase.",
+      "lifecycle": "active"
+    },
+    "host.deep_diagnostics_not_enabled": {
+      "message": "Deep diagnostics mode is not enabled on this host: {path} does not exist.",
+      "description": "Write-Information in Write-DeepDiagnosticsRestorePlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) when Disable-DeepDiagnostics.ps1 finds no state file. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        }
+      }
+    },
+    "host.deep_diagnostics_restore_header": {
+      "message": "Deep diagnostics mode, enabled {enabledAtUtc} by {enabledBy}: planned restore",
+      "description": "Write-Information heading in Write-DeepDiagnosticsRestorePlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); the lines after it are \"key: current -> restored\".",
+      "lifecycle": "active",
+      "placeholders": {
+        "enabledAtUtc": {
+          "type": "detail",
+          "trust": "external",
+          "example": "2026-11-03T14:05:00Z"
+        },
+        "enabledBy": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "ytest"
+        }
+      }
+    },
+    "host.deep_diagnostics_restore_failed": {
+      "message": "{item} was not restored: {message}",
+      "description": "Write-Warning in Invoke-DeepDiagnosticsDisable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); the state file is kept.",
+      "lifecycle": "active",
+      "placeholders": {
+        "item": {
+          "type": "detail",
+          "trust": "external",
+          "example": "kernel.panic"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Unexpected character encountered while parsing value"
+        }
+      }
+    },
+    "host.deep_diagnostics_restore_done": {
+      "message": "Deep diagnostics mode is off; {count} change(s) reverted.",
+      "description": "Write-Information at the end of Invoke-DeepDiagnosticsDisable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1).",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        }
+      }
+    },
+    "host.deep_diagnostics_restore_incomplete": {
+      "message": "{count} change(s) could not be reverted; {path} is kept, so running Disable-DeepDiagnostics.ps1 again finishes the restore.",
+      "description": "Write-Warning at the end of Invoke-DeepDiagnosticsDisable (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); the script exits 2. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        }
+      }
+    },
+    "host.deep_diagnostics_evidence_kept": {
+      "message": "the evidence bundles stay in {path}; -RemoveEvidence deletes them",
+      "description": "Plan note in Get-DeepDiagnosticsRestorePlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1). Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        }
+      }
+    },
+    "host.deep_diagnostics_module_in_use": {
+      "message": "{module} stays loaded because something still uses it",
+      "description": "Write-Warning in host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1 when Disable leaves a kernel module loaded.",
+      "lifecycle": "active",
+      "placeholders": {
+        "module": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "iTCO_wdt"
+        }
+      }
+    },
+    "host.deep_diagnostics_journal_directory_created": {
+      "message": "{path} was created while deep diagnostics mode was on, and journald keeps a persistent journal while it exists. To return to a volatile journal: sudo rm -rf {path} && sudo systemctl restart systemd-journald",
+      "description": "Plan note in Get-DeepDiagnosticsRestorePlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1). Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        }
+      }
+    },
+    "host.deep_diagnostics_watchdog_provider_unknown": {
+      "message": "the kernel module that provides {device} ('{identity}') could not be identified (loaded watchdog drivers: {drivers}), so nothing would load it at the next boot and the watchdog would be gone after a reboot; with exactly one hardware watchdog driver loaded, run this again",
+      "description": "Skip reason for the watchdog component in Get-DeepDiagnosticsWatchdogPlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1); shown after \"skipped --\". drivers is a comma-separated list of kernel module names, or the translated host.deep_diagnostics_value_none word. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "device": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "/dev/watchdog0"
+        },
+        "identity": {
+          "type": "detail",
+          "trust": "external",
+          "example": "i6300ESB timer"
+        },
+        "drivers": {
+          "type": "detail",
+          "trust": "external",
+          "example": "i6300esb, iTCO_wdt"
+        }
+      }
+    },
+    "host.deep_diagnostics_dependencies_kept": {
+      "message": "the packages the install of {package} pulled in, which apt marked as automatically installed, stay because other software may use them; /var/log/apt/history.log lists them under that install. To remove them as well: sudo apt-get purge <those packages>. apt-get autoremove would also remove every other package apt no longer needs, old kernels among them",
+      "description": "Plan note in Get-DeepDiagnosticsRestorePlan (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for a package Enable-DeepDiagnostics.ps1 installed and Disable-DeepDiagnostics.ps1 removes. Keep <those packages> as a placeholder the operator replaces. Preserve command names, paths, switch names and file names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "package": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "rasdaemon"
+        }
+      }
+    },
+    "host.deep_diagnostics_value_evidence": {
+      "message": "the evidence bundles",
+      "description": "Value phrase in a Disable \"key: current -> restored\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for the evidence directory that -RemoveEvidence deletes.",
+      "lifecycle": "active"
     }
   }
 }

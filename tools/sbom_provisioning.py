@@ -24,6 +24,10 @@ _MANAGERS = re.compile(
     r"(?P<action>install|add|groupinstall|toolchain\s+install|tool\s+install)\b",
     re.I,
 )
+# A PowerShell native call is often an argument array that keeps the program
+# and its action in separate quoted elements: @('apt-get', 'install', 'name').
+_ARGUMENT_ARRAY = re.compile(r"@\(\s*((?:'[^'\n]*'|\"[^\"\n]*\"|\$[A-Za-z_][\w:]*)(?:\s*,\s*(?:'[^'\n]*'|\"[^\"\n]*\"|\$[A-Za-z_][\w:]*))*)\s*\)")
+_ARGUMENT_ELEMENT = re.compile(r"'([^'\n]*)'|\"([^\"\n]*)\"|(\$[A-Za-z_][\w:]*)")
 _PS_INSTALL = re.compile(r"(?<![\w.-])(Install-Module|Install-PSResource|Install-PackageProvider|Install-WingetPackage|Invoke-GuestWingetInstall)\b", re.I)
 _CONTAINER = re.compile(r"(?<![\w.-])(?:docker|podman)\s+(pull|run|create)\b", re.I)
 _DOWNLOAD = re.compile(r"(?<![\w.-])(?:curl(?:_retry)?|wget(?:_try)?|Invoke-WebRequest|Start-BitsTransfer|Save-CachedHttpUri|Save-YurunaImage|Save-ImageWithChecksum)\b", re.I)
@@ -123,6 +127,29 @@ def _active_matches(pattern: re.Pattern, command: str):
         assigned_script = bool(re.match(r"\$yamlInstall\s*=", command, re.I))
         if match.start() not in quoted or executed or assigned_script:
             yield match
+
+
+def _argument_vectors(command: str) -> list[str]:
+    """Render PowerShell argument arrays as the command lines they run.
+
+    Each element becomes one shell word, so a manager and its action match only
+    as separate elements; an element holding a sentence stays one quoted word.
+    """
+    vectors = []
+    for array in _active_matches(_ARGUMENT_ARRAY, command):
+        words = []
+        for element in _ARGUMENT_ELEMENT.finditer(array[1]):
+            single, double, variable = element.groups()
+            words.append(variable or shlex.quote(single if single is not None else double))
+        vectors.append(" ".join(words))
+    return vectors
+
+
+def _manager_matches(command: str):
+    """Package-manager invocations in a command line and in its argument arrays."""
+    yield from _active_matches(_MANAGERS, command)
+    for vector in _argument_vectors(command):
+        yield from _active_matches(_MANAGERS, vector)
 
 
 def _logical_lines(text: str):
@@ -453,14 +480,14 @@ class _Collector:
                             self.image(path, line, expanded, "Dockerfile FROM", "build" if image[2] and image[2].lower() == "build" else "runtime")
                     if image[2]:
                         stages.add(image[2].lower())
-            for match in _active_matches(_MANAGERS, command):
+            for match in _manager_matches(command):
                 manager, action = match["manager"].lower(), match["action"].lower()
                 if manager == "winget":
                     continue
                 if manager == "dotnet" and action != "tool install":
                     continue
                 if manager in {"nvm", "rustup"}:
-                    requested = _tokens(command[match.end():])
+                    requested = _tokens(match.string[match.end():])
                     for item in requested[:1]:
                         for expanded in _expand(item, values):
                             exact = expanded if re.fullmatch(r"v?\d+\.\d+\.\d+", expanded) else None
@@ -469,7 +496,7 @@ class _Collector:
                             if not _literal(expanded):
                                 self.note(path, line, f"{manager}: unresolved release {expanded}")
                     continue
-                self.packages(path, line, command[match.end():], "nuget" if manager == "dotnet" else manager, action, values)
+                self.packages(path, line, match.string[match.end():], "nuget" if manager == "dotnet" else manager, action, values)
             for match in _active_matches(_PS_INSTALL, command):
                 if re.search(r"\bfunction\s+(?:(?:global|local|script|private):)?$", command[:match.start()], re.I):
                     continue

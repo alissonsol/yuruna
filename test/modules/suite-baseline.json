@@ -3,8 +3,8 @@
   "recordedUtc": "2026-10-21T13:44:45.0925658Z",
   "pesterVersion": "6.2.0",
   "totals": {
-    "suites": 459,
-    "tests": 11145,
+    "suites": 470,
+    "tests": 11360,
     "failed": 0,
     "skipped": 36
   },
@@ -347,6 +347,11 @@
       "skipped": 0,
       "seconds": 1.4
     },
+    "test/modules/Test.DeepDiagnostics.Tests.ps1": {
+      "total": 48,
+      "skipped": 0,
+      "seconds": 13.51
+    },
     "test/modules/Test.DeployPhaseLedger.Tests.ps1": {
       "total": 17,
       "skipped": 0,
@@ -536,6 +541,11 @@
       "total": 59,
       "skipped": 0,
       "seconds": 4.05
+    },
+    "test/modules/Test.FetchExecuteNestedPrune.Tests.ps1": {
+      "total": 9,
+      "skipped": 0,
+      "seconds": 3.47
     },
     "test/modules/Test.FrameworkArchiveScope.Tests.ps1": {
       "total": 6,
@@ -742,7 +752,10 @@
     "test/modules/Test.GuestProjectConsistency.Tests.ps1": {
       "total": 83,
       "skipped": 0,
-      "seconds": 8.02
+      "seconds": 8.02,
+      "platformSkipped": {
+        "windows": 27
+      }
     },
     "test/modules/Test.GuestQuarantine.Tests.ps1": {
       "total": 19,
@@ -1224,6 +1237,11 @@
       "skipped": 0,
       "seconds": 2.65
     },
+    "test/modules/Test.LogPendingEvent.Tests.ps1": {
+      "total": 20,
+      "skipped": 0,
+      "seconds": 4.76
+    },
     "test/modules/Test.MacInstallVersionFloor.Tests.ps1": {
       "total": 17,
       "skipped": 0,
@@ -1306,6 +1324,11 @@
       "total": 18,
       "skipped": 0,
       "seconds": 1.64
+    },
+    "test/modules/Test.NetconsoleReceiver.Tests.ps1": {
+      "total": 7,
+      "skipped": 0,
+      "seconds": 6.85
     },
     "test/modules/Test.NonzeroExitSentinel.Tests.ps1": {
       "total": 8,
@@ -1627,6 +1650,11 @@
       "skipped": 0,
       "seconds": 3.4
     },
+    "test/modules/Test.RecoveryHostRestart.Tests.ps1": {
+      "total": 22,
+      "skipped": 0,
+      "seconds": 3.8
+    },
     "test/modules/Test.RecoveryLedger.Tests.ps1": {
       "total": 104,
       "skipped": 0,
@@ -1715,6 +1743,11 @@
         "windows": 16
       }
     },
+    "test/modules/Test.RunnerAttemptHistory.Tests.ps1": {
+      "total": 5,
+      "skipped": 0,
+      "seconds": 1.74
+    },
     "test/modules/Test.RunnerConfigResync.Tests.ps1": {
       "total": 7,
       "skipped": 0,
@@ -1769,6 +1802,11 @@
       "total": 9,
       "skipped": 0,
       "seconds": 2.3
+    },
+    "test/modules/Test.RunnerOuterLoopFaultEvent.Tests.ps1": {
+      "total": 12,
+      "skipped": 0,
+      "seconds": 2.38
     },
     "test/modules/Test.RunnerReclaim.Tests.ps1": {
       "total": 45,
@@ -1993,6 +2031,11 @@
       "skipped": 0,
       "seconds": 3.97
     },
+    "test/modules/Test.SilentCatchRule.Tests.ps1": {
+      "total": 15,
+      "skipped": 0,
+      "seconds": 9.49
+    },
     "test/modules/Test.SingleFlightLock.Tests.ps1": {
       "total": 39,
       "skipped": 0,
@@ -2200,6 +2243,16 @@
       "skipped": 0,
       "seconds": 2.59
     },
+    "test/modules/Test.SystemDiagnosticCommitCharge.Tests.ps1": {
+      "total": 4,
+      "skipped": 0,
+      "seconds": 1.47
+    },
+    "test/modules/Test.SystemDiagnosticLinuxEvidence.Tests.ps1": {
+      "total": 38,
+      "skipped": 0,
+      "seconds": 9.1
+    },
     "test/modules/Test.SystemDiagnosticSelfContained.Tests.ps1": {
       "total": 54,
       "skipped": 0,
@@ -2274,6 +2327,11 @@
       "total": 15,
       "skipped": 0,
       "seconds": 4.92
+    },
+    "test/modules/Test.UtmSerialConsole.Tests.ps1": {
+      "total": 35,
+      "skipped": 0,
+      "seconds": 22.12
     },
     "test/modules/Test.UtmServiceVmSuspend.Tests.ps1": {
       "total": 23,
@@ -2566,6 +2624,55 @@
       "tests": 24,
       "sourceSha256": {
         "test/modules/Test.ExtensionServiceStart.Tests.ps1": "0261874E97EE7A57D0E44C586575FD6BD181BE4DF63CF605BCF4E03F06703904"
+      }
+    },
+    {
+      "registeredUtc": "2026-11-02T16:36:49.0083178Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.SilentCatchRule.Tests.ps1"
+      ],
+      "tests": 15,
+      "sourceSha256": {
+        "test/modules/Test.SilentCatchRule.Tests.ps1": "795E6F78DCEB55222FEFB722F14D121F01F4E062FDB6C4D82EAA499E401E908A"
+      }
+    },
+    {
+      "registeredUtc": "2026-11-03T05:28:37.5405274Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.DeepDiagnostics.Tests.ps1",
+        "test/modules/Test.FetchExecuteNestedPrune.Tests.ps1",
+        "test/modules/Test.LogPendingEvent.Tests.ps1",
+        "test/modules/Test.NetconsoleReceiver.Tests.ps1",
+        "test/modules/Test.RecoveryHostRestart.Tests.ps1",
+        "test/modules/Test.RunnerAttemptHistory.Tests.ps1",
+        "test/modules/Test.RunnerOuterLoopFaultEvent.Tests.ps1",
+        "test/modules/Test.SystemDiagnosticLinuxEvidence.Tests.ps1",
+        "test/modules/Test.UtmSerialConsole.Tests.ps1"
+      ],
+      "tests": 196,
+      "sourceSha256": {
+        "test/modules/Test.DeepDiagnostics.Tests.ps1": "8005ADC102568F26575BD70569F8C7BE1D80A52051712B34B27B4764A8155EA2",
+        "test/modules/Test.FetchExecuteNestedPrune.Tests.ps1": "9DEAE41853F328F152E77A750D24CC613B5A5178D2DCEC61DAEAFD26EBBDE741",
+        "test/modules/Test.LogPendingEvent.Tests.ps1": "0429CCA5388A33CB8BC159584600F158272E60D811702852CE801C495B82E06D",
+        "test/modules/Test.NetconsoleReceiver.Tests.ps1": "6EAF035FEA34328C431B9C5B8CF9D20B3F3C31105D6384518EF661180793BFFB",
+        "test/modules/Test.RecoveryHostRestart.Tests.ps1": "276ACFF57273309F661036066B25DD9435C332AEF6157E10F9602ECDBE87EE91",
+        "test/modules/Test.RunnerAttemptHistory.Tests.ps1": "44CDFA34BC906225724E68E0BEBEC5AF6368DAEA352AC1CED2B9B0E2CA831F81",
+        "test/modules/Test.RunnerOuterLoopFaultEvent.Tests.ps1": "FCE6E1E49CD2DD84FBB27EA57584E753BBA5D188959E58B52A6FD4556DB7F137",
+        "test/modules/Test.SystemDiagnosticLinuxEvidence.Tests.ps1": "E5C81DD59B70E00E79644ECD82166E27BF0370AD26F4C556A287962D29921C57",
+        "test/modules/Test.UtmSerialConsole.Tests.ps1": "6B779385DFEE7F199FE1058CE67A2A86CCD86B8F4E17ACA93E0FBDC0F09DEEC6"
+      }
+    },
+    {
+      "registeredUtc": "2026-11-04T06:00:55.2837518Z",
+      "pesterVersion": "6.2.0",
+      "suites": [
+        "test/modules/Test.SystemDiagnosticCommitCharge.Tests.ps1"
+      ],
+      "tests": 4,
+      "sourceSha256": {
+        "test/modules/Test.SystemDiagnosticCommitCharge.Tests.ps1": "6A7346036DD2871813EDEA4EA861C8CE7322D8F4D9FE60C9102E639F5027FED1"
       }
     }
   ]

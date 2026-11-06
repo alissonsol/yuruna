@@ -77,19 +77,21 @@ form is `<expiry>.<audience>.<base64 HMAC>`, the MAC covers
 `yuruna-control|proof|v2|<audience>|<expiry>`, and the audience is the host id for a
 host's control routes or `svc-<service>` for an extension service UI. A proof copied out
 of one host's address bar, a screenshot or a pasted link therefore opens that host and no
-other. Hosts and services are updated at different times, so every verifier still accepts
-the older unbound form `<expiry>.<base64 HMAC>` until every minter binds; an older host
-refuses the bound form, which is why hosts take this change before the caching proxy and
-the pool-control VM are rebuilt. The expiry stays the first field, so the page countdown
-reads both forms. The lab LAN remains the trust boundary by design: anyone who can open
-the dashboard can mint a proof for any host through `/go/host`.
+other. Every verifier -- the hosts, the extension services and the aggregator's
+`/api/v1/control-proof` -- refuses the older unbound form `<expiry>.<base64 HMAC>`,
+because it names no target and would open every host that shares the key. Every current
+minter binds; a caching proxy or pool-control VM built from a release older than
+`2026.10.25`, the first whose minters bind, still mints the unbound form, so rebuild it
+from a current tree. The expiry stays the first field, so the page countdown reads every
+form. The lab LAN remains the trust boundary by design: anyone who can open the
+dashboard can mint a proof for any host through `/go/host`.
 
 A bound proof can also be **scoped** to one class of its target's routes:
 `<expiry>.<audience>.<scope>.<base64 HMAC>`, with the MAC over
 `yuruna-control|proof|v3|<audience>|<scope>|<expiry>`. The one scope is `pause`, which a
 host accepts on `control/step-pause`, `control/step-resume`, `control/cycle-pause` and
 `control/cycle-resume` and on no other route; every other control route takes only the
-bound and unbound forms, and the extension services never take a scoped proof. The
+bound form, and the extension services never take a scoped proof. The
 pool-wide pause and continue sends scoped proofs, so a captured one cannot save that host's
 configuration, start a cycle or refresh it. The fragment hand-off itself stays: the
 fragment never reaches a server or an access log, both page runtimes take it off the
@@ -110,11 +112,13 @@ continues every member of a pool at once ([pool-admin.md](pool-admin.md#pool-sta
 It mints one pause-scoped proof per member from its own copy of the token when it has one,
 and otherwise reads the fragment off `/go/host?host=<member>&scope=pause` without following
 the redirect -- obtained as a browser obtains it, once per member. An aggregator that
-predates scopes ignores the parameter and mints the member's full bound proof, and one that
-predates audiences answers with one unbound proof, which is then used for the whole
-fan-out. A host that predates scopes refuses a scoped proof as `proof-invalid`; that member
-is then sent its full proof once. So the enrollment state that decides whether a host's buttons work also
-decides whether pool-wide control reaches it, and the `reason` table below explains both.
+predates scopes ignores the parameter and mints the member's full bound proof. One that
+predates audiences answers with one unbound proof, which pool-control still sends to the
+whole fan-out, and every member refuses it as `proof-invalid`: rebuild that caching proxy
+from a current tree. A host that predates scopes refuses a scoped proof as
+`proof-invalid`; that member is then sent its full proof once. So the enrollment state
+that decides whether a host's buttons work also decides whether pool-wide control reaches
+it, and the `reason` table below explains both.
 
 <a id="42185271-0004"></a>
 
@@ -483,9 +487,11 @@ proxy. Neither end ever discloses the token, and the comparison happens inside t
 aggregator -- the tag is **never** exported to Prometheus, because `/metrics` and the
 dashboard are unauthenticated by design.
 
-Reading the tag does not help forge a proof: a proof signs `yuruna-control|proof|<expiry>`
-and the tag signs a fixed message whose label segment is `tag`, so no expiry can produce
-it. `utcNow` lets the aggregator spot the clock skew of item 6 without minting anything. A
+Reading the tag does not help forge a proof: every accepted proof signs
+`yuruna-control|proof|v2|<audience>|<expiry>` or
+`yuruna-control|proof|v3|<audience>|<scope>|<expiry>`, and the tag signs a fixed message
+whose label segment is `tag`, so no expiry, audience or scope can produce it. `utcNow`
+lets the aggregator spot the clock skew of item 6 without minting anything. A
 host holding no token answers `tokenConfigured: false` with an empty tag; a runspace that
 cannot load the verifier answers the same way, so a tag is never published by a host that
 would refuse every proof anyway.
@@ -798,6 +804,16 @@ host that has no key answers 404. `livecheck?nonce=` uses the same key with the
 `yuruna-livecheck/1` scope, so a guest's resolver accepts only its own host; a probe
 without a nonce gets the plain answer.
 
+`control/test-config?nonce=<16..128 hex>` answers the same document as the plain read
+plus `guestChannel`: the host id and `proof`, hex(HMAC-SHA256) with this host's
+guest-channel key of `yuruna-test-config/1`, the host id, the nonce,
+`repositories.frameworkUrl` and `repositories.projectUrl`, one per line (an absent or
+non-string URL counts as empty). The guest update scripts that hold the key send a nonce
+and take the two clone URLs only from an answer that proves it, keeping the URLs seeded
+in `host.env` otherwise. A request without a nonce, or with a malformed one, gets the
+document unchanged, and a host with no key answers it without `guestChannel`. The read
+stays open to every reader.
+
 `archive/<cycle-folder>.zip` is dispatched *before* this by-prefix step and
 never reaches it: it names a folder to pack rather than a file to serve, and it
 carries its own grammar in place of the StartsWith pin (see below).
@@ -952,6 +968,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

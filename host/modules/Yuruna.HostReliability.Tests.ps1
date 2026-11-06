@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4270c5ae-4f32-42b7-a8e4-08bd28d7d218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -979,6 +979,150 @@ Describe 'Hypervisor calls on contract paths are bounded' {
             $source = ($Name | ForEach-Object { Get-SourceFunction -Path "host/$Driver/modules/Yuruna.Host.psm1" -Name $_ }) -join "`n"
             return (& { . $Stubs; . ([scriptblock]::Create($source)); & $Call })
         }
+        # A Hyper-V cmdlet by name, module-qualified or bare: any verb the module
+        # ships on a VM or VHD noun. A driver's own functions on those nouns
+        # (Start-VM, Get-VMState...) are told apart by the driver's definitions.
+        $script:HyperVCmdletPattern = '^(Hyper-V\\)?(Add|Checkpoint|Compare|Complete|Connect|Convert|Copy|Debug|Disable|Disconnect|Dismount|Enable|Export|Get|Grant|Import|Measure|Merge|Mount|Move|New|Optimize|Remove|Rename|Repair|Reset|Resize|Restart|Restore|Resume|Revoke|Save|Set|Start|Stop|Suspend|Test|Update)-(VM|VHD)[A-Za-z]*$'
+        # utmctl runs by the path the driver resolved, so a raw call names it
+        # through a variable rather than by the literal name.
+        $script:UtmToolPattern = '^(utmctl|osascript|\$(script:)?utmctl[A-Za-z]*)$'
+        # Read-only Hyper-V calls the driver keeps in process, keyed
+        # function|cmdlet, each with why (docs/source-consistency.md): a read on
+        # a VM start or a frame capture stays out of a child so neither adds a
+        # process start, and any other read is bounded by what bounds its caller.
+        # A new raw call fails until it is bounded or listed here with its
+        # reason, and a listed call that no longer exists fails too.
+        $script:HyperVUnboundedCall = @{
+            'Confirm-HyperVVMCreated|Hyper-V\Get-VM'                 = 'read-only registration check of a test guest after its bounded build; exported, and nothing in the repository calls it'
+            'Get-HyperVDirectoryDiskOwner|Hyper-V\Get-VM'              = 'read-only storage inventory before an orphan directory is deleted, which refuses on a failed read; the step watchdog bounds it in a cycle, and service builds and operator cleanups run it outside one'
+            'Get-HyperVDirectoryDiskOwner|Hyper-V\Get-VMHardDiskDrive' = 'read-only storage inventory before an orphan directory is deleted, which refuses on a failed read; the step watchdog bounds it in a cycle, and service builds and operator cleanups run it outside one'
+            'Get-HyperVDirectoryDiskOwner|Hyper-V\Get-VMSnapshot'      = 'read-only storage inventory before an orphan directory is deleted, which refuses on a failed read; the step watchdog bounds it in a cycle, and service builds and operator cleanups run it outside one'
+            'Repair-VMStorageLocation|Hyper-V\Get-VMHost'              = 'read-only sweep for VMs whose storage sits under another name; runs at admission, under the step watchdog in a cycle and in the operator debug loop'
+            'Repair-VMStorageLocation|Hyper-V\Get-VM'                  = 'read-only sweep for VMs whose storage sits under another name; runs at admission, under the step watchdog in a cycle and in the operator debug loop'
+            'Remove-HyperVTestVM|Hyper-V\Get-VMHost'                   = 'read-only disk-root lookup after the bounded Remove-VM, to find the directory to delete; the step watchdog bounds it in a cycle, and service starts and operator cleanups run it outside one'
+            'Get-HyperVVMStartupMemory|Hyper-V\Get-VM'                 = 'read-only sizing of the Start-VM memory preflight, after the bounded state read; in process so a VM start adds no child process'
+            'Get-HyperVVMStorageRequirement|Hyper-V\Get-VMHost'        = 'read-only disk-root read for an absent VM with a declared startup size, which only the project storage gate asks for, never a VM start; the step watchdog bounds it in a cycle'
+            'Get-HyperVVMStorageRequirement|Hyper-V\Get-VMHardDiskDrive' = 'read-only storage preflight of Start-VM, after the bounded state read; in process so a VM start adds no child process'
+            'Get-HyperVVMStorageRequirement|Hyper-V\Get-VHD'           = 'read-only storage preflight of Start-VM, after the bounded state read; in process so a VM start adds no child process'
+            'Test-VMStorageCapacity|Hyper-V\Get-VMHost'                = 'read-only configuration-path read for the provisioning allowance (-ProvisioningMemoryBytes), which only the project storage gate asks for, never a VM start; the step watchdog bounds it in a cycle'
+            'Get-VMConsoleSecondOpinion|Hyper-V\Get-VM'                = 'read-only CPU figure beside a console verdict already reached; runs only in a sequence step, under the step watchdog in a cycle'
+            'Get-BestHostIp|Get-VMSwitch'                              = 'read-only switch inventory for the address a guest reaches the host at; the step watchdog bounds it in a cycle, and service starts and the status service run it outside one'
+            'Get-GuestReachableHostIp|Get-VMSwitch'                    = 'read-only switch inventory for the address a guest reaches the host at; the step watchdog bounds it in a cycle, the guest diagnostic worker runs it under its own cap, and service builds and starts run it outside a cycle'
+            'Get-CacheVmCandidateIp|Get-VMNetworkAdapter'              = 'read-only KVP address read of a VM object already resolved; the step watchdog bounds it in a cycle, and service builds and the caching-proxy start run it outside one'
+            'Get-WindowsDefaultRoutePhysicalAdapter|Get-VMSwitch'      = 'read-only external-switch inventory on the host-network setup and repair path; the step watchdog bounds it in a cycle, and service builds run it outside one'
+            'Test-YurunaExternalSwitchUplink|Get-VMSwitch'             = 'read-only external-switch inventory on the host-network setup and repair path; the step watchdog bounds it in a cycle, and service builds and the status service run it outside one'
+            'Test-YurunaExternalSwitchUplink|Get-VMNetworkAdapter'     = 'read-only external-switch inventory on the host-network setup and repair path; the step watchdog bounds it in a cycle, and service builds and the status service run it outside one'
+            'Test-YurunaManagementVnicAbsent|Get-VMNetworkAdapter'     = 'read-only external-switch inventory on the host-network setup and repair path; the step watchdog bounds it in a cycle, the guest diagnostic worker runs it under its own cap, and service builds and starts run it outside a cycle'
+            'Wait-ExternalSwitchHostIpv4|Get-VMSwitch'                 = 'read-only external-switch inventory on the host-network setup and repair path; the step watchdog bounds it in a cycle, the guest diagnostic worker runs it under its own cap, and service builds and starts run it outside a cycle'
+            'Resolve-DegradedExternalSwitchFallback|Get-VMSwitch'      = 'read-only external-switch inventory on the host-network setup and repair path; the step watchdog bounds it in a cycle, and service builds run it outside one'
+            'Test-YurunaSwitchRepairable|Get-VMSwitch'                 = 'read-only external-switch inventory on the host-network setup and repair path; runs only in the cycle-start repair, under the step watchdog'
+            'Repair-YurunaExternalSwitch|Get-VM'                       = 'read-only external-switch inventory on the host-network setup and repair path; the rebind beside it is bounded; runs only in the cycle-start repair, under the step watchdog'
+            'Repair-YurunaExternalSwitch|Get-VMNetworkAdapter'         = 'read-only external-switch inventory on the host-network setup and repair path; the rebind beside it is bounded; runs only in the cycle-start repair, under the step watchdog'
+            'Repair-YurunaExternalSwitch|Get-VMSwitch'                 = 'read-only external-switch inventory on the host-network setup and repair path; the rebind beside it is bounded; runs only in the cycle-start repair, under the step watchdog'
+            'Get-OrCreateYurunaExternalSwitch|Get-VMSwitch'            = 'read-only external-switch inventory on the host-network setup and repair path; the creation beside it is bounded; the step watchdog bounds it in a cycle, and service builds run it outside one'
+            'Test-CacheVmOnYurunaExternalSwitch|Get-VM'                = 'read-only cache-VM attachment read on the host-network setup path; the step watchdog bounds it in a cycle, and the caching-proxy start and the status service run it outside one'
+            'Test-CacheVmOnYurunaExternalSwitch|Get-VMNetworkAdapter'  = 'read-only cache-VM attachment read on the host-network setup path; the step watchdog bounds it in a cycle, and the caching-proxy start and the status service run it outside one'
+            'Test-CacheVmOnYurunaExternalSwitch|Get-VMSwitch'          = 'read-only cache-VM attachment read on the host-network setup path; the step watchdog bounds it in a cycle, and the caching-proxy start and the status service run it outside one'
+            'Get-WorkingCachingProxyServiceUrl|Get-VM'                 = 'read-only cache-VM presence read of the cache discovery; the step watchdog bounds it in a cycle, and the caching-proxy start runs it outside one'
+            'Resolve-CacheHostIp|Get-VM'                               = 'read-only cache-VM presence read of the cache discovery; the step watchdog bounds it in a cycle, and service builds run it outside one'
+            'Start-VMSerialCapture|Hyper-V\Get-VMComPort'              = 'read-only serial pipe lookup when a capture is armed, which every VM start does; in process so a VM start adds no child process'
+            'Save-VMNetworkState|Hyper-V\Get-VM'                       = 'read-only evidence capture of the VM network state after a failure; the step watchdog bounds it in a cycle, and the operator debug loop runs it outside one'
+            'Save-VMNetworkState|Hyper-V\Get-VMNetworkAdapter'         = 'read-only evidence capture of the VM network state after a failure; the step watchdog bounds it in a cycle, and the operator debug loop runs it outside one'
+            'Save-VMNetworkState|Hyper-V\Get-VMIntegrationService'     = 'read-only evidence capture of the VM network state after a failure; the step watchdog bounds it in a cycle, and the operator debug loop runs it outside one'
+            'Get-HyperVScreenshot|Hyper-V\Get-VMVideo'                 = 'read-only guest resolution read before each frame capture; in process so a frame adds no child process'
+            'Remove-HyperVGuestDefinition|Hyper-V\Get-VMHost'          = 'read-only disk-root lookup after the bounded Remove-VM, to check the directory a builder reuses; the step watchdog bounds it in a cycle, and service builds run it outside one'
+            'Resolve-HyperVGuestSwitch|Get-VMSwitch'                   = 'read-only switch inventory of the guest builders, test and service alike; the step watchdog bounds it in a cycle, and service builds run it outside one'
+            'Wait-HyperVServiceGuestAddress|Get-VMSwitch'              = 'read-only switch and adapter inventory of the service-guest address wait, which has its own deadline; runs only in service builds, outside any cycle'
+            'Wait-HyperVServiceGuestAddress|Get-VMNetworkAdapter'      = 'read-only switch and adapter inventory of the service-guest address wait, which has its own deadline; runs only in service builds, outside any cycle'
+            'Remove-OrphanedVMFileAccess|Hyper-V\Get-VM'               = 'read-only VM inventory before orphaned file-access entries are removed; the step watchdog bounds it in a cycle, and the operator cleanup runs it outside one'
+        }
+        function Get-DriverFunctionName {
+            param([string]$Driver)
+            $names = foreach ($file in (Get-YurunaDriverFile -Driver $Driver -RepoRoot $script:RepoRoot)) {
+                $ast = [Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$null)
+                $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object { $_.Name }
+            }
+            return @($names | Sort-Object -Unique)
+        }
+        # Every call of a hypervisor tool in the files that is not inside a script
+        # block a bounded wrapper runs: Key is function|command (the function
+        # empty for script-level code), Where names the file and line.
+        function Find-RawHypervisorCall {
+            param([string[]]$Path, [string[]]$Raw = @(), [string]$RawPattern = '', [string[]]$Wrapper = @(), [string[]]$Exclude = @())
+            foreach ($file in $Path) {
+                $ast = [Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$null)
+                foreach ($command in $ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] }, $true)) {
+                    $name = [string]$command.CommandElements[0].Extent.Text.Trim("'", '"')
+                    if ($Exclude -contains $name) { continue }
+                    if ($Raw -notcontains $name -and -not ($RawPattern -and $name -match $RawPattern)) { continue }
+                    $wrapped = $false
+                    $function = ''
+                    for ($parent = $command.Parent; $parent; $parent = $parent.Parent) {
+                        if ($parent -is [Management.Automation.Language.FunctionDefinitionAst]) {
+                            if (-not $function) { $function = $parent.Name }
+                            continue
+                        }
+                        if ($parent -is [Management.Automation.Language.ScriptBlockExpressionAst] -and
+                            ($parent.Parent -is [Management.Automation.Language.CommandParameterAst] -or
+                            $parent.Parent -is [Management.Automation.Language.CommandAst])) {
+                            $owner = if ($parent.Parent -is [Management.Automation.Language.CommandAst]) { $parent.Parent } else { $parent.Parent.Parent }
+                            if ($owner -is [Management.Automation.Language.CommandAst] -and $Wrapper -contains $owner.GetCommandName()) { $wrapped = $true; break }
+                        }
+                    }
+                    if (-not $wrapped) {
+                        [pscustomobject]@{ Key = "$function|$name"; Where = "$([IO.Path]::GetFileName($file)):$($command.Extent.StartLineNumber) $name" }
+                    }
+                }
+            }
+        }
+        # Whether any of the processes is still running, waiting a little for the
+        # system to finish taking down a tree that was just killed. A killed
+        # process whose exit nobody has collected yet keeps its pid as a zombie,
+        # which runs nothing.
+        function Test-FixtureProcessRunning {
+            param([int[]]$Id, [int]$WithinSeconds = 10)
+            $deadline = [DateTime]::UtcNow.AddSeconds($WithinSeconds)
+            while ($true) {
+                $running = @($Id | Where-Object {
+                        (Get-Process -Id $_ -ErrorAction SilentlyContinue) -and
+                        -not ($IsLinux -and ([string](Get-Content -LiteralPath "/proc/$_/stat" -Raw -ErrorAction SilentlyContinue)) -match '^\d+ \(.*\) Z ')
+                    })
+                if ($running.Count -eq 0) { return $false }
+                if ([DateTime]::UtcNow -ge $deadline) { return $true }
+                Start-Sleep -Milliseconds 200
+            }
+        }
+        # Live Hyper-V objects stand in as classes only a stand-in module makes:
+        # no parameterless constructor and read-only properties, so a parameter
+        # typed with one refuses the deserialized copy a bounded call hands back,
+        # as the module's own cmdlets do.
+        $script:HyperVFixtureType = @'
+namespace YurunaFixture.HyperV {
+    public enum VMState { Other = 1, Running = 2, Off = 3 }
+    public sealed class VMNetworkAdapter {
+        public VMNetworkAdapter(string vmName, string macAddress, string[] ipAddresses) { VMName = vmName; MacAddress = macAddress; IPAddresses = ipAddresses; }
+        public string VMName { get; private set; }
+        public string MacAddress { get; private set; }
+        public string[] IPAddresses { get; private set; }
+    }
+    public sealed class VirtualMachine {
+        public VirtualMachine(string name, VMState state, System.Guid id, VMNetworkAdapter[] networkAdapters) { Name = name; State = state; Id = id; NetworkAdapters = networkAdapters; }
+        public string Name { get; private set; }
+        public VMState State { get; private set; }
+        public System.Guid Id { get; private set; }
+        public System.DateTime CreationTime { get { return new System.DateTime(2026, 10, 27, 19, 16, 43, System.DateTimeKind.Utc); } }
+        public long MemoryStartup { get { return 12884901888L; } }
+        public VMNetworkAdapter[] NetworkAdapters { get; private set; }
+    }
+    public sealed class DvdDrive {
+        public DvdDrive(string vmName, string path, int controllerNumber, int controllerLocation) { VMName = vmName; Path = path; ControllerNumber = controllerNumber; ControllerLocation = controllerLocation; }
+        public string VMName { get; private set; }
+        public string Path { get; private set; }
+        public int ControllerNumber { get; private set; }
+        public int ControllerLocation { get; private set; }
+    }
+}
+'@
     }
     It 'KVM ends a virsh call that does not answer, and tells it from a refusal' -Skip:(-not $IsLinux) {
         $bin = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
@@ -1028,6 +1172,7 @@ Describe 'Hypervisor calls on contract paths are bounded' {
             function Get-ClaimedVncDisplay { param($ExcludeVMName) $null = $ExcludeVMName; @() }
             function Find-FreeVncDisplay { param($Preferred, $ExcludeDisplays) $null = $ExcludeDisplays; $Preferred }
             function Get-VncDisplayFromBundle { param($VMName) $null = $VMName; 1 }
+            function Test-VncDisplayInBundle { param($VMName, $Display) $null = $VMName, $Display; $true }
             function Start-UtmDialogWatchdog { }
             function Start-UtmDetachedLaunch { param($Tool, $ArgumentList) $null = $Tool, $ArgumentList }
             function Save-UtmControlSnapshot { param($Trigger, $VMName) $null = $Trigger, $VMName }
@@ -1040,7 +1185,10 @@ Describe 'Hypervisor calls on contract paths are bounded' {
     }
     It 'Hyper-V runs a lifecycle cmdlet under a cap and keeps its own error record' {
         $names = 'Invoke-HyperVBoundedCall', 'Invoke-HyperVLifecycleCmdlet'
-        $stubs = { $script:HyperVLifecycleTimeoutSeconds = 2 }
+        # An answered call pays for a pwsh start inside its cap, so only the
+        # calls meant to reach the cap get a short one.
+        $stubs = { $script:HyperVLifecycleTimeoutSeconds = 60 }
+        $hungStubs = { $script:HyperVLifecycleTimeoutSeconds = 2 }
         $answer = Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
             Invoke-HyperVBoundedCall -ArgumentList @('vm') -ScriptBlock { param($Name) "started $Name" }
         }
@@ -1052,33 +1200,442 @@ Describe 'Hypervisor calls on contract paths are bounded' {
         $failed.Error | Should -BeOfType [System.Management.Automation.ErrorRecord]
         $failed.Error.Exception | Should -BeOfType [System.InvalidOperationException] -Because 'the caller classifies the refusal from the record itself'
         $clock = [Diagnostics.Stopwatch]::StartNew()
-        $hung = Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
+        $hung = Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $hungStubs -Call {
             Invoke-HyperVBoundedCall -TimeoutSeconds 1 -ScriptBlock { Start-Sleep -Seconds 30 }
         }
         $hung.TimedOut | Should -BeTrue
         $clock.Elapsed.TotalSeconds | Should -BeLessThan 15
-        { Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
+        { Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $hungStubs -Call {
                 Invoke-HyperVLifecycleCmdlet -Verb 'Rename-VM' -VMName vm -ScriptBlock { Start-Sleep -Seconds 30 } } } |
             Should -Throw -ExpectedMessage 'host.hyperv_lifecycle_unanswered'
     }
-    It 'Hyper-V reports a bounded call whose job ends without an answer as an error' {
-        # The job body always emits one answer object; a job that returns none
-        # never ran its body to the end, which is not a call that found nothing.
-        $names = 'Invoke-HyperVBoundedCall', 'Invoke-HyperVLifecycleCmdlet'
-        $stubs = { $script:HyperVLifecycleTimeoutSeconds = 2; function Receive-Job { param($Job) $null = $Job } }
-        $silent = Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
-            Invoke-HyperVBoundedCall -ArgumentList @('vm') -ScriptBlock { param($Name) "listed $Name" }
+    It 'Hyper-V ends a call that ignores the stop request at the cap and leaves none of its processes running' {
+        # A .NET wait that PowerShell's stop request cannot interrupt, the shape of
+        # a cmdlet blocked on a management service that took the call and never
+        # answers. The call starts a process of its own first, so the whole tree
+        # has to go at the cap.
+        $marks = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $marks
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $hung = Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Invoke-HyperVBoundedCall' -Stubs { $script:HyperVLifecycleTimeoutSeconds = 60 } -Call {
+            Invoke-HyperVBoundedCall -TimeoutSeconds 10 -ArgumentList @($marks) -ScriptBlock {
+                param($Marks)
+                $descendant = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList '-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 90' -NoNewWindow -PassThru
+                [IO.File]::WriteAllText((Join-Path $Marks 'pids'), "$PID $($descendant.Id)")
+                [Threading.Thread]::Sleep(40000)
+            }
         }
-        $silent.TimedOut | Should -BeFalse
-        $silent.Error | Should -BeOfType [System.Management.Automation.ErrorRecord]
-        $silent.Error.Exception.Message | Should -Be 'host.hyperv_bounded_call_no_answer'
-        @($silent.Output).Count | Should -Be 0
-        { Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
-                Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMCheckpoint' -VMName vm -ScriptBlock { 'listed' } } } |
-            Should -Throw -ExpectedMessage 'host.hyperv_bounded_call_no_answer'
+        $elapsed = $clock.Elapsed.TotalSeconds
+        $hung.TimedOut | Should -BeTrue
+        $elapsed | Should -BeLessThan 18 -Because 'a call that ignores the stop request must not hold the caller past its cap'
+        $ids = @(([IO.File]::ReadAllText((Join-Path $marks 'pids'))).Trim() -split ' ' | ForEach-Object { [int]$_ })
+        $ids.Count | Should -Be 2
+        $ids[0] | Should -Not -Be $PID -Because 'the call runs in a process of its own'
+        Test-FixtureProcessRunning -Id $ids | Should -BeFalse -Because 'the cap ends the call''s whole process tree'
+    }
+    It 'Hyper-V reports a bounded call whose child ends without its answer as an error' {
+        # The child always writes one answer; a child that exits without it, or
+        # never starts, did not run the call to the end, which is not a call
+        # that found nothing.
+        $names = 'Invoke-HyperVBoundedCall', 'Invoke-HyperVLifecycleCmdlet'
+        $seen = @{}
+        $stubs = {
+            $script:HyperVLifecycleTimeoutSeconds = 60
+            function Format-YurunaOperatorMessage { param($Key, $Arguments) if ($Key -eq 'host.hyperv_bounded_call_no_answer') { $seen.Arguments = $Arguments }; $Key }
+        }
+        # A temp folder of the case's own, so a request file left behind is seen.
+        $temp = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $temp
+        $prior = Save-YurunaTestEnvironment -Name 'TMPDIR', 'TMP', 'TEMP'
+        try {
+            $env:TMPDIR = $temp; $env:TMP = $temp; $env:TEMP = $temp
+            $silent = Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
+                Invoke-HyperVBoundedCall -ArgumentList @('vm') -ScriptBlock { param($Name) $null = $Name; exit 3 }
+            }
+            $silent.TimedOut | Should -BeFalse
+            $silent.Error | Should -BeOfType [System.Management.Automation.ErrorRecord]
+            $silent.Error.Exception.Message | Should -Be 'host.hyperv_bounded_call_no_answer'
+            @($silent.Output).Count | Should -Be 0
+            $seen.Arguments.exitCode | Should -Be '3'
+            { Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
+                    Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMCheckpoint' -VMName vm -ScriptBlock { exit 3 } } } |
+                Should -Throw -ExpectedMessage 'host.hyperv_bounded_call_no_answer'
+            $unstartedStubs = {
+                $script:HyperVLifecycleTimeoutSeconds = 60
+                function Format-YurunaOperatorMessage { param($Key, $Arguments) if ($Key -eq 'host.hyperv_bounded_call_no_answer') { $seen.Arguments = $Arguments }; $Key }
+                function Invoke-BoundedNativeCommand {
+                    $null = $args
+                    @{ Started = $false; StartError = 'fixture launch refused'; TimedOut = $false; ExitCode = -1; StdOut = ''; StdErr = ''; KillFailed = $false }
+                }
+            }
+            $unstarted = Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $unstartedStubs -Call {
+                Invoke-HyperVBoundedCall -ScriptBlock { 'listed' }
+            }
+            $unstarted.TimedOut | Should -BeFalse
+            $unstarted.Error.Exception.Message | Should -Be 'host.hyperv_bounded_call_no_answer'
+            @($unstarted.Output).Count | Should -Be 0
+            $seen.Arguments.reason | Should -Be 'fixture launch refused'
+        } finally { Restore-YurunaTestEnvironment -Saved $prior }
+        @(Get-ChildItem -LiteralPath $temp -Force -Filter 'yuruna-hyperv-call-*') | Should -BeNullOrEmpty -Because 'the request file goes whether or not a child read it'
+    }
+    It 'Hyper-V reports a call whose request cannot be written as that call''s error, never as a throw' {
+        # The temp folder the request goes to does not exist, as a full or
+        # unwritable one would refuse the write.
+        $prior = Save-YurunaTestEnvironment -Name 'TMPDIR', 'TMP', 'TEMP'
+        try {
+            $missing = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $env:TMPDIR = $missing; $env:TMP = $missing; $env:TEMP = $missing
+            $call = Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Invoke-HyperVBoundedCall' -Stubs { $script:HyperVLifecycleTimeoutSeconds = 60 } -Call {
+                Invoke-HyperVBoundedCall -ScriptBlock { 'listed' }
+            }
+        } finally { Restore-YurunaTestEnvironment -Saved $prior }
+        $call.TimedOut | Should -BeFalse
+        $call.Error | Should -BeOfType [System.Management.Automation.ErrorRecord]
+        $call.Error.Exception.InnerException | Should -BeOfType [IO.DirectoryNotFoundException] -Because 'the write''s own error, with its code, is the call''s'
+        @($call.Output).Count | Should -Be 0
+    }
+    It 'Hyper-V rebuilds a refusal from the child so it classifies as the cmdlet''s own error did' {
+        # None of these messages carries a code a text match could find, so each
+        # classification below comes from the HResult or the Win32 code alone.
+        $names = 'Invoke-HyperVBoundedCall', 'Test-HostResourceExhaustionError', 'Get-HyperVStorageErrorCode'
+        $answer = Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs { $script:HyperVLifecycleTimeoutSeconds = 60 } -Call {
+            $win32 = Invoke-HyperVBoundedCall -ScriptBlock { throw [ComponentModel.Win32Exception]::new(1450, 'Insufficient system resources exist to complete the requested service.') }
+            $hresult = Invoke-HyperVBoundedCall -ScriptBlock { $refusal = [InvalidOperationException]::new("'vm' failed to start."); $refusal.HResult = -2147023446; throw $refusal }
+            $diskFull = Invoke-HyperVBoundedCall -ScriptBlock { throw [Management.Automation.RuntimeException]::new('Move-VMStorage failed.', [IO.IOException]::new('There is not enough space on the disk.', -2147024784)) }
+            $quota = Invoke-HyperVBoundedCall -ScriptBlock { throw [ComponentModel.Win32Exception]::new(39, 'The disk is full.') }
+            $record = Invoke-HyperVBoundedCall -ScriptBlock {
+                $refused = [Management.Automation.ErrorRecord]::new([InvalidOperationException]::new('refused'), 'VMRefused', 'ResourceUnavailable', $null)
+                $refused.ErrorDetails = [Management.Automation.ErrorDetails]::new('The host refused the VM.')
+                throw $refused
+            }
+            @{
+                Win32 = $win32.Error; Win32Exhausted = Test-HostResourceExhaustionError -ErrorRecord $win32.Error
+                HResult = $hresult.Error; HResultExhausted = Test-HostResourceExhaustionError -ErrorRecord $hresult.Error
+                DiskFull = $diskFull.Error; DiskFullCode = Get-HyperVStorageErrorCode -ErrorRecord $diskFull.Error
+                QuotaCode = Get-HyperVStorageErrorCode -ErrorRecord $quota.Error; QuotaExhausted = Test-HostResourceExhaustionError -ErrorRecord $quota.Error
+                Record = $record.Error
+            }
+        }
+        $original = [ComponentModel.Win32Exception]::new(1450, 'Insufficient system resources exist to complete the requested service.')
+        $answer.Win32.Exception | Should -BeOfType [ComponentModel.Win32Exception]
+        $answer.Win32.Exception.NativeErrorCode | Should -Be 1450
+        $answer.Win32.Exception.HResult | Should -Be $original.HResult
+        $answer.Win32.Exception.Message | Should -BeExactly $original.Message
+        $answer.Win32Exhausted | Should -BeTrue -Because 'ERROR_NO_SYSTEM_RESOURCES is read from the Win32 code'
+        $answer.HResult.Exception | Should -BeOfType [InvalidOperationException]
+        $answer.HResult.Exception.HResult | Should -Be -2147023446
+        $answer.HResult.Exception.Message | Should -BeExactly "'vm' failed to start."
+        $answer.HResultExhausted | Should -BeTrue -Because 'ERROR_NO_SYSTEM_RESOURCES is read from the HResult'
+        $answer.DiskFull.Exception.Message | Should -BeExactly 'Move-VMStorage failed.'
+        $answer.DiskFull.Exception.InnerException | Should -BeOfType [IO.IOException]
+        $answer.DiskFull.Exception.InnerException.HResult | Should -Be -2147024784
+        $answer.DiskFullCode | Should -BeExactly '0x80070070' -Because 'a disk-full HResult anywhere in the chain is read'
+        $answer.QuotaCode | Should -BeExactly '0x80070027'
+        $answer.QuotaExhausted | Should -BeFalse
+        $answer.Record.FullyQualifiedErrorId | Should -BeExactly 'VMRefused'
+        $answer.Record.CategoryInfo.Category | Should -Be 'ResourceUnavailable'
+        $answer.Record.Exception.Message | Should -BeExactly 'refused'
+        "$($answer.Record)" | Should -BeExactly 'The host refused the VM.' -Because 'error details are what the record renders'
+    }
+    It 'Hyper-V call output keeps the properties callers read, and the warnings the call wrote' {
+        $answer = Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Invoke-HyperVBoundedCall' -Stubs { $script:HyperVLifecycleTimeoutSeconds = 120 } -Call {
+            Invoke-HyperVBoundedCall -ArgumentList @($script:HyperVFixtureType) -ScriptBlock {
+                param($Type)
+                if (-not ('YurunaFixture.HyperV.VirtualMachine' -as [type])) { Add-Type -TypeDefinition $Type }
+                $adapter = [YurunaFixture.HyperV.VMNetworkAdapter]::new('vm', '00155D000001', [string[]]@('192.0.2.7', 'fe80::1'))
+                Write-Warning 'The virtual machine is already in the specified state.'
+                [YurunaFixture.HyperV.VirtualMachine]::new('vm', [YurunaFixture.HyperV.VMState]::Running, [guid]'1be1d34c-5633-449f-aaa9-c4e7190cb91b', @($adapter))
+                $adapter
+                [pscustomobject]@{ Made = 'amisad-build (6f1c)'; Listed = @('amisad-build', 'base') }
+            } 3>&1
+        }
+        $warnings = @($answer | Where-Object { $_ -is [Management.Automation.WarningRecord] })
+        $call = @($answer | Where-Object { $_ -is [hashtable] }) | Select-Object -First 1
+        @($warnings | ForEach-Object Message) | Should -Be @('The virtual machine is already in the specified state.')
+        $call.Error | Should -BeNullOrEmpty
+        $vm, $adapter, $made = @($call.Output)
+        $vm.Name | Should -BeExactly 'vm'
+        ($vm.State -eq 'Running') | Should -BeTrue -Because 'an enumeration property reads as its name'
+        ($vm.State -in @('Off', 'Running')) | Should -BeTrue
+        "$($vm.State)" | Should -BeExactly 'Running'
+        $vm.Id | Should -BeOfType [guid]
+        $vm.Id.Guid | Should -BeExactly '1be1d34c-5633-449f-aaa9-c4e7190cb91b'
+        $vm.CreationTime | Should -BeOfType [datetime]
+        $vm.CreationTime.ToUniversalTime() | Should -Be ([datetime]::new(2026, 10, 27, 19, 16, 43, [DateTimeKind]::Utc))
+        $vm.MemoryStartup | Should -BeOfType [long]
+        $vm.MemoryStartup | Should -Be 12884901888
+        @($vm.NetworkAdapters)[0] | Should -BeOfType [string] -Because 'an object nested in an output object arrives as its text, so a caller reads it with its own call'
+        @($adapter.IPAddresses) | Should -Be @('192.0.2.7', 'fe80::1')
+        $adapter.MacAddress | Should -BeExactly '00155D000001'
+        $made.Made | Should -BeExactly 'amisad-build (6f1c)'
+        @($made.Listed) | Should -Be @('amisad-build', 'base')
+    }
+    It 'Hyper-V passes a payload past the command-line limit and drains a child that floods its output' {
+        $payload = 'p' * 3MB
+        $answer = Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Invoke-HyperVBoundedCall' -Stubs { $script:HyperVLifecycleTimeoutSeconds = 120 } -Call {
+            Invoke-HyperVBoundedCall -ArgumentList @($payload, @{ VMName = 'vm'; Count = 2; Dynamic = $true }) -ScriptBlock {
+                param($Text, $Splat)
+                # Past any pipe's buffer, on both streams, before the answer.
+                [Console]::Out.Write('o' * 1MB)
+                [Console]::Error.Write('e' * 1MB)
+                [pscustomobject]@{ Echo = $Text; VMName = $Splat.VMName; Count = $Splat.Count; Dynamic = $Splat.Dynamic }
+            }
+        }
+        $answer.TimedOut | Should -BeFalse
+        $answer.Error | Should -BeNullOrEmpty
+        $echo = @($answer.Output)[0]
+        $echo.Echo.Length | Should -Be $payload.Length
+        ($echo.Echo -ceq $payload) | Should -BeTrue
+        $echo.VMName | Should -BeExactly 'vm'
+        $echo.Count | Should -Be 2
+        $echo.Dynamic | Should -BeOfType [bool]
+    }
+    It 'Hyper-V turns a VM off through the bounded call, under the verb''s own deadline, first and on the retry' {
+        $calls = [Collections.Generic.List[hashtable]]::new()
+        $stubs = {
+            # The VM reads Running until the stop the case names has been issued.
+            function Resolve-HyperVVM {
+                param($VMName)
+                $state = if ($calls.Count -ge $script:OffAfter) { 'Off' } else { 'Running' }
+                [pscustomobject]@{ Presence = 'present'; VM = [pscustomobject]@{ Name = $VMName; State = $state; Id = [guid]'1be1d34c-5633-449f-aaa9-c4e7190cb91b' }; Cause = 'ok' }
+            }
+            function Invoke-HyperVBoundedCall {
+                param([scriptblock]$ScriptBlock, [object[]]$ArgumentList = @(), [int]$TimeoutSeconds)
+                $calls.Add(@{ Script = "$ScriptBlock"; Arguments = @($ArgumentList); TimeoutSeconds = $TimeoutSeconds })
+                @{ TimedOut = $true; Error = $null; Output = @() }
+            }
+            function Start-Job { throw 'a stop runs through the bounded call' }
+            function Get-CimInstance { param($ClassName, $Filter) $null = $ClassName, $Filter }
+            function Start-Sleep { param($Milliseconds) [Threading.Thread]::Sleep(20) }
+        }
+        $script:OffAfter = 1
+        Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Stop-HyperVVMForce' -Stubs $stubs -Call {
+            Stop-HyperVVMForce -VMName vm -StopTimeoutSeconds 7 -Confirm:$false
+        } | Should -BeTrue
+        $calls.Count | Should -Be 1
+        $calls[0].TimeoutSeconds | Should -Be 7 -Because 'the TurnOff is capped at the verb''s own deadline'
+        $calls[0].Script | Should -Match '-TurnOff'
+        $calls[0].Arguments | Should -Be @('vm')
+        # A worker lookup that does not answer finds no worker: the TurnOff is
+        # retried under its own ten seconds.
+        $calls.Clear()
+        $script:OffAfter = 3
+        Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Stop-HyperVVMForce' -Stubs $stubs -Call {
+            Stop-HyperVVMForce -VMName vm -StopTimeoutSeconds 1 -Confirm:$false -WarningAction SilentlyContinue
+        } | Should -BeTrue
+        $calls.Count | Should -Be 3
+        $calls[1].Script | Should -Match 'Win32_Process'
+        $calls[1].Arguments | Should -Be @('1be1d34c-5633-449f-aaa9-c4e7190cb91b')
+        $calls[1].TimeoutSeconds | Should -Be 30
+        $calls[2].TimeoutSeconds | Should -Be 10
+        $calls[2].Script | Should -Match '-TurnOff'
+    }
+    It 'Hyper-V kills the worker the bounded lookup names, and runs no CIM query in the runner' {
+        $calls = [Collections.Generic.List[hashtable]]::new()
+        $killed = [Collections.Generic.List[int]]::new()
+        $cim = @{ Count = 0 }
+        $stubs = {
+            # The VM reads Running until its worker has been killed.
+            function Resolve-HyperVVM {
+                param($VMName)
+                $state = if ($killed.Count -gt 0) { 'Off' } else { 'Running' }
+                [pscustomobject]@{ Presence = 'present'; VM = [pscustomobject]@{ Name = $VMName; State = $state; Id = [guid]'1be1d34c-5633-449f-aaa9-c4e7190cb91b' }; Cause = 'ok' }
+            }
+            # The TurnOff never answers; the worker lookup names one worker.
+            function Invoke-HyperVBoundedCall {
+                param([scriptblock]$ScriptBlock, [object[]]$ArgumentList = @(), [int]$TimeoutSeconds)
+                $calls.Add(@{ Script = "$ScriptBlock"; Arguments = @($ArgumentList); TimeoutSeconds = $TimeoutSeconds })
+                if ("$ScriptBlock" -match 'Win32_Process') { return @{ TimedOut = $false; Error = $null; Output = @(4242) } }
+                @{ TimedOut = $true; Error = $null; Output = @() }
+            }
+            function Get-CimInstance { $cim.Count++ }
+            function Invoke-CimMethod { $cim.Count++ }
+            function Stop-Process { [CmdletBinding()] param($Id, [switch]$Force) $null = $Force; $killed.Add([int]$Id) }
+            function Start-Sleep { param($Milliseconds) [Threading.Thread]::Sleep(20) }
+        }
+        Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Stop-HyperVVMForce' -Stubs $stubs -Call {
+            Stop-HyperVVMForce -VMName vm -StopTimeoutSeconds 1 -Confirm:$false -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+        } | Should -BeTrue
+        $cim.Count | Should -Be 0 -Because 'the worker lookup asks WMI from a capped child, never from the runner'
+        @($killed) | Should -Be @(4242) -Because 'the worker the lookup named is the one killed'
+        $lookups = @($calls | Where-Object { $_.Script -match 'Win32_Process' })
+        $lookups.Count | Should -Be 1
+        $lookups[0].Arguments | Should -Be @('1be1d34c-5633-449f-aaa9-c4e7190cb91b') -Because 'the lookup matches the VM id'
+        $lookups[0].TimeoutSeconds | Should -BeGreaterThan 0
+    }
+    It 'Hyper-V reports a worker lookup that <Outcome> as such, and still retries the TurnOff' -ForEach @(
+        @{ Outcome = 'did not answer'; TimedOut = $true; Failure = ''; Key = 'host.hyperv_worker_lookup_unanswered' }
+        @{ Outcome = 'failed'; TimedOut = $false; Failure = 'fixture: the lookup child ended without its answer'; Key = 'host.hyperv_worker_lookup_failed' }
+        @{ Outcome = 'found no worker'; TimedOut = $false; Failure = ''; Key = 'host.operator_631642be837a8711' }
+    ) {
+        $calls = [Collections.Generic.List[hashtable]]::new()
+        $seen = [Collections.Generic.List[hashtable]]::new()
+        $stubs = {
+            function Format-YurunaOperatorMessage { param($Key, $Arguments) $seen.Add(@{ Key = $Key; Arguments = $Arguments }); $Key }
+            # The VM reads Running until the TurnOff has been retried.
+            function Resolve-HyperVVM {
+                param($VMName)
+                $state = if ($calls.Count -ge 3) { 'Off' } else { 'Running' }
+                [pscustomobject]@{ Presence = 'present'; VM = [pscustomobject]@{ Name = $VMName; State = $state; Id = [guid]'1be1d34c-5633-449f-aaa9-c4e7190cb91b' }; Cause = 'ok' }
+            }
+            # The TurnOff never answers; the worker lookup ends as the case says.
+            function Invoke-HyperVBoundedCall {
+                param([scriptblock]$ScriptBlock, [object[]]$ArgumentList = @(), [int]$TimeoutSeconds)
+                $calls.Add(@{ Script = "$ScriptBlock"; Arguments = @($ArgumentList); TimeoutSeconds = $TimeoutSeconds })
+                if ("$ScriptBlock" -notmatch 'Win32_Process') { return @{ TimedOut = $true; Error = $null; Output = @() } }
+                $record = if ($Failure) { [Management.Automation.ErrorRecord]::new([InvalidOperationException]::new($Failure), 'HyperVBoundedCallNoAnswer', 'InvalidResult', $null) }
+                @{ TimedOut = $TimedOut; Error = $record; Output = @() }
+            }
+            function Stop-Process { throw 'a lookup that named no worker kills none' }
+            function Start-Sleep { param($Milliseconds) [Threading.Thread]::Sleep(20) }
+        }
+        Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Stop-HyperVVMForce' -Stubs $stubs -Call {
+            Stop-HyperVVMForce -VMName vm -StopTimeoutSeconds 1 -Confirm:$false -WarningAction SilentlyContinue
+        } | Should -BeTrue
+        $lookupKeys = 'host.hyperv_worker_lookup_unanswered', 'host.hyperv_worker_lookup_failed', 'host.operator_631642be837a8711'
+        $reported = @($seen | Where-Object { $_.Key -in $lookupKeys })
+        @($reported.Key) | Should -Be @($Key) -Because "a lookup that $Outcome is reported as that, and only that"
+        $reported[0].Arguments.vmId | Should -BeExactly '1be1d34c-5633-449f-aaa9-c4e7190cb91b'
+        if ($TimedOut) { $reported[0].Arguments.seconds | Should -Be "$($calls[1].TimeoutSeconds)" -Because 'the warning names the cap the lookup reached' }
+        if ($Failure) { $reported[0].Arguments.message | Should -BeExactly $Failure -Because 'the lookup''s own error is what the operator reads' }
+        $calls.Count | Should -Be 3
+        $calls[2].Script | Should -Match '-TurnOff'
+        $calls[2].TimeoutSeconds | Should -Be 10
+    }
+    It 'Hyper-V kills only the worker its lookup matches to the VM by <Match>' -ForEach @(
+        @{ Match = 'its command line'; Id = '1be1d34c-5633-449f-aaa9-c4e7190cb91b'; Expected = '4242' }
+        @{ Match = 'its owning account'; Id = '6f1c3a52-0d1e-4b7a-9c55-2b8f4c1d9e07'; Expected = '5353' }
+        @{ Match = 'nothing when the VM id is empty'; Id = ''; Expected = '' }
+    ) {
+        $killed = [Collections.Generic.List[int]]::new()
+        $turnOffs = @{ Count = 0 }
+        $stubs = {
+            # The VM reads Running until a worker is killed or the TurnOff is retried.
+            function Resolve-HyperVVM {
+                param($VMName)
+                $state = if ($killed.Count -gt 0 -or $turnOffs.Count -ge 2) { 'Off' } else { 'Running' }
+                [pscustomobject]@{ Presence = 'present'; VM = [pscustomobject]@{ Name = $VMName; State = $state; Id = [pscustomobject]@{ Guid = $Id } }; Cause = 'ok' }
+            }
+            # The worker lookup runs here, against the CIM stand-ins below, as
+            # the capped child runs it; the TurnOff never answers.
+            function Invoke-HyperVBoundedCall {
+                param([scriptblock]$ScriptBlock, [object[]]$ArgumentList = @(), [int]$TimeoutSeconds)
+                $null = $TimeoutSeconds
+                if ("$ScriptBlock" -notmatch 'Win32_Process') { $turnOffs.Count++; return @{ TimedOut = $true; Error = $null; Output = @() } }
+                try { return @{ TimedOut = $false; Error = $null; Output = @(& $ScriptBlock @ArgumentList) } }
+                catch { return @{ TimedOut = $false; Error = $_; Output = @() } }
+            }
+            # Two VMs' workers: one whose command line names its VM and whose
+            # owner cannot be read, and one whose command line cannot be read
+            # and whose owning account is named for its VM. Both carry the id
+            # in upper case and the VM's own id is lower case, so a match has
+            # to ignore case.
+            function Get-CimInstance {
+                param($ClassName, $Filter)
+                $null = $ClassName, $Filter
+                [pscustomobject]@{ ProcessId = [uint32]4242; CommandLine = '"C:\Windows\System32\vmwp.exe" 1BE1D34C-5633-449F-AAA9-C4E7190CB91B 0x6a8'; Owner = $null }
+                [pscustomobject]@{ ProcessId = [uint32]5353; CommandLine = $null; Owner = '6F1C3A52-0D1E-4B7A-9C55-2B8F4C1D9E07' }
+            }
+            function Invoke-CimMethod {
+                param([Parameter(ValueFromPipeline)]$InputObject, $MethodName)
+                process {
+                    if ($MethodName -eq 'GetOwner' -and $InputObject.Owner) { [pscustomobject]@{ ReturnValue = 0; Domain = 'NT VIRTUAL MACHINE'; User = $InputObject.Owner } }
+                    else { [pscustomobject]@{ ReturnValue = 2 } }
+                }
+            }
+            function Stop-Process { [CmdletBinding()] param($Id, [switch]$Force) $null = $Force; $killed.Add([int]$Id) }
+            function Start-Sleep { param($Milliseconds) [Threading.Thread]::Sleep(20) }
+        }
+        Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Stop-HyperVVMForce' -Stubs $stubs -Call {
+            Stop-HyperVVMForce -VMName vm -StopTimeoutSeconds 1 -Confirm:$false -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+        } | Should -BeTrue
+        ($killed -join ',') | Should -BeExactly $Expected -Because 'only the worker of the VM being stopped is killed, and an empty id matches no worker'
+    }
+    It 'Hyper-V asks a guest to shut down through the bounded call, and stops waiting when it does not follow' {
+        $calls = [Collections.Generic.List[hashtable]]::new()
+        $stubs = {
+            function Resolve-HyperVVM {
+                param($VMName)
+                $state = if ($script:Honors -and $calls.Count -ge 1) { 'Off' } else { 'Running' }
+                [pscustomobject]@{ Presence = 'present'; VM = [pscustomobject]@{ Name = $VMName; State = $state }; Cause = 'ok' }
+            }
+            function Invoke-HyperVBoundedCall {
+                param([scriptblock]$ScriptBlock, [object[]]$ArgumentList = @(), [int]$TimeoutSeconds)
+                $calls.Add(@{ Script = "$ScriptBlock"; Arguments = @($ArgumentList); TimeoutSeconds = $TimeoutSeconds })
+                @{ TimedOut = $false; Error = $null; Output = @() }
+            }
+            function Start-Job { throw 'a shutdown request runs through the bounded call' }
+            function Start-Sleep { param($Milliseconds) [Threading.Thread]::Sleep(20) }
+        }
+        $script:Honors = $true
+        Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Request-HyperVVMShutdown' -Stubs $stubs -Call {
+            Request-HyperVVMShutdown -VMName vm -ShutdownTimeoutSeconds 9 -Confirm:$false
+        } | Should -BeTrue
+        $calls.Count | Should -Be 1
+        $calls[0].TimeoutSeconds | Should -Be 9 -Because 'the request is capped at the verb''s own deadline'
+        $calls[0].Script | Should -Not -Match '-TurnOff'
+        $calls[0].Arguments | Should -Be @('vm')
+        $calls.Clear()
+        $script:Honors = $false
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Request-HyperVVMShutdown' -Stubs $stubs -Call {
+            Request-HyperVVMShutdown -VMName vm -ShutdownTimeoutSeconds 120 -Confirm:$false
+        } | Should -BeFalse
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 60 -Because 'a request the guest answered without stopping is a refusal after a short grace, not a wait for the whole deadline'
+    }
+    It 'Hyper-V keeps a stop deadline outside the bounded call''s range inside it' {
+        $calls = [Collections.Generic.List[hashtable]]::new()
+        $stubs = {
+            function Resolve-HyperVVM {
+                param($VMName)
+                $state = if ($calls.Count -ge 1) { 'Off' } else { 'Running' }
+                [pscustomobject]@{ Presence = 'present'; VM = [pscustomobject]@{ Name = $VMName; State = $state; Id = [guid]'1be1d34c-5633-449f-aaa9-c4e7190cb91b' }; Cause = 'ok' }
+            }
+            function Invoke-HyperVBoundedCall {
+                param([scriptblock]$ScriptBlock, [object[]]$ArgumentList = @(), [int]$TimeoutSeconds)
+                $null = $ScriptBlock, $ArgumentList
+                $calls.Add(@{ TimeoutSeconds = $TimeoutSeconds })
+                @{ TimedOut = $false; Error = $null; Output = @() }
+            }
+            function Start-Sleep { param($Milliseconds) [Threading.Thread]::Sleep(20) }
+        }
+        foreach ($case in @(@{ Given = 0; Cap = 1 }, @{ Given = 7200; Cap = 3600 })) {
+            $calls.Clear()
+            Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Stop-HyperVVMForce' -Stubs $stubs -Call {
+                Stop-HyperVVMForce -VMName vm -StopTimeoutSeconds $case.Given -Confirm:$false
+            } | Should -BeTrue
+            $calls[0].TimeoutSeconds | Should -Be $case.Cap -Because "a TurnOff deadline of $($case.Given) s is capped inside the 1 to 3600 s the call takes"
+            $calls.Clear()
+            Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Request-HyperVVMShutdown' -Stubs $stubs -Call {
+                Request-HyperVVMShutdown -VMName vm -ShutdownTimeoutSeconds $case.Given -Confirm:$false
+            } | Should -BeTrue
+            $calls[0].TimeoutSeconds | Should -Be $case.Cap -Because "a shutdown deadline of $($case.Given) s is capped inside the 1 to 3600 s the call takes"
+        }
+    }
+    It 'Hyper-V keeps the code of a child the host refused to start, so the refusal classifies' {
+        # A host out of commit can refuse the child before any Hyper-V cmdlet
+        # runs; the code of that refusal is the evidence, as a cmdlet's is.
+        $names = 'Invoke-HyperVBoundedCall', 'Test-HostResourceExhaustionError'
+        $stubs = {
+            $script:HyperVLifecycleTimeoutSeconds = 60
+            function Format-YurunaOperatorMessage { param($Key, $Arguments) $null = $Arguments; $Key }
+            function Invoke-BoundedNativeCommand {
+                $null = $args
+                @{ Started = $false; StartError = 'Insufficient system resources exist to complete the requested service.'
+                    StartWin32Error = 1450; TimedOut = $false; ExitCode = -1; StdOut = ''; StdErr = ''; KillFailed = $false }
+            }
+        }
+        $verdict = Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
+            $call = Invoke-HyperVBoundedCall -ScriptBlock { 'listed' }
+            [pscustomobject]@{ Call = $call; Exhausted = Test-HostResourceExhaustionError -ErrorRecord $call.Error }
+        }
+        $verdict.Call.TimedOut | Should -BeFalse
+        $verdict.Call.Error.Exception.Message | Should -Be 'host.hyperv_bounded_call_no_answer'
+        $verdict.Call.Error.Exception.InnerException.NativeErrorCode | Should -Be 1450 -Because 'the launch''s own error stays in the chain'
+        $verdict.Exhausted | Should -BeTrue -Because 'a host refusing the child for want of resources is the condition the start retry waits out'
     }
     It 'Hyper-V bounds a test-guest builder''s cmdlet and records the New-VM stage''s kind' {
-        # The call runs in a thread job that loads modules by name, so the stand-in
+        # The call runs in a child pwsh that loads modules by name, so the stand-in
         # Hyper-V module sits on the module path rather than in this session.
         $modules = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Force -Path (Join-Path $modules 'Hyper-V')
@@ -1091,8 +1648,10 @@ function Start-VM { param([string]$Name) Start-Sleep -Seconds 30 }
         # The wrapper asks the exhaustion classifier about every refusal, so it
         # is lifted with the wrapper; none of these refusals is one.
         $names = 'Invoke-HyperVBoundedCall', 'Invoke-HyperVGuestBuildCmdlet', 'Test-HostResourceExhaustionError'
+        # Long enough for an answered call's pwsh start; the hung one still
+        # ends well inside the bound asserted below.
         $stubs = {
-            $script:HyperVLifecycleTimeoutSeconds = 2
+            $script:HyperVLifecycleTimeoutSeconds = 10
             function Write-YurunaProvisionResult { param($Kind, $Message) $recorded.Add("$Kind") }
         }
         $prior = Save-YurunaTestEnvironment -Name 'PSModulePath'
@@ -1134,7 +1693,7 @@ function Set-VMMemory { param([string]$VMName, [bool]$DynamicMemoryEnabled) thro
         $recorded = [Collections.Generic.List[string]]::new()
         $names = 'Invoke-HyperVBoundedCall', 'Invoke-HyperVGuestBuildCmdlet', 'Test-HostResourceExhaustionError', 'Format-HostMemoryStatus'
         $stubs = {
-            $script:HyperVLifecycleTimeoutSeconds = 5
+            $script:HyperVLifecycleTimeoutSeconds = 60
             function Write-YurunaProvisionResult { param($Kind, $Message) $recorded.Add("${Kind}: $Message") }
             function Get-HostMemoryStatus { return @{ availableMb = 19661; committedBytes = 38440000000; commitLimitBytes = 48210000000; commitAvailableBytes = 9770000000; source = 'fixture' } }
         }
@@ -1152,51 +1711,369 @@ function Set-VMMemory { param([string]$VMName, [bool]$DynamicMemoryEnabled) thro
             $recorded[1] | Should -Be 'tool: Hyper-V\Set-VMMemory: memory refused' -Because 'only a refusal for want of resources earns the memory position'
         } finally { Restore-YurunaTestEnvironment -Saved $prior }
     }
+    It 'Hyper-V reads outside the lifecycle set answer unknown, nothing or false when the management service does not answer' {
+        # A stand-in Hyper-V that answers at once, so a read that reached it raw
+        # would report the VM; every read goes through the bounded call, which
+        # here never answers.
+        $modules = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $modules 'Hyper-V')
+        [IO.File]::WriteAllText((Join-Path $modules 'Hyper-V/Hyper-V.psm1'), @'
+function Get-VM { [CmdletBinding()] param([string]$Name) [pscustomobject]@{ Name = 'vm'; State = 'Running' } }
+function Get-VMNetworkAdapter { [CmdletBinding()] param([string]$VMName, [Parameter(ValueFromPipeline)]$VM) process { [pscustomobject]@{ IPAddresses = @('192.168.7.9'); MacAddress = '00155D000001' } } }
+function Get-VMHost { [CmdletBinding()] param() [pscustomobject]@{ VirtualHardDiskPath = 'C:\VHD' } }
+function Get-VMDvdDrive { [CmdletBinding()] param([string]$VMName) [pscustomobject]@{ Path = 'C:\VHD\installer.iso' } }
+function Set-VMFirmware { [CmdletBinding()] param([string]$VMName, $FirstBootDevice) }
+'@)
+        $names = 'Resolve-HyperVVM', 'Get-VMState', 'Get-VMIp', 'Get-VMMac', 'Get-VMName', 'Get-ImagePath', 'Set-VMInstallerMediaFirstBoot', 'Invoke-HyperVLifecycleCmdlet'
+        $stubs = {
+            $script:HyperVLifecycleTimeoutSeconds = 2
+            function Invoke-HyperVBoundedCall { param($ScriptBlock, $ArgumentList, $TimeoutSeconds) $null = $ScriptBlock, $ArgumentList, $TimeoutSeconds; @{ TimedOut = $true; Error = $null; Output = @() } }
+        }
+        $prior = Save-YurunaTestEnvironment -Name 'PSModulePath'
+        try {
+            $env:PSModulePath = "$modules$([IO.Path]::PathSeparator)$($prior.PSModulePath)"
+            # Loaded by name, so a module-qualified call in this runspace reaches
+            # the stand-in and never the host's own Hyper-V module.
+            Import-Module (Join-Path $modules 'Hyper-V/Hyper-V.psm1') -Force
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $answer = Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
+                $named = try { @(Get-VMName) } catch { 'refused' }
+                @{
+                    State = Get-VMState -VMName vm
+                    Ip    = Get-VMIp -VMName vm
+                    Mac   = Get-VMMac -VMName vm
+                    Name  = $named
+                    Image = Get-ImagePath -GuestKey 'guest.ubuntu.server.24'
+                    Boot  = Set-VMInstallerMediaFirstBoot -VMName vm -Confirm:$false
+                }
+            }
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 20
+            $answer.State | Should -Be 'unknown' -Because 'an unanswered lookup is not an absence'
+            $answer.Ip | Should -BeNullOrEmpty
+            $answer.Mac | Should -BeNullOrEmpty
+            $answer.Name | Should -Be 'refused' -Because 'an inventory that did not answer is not an empty host'
+            $answer.Image | Should -BeNullOrEmpty
+            $answer.Boot | Should -BeFalse
+        } finally {
+            Remove-Module -Name 'Hyper-V' -Force -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $prior
+        }
+    }
+    It 'Hyper-V refuses a rename when the storage root does not answer, before the registration changes' {
+        $modules = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $modules 'Hyper-V')
+        $renamed = Join-Path $modules 'renamed.txt'
+        [IO.File]::WriteAllText((Join-Path $modules 'Hyper-V/Hyper-V.psm1'), @"
+function Get-VM { [CmdletBinding()] param([string]`$Name) if (`$Name -and `$Name -ne 'vm') { throw "no VM `$Name" }; [pscustomobject]@{ Name = 'vm'; State = 'Off' } }
+function Get-VMHost { [CmdletBinding()] param() [pscustomobject]@{ VirtualHardDiskPath = '$modules' } }
+function Get-VMNetworkAdapter { [CmdletBinding()] param([string]`$VMName) [pscustomobject]@{ MacAddress = '00155D000001' } }
+function Set-VMNetworkAdapter { [CmdletBinding()] param([Parameter(ValueFromPipeline)]`$InputObject, `$StaticMacAddress) process { } }
+function Rename-VM { [CmdletBinding(SupportsShouldProcess)] param([string]`$Name, [string]`$NewName) if (`$PSCmdlet.ShouldProcess(`$Name)) { [IO.File]::AppendAllText('$renamed', "`$Name->`$NewName") } }
+function Move-VMStorage { [CmdletBinding(SupportsShouldProcess)] param([string]`$VMName, [string]`$DestinationStoragePath) `$null = `$PSCmdlet.ShouldProcess(`$VMName) }
+"@)
+        $names = 'Rename-VM', 'Resolve-HyperVVM', 'Invoke-HyperVLifecycleCmdlet'
+        $stubs = {
+            $script:HyperVLifecycleTimeoutSeconds = 2
+            # Presence answers; the storage root read never does.
+            function Invoke-HyperVBoundedCall {
+                param($ScriptBlock, $ArgumentList = @(), $TimeoutSeconds)
+                $null = $TimeoutSeconds
+                if ("$ScriptBlock" -match 'Get-VMHost') { return @{ TimedOut = $true; Error = $null; Output = @() } }
+                try { @{ TimedOut = $false; Error = $null; Output = @(& $ScriptBlock @ArgumentList) } }
+                catch { @{ TimedOut = $false; Error = $_; Output = @() } }
+            }
+            function Resolve-YurunaRenameMac { $null }
+            function Register-YurunaRenameMac { }
+        }
+        $prior = Save-YurunaTestEnvironment -Name 'PSModulePath'
+        try {
+            $env:PSModulePath = "$modules$([IO.Path]::PathSeparator)$($prior.PSModulePath)"
+            Import-Module (Join-Path $modules 'Hyper-V/Hyper-V.psm1') -Force
+            $answer = Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
+                Rename-VM -VMName vm -NewName vm2 -Confirm:$false -WarningAction SilentlyContinue
+            }
+            $answer | Should -BeFalse -Because 'a destination that cannot be checked is not clear'
+            Test-Path -LiteralPath $renamed | Should -BeFalse -Because 'nothing was renamed'
+        } finally {
+            Remove-Module -Name 'Hyper-V' -Force -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $prior
+        }
+    }
+    It 'the service-guest build ends at the cap when Hyper-V does not answer its first cmdlet' {
+        $modules = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $modules 'Hyper-V')
+        [IO.File]::WriteAllText((Join-Path $modules 'Hyper-V/Hyper-V.psm1'), @'
+function New-VM { [CmdletBinding()] param([string]$Name, [int]$Generation, [int64]$MemoryStartupBytes, [string]$SwitchName, [string]$VHDPath) }
+function Set-VMNetworkAdapter { [CmdletBinding()] param([string]$VMName, [string]$StaticMacAddress) }
+function Set-VM { [CmdletBinding()] param([string]$Name, [int64]$MemoryStartupBytes, [int64]$MemoryMinimumBytes, [int64]$MemoryMaximumBytes, [bool]$AutomaticCheckpointsEnabled) }
+function Set-VMMemory { [CmdletBinding()] param([string]$VMName, [bool]$DynamicMemoryEnabled) }
+function Set-VMFirmware { [CmdletBinding()] param([string]$VMName, [string]$EnableSecureBoot) }
+function Add-VMDvdDrive { [CmdletBinding()] param([string]$VMName, [string]$Path) }
+function Set-VMProcessor { [CmdletBinding()] param([string]$VMName, [int]$Count) }
+'@)
+        $names = 'New-HyperVServiceGuest', 'Invoke-HyperVLifecycleCmdlet'
+        $stubs = {
+            $script:HyperVLifecycleTimeoutSeconds = 2
+            function Invoke-HyperVBoundedCall { param($ScriptBlock, $ArgumentList, $TimeoutSeconds) $null = $ScriptBlock, $ArgumentList, $TimeoutSeconds; @{ TimedOut = $true; Error = $null; Output = @() } }
+            function Disable-HyperVHeartbeatForLinuxGuest { $false }
+            function Limit-HyperVLinuxGuestCoreCount { param($RequestedCores) $RequestedCores }
+        }
+        $prior = Save-YurunaTestEnvironment -Name 'PSModulePath'
+        try {
+            $env:PSModulePath = "$modules$([IO.Path]::PathSeparator)$($prior.PSModulePath)"
+            Import-Module (Join-Path $modules 'Hyper-V/Hyper-V.psm1') -Force
+            { Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
+                    New-HyperVServiceGuest -VMName vm -SwitchName sw -DiskPath 'C:\VHD\vm.vhdx' -SeedPath 'C:\VHD\seed.iso' -HostCores 8 -Confirm:$false } } |
+                Should -Throw -ExpectedMessage 'host.hyperv_lifecycle_unanswered'
+        } finally {
+            Remove-Module -Name 'Hyper-V' -Force -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $prior
+        }
+    }
+    It 'the raw-call scan sees a tool run by variable, in a process job and at script level, and not one under a wrapper' {
+        $fixture = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.ps1')
+        [IO.File]::WriteAllText($fixture, @'
+function Probe { param($UtmctlPath) & $UtmctlPath list }
+function Force { Start-Job -ScriptBlock { Hyper-V\Stop-VM -Name 'vm' } }
+function Bounded { Invoke-HyperVBoundedCall -ScriptBlock { Hyper-V\Get-VM -Name 'vm' } }
+function Own { Get-VMState -VMName 'vm' }
+& virsh list
+Hyper-V\Start-VM -Name 'vm'
+'@)
+        @(Find-RawHypervisorCall -Path $fixture -RawPattern $script:UtmToolPattern | ForEach-Object { $_.Key }) | Should -Be @('Probe|$UtmctlPath')
+        @(Find-RawHypervisorCall -Path $fixture -RawPattern $script:HyperVCmdletPattern -Wrapper @('Invoke-HyperVBoundedCall') -Exclude @('Get-VMState') |
+            ForEach-Object { $_.Key }) | Should -Be @('Force|Hyper-V\Stop-VM', '|Hyper-V\Start-VM')
+        @(Find-RawHypervisorCall -Path $fixture -Raw @('virsh') | ForEach-Object { $_.Key }) | Should -Be @('|virsh')
+    }
     It 'calls no hypervisor tool outside its bounded wrapper on <Driver>' -ForEach @(
         @{ Driver = 'ubuntu.kvm'; Files = @('host/ubuntu.kvm/modules/Yuruna.Host.psm1', 'host/ubuntu.kvm/modules/New-UbuntuServerVM.ps1',
                 'host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1', 'host/ubuntu.kvm/guest.windows.11/New-VM.ps1',
-                'host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1', 'host/ubuntu.kvm/guest.ubuntu.server.26/New-VM.ps1')
-            Raw = @('virsh', 'virt-install'); Wrapper = @() }
+                'host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1', 'host/ubuntu.kvm/guest.ubuntu.server.26/New-VM.ps1',
+                'host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1', 'host/ubuntu.kvm/guest.stash-service/New-VM.ps1',
+                'host/ubuntu.kvm/guest.pool-control-service/New-VM.ps1', 'host/ubuntu.kvm/guest.download-agent-service/New-VM.ps1')
+            Raw = @('virsh', 'virt-install'); RawPattern = ''; Wrapper = @(); ExcludeDriverFunction = ''; Allowed = $false }
+        # Every Hyper-V cmdlet the driver's files call, bare or module-qualified,
+        # runs under the bounded call, or is on the reviewed list with its reason.
         @{ Driver = 'windows.hyper-v'; Files = @('host/windows.hyper-v/modules/Yuruna.Host.psm1')
-            Raw = @('Hyper-V\Start-VM', 'Hyper-V\Stop-VM', 'Hyper-V\Remove-VM', 'Hyper-V\Rename-VM', 'Hyper-V\Move-VMStorage',
-                'Hyper-V\Checkpoint-VM', 'Hyper-V\Restore-VMCheckpoint', 'Hyper-V\Remove-VMCheckpoint', 'Hyper-V\Get-VMCheckpoint')
-            Wrapper = @('Invoke-HyperVBoundedCall', 'Invoke-HyperVLifecycleCmdlet', 'Start-Job') }
-        @{ Driver = 'macos.utm'; Files = @('host/macos.utm/modules/Yuruna.Host.psm1'); Raw = @('utmctl', 'osascript'); Wrapper = @() }
-        # The test-guest builders run as their own process: every Hyper-V cmdlet
-        # they call goes through Invoke-HyperVGuestBuildCmdlet, which names it as data.
-        @{ Driver = 'windows.hyper-v test-guest builders'; Files = @('host/windows.hyper-v/modules/New-UbuntuServerVM.ps1',
+            Raw = @(); RawPattern = 'Hyper-V'; Wrapper = @('Invoke-HyperVBoundedCall', 'Invoke-HyperVLifecycleCmdlet')
+            ExcludeDriverFunction = 'windows.hyper-v'; Allowed = $true }
+        @{ Driver = 'macos.utm'; Files = @('host/macos.utm/modules/Yuruna.Host.psm1',
+                'host/macos.utm/guest.caching-proxy-service/New-VM.ps1', 'host/macos.utm/guest.stash-service/New-VM.ps1',
+                'host/macos.utm/guest.pool-control-service/New-VM.ps1', 'host/macos.utm/guest.download-agent-service/New-VM.ps1')
+            Raw = @(); RawPattern = 'utm'; Wrapper = @(); ExcludeDriverFunction = ''; Allowed = $false }
+        # The builders run as their own process: every Hyper-V cmdlet they call
+        # goes through Invoke-HyperVGuestBuildCmdlet, which names it as data.
+        @{ Driver = 'windows.hyper-v builders'; Files = @('host/windows.hyper-v/modules/New-UbuntuServerVM.ps1',
                 'host/windows.hyper-v/guest.amazon.linux.2023/New-VM.ps1', 'host/windows.hyper-v/guest.windows.11/New-VM.ps1',
-                'host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1', 'host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1')
-            Raw = @(); RawPattern = '^(Hyper-V\\[A-Za-z]+-[A-Za-z]+|(Get|Set|Add|New|Enable|Disable|Remove|Start|Stop|Resize|Convert|Mount|Dismount)-(VM|VHD)[A-Za-z]*)$'
-            Wrapper = @() }
+                'host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1', 'host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1',
+                'host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1', 'host/windows.hyper-v/guest.stash-service/New-VM.ps1',
+                'host/windows.hyper-v/guest.pool-control-service/New-VM.ps1', 'host/windows.hyper-v/guest.download-agent-service/New-VM.ps1')
+            Raw = @(); RawPattern = 'Hyper-V'; Wrapper = @(); ExcludeDriverFunction = 'windows.hyper-v'; Allowed = $false }
     ) {
         # A driver root stands for every file of the driver, each scanned on its own
         # so a finding names the file and line it is on.
         $scanned = foreach ($file in $Files) {
             $driver = Resolve-YurunaDriverPath -Path (Join-Path $script:RepoRoot $file)
-            if ($driver) { Get-YurunaDriverFile -Driver $driver.Driver | ForEach-Object { [IO.Path]::GetRelativePath($script:RepoRoot, $_).Replace('\', '/') } } else { $file }
+            if ($driver) { Get-YurunaDriverFile -Driver $driver.Driver } else { Join-Path $script:RepoRoot $file }
         }
-        $raw = foreach ($file in $scanned) {
-            $path = Join-Path $script:RepoRoot $file
-            if (-not (Test-Path -LiteralPath $path)) { continue }
-            $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
-            foreach ($command in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)) {
-                $name = [string]$command.CommandElements[0].Extent.Text.Trim("'", '"')
-                if ($Raw -notcontains $name -and -not ($RawPattern -and $name -match $RawPattern)) { continue }
-                $wrapped = $false
-                for ($parent = $command.Parent; $parent; $parent = $parent.Parent) {
-                    if ($parent -is [System.Management.Automation.Language.ScriptBlockExpressionAst] -and
-                        $parent.Parent -is [System.Management.Automation.Language.CommandParameterAst] -or
-                        $parent -is [System.Management.Automation.Language.ScriptBlockExpressionAst] -and
-                        $parent.Parent -is [System.Management.Automation.Language.CommandAst]) {
-                        $owner = if ($parent.Parent -is [System.Management.Automation.Language.CommandAst]) { $parent.Parent } else { $parent.Parent.Parent }
-                        if ($owner -is [System.Management.Automation.Language.CommandAst] -and $Wrapper -contains $owner.GetCommandName()) { $wrapped = $true; break }
-                    }
+        $pattern = switch ($RawPattern) { 'Hyper-V' { $script:HyperVCmdletPattern } 'utm' { $script:UtmToolPattern } default { '' } }
+        $exclude = if ($ExcludeDriverFunction) { Get-DriverFunctionName -Driver $ExcludeDriverFunction } else { @() }
+        $allowed = if ($Allowed) { $script:HyperVUnboundedCall } else { @{} }
+        $found = @(Find-RawHypervisorCall -Path $scanned -Raw $Raw -RawPattern $pattern -Wrapper $Wrapper -Exclude $exclude)
+        @($found | Where-Object { -not $allowed.ContainsKey($_.Key) } | ForEach-Object { $_.Where }) |
+            Should -BeNullOrEmpty -Because 'a hypervisor that stops answering must become a classified fault inside a deadline, not a watchdog kill'
+        $seen = @($found | ForEach-Object { $_.Key })
+        @($allowed.Keys | Where-Object { $seen -notcontains $_ }) | Should -BeNullOrEmpty -Because 'a listed call that no longer exists comes off the list'
+    }
+    Context 'when a Hyper-V caller holds only what crosses the bounded call''s process boundary' {
+        BeforeAll {
+            if (-not ('YurunaFixture.HyperV.VirtualMachine' -as [type])) { Add-Type -TypeDefinition $script:HyperVFixtureType }
+            function New-FixtureVM {
+                param([string]$Name, [string]$State = 'Off', [string]$MacAddress = '00155D000001', [string[]]$IPAddress = @())
+                $adapter = [YurunaFixture.HyperV.VMNetworkAdapter]::new($Name, $MacAddress, $IPAddress)
+                [YurunaFixture.HyperV.VirtualMachine]::new($Name, [YurunaFixture.HyperV.VMState]$State, [guid]::NewGuid(), @($adapter))
+            }
+            # The bounded call's process boundary, kept in this runspace: arguments
+            # and output cross as CliXml at depth 1, as they do between the two
+            # processes, so a caller that hands over a live object, or hands a
+            # cmdlet one it got back, fails here as it would on a host.
+            $script:CrossingStubs = {
+                function Invoke-HyperVBoundedCall {
+                    param([scriptblock]$ScriptBlock, [object[]]$ArgumentList = @(), [int]$TimeoutSeconds)
+                    $null = $TimeoutSeconds
+                    $crossed = @(if ($ArgumentList.Count) { [Management.Automation.PSSerializer]::Deserialize([Management.Automation.PSSerializer]::Serialize($ArgumentList, 1)) })
+                    try { $output = @(& $ScriptBlock @crossed) }
+                    catch { return @{ TimedOut = $false; Error = $_; Output = @() } }
+                    $back = @(if ($output.Count) { [Management.Automation.PSSerializer]::Deserialize([Management.Automation.PSSerializer]::Serialize($output, 1)) })
+                    return @{ TimedOut = $false; Error = $null; Output = $back }
                 }
-                if (-not $wrapped) { "${file}:$($command.Extent.StartLineNumber) $name" }
+                function Resolve-YurunaRenameMac { param($MacAddress, $VMName, $NewName) $null = $MacAddress, $VMName, $NewName; '00:15:5d:aa:bb:cc' }
+                function Register-YurunaRenameMac { }
+                function Get-NetNeighbor { }
+                function Invoke-YurunaExternalArpProbe { param($SwitchName) $null = $SwitchName }
+            }
+            # Built from text so the stand-in cmdlets are not this suite's own. A
+            # parameter that takes a live object is typed as the module's is.
+            $script:CrossingHyperV = @'
+param($Fixture)
+function Get-VM {
+    [CmdletBinding()]
+    param([Parameter(Position = 0)][string[]]$Name, [guid]$Id)
+    $all = @($Fixture.VMs)
+    if ($PSBoundParameters.ContainsKey('Id')) { $all = @($all | Where-Object { $_.Id -eq $Id }) }
+    elseif ($Name) { $all = @($all | Where-Object { $Name -contains $_.Name }) }
+    if ($all.Count -eq 0 -and ($Name -or $PSBoundParameters.ContainsKey('Id'))) { Write-Error "No virtual machine matches '$Name$Id'."; return }
+    $all
+}
+function Get-VMNetworkAdapter {
+    [CmdletBinding(DefaultParameterSetName = 'Name')]
+    param([Parameter(ParameterSetName = 'Name', Position = 0)][string[]]$VMName, [Parameter(ParameterSetName = 'VM', ValueFromPipeline)][YurunaFixture.HyperV.VirtualMachine[]]$VM)
+    process {
+        $names = if ($PSCmdlet.ParameterSetName -eq 'VM') { @($VM | ForEach-Object { $_.Name }) } else { $VMName }
+        @($Fixture.VMs | Where-Object { $names -contains $_.Name } | ForEach-Object { $_.NetworkAdapters })
+    }
+}
+function Set-VMNetworkAdapter {
+    [CmdletBinding()]
+    param([Parameter(Mandatory, ValueFromPipeline)][YurunaFixture.HyperV.VMNetworkAdapter[]]$VMNetworkAdapter, [string]$StaticMacAddress)
+    process { foreach ($adapter in $VMNetworkAdapter) { $Fixture.Pinned.Add("$($adapter.VMName)=$StaticMacAddress") } }
+}
+function Get-VMHost { [CmdletBinding()] param() [pscustomobject]@{ VirtualHardDiskPath = $Fixture.VhdRoot } }
+function Get-VMHardDiskDrive {
+    [CmdletBinding()]
+    param([string[]]$VMName, $VMCheckpoint)
+    if ($VMCheckpoint) { return }
+    @($Fixture.Disks[$VMName[0]]) | Where-Object { $_ } | ForEach-Object { [pscustomobject]@{ Path = $_ } }
+}
+function Get-VMSnapshot { [CmdletBinding()] param([string[]]$VMName) $null = $VMName }
+function Rename-VM {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$Name, [string]$NewName)
+    $Fixture.Renamed.Add("$Name->$NewName")
+    $list = $Fixture.VMs
+    for ($i = 0; $i -lt $list.Count; $i++) {
+        $vm = $list[$i]
+        if ($vm.Name -ne $Name) { continue }
+        $adapters = @($vm.NetworkAdapters | ForEach-Object { [YurunaFixture.HyperV.VMNetworkAdapter]::new($NewName, $_.MacAddress, $_.IPAddresses) })
+        $list[$i] = [YurunaFixture.HyperV.VirtualMachine]::new($NewName, $vm.State, $vm.Id, $adapters)
+    }
+}
+function Move-VMStorage { [CmdletBinding(SupportsShouldProcess)] param([string]$VMName, [string]$DestinationStoragePath) $Fixture.Moved.Add("$VMName->$DestinationStoragePath") }
+function Get-VMDvdDrive {
+    [CmdletBinding()]
+    param([Parameter(Position = 0)][string[]]$VMName, [int]$ControllerNumber = -1, [int]$ControllerLocation = -1)
+    @($Fixture.Dvds | Where-Object { $VMName -contains $_.VMName -and $ControllerNumber -in @(-1, $_.ControllerNumber) -and $ControllerLocation -in @(-1, $_.ControllerLocation) })
+}
+function Set-VMFirmware { [CmdletBinding()] param([string]$VMName, [YurunaFixture.HyperV.DvdDrive]$FirstBootDevice) $Fixture.FirstBoot.Add("${VMName}: $($FirstBootDevice.Path)") }
+function Stop-VM {
+    [CmdletBinding()]
+    param([Parameter(ValueFromPipeline)][YurunaFixture.HyperV.VirtualMachine[]]$VM, [switch]$Force, [switch]$TurnOff)
+    process { foreach ($each in $VM) { $Fixture.Stopped.Add($each.Name) } }
+}
+function Remove-VM {
+    [CmdletBinding()]
+    param([Parameter(ValueFromPipeline)][YurunaFixture.HyperV.VirtualMachine[]]$VM, [switch]$Force)
+    process { foreach ($each in $VM) { $Fixture.Removed.Add($each.Name); [void]$Fixture.VMs.Remove($each) } }
+}
+function Get-VMSwitch { [CmdletBinding()] param([string]$Name) [pscustomobject]@{ Name = $Name; SwitchType = 'Internal' } }
+Export-ModuleMember -Function *
+'@
+        }
+        BeforeEach {
+            $script:HyperVFixture = @{
+                VMs = [Collections.Generic.List[object]]::new(); Disks = @{}; Dvds = [Collections.Generic.List[object]]::new()
+                Pinned = [Collections.Generic.List[string]]::new(); FirstBoot = [Collections.Generic.List[string]]::new()
+                Stopped = [Collections.Generic.List[string]]::new(); Removed = [Collections.Generic.List[string]]::new()
+                Renamed = [Collections.Generic.List[string]]::new(); Moved = [Collections.Generic.List[string]]::new()
+                VhdRoot = 'C:\VHD'
+            }
+            New-Module -Name 'Hyper-V' -ArgumentList $script:HyperVFixture -ScriptBlock ([scriptblock]::Create($script:CrossingHyperV)) | Import-Module -Force
+        }
+        AfterEach {
+            Remove-Module -Name 'Hyper-V' -Force -ErrorAction SilentlyContinue
+        }
+        It 'Rename-VM re-pins the first adapter it read, found again inside the call that sets it' {
+            $script:HyperVFixture.VMs.Add((New-FixtureVM -Name 'src'))
+            $script:HyperVFixture.VhdRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Rename-VM', 'Resolve-HyperVVM', 'Invoke-HyperVLifecycleCmdlet' -Stubs $script:CrossingStubs -Call {
+                Rename-VM -VMName src -NewName dst -Confirm:$false
+            } | Should -BeTrue
+            @($script:HyperVFixture.Renamed) | Should -Be @('src->dst')
+            @($script:HyperVFixture.Pinned) | Should -Be @('dst=00155DAABBCC')
+        }
+        It 'Repair-HyperVVMStorageLocation re-pins the first adapter it read, found again inside the call that sets it' {
+            $vacated = (Get-YurunaGuestMacAddress -VMName 'test-01') -replace ':', ''
+            $script:HyperVFixture.VMs.Add((New-FixtureVM -Name 'snap-base' -MacAddress $vacated))
+            $script:HyperVFixture.Disks['snap-base'] = @('C:\VHD\test-01\snap-base.vhdx')
+            $names = 'Repair-HyperVVMStorageLocation', 'Get-HyperVDirectoryDiskOwner', 'Invoke-HyperVLifecycleCmdlet'
+            Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $script:CrossingStubs -Call {
+                Repair-HyperVVMStorageLocation -VMName 'snap-base' -Confirm:$false -InformationAction SilentlyContinue
+            } | Should -BeTrue
+            @($script:HyperVFixture.Pinned) | Should -Be @("snap-base=$((Get-YurunaGuestMacAddress -VMName 'snap-base') -replace ':', '')")
+            @($script:HyperVFixture.Moved) | Should -Be @('snap-base->C:\VHD\snap-base')
+        }
+        It 'Set-VMInstallerMediaFirstBoot finds the installer drive again inside the call that sets it' {
+            $script:HyperVFixture.Dvds.Add([YurunaFixture.HyperV.DvdDrive]::new('vm', '/vhd/vm/seed.iso', 0, 2))
+            $script:HyperVFixture.Dvds.Add([YurunaFixture.HyperV.DvdDrive]::new('vm', '/vhd/installer.iso', 0, 1))
+            Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Set-VMInstallerMediaFirstBoot', 'Invoke-HyperVLifecycleCmdlet' -Stubs $script:CrossingStubs -Call {
+                Set-VMInstallerMediaFirstBoot -VMName vm -Confirm:$false
+            } | Should -BeTrue
+            @($script:HyperVFixture.FirstBoot) | Should -Be @('vm: /vhd/installer.iso')
+        }
+        It 'Remove-HyperVGuestDefinition stops and removes the VM it resolved, found again by its Id' {
+            $script:HyperVFixture.VMs.Add((New-FixtureVM -Name 'svc' -State 'Running'))
+            $script:HyperVFixture.VhdRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $names = 'Remove-HyperVGuestDefinition', 'Resolve-HyperVVM', 'Invoke-HyperVLifecycleCmdlet'
+            $stubs = { . $script:CrossingStubs; function Test-HyperVDirectoryFreeToDelete { param($Directory) $null = $Directory; $true } }
+            { Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
+                    Remove-HyperVGuestDefinition -VMName 'svc' -Confirm:$false -InformationAction SilentlyContinue } } | Should -Not -Throw
+            @($script:HyperVFixture.Stopped) | Should -Be @('svc')
+            @($script:HyperVFixture.Removed) | Should -Be @('svc')
+        }
+        It 'the address reads take a VM they hold only as data by its name' {
+            $script:HyperVFixture.VMs.Add((New-FixtureVM -Name 'cache' -State 'Running' -MacAddress '00155D000002' -IPAddress '192.0.2.7', 'fe80::1'))
+            $held = [Management.Automation.PSSerializer]::Deserialize([Management.Automation.PSSerializer]::Serialize($script:HyperVFixture.VMs[0], 1))
+            @(Invoke-LiftedDriver -Driver windows.hyper-v -Name 'Get-CacheVmCandidateIp' -Stubs $script:CrossingStubs -Call {
+                    Get-CacheVmCandidateIp -VM $held }) | Should -Be @('192.0.2.7')
+            $names = 'Wait-HyperVServiceGuestAddress', 'Get-CacheVmCandidateIp', 'Resolve-HyperVVM'
+            @(Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $script:CrossingStubs -Call {
+                    $ProgressPreference = 'SilentlyContinue'
+                    Wait-HyperVServiceGuestAddress -VMName 'cache' -SwitchName 'sw' -TimeoutSeconds 5 -InformationAction SilentlyContinue }) |
+                Should -Be @('192.0.2.7')
+        }
+        It 'a builder names its first boot device by the image the drive holds, and the call finds the drive' {
+            $modules = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Force -Path (Join-Path $modules 'Hyper-V')
+            $standIn = "Add-Type -TypeDefinition @'`n$($script:HyperVFixtureType)`n'@`n" + @'
+function Get-VMDvdDrive {
+    [CmdletBinding()]
+    param([Parameter(Position = 0)][string[]]$VMName)
+    [YurunaFixture.HyperV.DvdDrive]::new($VMName[0], '/vhd/vm/seed.iso', 0, 2)
+    [YurunaFixture.HyperV.DvdDrive]::new($VMName[0], '/vhd/base.iso', 0, 1)
+}
+function Set-VMFirmware { [CmdletBinding()] param([string]$VMName, [YurunaFixture.HyperV.DvdDrive]$FirstBootDevice) "first boot of ${VMName}: $($FirstBootDevice.Path)" }
+'@
+            [IO.File]::WriteAllText((Join-Path $modules 'Hyper-V/Hyper-V.psm1'), $standIn)
+            $recorded = [Collections.Generic.List[string]]::new()
+            $names = 'Invoke-HyperVBoundedCall', 'Invoke-HyperVGuestBuildCmdlet', 'Test-HostResourceExhaustionError'
+            $stubs = {
+                $script:HyperVLifecycleTimeoutSeconds = 120
+                function Write-YurunaProvisionResult { param($Kind, $Message) $recorded.Add("${Kind}: $Message") }
+            }
+            $prior = Save-YurunaTestEnvironment -Name 'PSModulePath'
+            try {
+                $env:PSModulePath = "$modules$([IO.Path]::PathSeparator)$($prior.PSModulePath)"
+                Invoke-LiftedDriver -Driver windows.hyper-v -Name $names -Stubs $stubs -Call {
+                    Invoke-HyperVGuestBuildCmdlet -VMName vm -Command 'Hyper-V\Set-VMFirmware' -Parameter @{ VMName = 'vm'; FirstBootDevice = '/vhd/base.iso' }
+                } | Should -Be 'first boot of vm: /vhd/base.iso'
+                @($recorded) | Should -BeNullOrEmpty
+            } finally { Restore-YurunaTestEnvironment -Saved $prior }
+            foreach ($builder in 'host/windows.hyper-v/modules/New-UbuntuServerVM.ps1', 'host/windows.hyper-v/guest.windows.11/New-VM.ps1') {
+                $text = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot $builder)
+                $text | Should -Match 'FirstBootDevice = \$baseImageFile' -Because "$builder names the drive by the image it holds"
+                $text | Should -Not -Match 'Hyper-V\\Get-VMDvdDrive' -Because "$builder reads no drive object to hand to another call"
             }
         }
-        @($raw) | Should -BeNullOrEmpty -Because 'a hypervisor that stops answering must become a classified fault inside a deadline, not a watchdog kill'
     }
 }
 

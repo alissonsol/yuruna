@@ -10,10 +10,20 @@ import (
 	"time"
 )
 
+// The bound golden wire, shared with the host-side PowerShell verifier through
+// hostrefresh/testdata/vectors.json, carries the window and parsing rules every
+// verifier applies.
+const (
+	goldenToken    = "yuruna-net1-golden-token"
+	goldenAudience = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	goldenMAC      = "a0Wqks0pmYUhAAvAhd5PpFiumw9ZOnS++xnPkqO8ylI="
+	goldenWire     = "1900000000." + goldenAudience + "." + goldenMAC
+	// unboundGoldenWire is the retired unbound form of the same expiry.
+	unboundGoldenWire = "1900000000.0l+y7qrGppfHhBxHwLiLx702JdmA5KuxcFOmENJnZDs="
+)
+
 func TestVerifyGoldenAndExpiryBoundaries(t *testing.T) {
-	const token = "yuruna-net1-golden-token"
 	const expiry int64 = 1900000000
-	const wire = "1900000000.0l+y7qrGppfHhBxHwLiLx702JdmA5KuxcFOmENJnZDs="
 	const ceiling = 20 * time.Minute
 	for _, tc := range []struct {
 		name string
@@ -27,51 +37,50 @@ func TestVerifyGoldenAndExpiryBoundaries(t *testing.T) {
 		{"beyond maximum TTL", time.Unix(expiry-int64(ceiling/time.Second)-1, 0), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Verify(token, wire, tc.now, ceiling); got != tc.want {
-				t.Fatalf("Verify = %v, want %v", got, tc.want)
+			if got := VerifyFor(goldenToken, goldenWire, goldenAudience, tc.now, ceiling); got != tc.want {
+				t.Fatalf("VerifyFor = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
 func TestVerifyWireAndTokenCompatibility(t *testing.T) {
-	const token = "yuruna-net1-golden-token"
-	const signature = "0l+y7qrGppfHhBxHwLiLx702JdmA5KuxcFOmENJnZDs="
-	const wire = "1900000000." + signature
+	const prefix = "1900000000." + goldenAudience + "."
 	now := time.Unix(1899999999, 0)
 	for _, tc := range []struct {
 		name, token, wire string
 		want              bool
 	}{
-		{"wrong key", "another-token", wire, false},
-		{"key bytes are not trimmed", " " + token, wire, false},
-		{"empty key", "", wire, false},
-		{"blank key", " \t\r\n", wire, false},
-		{"empty wire", token, "", false},
-		{"no separator", token, "1900000000", false},
-		{"empty expiry", token, "." + signature, false},
-		{"empty MAC", token, "1900000000.", false},
-		{"expiry overflow", token, "9223372036854775808." + signature, false},
-		{"expiry whitespace", token, " 1900000000." + signature, false},
-		{"invalid base64", token, "1900000000.!!!!", false},
-		{"wrong MAC length", token, "1900000000.AAAA", false},
-		{"changed MAC", token, "1900000000.Al+y7qrGppfHhBxHwLiLx702JdmA5KuxcFOmENJnZDs=", false},
-		{"unpadded base64", token, strings.TrimSuffix(wire, "="), false},
+		{"wrong key", "another-token", goldenWire, false},
+		{"key bytes are not trimmed", " " + goldenToken, goldenWire, false},
+		{"empty key", "", goldenWire, false},
+		{"blank key", " \t\r\n", goldenWire, false},
+		{"empty wire", goldenToken, "", false},
+		{"no separator", goldenToken, "1900000000", false},
+		{"empty expiry", goldenToken, "." + goldenAudience + "." + goldenMAC, false},
+		{"empty MAC", goldenToken, prefix, false},
+		{"expiry overflow", goldenToken, "9223372036854775808." + goldenAudience + "." + goldenMAC, false},
+		{"expiry whitespace", goldenToken, " " + goldenWire, false},
+		{"invalid base64", goldenToken, prefix + "!!!!", false},
+		{"wrong MAC length", goldenToken, prefix + "AAAA", false},
+		{"changed MAC", goldenToken, prefix + "A" + goldenMAC[1:], false},
+		{"unpadded base64", goldenToken, strings.TrimSuffix(goldenWire, "="), false},
 		// The numeric expiry is canonicalized before the MAC is computed.
-		{"signed decimal expiry", token, "+" + wire, true},
-		{"leading zero expiry", token, "0" + wire, true},
+		{"signed decimal expiry", goldenToken, "+" + goldenWire, true},
+		{"leading zero expiry", goldenToken, "0" + goldenWire, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Verify(tc.token, tc.wire, now, time.Minute); got != tc.want {
-				t.Fatalf("Verify = %v, want %v", got, tc.want)
+			if got := VerifyFor(tc.token, tc.wire, goldenAudience, now, time.Minute); got != tc.want {
+				t.Fatalf("VerifyFor = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
+// The unbound form is still minted, for the shared golden vector and as the
+// test that a key is held, but no verifier accepts it.
 func TestSharedMintGoldenAndBlankKey(t *testing.T) {
-	const want = "1900000000.0l+y7qrGppfHhBxHwLiLx702JdmA5KuxcFOmENJnZDs="
-	if got := Proof("yuruna-net1-golden-token", 1900000000); got != want {
+	if got := Proof(goldenToken, 1900000000); got != unboundGoldenWire {
 		t.Fatalf("Proof = %q", got)
 	}
 	for _, token := range []string{"", " \t\r\n"} {
@@ -80,8 +89,12 @@ func TestSharedMintGoldenAndBlankKey(t *testing.T) {
 		}
 	}
 	now := time.Now()
-	if wire := Mint("key", time.Minute); !Verify("key", wire, now, 2*time.Minute) {
-		t.Fatal("minted proof did not verify")
+	wire := Mint("key", time.Minute)
+	if wire == "" {
+		t.Fatal("a usable key minted no proof")
+	}
+	if VerifyFor("key", wire, "", now, 2*time.Minute) || VerifyFor("key", wire, goldenAudience, now, 2*time.Minute) {
+		t.Fatal("a freshly minted unbound proof verified")
 	}
 }
 
@@ -109,16 +122,14 @@ func TestBoundProofGoldenAudienceAndWindow(t *testing.T) {
 		{"expired", wire, audience, time.Unix(1900000001, 0), false},
 		{"beyond maximum TTL", wire, audience, time.Unix(1900000000-1201, 0), false},
 		{"malformed audience", "1900000000.a.b.c", audience, at, false},
-		{"unbound proof during the transition", "1900000000.0l+y7qrGppfHhBxHwLiLx702JdmA5KuxcFOmENJnZDs=", audience, at, true},
+		{"an unbound proof is refused", unboundGoldenWire, audience, at, false},
+		{"an unbound proof is refused when the caller names no audience", unboundGoldenWire, "", at, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := VerifyFor(token, tc.wire, tc.audience, tc.now, 20*time.Minute); got != tc.want {
 				t.Fatalf("VerifyFor = %v, want %v", got, tc.want)
 			}
 		})
-	}
-	if Verify(token, wire, at, 20*time.Minute) {
-		t.Fatal("a verifier that predates audiences must refuse the bound form")
 	}
 	for _, bad := range []string{"", "has.dot", "has space", strings.Repeat("a", 81)} {
 		if ProofFor(token, bad, 1900000000) != "" {
@@ -165,8 +176,8 @@ func TestScopedProofGoldenAudienceScopeAndWindow(t *testing.T) {
 			}
 		})
 	}
-	if VerifyFor(token, wire, audience, at, 20*time.Minute) || Verify(token, wire, at, 20*time.Minute) {
-		t.Fatal("a verifier that takes only the bound and unbound forms must refuse a scoped proof")
+	if VerifyFor(token, wire, audience, at, 20*time.Minute) || VerifyFor(token, wire, "", at, 20*time.Minute) {
+		t.Fatal("the bound-form verifier must refuse a scoped proof")
 	}
 	for _, bad := range []string{"", "Pause", "has.dot", "has space", strings.Repeat("a", 33)} {
 		if ProofForScope(token, audience, bad, 1900000000) != "" {

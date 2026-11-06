@@ -959,8 +959,9 @@
       "message": "A captura deste host é anterior à versão registrada do sistema operacional; por isso, não é possível detectar uma atualização posterior à configuração a partir dela. Execute Enable-TestAutomation novamente para registrar a versão."
     },
     "runner.operator_13a941989b043d74": {
-      "sourceHash": "e8b5515bf125f7bb07192c0a177b9977687095fdc30f682d3831ca473f35f4d6",
-      "message": "Esta máquina mudou o endereço {changes} time(s) através de {distinctAddresses} endereços distintos no último {lookbackHours}h, em nenhum intervalo fixo -- consistente com reinícios ou eventos de ligação em vez de uma renovação que não está sendo O caminho da descoberta absorve isto."
+      "sourceHash": "2b000e3644a54c26942040f8d3ccd60ec744afd2d95f642779e3dbda58566134",
+      "origin": "machine",
+      "message": "Este hospedeiro mudou de endereço {changes} vez(es) entre {distinctAddresses} endereços distintos nas últimas {lookbackHours}h, sem intervalo fixo -- compatível com reinicializações ou eventos de link. O caminho de descoberta absorve isso."
     },
     "runner.operator_13c098483d4f4c49": {
       "sourceHash": "f9652eabb813d9de1e9669d7ad9a53078b6b1cf75a1a314b0ae677e65f1aa7c3",
@@ -1659,8 +1660,9 @@
       "message": "Piso de resolução: aplicar {applyRc} devolvido (0 = sucesso)."
     },
     "runner.operator_268e6069d124cd41": {
-      "sourceHash": "3f426b36b45806bd2b3765c13e040c2f2c752af49180abcfeb9f753a00b2def5",
-      "message": "Adicionado ufw permitir {port}/tcp para que os clientes da LAN possam alcançar o serviço de status."
+      "sourceHash": "9f097fedfc47c8e14a130828099251366517c4314da595bb4755a69a26aa14d5",
+      "origin": "machine",
+      "message": "Regra ufw allow {port}/tcp adicionada para que clientes da LAN alcancem este hospedeiro em TCP :{port}."
     },
     "runner.operator_26ae0718f0a53461": {
       "sourceHash": "11c765bcb732cbb1b33e3bdbcb8ae0c9367b91e833acfbc6b29ea56b421a883e",
@@ -8056,6 +8058,16 @@
       "sourceHash": "61da2f7468a0ad74fd638f55e4f97d56a36584b3ea8bc52dfd932d32894fc7a9",
       "message": "{base} A identidade DHCP da ponte é presa, então o servidor não está digitando locações sobre ela. Um pino não pode corrigir isso."
     },
+    "runner.host_address_lease_expiry_churn": {
+      "sourceHash": "25d2f889c750e0d1358c922c35da5c21c8815be4de276f398297ec2f9e5c24ba",
+      "origin": "machine",
+      "message": "Este hospedeiro mudou de endereço {changes} vezes nas últimas {lookbackHours}h, para {distinctAddresses} endereços distintos, uma mudança a cada {medianIntervalMinutes} min -- cerca de uma vez por concessão, que o servidor DHCP concedeu por {leaseSeconds} s. A identidade DHCP da ponte ESTÁ fixada, e as mudanças ocorrem quando uma concessão expira, e não em uma renovação: as renovações não estão surtindo efeito, então cada concessão expira e a seguinte é uma nova alocação. Um endereço que muda em intervalos regulares quebra todos os convidados por trás dele a cada mudança."
+    },
+    "runner.host_address_lease_expiry_remedy": {
+      "sourceHash": "ee6f18cbee93214f76c700a49177a6995157e5d7fa71205c35507f405df072f0",
+      "origin": "machine",
+      "message": "leia as linhas dhcp4 do NetworkManager em torno de uma mudança (journalctl -b 0 -u NetworkManager --grep dhcp4, também impressas no diagnóstico do hospedeiro) para ver se cada concessão foi estendida em uma renovação ou expirou, e verifique se o firewall do hospedeiro deixa as respostas do servidor chegarem à porta UDP 68; uma captura na ponte durante a renovação na metade da concessão (tcpdump -ni yuruna-br0 'udp port 67 or udp port 68') mostra se a solicitação foi enviada e respondida, mesmo quando o firewall do hospedeiro descarta a resposta em seguida; uma reserva DHCP para o MAC da ponte, ou um endereço estático, torna o endereço estável de qualquer forma -- veja docs/network.md, 'Pinning the host address'."
+    },
     "runner.operator_be3425294035d6f8": {
       "sourceHash": "2b799ad53600132d8fb5540e533528d65c14a4d791971ae4520c02bd5bb0d953",
       "message": "pasta do stash: {stashPath}"
@@ -8996,8 +9008,9 @@
       "message": "{vmsg} (Advisory: copy mode mantém a pasta local, então isso não vai bloquear o ciclo -- corrigir antes de habilitar o modo mover.)"
     },
     "runner.operator_d5b5d8e0969942b5": {
-      "sourceHash": "60875b23f3dd387d866fef398491d4e9271592181ff0bf2bd1b5c409058c8aa1",
-      "message": "Não foi possível consultar ufw (saída {exitCode}); estado de firewall do porto de estado desconhecido. Se :{port} estiver bloqueado, execute elevado: sudo ufw permite {port}/tcp"
+      "sourceHash": "c11bab88c0f8b471ffa2b2f33de1972f1faaca6f416d9986c14dc699ded8ea0f",
+      "origin": "machine",
+      "message": "Não foi possível consultar o ufw (código de saída {exitCode}); estado do firewall para TCP :{port} desconhecido. Se :{port} estiver bloqueada, execute com privilégios elevados: sudo ufw allow {port}/tcp"
     },
     "runner.operator_d5c597bca4182525": {
       "sourceHash": "6172207bd446303978c22d5fda3b7852ca16d085a8ba2354fc04277fa0a1a313",
@@ -11924,6 +11937,16 @@
       "origin": "machine",
       "message": "http://localhost:{port}/status/ funciona, mas clientes da LAN que acessam http://{address}:{port}/status/ terão o tempo esgotado."
     },
+    "runner.config_port_firewall_unconfirmed": {
+      "sourceHash": "28b64cd9ad83e6c8c1355bcfce6965c42c9a88fbcb5efa7ab85008b59b103790",
+      "origin": "machine",
+      "message": "O serviço de configuração não conseguiu confirmar que a porta TCP :{port} de entrada está aberta para os convidados de serviço, que buscam nela sua credencial do NAS: {detail}"
+    },
+    "runner.ufw_port_rule_left": {
+      "sourceHash": "78ffe2fb34d253f9854a2a67a871d12fd8d00bdef3a767007300feb44972bec8",
+      "origin": "machine",
+      "message": "A regra existente do ufw para TCP :{port} foi mantida como está, porque o Yuruna não substitui uma regra que não adicionou: {rule}. Se os clientes da rede local precisam alcançar este host em :{port}, altere essa regra você mesmo, por exemplo: sudo ufw allow {port}/tcp"
+    },
     "runner.status_listener_busy": {
       "sourceHash": "fa084dae446914504db8f229fce6bcd4529e1731f3b1c6e67a22f504d221c2fd",
       "origin": "machine",
@@ -12478,6 +12501,51 @@
       "sourceHash": "7fdc6b34b1ab5468b2cdde1ab7a3ec85204038d9cd03e9b9aa8aef6616ebb6f8",
       "origin": "machine",
       "message": "Não foi possível ler {probe}: {tool} não respondeu, então a configuração está indeterminada, e não se sabe se é segura."
+    },
+    "runner.capability_gate_host_command_missing": {
+      "sourceHash": "88496b61d861339fcd9178768b2b7e5e127d6a14df2826be7b6cdf1bdc189d9b",
+      "origin": "machine",
+      "message": "  As sequências executam comandos que não existem neste hospedeiro:"
+    },
+    "runner.capability_gate_host_command_step": {
+      "sourceHash": "44cd581585ef308c14d66c56bb383b2d39679c29798e66d05c66c6685c6c0b84",
+      "origin": "machine",
+      "message": "        {sequence}, etapa {step}: {action}"
+    },
+    "runner.capability_gate_host_command_remedy": {
+      "sourceHash": "b5681177ba736ee2b54a82cec0e4f3037e23ac75a6a1fea36ce6e228f4ec40b3",
+      "origin": "machine",
+      "message": "  Instale neste hospedeiro os comandos ausentes ou retire dos YAMLs de sequência do ciclo as etapas que os executam."
+    },
+    "runner.wait_ended_on_silent_guest": {
+      "sourceHash": "eb77fad8930c78797e50fcb5dce8efe22f6881ca94673be735f8adf5844fd153",
+      "origin": "machine",
+      "message": "A espera pelo texto '{patternLabel}' terminou após ~{waited}s de {timeoutSeconds}s: a saída do console do convidado ficou inalterada por {outputStaticSeconds}s, o seu gravador não chegava ao hospedeiro havia {uploadAgeSeconds}s e o seu console serial relatou {kinds}"
+    },
+    "runner.netconsole_receiver_listening": {
+      "sourceHash": "78b432ccbb462aad03c543a07b748b5ca1a3990151eb0fc15a757a15b3305edb",
+      "origin": "machine",
+      "message": "Escutando o netconsole na porta UDP {port}; um log por hospedeiro de origem e por dia UTC é gravado em {directory}. Pressione Ctrl+C para parar."
+    },
+    "runner.netconsole_receiver_bind_failed": {
+      "sourceHash": "b88c1dc0eaf00f5a9855743833948bd6882c0b549cdd5ba3c137e524b43fdcee",
+      "origin": "machine",
+      "message": "Não foi possível abrir a porta UDP {port}: {message}"
+    },
+    "runner.netconsole_receiver_write_failed": {
+      "sourceHash": "9c88847af386e1afa45f33c7ecfe94e6c708c348aec6c9f9bec07339301091ce",
+      "origin": "machine",
+      "message": "Não foi possível gravar uma linha recebida em {directory}: {message}"
+    },
+    "runner.netconsole_receiver_stopped": {
+      "sourceHash": "07ad9fa07c380d39e2a5cfe1a00d2f36edd77dd0516e8dd4dfee1478e7936297",
+      "origin": "machine",
+      "message": "Parado após {count} datagrama(s)."
+    },
+    "runner.netconsole_receiver_small_buffer": {
+      "sourceHash": "77142cc3bc61f0cc0bdb8ea6c34ae6ef2fb3dedab62dac4770b400479fa5d4d4",
+      "origin": "machine",
+      "message": "O sistema concedeu um buffer de recepção UDP de {granted} bytes, menor que os {requested} bytes solicitados, então uma rajada de mensagens do kernel, como os backtraces que um hospedeiro envia antes de um pânico, pode estourá-lo e perder linhas. No Linux, aumente o limite com 'sudo sysctl -w net.core.rmem_max={requested}' e inicie o receptor novamente."
     }
   }
 }

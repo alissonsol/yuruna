@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a1c8e3-5b47-4f60-9d2a-7e83b415cc09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,6 +58,9 @@ function Invoke-Gate {
     param([string[]]$Argument)
     $argv = @('-NoProfile', '-File', $script:Gate) + $Argument
     $out = (& pwsh @argv 2>&1 | Out-String)
+    # The gate colors its warnings; an escape sequence in an assertion message
+    # is not a valid XML character, and the NUnit result file would end there.
+    $out = $out -replace '\e\[[0-9;?]*[A-Za-z]', ''
     return @{ Output = $out; ExitCode = $LASTEXITCODE }
 }
 
@@ -458,6 +461,18 @@ Describe 'the anchor gate says which of the three things happened' {
         Assert-Match -Pattern $pattern `
             -Actual $crossRepo `
             -Because 'the staged project checkout is not supplied to the region-anchor leaf'
+    }
+
+    It 'asks the region-anchor leaf for the heading check from cross-repository orchestration' {
+        $ast = [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $script:RepoRoot 'tools/Invoke-CrossRepoGate.ps1'), [ref]$null, [ref]$null)
+        $assignment = $ast.Find({ param($node)
+                $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$anchorArgs' }, $true)
+        Assert-True ($null -ne $assignment) 'the gate no longer builds the region-anchor arguments'
+        $values = @($assignment.Right.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.StringConstantExpressionAst] }, $true) | ForEach-Object Value)
+        Assert-True ($values -ccontains '-HeadingRegion') `
+            'the region-anchor row does not ask for the heading check, so a heading left behind by moved code passes the gate'
     }
 }
 
@@ -897,7 +912,7 @@ Describe 'implementation-note headings name the region their pointer sits in' {
         ($found | Where-Object Id -eq '42aaaaaa-0006').Pointer | Should -BeExactly 'yuruna/src/elsewhere.ps1:3'
     }
 
-    It 'lists the mismatch under -HeadingRegion without changing the exit code' {
+    It 'fails on a heading that names another region than its pointer, and asks only that on its own' {
         $fixture = Join-Path $script:Sandbox 'heading-region/yuruna'
         foreach ($dir in @('tools', 'test/modules', 'docs', 'globalization/manifests', 'src')) {
             $null = New-Item -ItemType Directory -Path (Join-Path $fixture $dir) -Force
@@ -925,13 +940,204 @@ Describe 'implementation-note headings name the region their pointer sits in' {
 
         $plain = & pwsh -NoProfile -File $generator -Check -Quiet 2>&1 | Out-String
         Assert-Equal 0 $LASTEXITCODE $plain
-        Assert-True ($plain -notmatch 'Heading check') 'the report runs only when asked for'
+        Assert-True ($plain -notmatch 'Heading check') 'the heading check runs only when asked for'
 
         $output = & pwsh -NoProfile -File $generator -Check -Quiet -HeadingRegion 2>&1 | Out-String
-        Assert-Equal 0 $LASTEXITCODE "the heading report must not change the verdict: $output"
+        Assert-Equal 1 $LASTEXITCODE "a heading that names another region than its pointer fails the check: $output"
         Assert-Match ([regex]::Escape("heading yuruna/docs/notes.md 42aaaaaa-0003 'src/run.ps1: Old name': its pointer yuruna/src/run.ps1:7 sits in region 'New name'")) $output
         Assert-Match 'Heading check: 1 heading pointer' $output
         Assert-True ($output -notmatch '42aaaaaa-0002''') 'a heading that names its pointer region is not reported'
         Assert-True ($output -notmatch '42aaaaaa-0004''') 'a section shared by several regions is not judged'
+
+        $source = Join-Path $fixture 'src/run.ps1'
+        [IO.File]::WriteAllText($source, ([IO.File]::ReadAllText($source).Replace('# --- REGION: New name', '# --- REGION: Old name')))
+        $renamed = & pwsh -NoProfile -File $generator -HeadingRegion -Quiet 2>&1 | Out-String
+        Assert-Equal 0 $LASTEXITCODE "a heading that names its pointer region again passes: $renamed"
+        Assert-Match 'Heading check: 0 heading pointer' $renamed
+
+        # A heading with no id yet is the anchor check's finding. The region-anchor
+        # gate asks -HeadingRegion alone, so that finding must not decide its verdict.
+        [IO.File]::AppendAllText((Join-Path $fixture 'docs/notes.md'), "`n## A heading with no id yet`n`nBody.`n")
+        $anchors = & pwsh -NoProfile -File $generator -Check -Quiet 2>&1 | Out-String
+        Assert-Equal 1 $LASTEXITCODE "the anchor check reports the heading with no id: $anchors"
+        $headingOnly = & pwsh -NoProfile -File $generator -HeadingRegion -Quiet 2>&1 | Out-String
+        Assert-Equal 0 $LASTEXITCODE "on its own, -HeadingRegion judges only where headings point: $headingOnly"
+        Assert-True ($headingOnly -notmatch 'no anchor id') "the anchor finding is reported by -Check alone: $headingOnly"
+        $both = & pwsh -NoProfile -File $generator -Check -HeadingRegion -Quiet 2>&1 | Out-String
+        Assert-Equal 1 $LASTEXITCODE "with -Check, the anchor finding still fails the run: $both"
+    }
+
+    It 'judges a pointer in the amisad.dev checkout, named as an additional source root or found in its fallback folder' {
+        $workspace = Join-Path $script:Sandbox 'heading-region-amisad'
+        $fixture = Join-Path $workspace 'yuruna'
+        foreach ($dir in @('tools', 'test/modules', 'docs', 'globalization/manifests')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $fixture $dir) -Force
+        }
+        $generator = Join-Path $fixture 'tools/Invoke-DocAnchor.ps1'
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'tools/Invoke-DocAnchor.ps1') -Destination $generator
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'test/modules/Test.Prelude.psm1') -Destination (Join-Path $fixture 'test/modules/Test.Prelude.psm1')
+        # Headings whose home is amisad.dev code, in the backticked-path form.
+        [IO.File]::WriteAllText((Join-Path $fixture 'docs/notes.md'), ((@(
+            '<a id="42aaaaaa-0001"></a>', '', '# Notes', '',
+            '<a id="42aaaaaa-0002"></a>', '', '### Resolve paths', '', '`amisad.dev/poc/run.ps1`', '', 'Body.', '',
+            '<a id="42aaaaaa-0003"></a>', '', '### Old name', '', '`amisad.dev/poc/run.ps1`', '', 'Body.', '') -join "`n")))
+        $record = [ordered]@{ id = '42aaaaaa'; repo = 'yuruna'; source = 'docs/notes.md'; translations = [ordered]@{}; anchors = @() }
+        [IO.File]::WriteAllText((Join-Path $fixture 'globalization/manifests/doc-anchors.json'),
+            (([ordered]@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } | ConvertTo-Json -Depth 8) + "`n"))
+        & git init --quiet $fixture 2>&1 | Out-Null
+        $null = & pwsh -NoProfile -File $generator -Update -Quiet 2>&1
+        $writeCheckout = {
+            param([string]$Root)
+            $null = New-Item -ItemType Directory -Path (Join-Path $Root 'poc') -Force
+            [IO.File]::WriteAllText((Join-Path $Root 'poc/run.ps1'), ((@(
+                '# --- REGION: Resolve paths', ('# See ' + $script:FixtureLink + '42aaaaaa-0002'), '$a = 1', '',
+                '# --- REGION: New name', ('# See ' + $script:FixtureLink + '42aaaaaa-0003'), '$b = 2', '') -join "`n")))
+            & git init --quiet $Root 2>&1 | Out-Null
+        }
+        $finding = [regex]::Escape("heading yuruna/docs/notes.md 42aaaaaa-0003 'Old name': its pointer amisad.dev/poc/run.ps1:6 sits in region 'New name'")
+
+        # A checkout the inventory cannot see is judged only when named.
+        $elsewhere = Join-Path $script:Sandbox 'heading-region-elsewhere/amisad.dev'
+        & $writeCheckout -Root $elsewhere
+        $silent = & pwsh -NoProfile -File $generator -Check -Quiet -HeadingRegion 2>&1 | Out-String
+        Assert-Equal 0 $LASTEXITCODE $silent
+        Assert-Match 'Heading check: 0 heading pointer' $silent
+        $named = & pwsh -NoProfile -File $generator -Check -Quiet -HeadingRegion -AdditionalSourceRoot $elsewhere 2>&1 | Out-String
+        Assert-Equal 1 $LASTEXITCODE "a heading that names another region than its amisad.dev pointer fails the check: $named"
+        Assert-Match $finding $named
+        Assert-Match 'Heading check: 1 heading pointer' $named
+        Assert-True ($named -notmatch '42aaaaaa-0002''') 'a heading that names its amisad.dev pointer region is not reported'
+        $null = & pwsh -NoProfile -File $generator -Check -Quiet -HeadingRegion -AdditionalSourceRoot (Join-Path $script:Sandbox 'no-such-checkout') 2>&1 | Out-String
+        Assert-Equal 2 $LASTEXITCODE 'a named checkout that is absent is no verdict'
+
+        # The checkout is not a sibling of the framework: its fallback folder is alius-git/amisad.dev.
+        & $writeCheckout -Root (Join-Path $workspace 'alius-git/amisad.dev')
+        $output = & pwsh -NoProfile -File $generator -Check -Quiet -HeadingRegion 2>&1 | Out-String
+        Assert-Equal 1 $LASTEXITCODE $output
+        Assert-Match $finding $output
+        Assert-Match 'Heading check: 1 heading pointer' $output
+    }
+
+    It 'judges a pointer in the amisad.dev checkout beside the framework ahead of its fallback folder' {
+        $workspace = Join-Path $script:Sandbox 'heading-region-amisad-beside'
+        $fixture = Join-Path $workspace 'yuruna'
+        foreach ($dir in @('tools', 'test/modules', 'docs', 'globalization/manifests')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $fixture $dir) -Force
+        }
+        $generator = Join-Path $fixture 'tools/Invoke-DocAnchor.ps1'
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'tools/Invoke-DocAnchor.ps1') -Destination $generator
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'test/modules/Test.Prelude.psm1') -Destination (Join-Path $fixture 'test/modules/Test.Prelude.psm1')
+        [IO.File]::WriteAllText((Join-Path $fixture 'docs/notes.md'), ((@(
+            '<a id="42aaaaaa-0001"></a>', '', '# Notes', '',
+            '<a id="42aaaaaa-0002"></a>', '', '### Old name', '', '`amisad.dev/poc/run.ps1`', '', 'Body.', '') -join "`n")))
+        $record = [ordered]@{ id = '42aaaaaa'; repo = 'yuruna'; source = 'docs/notes.md'; translations = [ordered]@{}; anchors = @() }
+        [IO.File]::WriteAllText((Join-Path $fixture 'globalization/manifests/doc-anchors.json'),
+            (([ordered]@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } | ConvertTo-Json -Depth 8) + "`n"))
+        & git init --quiet $fixture 2>&1 | Out-Null
+        $null = & pwsh -NoProfile -File $generator -Update -Quiet 2>&1
+        $writeCheckout = {
+            param([string]$Root, [string]$Region)
+            $null = New-Item -ItemType Directory -Path (Join-Path $Root 'poc') -Force
+            [IO.File]::WriteAllText((Join-Path $Root 'poc/run.ps1'), ((@(
+                "# --- REGION: $Region", ('# See ' + $script:FixtureLink + '42aaaaaa-0002'), '$a = 1', '') -join "`n")))
+            & git init --quiet $Root 2>&1 | Out-Null
+        }
+        # The checkout beside the framework moved the pointer; the one in the
+        # fallback folder did not. Were both read, the section would have two
+        # homes and be spared, so the finding shows only the first was judged.
+        & $writeCheckout -Root (Join-Path $workspace 'amisad.dev') -Region 'New name'
+        & $writeCheckout -Root (Join-Path $workspace 'alius-git/amisad.dev') -Region 'Old name'
+        $output = & pwsh -NoProfile -File $generator -HeadingRegion -Quiet 2>&1 | Out-String
+        Assert-Equal 1 $LASTEXITCODE $output
+        Assert-Match ([regex]::Escape("heading yuruna/docs/notes.md 42aaaaaa-0002 'Old name': its pointer amisad.dev/poc/run.ps1:2 sits in region 'New name'")) $output
+        Assert-Match 'Heading check: 1 heading pointer' $output
+    }
+
+    It 'fails the region-anchor gate on a heading that names another region only when asked' {
+        $framework = Join-Path $script:Sandbox ('heading-gate-' + [Guid]::NewGuid().ToString('n') + '/yuruna')
+        foreach ($dir in @('tools', 'test/modules', 'automation', 'docs', 'globalization/manifests', 'src')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $framework $dir) -Force
+        }
+        foreach ($relative in @('tools/Test-RegionAnchors.ps1', 'tools/Invoke-DocAnchor.ps1', 'tools/Markdown.LocalAnchors.psm1',
+                'test/modules/Test.Prelude.psm1', 'automation/Yuruna.Globalization.psm1')) {
+            Copy-Item -LiteralPath (Join-Path $script:RepoRoot $relative) -Destination (Join-Path $framework $relative)
+        }
+        [IO.File]::WriteAllText((Join-Path $framework 'docs/notes.md'), ((@(
+            '<a id="42aaaaaa-0001"></a>', '', '# Notes', '',
+            '<a id="42aaaaaa-0002"></a>', '', '## src/run.ps1: Resolve paths', '', 'Body.', '') -join "`n")))
+        $record = [ordered]@{ id = '42aaaaaa'; repo = 'yuruna'; source = 'docs/notes.md'; translations = [ordered]@{}; anchors = @() }
+        [IO.File]::WriteAllText((Join-Path $framework 'globalization/manifests/doc-anchors.json'),
+            (([ordered]@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } | ConvertTo-Json -Depth 8) + "`n"))
+        & git init --quiet $framework 2>&1 | Out-Null
+        $null = & pwsh -NoProfile -File (Join-Path $framework 'tools/Invoke-DocAnchor.ps1') -Update -Quiet 2>&1
+        $map = New-LinkMap -Name ([Guid]::NewGuid().ToString('n') + '.json') -Entry @(
+            , @('42aaaaaa', 'Notes', 'https://github.com/alissonsol/yuruna/blob/main/docs/notes.md'))
+        $source = Join-Path $framework 'src/run.ps1'
+        # Only the fixture source is scanned: the copied tools carry pointers into the real documents.
+        $runGate = {
+            param([string[]]$Extra)
+            $argv = @('-NoProfile', '-File', (Join-Path $framework 'tools/Test-RegionAnchors.ps1'),
+                '-Path', (Join-Path $framework 'src'), '-LinkMap', $map) + $Extra
+            $text = (& pwsh @argv 2>&1 | Out-String) -replace '\e\[[0-9;?]*[A-Za-z]', ''
+            return @{ Output = $text; ExitCode = $LASTEXITCODE }
+        }
+
+        [IO.File]::WriteAllText($source, ((@('# --- REGION: Resolve paths', ('# See ' + $script:FixtureLink + '42aaaaaa-0002'), '$a = 1', '') -join "`n")))
+        $agrees = & $runGate @('-HeadingRegion')
+        Assert-Equal 0 $agrees.ExitCode $agrees.Output
+        Assert-Match 'Heading check: 0 heading pointer' $agrees.Output
+
+        [IO.File]::WriteAllText($source, ((@('# --- REGION: New name', ('# See ' + $script:FixtureLink + '42aaaaaa-0002'), '$a = 1', '') -join "`n")))
+        $unasked = & $runGate @()
+        Assert-Equal 0 $unasked.ExitCode "the pointer still resolves, and nothing asked where its heading points: $($unasked.Output)"
+        $moved = & $runGate @('-HeadingRegion')
+        Assert-Equal 1 $moved.ExitCode $moved.Output
+        Assert-Match ([regex]::Escape("heading yuruna/docs/notes.md 42aaaaaa-0002 'src/run.ps1: Resolve paths': its pointer yuruna/src/run.ps1:2 sits in region 'New name'")) $moved.Output
+    }
+
+    It 'judges the project checkout it is given, and reports a heading check that could not run as such' {
+        $framework = Join-Path $script:Sandbox ('heading-project-' + [Guid]::NewGuid().ToString('n') + '/yuruna')
+        foreach ($dir in @('tools', 'test/modules', 'automation', 'docs', 'globalization/manifests', 'src')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $framework $dir) -Force
+        }
+        foreach ($relative in @('tools/Test-RegionAnchors.ps1', 'tools/Invoke-DocAnchor.ps1', 'tools/Markdown.LocalAnchors.psm1',
+                'test/modules/Test.Prelude.psm1', 'automation/Yuruna.Globalization.psm1')) {
+            Copy-Item -LiteralPath (Join-Path $script:RepoRoot $relative) -Destination (Join-Path $framework $relative)
+        }
+        # A heading whose home is a project file, named by its repository path.
+        [IO.File]::WriteAllText((Join-Path $framework 'docs/notes.md'), ((@(
+            '<a id="42aaaaaa-0001"></a>', '', '# Notes', '',
+            '<a id="42aaaaaa-0002"></a>', '', '### Old name', '', '`yuruna-project/src/run.ps1`', '', 'Body.', '') -join "`n")))
+        $record = [ordered]@{ id = '42aaaaaa'; repo = 'yuruna'; source = 'docs/notes.md'; translations = [ordered]@{}; anchors = @() }
+        [IO.File]::WriteAllText((Join-Path $framework 'globalization/manifests/doc-anchors.json'),
+            (([ordered]@{ schema = 'yuruna.doc-anchors/v1'; files = @($record) } | ConvertTo-Json -Depth 8) + "`n"))
+        & git init --quiet $framework 2>&1 | Out-Null
+        $generator = Join-Path $framework 'tools/Invoke-DocAnchor.ps1'
+        $null = & pwsh -NoProfile -File $generator -Update -Quiet 2>&1
+        # The project the gate is given, which is not the sibling of this framework.
+        $project = Join-Path $script:Sandbox ('heading-elsewhere-' + [Guid]::NewGuid().ToString('n') + '/project')
+        $null = New-Item -ItemType Directory -Path (Join-Path $project 'src') -Force
+        [IO.File]::WriteAllText((Join-Path $project 'src/run.ps1'), ((@('# --- REGION: New name', ('# See ' + $script:FixtureLink + '42aaaaaa-0002'), '$a = 1', '') -join "`n")))
+        & git init --quiet $project 2>&1 | Out-Null
+
+        $sibling = & pwsh -NoProfile -File $generator -HeadingRegion -Quiet 2>&1 | Out-String
+        Assert-Equal 0 $LASTEXITCODE "with no project checkout beside the framework there is no project pointer to judge: $sibling"
+        $given = & pwsh -NoProfile -File $generator -HeadingRegion -Quiet -ProjectRoot $project 2>&1 | Out-String
+        Assert-Equal 1 $LASTEXITCODE "the project named by -ProjectRoot is the one judged: $given"
+        Assert-Match ([regex]::Escape("its pointer yuruna-project/src/run.ps1:2 sits in region 'New name'")) $given
+        $absent = & pwsh -NoProfile -File $generator -HeadingRegion -Quiet -ProjectRoot (Join-Path $project 'missing') 2>&1 | Out-String
+        Assert-Equal 2 $LASTEXITCODE "a named project that is not there is no verdict: $absent"
+
+        $map = New-LinkMap -Name ([Guid]::NewGuid().ToString('n') + '.json') -Entry @(
+            , @('42aaaaaa', 'Notes', 'https://github.com/alissonsol/yuruna/blob/main/docs/notes.md'))
+        $argv = @('-NoProfile', '-File', (Join-Path $framework 'tools/Test-RegionAnchors.ps1'),
+            '-Path', (Join-Path $framework 'src'), '-LinkMap', $map, '-HeadingRegion', '-ProjectRoot', $project)
+        $forwarded = (& pwsh @argv 2>&1 | Out-String) -replace '\e\[[0-9;?]*[A-Za-z]', ''
+        Assert-Equal 1 $LASTEXITCODE "the region-anchor gate hands its project to the heading check: $forwarded"
+
+        # A heading check that cannot start is no verdict, never a pass.
+        Remove-Item -LiteralPath $generator -Force
+        $missing = (& pwsh @argv 2>&1 | Out-String) -replace '\e\[[0-9;?]*[A-Za-z]', ''
+        Assert-Equal 2 $LASTEXITCODE "a heading check that could not run must not pass the row: $missing"
     }
 }

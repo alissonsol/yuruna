@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a24e8a-bb70-4de1-b78f-9bbdd82d9ea7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -448,11 +448,11 @@ Describe 'A service that is merely powered on is not a service' {
                     $node.Left.Extent.Text -eq '$startOutcome'
                 }, $true))
         Assert-Equal -Expected 1 -Actual $assignments.Count -Because 'the advertised state must be assigned from the verdict'
-        Assert-True ($assignments[0].Right.Extent.Text -match [regex]::Escape('Resolve-YurunaServiceStartOutcome -Verdict $stashVerdict')) `
+        Assert-True ($assignments[0].Right.Extent.Text -match [regex]::Escape('Resolve-YurunaServiceStartOutcome -Verdict $verdict')) `
             'the one outcome record is derived from the verdict (a still-building guest is not advertised)'
         Assert-True ($assignments[0].Extent.EndOffset -lt $writes[0].Extent.StartOffset) 'readiness must precede the advertisement'
         Assert-True ($writes[0].Extent.Text -match '-Active \$startOutcome\.Advertise') 'the marker must carry the readiness decision'
-        Assert-True ($script:StashSource -match "if \(\`$runtimeDir -and \`$startOutcome.Advertise -and \`$stashVerdict.Outcome -eq 'Ready'\)") `
+        Assert-True ($script:StashSource -match "if \(\`$runtimeDir -and \`$startOutcome.Advertise -and \`$verdict.Outcome -eq 'Ready'\)") `
             'only a daemon reachable from the host may publish a URL'
     }
 }

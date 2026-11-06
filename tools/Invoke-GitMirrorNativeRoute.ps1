@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42aff78c-5fac-4e32-8d83-77f7da83ba9b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -130,7 +130,6 @@ try {
     $selected = Get-NativeRouteSelection
     $expectedVerification = switch ($Scenario) {
         'GM-MIRROR-FIRST-HOST-OFFLINE' { 'mirror-confirmed' }
-        'GM-WORKER-OFFLINE' { 'origin-direct' }
         'GM-MISSING-TRUST' { 'origin-direct' }
         default { 'mirror-stale' }
     }
@@ -143,9 +142,9 @@ try {
         $selected.verification -cne $expectedVerification) {
         throw "The measured route did not select the same candidate with $expectedVerification."
     }
-    if ($Scenario -ceq 'GM-MIRROR-FIRST-HOST-OFFLINE' -and
-        (@($selected.attempts | Where-Object source -CEQ origin).Count -ne 0 -or $outage.Clients.Count -ne 0)) {
-        throw 'A healthy mirror operation contacted the host origin transport.'
+    if ($Scenario -cnotin @('GM-MISSING-TRUST', 'GM-AUTH-DENIED') -and
+        (@($selected.attempts | Where-Object source -CEQ origin).Count -ne 0 -or ($outage -and $outage.Clients.Count -ne 0))) {
+        throw 'A mirror-served operation contacted the host origin transport.'
     }
     if ($Scenario -ceq 'GM-MISSING-TRUST' -and ($selected.fallbackReason -cne 'mirror-untrusted' -or
         @($selected.attempts | Where-Object source -CEQ mirror).Count -ne 0)) { throw 'Missing trust incurred a mirror operation.' }

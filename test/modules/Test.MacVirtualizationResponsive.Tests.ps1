@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 426638a9-3c83-4796-8371-fa8298592238
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,11 +81,14 @@ Describe 'macOS driver contract coverage' {
         }
     }
 
-    It 'imports in a fresh process without a missing-verb warning' {
-        $command = "Import-Module '$($script:DriverPath)' -Force -DisableNameChecking 3>&1 | ForEach-Object { 'WARN: ' + `$_ }"
+    It 'imports in a fresh process with every contract verb covered and no warning' {
+        # A missing contract verb fails the import and prints no warning, so the
+        # module having loaded is part of the check.
+        $command = "Import-Module '$($script:DriverPath)' -Force -DisableNameChecking 3>&1 | ForEach-Object { 'WARN: ' + `$_ }; 'LOADED=' + [bool](Get-Module Yuruna.Host)"
         $output = @(& ([Environment]::ProcessPath) -NoLogo -NoProfile -NonInteractive -Command $command 2>&1 | ForEach-Object { ("$_" -replace '\x1b\[[0-9;?]*[ -/]*[@-~]', '') })
         $warnings = @($output | Where-Object { $_ -match '^WARN: ' })
         Assert-Equal -Expected 0 -Actual $warnings.Count -Because 'a fresh import must not warn'
+        Assert-True ($output -contains 'LOADED=True') "the driver must load in a fresh process: $($output -join ' | ')"
     }
 
     It 'replaces a stale macOS host-condition module instead of failing to import' {

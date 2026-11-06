@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42bf15a1-0a45-4de9-b937-54eada83f868
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -300,7 +300,7 @@ Describe 'installer outcome record' -Skip:$IsWindows {
             param([int]$Code, [string[]]$Issue = @(), [string]$Installer = 'ubuntu.kvm')
             $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
             $null = New-Item -ItemType Directory -Path (Join-Path $root 'state'), (Join-Path $root 'checkout'), (Join-Path $root 'logs') -Force
-            Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.10.31'
+            Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.11.05'
             $issueLines = ($Issue | ForEach-Object { "YURUNA_ISSUES+=('" + $_.Replace("'", "'\''") + "')" }) -join "`n"
             $body = @(
                 'set -euo pipefail', 'YURUNA_ISSUES=()', $issueLines,
@@ -327,7 +327,7 @@ Describe 'installer outcome record' -Skip:$IsWindows {
         $record = Get-Content -LiteralPath $r.File -Raw | ConvertFrom-Json
         $record.outcome | Should -Be 'succeeded'
         $record.exitCode | Should -Be 0
-        $record.version | Should -Be '2026.10.31'
+        $record.version | Should -Be '2026.11.05'
         $record.step | Should -Be 'Installing libvirt'
         @($record.issues).Count | Should -Be 0
         Test-Path -LiteralPath (Join-Path $r.Root 'logs/ubuntu.kvm.install.1.result.json') | Should -BeTrue
@@ -358,7 +358,7 @@ Describe 'installer outcome record' -Skip:$IsWindows {
         $fn = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Write-InstallResult' }, $true)
         $root = Join-Path $TestDrive 'win'
         $null = New-Item -ItemType Directory -Path (Join-Path $root 'checkout'), (Join-Path $root 'local') -Force
-        Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.10.31'
+        Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.11.05'
         $saved = Save-YurunaTestEnvironment -Name 'LOCALAPPDATA'
         try {
             $env:LOCALAPPDATA = Join-Path $root 'local'

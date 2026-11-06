@@ -30,7 +30,7 @@ RuntimeDirectoryMode=0750
 # Apache readers can outlive a worker restart; preserve their lock inodes.
 RuntimeDirectoryPreserve=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/yuruna/git /var/lib/yuruna/git-mirror/state /var/lib/yuruna/git-mirror/staging
+ReadWritePaths=/var/lib/yuruna/git /var/lib/yuruna/git-mirror/state
 ReadWritePaths=/run/yuruna/git-mirror /run/yuruna/git-mirror-readers
 ReadOnlyPaths=/var/lib/yuruna/git-mirror/registrations /etc/yuruna/git-mirror /etc/squid/conf.d
 NoNewPrivileges=true

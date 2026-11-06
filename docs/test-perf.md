@@ -438,7 +438,9 @@ The emitter is wired into the runner at three points:
 1. **`Test.RunnerInnerLoop.psm1`** calls `Start-PerfCycle` once per
    cycle, right after the cycle-start host diagnostic is captured --
    hash-stores the diagnostic, opens the cycle's JSONL file, stamps
-   the two commit SHAs.
+   the two commit SHAs. An orchestrated cycle opens it in
+   `Test.Orchestrator.psm1` (`Invoke-OrchestrationSequence`) after the
+   same capture.
 2. **`Test.SequenceEngine.psm1`** calls `Set-PerfSequenceContext` +
    `Set-PerfGuestContext` once per sequence after `Read-SequenceFile`
    -- mints the invocation ID, snapshots the YAML body and pins guest identity for the rows
@@ -483,6 +485,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

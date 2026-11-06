@@ -11,7 +11,8 @@ import (
 )
 
 // TestBufferedLifecycle walks an upload that lands in the offline buffer
-// (section 8.4): pending(buffered) -> complete(still buffered) -> flushed. It
+// (the share-offline path, https://yuruna.link/429e934f-000e):
+// pending(buffered) -> complete(still buffered) -> flushed. It
 // guards the easy-to-miss invariant that UpdateOnComplete must NOT clear
 // locallyBuffered, and that ListBuffered tracks the flag both ways.
 func TestBufferedLifecycle(t *testing.T) {

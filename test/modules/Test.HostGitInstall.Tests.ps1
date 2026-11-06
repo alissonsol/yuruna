@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b667c7-9705-40d2-b7ab-42c08bffb2a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,6 +29,11 @@
     one Install-YurunaGalleryModuleIfMissing helper, both wrappers delegate, the
     raw Install-Module call appears exactly once, and the helper stays private.
     AST/source-only. Runs under Pester 5.x (script-scoped throw helper).
+
+    The host installers and tools/Install-TestModule.ps1 each carry their own
+    copy of the pin they install from (each runs alone, before the harness
+    modules are usable); the last group keeps every copy equal to the table in
+    Test.HostGit.psm1, so one drifting pin fails here.
 #>
 
 BeforeAll {
@@ -193,11 +198,76 @@ Describe 'hostgit-install -- a gallery module is installed only from the pinned,
         }
     }
 
-    It 'keeps the macOS installer''s powershell-yaml pin equal to the host''s' {
-        $installer = Get-Content -LiteralPath (Join-Path $repoRoot 'install/macos.utm.sh') -Raw
-        $pin = InModuleScope Test.HostGit { $script:YurunaGalleryModulePin['powershell-yaml'] }
-        ([regex]::Match($installer, '(?m)^POWERSHELL_YAML_VERSION="([^"]+)"')).Groups[1].Value | Should -BeExactly $pin.Version
-        ([regex]::Match($installer, '(?m)^POWERSHELL_YAML_SHA512="([^"]+)"')).Groups[1].Value | Should -BeExactly $pin.Sha512
+}
+
+Describe 'hostgit-install -- every installer copy of a pin equals the host''s' {
+    BeforeAll {
+        Import-Module (Join-Path $repoRoot 'test/modules/Test.HostGit.psm1') -Force -DisableNameChecking
+        $script:HostPin = InModuleScope Test.HostGit { $script:YurunaGalleryModulePin }
+
+        function Get-ShellYamlBlock {
+            # The pin lines through the pwsh call that installs from them.
+            [CmdletBinding()]
+            [OutputType([string])]
+            param([Parameter(Mandatory)][string]$Installer)
+            $text = Get-Content -LiteralPath (Join-Path $repoRoot $Installer) -Raw
+            $match = [regex]::Match($text, '(?ms)^POWERSHELL_YAML_VERSION=.*?^'' \|\| note_issue "[^\n]*\n')
+            if (-not $match.Success) { throw "$Installer carries no powershell-yaml pin block" }
+            return $match.Value
+        }
+        function Get-PowerShellPin {
+            # One row of a pin table written the way Test.HostGit.psm1 writes its own.
+            [CmdletBinding()]
+            [OutputType([hashtable])]
+            param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Name)
+            $text = Get-Content -LiteralPath (Join-Path $repoRoot $Path) -Raw
+            $match = [regex]::Match($text, "(?m)^\s*'$([regex]::Escape($Name))'\s*=\s*@\{ Version = '([^']+)'; Sha512 = '([^']+)' \}")
+            if (-not $match.Success) { throw "$Path carries no $Name pin" }
+            return @{ Version = $match.Groups[1].Value; Sha512 = $match.Groups[2].Value }
+        }
+    }
+
+    It 'keeps the shell installer''s powershell-yaml pin equal to the host''s (<Installer>)' -ForEach @(
+        @{ Installer = 'install/macos.utm.sh' }, @{ Installer = 'install/ubuntu.kvm.sh' }
+    ) {
+        $installer = Get-Content -LiteralPath (Join-Path $repoRoot $Installer) -Raw
+        ([regex]::Match($installer, '(?m)^POWERSHELL_YAML_VERSION="([^"]+)"')).Groups[1].Value | Should -BeExactly $script:HostPin['powershell-yaml'].Version
+        ([regex]::Match($installer, '(?m)^POWERSHELL_YAML_SHA512="([^"]+)"')).Groups[1].Value | Should -BeExactly $script:HostPin['powershell-yaml'].Sha512
         $installer | Should -Not -Match 'Install-Module -Name powershell-yaml -Scope CurrentUser -Force'
+    }
+
+    It 'the shell installers install powershell-yaml through one block' {
+        # Each runs alone from a one-line download, so the block is duplicated by
+        # necessity; this keeps the copies from drifting apart.
+        Get-ShellYamlBlock -Installer 'install/ubuntu.kvm.sh' | Should -BeExactly (Get-ShellYamlBlock -Installer 'install/macos.utm.sh')
+    }
+
+    It 'keeps the Windows installer''s powershell-yaml pin equal to the host''s' {
+        $pin = Get-PowerShellPin -Path 'install/windows.hyper-v.ps1' -Name 'powershell-yaml'
+        $pin.Version | Should -BeExactly $script:HostPin['powershell-yaml'].Version
+        $pin.Sha512 | Should -BeExactly $script:HostPin['powershell-yaml'].Sha512
+        $ast = Get-YurunaTestFileAst -Path (Join-Path $repoRoot 'install/windows.hyper-v.ps1')
+        Get-YurunaTestCommandCallCount -Ast $ast -CommandName 'Install-Module' | Should -Be 0
+    }
+
+    It 'keeps Install-TestModule.ps1''s PSScriptAnalyzer pin equal to the host''s' {
+        $pin = Get-PowerShellPin -Path 'tools/Install-TestModule.ps1' -Name 'PSScriptAnalyzer'
+        $pin.Version | Should -BeExactly $script:HostPin['PSScriptAnalyzer'].Version
+        $pin.Sha512 | Should -BeExactly $script:HostPin['PSScriptAnalyzer'].Sha512
+        # Pester is the one module requested by its line (the newest 6.x) rather
+        # than by a pin, so Install-Module appears once, inside that install.
+        $ast = Get-YurunaTestFileAst -Path (Join-Path $repoRoot 'tools/Install-TestModule.ps1')
+        Get-YurunaTestCommandCallCount -Ast $ast -CommandName 'Install-Module' | Should -Be 1
+        $pester = Get-YurunaTestFunctionAst -Ast $ast -Name 'Install-NewestPester'
+        Get-YurunaTestCommandCallCount -Ast $pester -CommandName 'Install-Module' | Should -Be 1
+    }
+
+    It 'the Windows installer and Install-TestModule.ps1 install a pinned package through one function' {
+        $copies = foreach ($path in 'install/windows.hyper-v.ps1', 'tools/Install-TestModule.ps1') {
+            $found = Get-YurunaTestFunctionAst -Path (Join-Path $repoRoot $path) -Name 'Install-YurunaPinnedGalleryModule'
+            if (-not $found) { throw "$path carries no Install-YurunaPinnedGalleryModule" }
+            $found.Extent.Text.Replace("`r`n", "`n")
+        }
+        $copies[1] | Should -BeExactly $copies[0]
     }
 }

@@ -21,6 +21,9 @@ import (
 	"time"
 )
 
+// mirrorPopulationPrefix names a first population staged beside its published path.
+const mirrorPopulationPrefix = ".population-"
+
 type mirrorRepository struct {
 	state        mirrorState
 	published    bool
@@ -72,9 +75,17 @@ func newMirrorCoordinator(ctx context.Context, options mirrorOptions) (*mirrorCo
 		options.Limits.Retention < 14*24*time.Hour {
 		return nil, errors.New("invalid mirror limits")
 	}
-	for _, path := range []string{options.Root, options.StateRoot, filepath.Join(options.StateRoot, "state"), filepath.Join(options.StateRoot, "staging"), options.ReaderRoot} {
+	for _, path := range []string{options.Root, options.StateRoot, filepath.Join(options.StateRoot, "state"), options.ReaderRoot} {
 		if err := os.MkdirAll(path, 0750); err != nil {
 			return nil, err
+		}
+	}
+	// The caller holds the worker lock, so a population directory present now
+	// belongs to an interrupted attempt and would hold storage until removed.
+	stages, _ := filepath.Glob(filepath.Join(options.Root, "*", mirrorPopulationPrefix+"*"))
+	for _, stage := range stages {
+		if err := os.RemoveAll(stage); err != nil {
+			log.Printf("git-mirror could not remove an interrupted population: %v", err)
 		}
 	}
 	runCtx, cancel := context.WithCancel(ctx)
@@ -408,7 +419,14 @@ func (c *mirrorCoordinator) refresh(ctx context.Context, repo string, previous m
 	stage := ""
 	if population {
 		phase = "staging"
-		stage, err = os.MkdirTemp(filepath.Join(c.options.StateRoot, "staging"), "population-")
+		// Each systemd ReadWritePaths entry is its own bind mount, and rename(2)
+		// between two of them fails with EXDEV even on one filesystem. Staging
+		// beside the published path keeps the publish on one mount; the leading
+		// dot fails mirrorSlug, so no reader can name an unpublished stage.
+		if err = os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+			return previous, err
+		}
+		stage, err = os.MkdirTemp(filepath.Dir(path), mirrorPopulationPrefix)
 		if err != nil {
 			return previous, err
 		}
@@ -542,7 +560,8 @@ func (c *mirrorCoordinator) refresh(ctx context.Context, repo string, previous m
 			return previous, err
 		}
 		phase = "publish"
-		if err = os.MkdirAll(filepath.Dir(mirrorRepoPath(c.options.Root, repo)), 0750); err != nil {
+		// MkdirTemp creates 0700; Apache and the reader service read through the group.
+		if err = os.Chmod(path, 0750); err != nil {
 			return previous, err
 		}
 		if err = os.Rename(path, mirrorRepoPath(c.options.Root, repo)); err != nil {
@@ -589,34 +608,29 @@ func (c *mirrorCoordinator) storage() (free, used uint64, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	for _, root := range []string{c.options.Root, filepath.Join(c.options.StateRoot, "staging")} {
-		err = filepath.WalkDir(root, func(path string, d fs.DirEntry, e error) error {
+	err = filepath.WalkDir(c.options.Root, func(path string, d fs.DirEntry, e error) error {
+		if e != nil {
+			if os.IsNotExist(e) {
+				return nil
+			}
+			return e
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return errors.New("unexpected storage symlink")
+		}
+		if !d.IsDir() {
+			info, e := d.Info()
 			if e != nil {
 				if os.IsNotExist(e) {
 					return nil
 				}
 				return e
 			}
-			if d.Type()&os.ModeSymlink != 0 {
-				return errors.New("unexpected storage symlink")
-			}
-			if !d.IsDir() {
-				info, e := d.Info()
-				if e != nil {
-					if os.IsNotExist(e) {
-						return nil
-					}
-					return e
-				}
-				used += mirrorAllocatedBytes(info)
-			}
-			return nil
-		})
-		if err != nil {
-			return free, used, err
+			used += mirrorAllocatedBytes(info)
 		}
-	}
-	return free, used, nil
+		return nil
+	})
+	return free, used, err
 }
 func (c *mirrorCoordinator) checkCapacity() error {
 	c.storageMu.Lock()

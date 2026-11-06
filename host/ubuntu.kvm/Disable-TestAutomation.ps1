@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,6 +55,10 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAutomationState.psm1')
 # keeps a Linux script off a macOS-named one.
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostCondition.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.Config.psm1')              -Force -DisableNameChecking
+# Resolve-ConfigServiceStart: the config service port, as the runner starts it.
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.Prelude.psm1')             -Force -DisableNameChecking
+# Get-YurunaStatusFirewallRuleComment: the comment on every ufw rule Yuruna adds.
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.StatusFirewall.psm1')      -Force -DisableNameChecking
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1')              -Force -DisableNameChecking
 
 if (-not (Assert-SafeToDisable)) { exit 1 }
@@ -93,7 +97,7 @@ function Restore-Knob {
 # Enable uses. Under -WhatIf nothing elevated actually runs, so skip the prompt.
 if (-not $WhatIfPreference) {
     [void](Initialize-SudoCache -Reasons @(
-        'ufw delete allow <status port>',
+        'ufw status, and ufw delete for each allow rule Yuruna marked as its own',
         'systemctl disable libvirtd / virtlogd (only when the capture says they were off)',
         'gpasswd -d (only when the capture says this user was not a member)'
     ))
@@ -131,7 +135,9 @@ foreach ($unit in @('libvirtd', 'virtlogd')) {
 # --- REGION: Group membership
 # Removed ONLY when the capture proves this user was not a member before. A user
 # who was already in 'libvirt' before ever meeting Yuruna keeps that membership.
-foreach ($grp in @('libvirt', 'kvm')) {
+# The capture is written once, so it can hold no record of a group Enable came
+# to manage later; such a membership is left as it is too.
+foreach ($grp in @('libvirt', 'kvm', 'systemd-journal')) {
     $knob = Get-HostAutomationKnob -State $state -Name "group/$grp"
     if (-not $knob -or -not $knob.present) { $skipped.Add("Membership of '$grp' (not captured; left as it is)"); continue }
     $prior = "$($knob.value)".Trim()
@@ -168,9 +174,16 @@ if (-not $aclKnob -or -not $aclKnob.present) {
 }
 
 # --- REGION: Status-service LAN reachability (host firewall)
-# Removed with or without a capture: the rule is ours by construction -- Enable
-# is what added it, for the status service's port.
+# Removed with or without a capture, because a rule says itself whether it is
+# ours: every ufw rule Yuruna adds -- Enable's, for the status and config
+# service ports, and the one either service's launcher adds for its own port --
+# carries the comment Get-YurunaStatusFirewallRuleComment returns. A rule with
+# it goes whatever its port, so one added before the configured port changed
+# goes too. An allow rule on either configured port without it was added by
+# someone else, or by an older version before rules were marked; it stays, and
+# the report gives the command that removes it.
 $statusPort = 8080
+$tc = $null
 $configPath = Join-Path $RepoRoot 'test/test.config.yml'
 if (Test-Path -LiteralPath $configPath) {
     try {
@@ -178,22 +191,53 @@ if (Test-Path -LiteralPath $configPath) {
         if ($tc -and $tc.statusService -and $tc.statusService.port) { $statusPort = [int]$tc.statusService.port }
     } catch { Write-Verbose "status port read: $($_.Exception.Message)" }
 }
+$configPort = (Resolve-ConfigServiceStart -Config $tc).Port
+$servicePorts = @($statusPort, $configPort | Select-Object -Unique)
 $ufwCmd = Get-Command ufw -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $ufwCmd) {
-    $skipped.Add("ufw allow $statusPort/tcp (ufw is not installed)")
+    foreach ($port in $servicePorts) { $skipped.Add("ufw allow $port/tcp (ufw is not installed)") }
 } else {
     # The absolute path: ufw lives in /usr/sbin, which is not on an
     # unprivileged PATH, and 'sudo ufw' would then read as "not installed".
     $ufwExe = if ($ufwCmd.Source) { $ufwCmd.Source } else { 'ufw' }
     $status = Invoke-YurunaSudo -Argument @($ufwExe, 'status') -TolerateBlocked
     if ($status.ExitCode -ne 0) {
-        $skipped.Add("ufw allow $statusPort/tcp (could not read ufw status: $($status.Output))")
-    } elseif ($status.Output -notmatch "(?m)^\s*$statusPort/tcp\s") {
-        Write-Verbose "ufw has no allow rule for $statusPort/tcp."
-    } elseif ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_88043c49f7b71195' -Arguments @{ statusPort = "$statusPort" }), (Format-YurunaOperatorMessage -Key 'host.operator_503158d3bf5fcbd6'))) {
-        $r = Invoke-YurunaSudo -Argument @($ufwExe, '--force', 'delete', 'allow', "$statusPort/tcp") -TolerateBlocked
-        if ($r.ExitCode -eq 0) { $restored.Add("ufw rule removed: allow $statusPort/tcp") }
-        else { $skipped.Add("ufw allow $statusPort/tcp (delete failed: $($r.Output))") }
+        foreach ($port in $servicePorts) { $skipped.Add("ufw allow $port/tcp (could not read ufw status: $($status.Output))") }
+    } else {
+        $marker = Get-YurunaStatusFirewallRuleComment
+        # An inbound rule's line is its To, Action and From columns, then
+        # ' # <comment>' when it has one. The '(v6)' twin of a rule from
+        # Anywhere does not match, and the same delete removes it. A line with
+        # more columns (logging, a source port, an outbound rule) is no shape
+        # Yuruna adds, and is left alone.
+        $allowLines = @([regex]::Matches($status.Output, '(?m)^[ \t]*(?<port>\d+)/tcp[ \t]+ALLOW[ \t]+(?<from>\S+)(?:[ \t]+#[ \t](?<comment>[^\r\n]*?))?[ \t]*\r?$'))
+        foreach ($port in $servicePorts) {
+            if (-not @($allowLines | Where-Object { $_.Groups['port'].Value -eq "$port" }).Count) { Write-Verbose "ufw has no allow rule for $port/tcp." }
+        }
+        foreach ($line in $allowLines) {
+            $port = [int]$line.Groups['port'].Value
+            $from = $line.Groups['from'].Value
+            # The rule as ufw takes it, so the delete and the command in the
+            # report address this rule and not another on the same port.
+            $ruleArgs = if ($from -ceq 'Anywhere') { @('allow', "$port/tcp") } else { @('allow', 'from', $from, 'to', 'any', 'port', "$port", 'proto', 'tcp') }
+            $rule = $ruleArgs -join ' '
+            if ($line.Groups['comment'].Value -cne $marker) {
+                if ($servicePorts -contains $port) {
+                    $skipped.Add("ufw $rule (it has no '$marker' comment: someone added it by hand, or an older Yuruna version did before it marked its rules; to remove it: sudo ufw delete $rule)")
+                }
+                continue
+            }
+            $action = if ($port -eq $statusPort) { (Format-YurunaOperatorMessage -Key 'host.operator_503158d3bf5fcbd6') }
+                      elseif ($port -eq $configPort) { (Format-YurunaOperatorMessage -Key 'host.kvm_config_port_rule_delete') }
+                      else { (Format-YurunaOperatorMessage -Key 'host.operator_b15dd410559b0438') }
+            if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'host.operator_88043c49f7b71195' -Arguments @{ statusPort = "$port" }), $action)) {
+                # Named with its comment, ufw deletes only the marked rule: it
+                # matches a delete without one to an unmarked rule as well.
+                $r = Invoke-YurunaSudo -Argument (@($ufwExe, '--force', 'delete') + $ruleArgs + @('comment', $marker)) -TolerateBlocked
+                if ($r.ExitCode -eq 0) { $restored.Add("ufw rule removed: $rule") }
+                else { $skipped.Add("ufw $rule (delete failed: $($r.Output))") }
+            }
+        }
     }
 }
 

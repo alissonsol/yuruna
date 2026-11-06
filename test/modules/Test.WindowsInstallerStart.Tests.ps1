@@ -237,6 +237,7 @@ Describe 'UTM Windows VNC provisioning' {
         function Get-ClaimedVncDisplay { return @(10) }
         function Find-FreeVncDisplay { return 29 }
         function Get-VncDisplayFromBundle { return $script:AssignedDisplay }
+        function Test-VncDisplayInBundle { param($VMName, $Display) $null = $VMName; $Display -eq $script:AssignedDisplay }
         function Set-VncDisplayInBundle {
             [CmdletBinding(SupportsShouldProcess)]
             param($VMName, $Display)

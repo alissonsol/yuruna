@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 428a8fea-36e6-48a4-aa62-2004e6035a54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@
 BeforeAll {
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 $script:SavedOcrCombine = Save-YurunaTestEnvironment -Name 'YURUNA_OCR_COMBINE'
-$script:SavedOcrEngines = Save-YurunaTestEnvironment -Name 'YURUNA_OCR_ENGINES'
+$script:SavedOcrEngines = Save-YurunaTestEnvironment -Name 'YURUNA_OCR_ENGINES', 'YURUNA_TEST_OCR_A', 'YURUNA_TEST_OCR_B', 'YURUNA_TEST_OCR_CALLS', 'YURUNA_TEST_OCR_B_DELAY_MS'
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.OcrMatch.psm1') -Force -DisableNameChecking
 $script:OcrFixtureDir = Join-Path $here '../fixtures/ocr'
@@ -374,7 +374,6 @@ Describe 'Test-CombinedOcrMatch' {
     AfterAll {
         Restore-YurunaTestEnvironment -Saved $script:SavedOcrEngines
         Restore-YurunaTestEnvironment -Saved $script:SavedOcrCombine
-        Remove-Item Env:\YURUNA_TEST_OCR_A, Env:\YURUNA_TEST_OCR_B, Env:\YURUNA_TEST_OCR_CALLS -ErrorAction SilentlyContinue
         Clear-EnabledOcrProviderCache
     }
     BeforeEach {
@@ -739,7 +738,6 @@ Describe 'Test-CombinedOcrMatch -FallbackReuse' {
     AfterAll {
         Restore-YurunaTestEnvironment -Saved $script:SavedOcrEngines
         Restore-YurunaTestEnvironment -Saved $script:SavedOcrCombine
-        Remove-Item Env:\YURUNA_TEST_OCR_A, Env:\YURUNA_TEST_OCR_B, Env:\YURUNA_TEST_OCR_CALLS, Env:\YURUNA_TEST_OCR_B_DELAY_MS -ErrorAction SilentlyContinue
         Clear-EnabledOcrProviderCache
     }
     BeforeEach {

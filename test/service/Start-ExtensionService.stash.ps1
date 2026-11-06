@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 428ee2d7-b078-4350-802e-6f235f2102bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,9 +19,10 @@
 # The stash service's readiness phases. Start-ExtensionService.ps1 runs this
 # part in its own scope, inside the start operation's try block, after the VM
 # is adopted or built: it reads and sets that script's variables, and each of
-# its exits ends the start.
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'serviceOpResult',
-    Justification = 'Start-ExtensionService.ps1 reads it in the finally that closes the start operation.')]
+# its exits ends the start. The outcome is decided by the pipeline's shared
+# step, dot-sourced where it runs, from the verdict this part reaches.
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'sourceAccepted',
+    Justification = 'Read by the shared decideServiceStartOutcome block dot-sourced from Start-ExtensionService.ps1.')]
 param()
 
 if ($startPart -ne $PSCommandPath) { throw "$PSCommandPath runs only inside Start-ExtensionService.ps1." }
@@ -120,8 +121,8 @@ if ((Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint).IsFailure) {
 # itself. A readiness timeout is a FAILURE: a run that records PASS for a daemon
 # that never started sends the operator looking for the fault in whatever
 # breaks next.
-$stashVerdict = Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint
-switch ($stashVerdict.Outcome) {
+$verdict = Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint
+switch ($verdict.Outcome) {
     'Ready' {
         Write-Output "  Stash daemon is serving on :80 -- the pool resolves it and the dashboard cell links to it."
     }
@@ -146,7 +147,7 @@ dashboard's Extension cell links to it. The bring-up is NOT failed over this.
 # was built from can be answered from evidence rather than prediction. It is
 # read before anything is published, so a refused build is never advertised.
 $sourceAccepted = $true
-if ($stashVerdict.Outcome -eq 'Ready') {
+if ($verdict.Outcome -eq 'Ready') {
     $sourceAccepted = Assert-ServiceVmFrameworkSource -Address ([string]$stashVmIp) -Port 80 `
         -GuestKey 'guest.stash-service' -User 'stash-admin' `
         -Expected $frameworkExpected -ServiceLabel 'stash-service' `
@@ -154,14 +155,7 @@ if ($stashVerdict.Outcome -eq 'Ready') {
 }
 
 # --- REGION: Decide the start outcome
-# One record decides the census result, the advertisement and the exit. A stop
-# requested while this start ran wins: nothing is advertised for it.
-$stillWanted = Test-YurunaServiceOperationCurrent -Context $serviceOp
-$startOutcome = Resolve-YurunaServiceStartOutcome -Verdict $stashVerdict -StillWanted $stillWanted -SourceAccepted $sourceAccepted -Degraded $buildDegraded
-if ($startOutcome.Result -eq 'confirmed') { $serviceOpResult = 'confirmed' }
-if (-not $stillWanted) {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_start_stop_requested' -Arguments @{ vmName = $VMName; stopScript = 'Stop-StashServiceVM.ps1' })
-}
+. $decideServiceStartOutcome
 
 # --- REGION: Publish service readiness
 # See https://yuruna.link/42fffc2c-0008
@@ -171,7 +165,7 @@ if ($runtimeDir) {
             -Active $startOutcome.Advertise -VMName $VMName -HostType $HostType -HostingMode 'vm')
     } catch { Write-Verbose "stash-service marker write: $($_.Exception.Message)" }
 }
-if ($runtimeDir -and $startOutcome.Advertise -and $stashVerdict.Outcome -eq 'Ready') {
+if ($runtimeDir -and $startOutcome.Advertise -and $verdict.Outcome -eq 'Ready') {
     try {
         $stashUrl = Update-StashServiceMarkerAddress -RuntimeDir $runtimeDir -VMName $VMName -TimeoutSeconds 180
         if ($stashUrl) { Write-Output "  Stash VM address: $stashUrl (Extension cell deep-links here)." }
@@ -210,11 +204,11 @@ try {
 # --- REGION: Collect failure diagnostics
 # See https://yuruna.link/42fffc2c-000c
 # See https://yuruna.link/42f52e37-0020
-if ($stashVerdict.IsFailure) {
+if ($verdict.IsFailure) {
     $stashWaitedMinutes = if ($stashEndpoint) { [int]($stashEndpoint.WaitedSeconds / 60) } else { 0 }
     $stashObserved = if ($stashEndpoint -and $stashEndpoint.ObservedState) { [string]$stashEndpoint.ObservedState } else { 'nothing' }
     Write-Warning ("The stash-service daemon did not come up on :80 after $stashWaitedMinutes min -- " +
-                   "$($stashVerdict.Summary). Observed: $stashObserved.")
+                   "$($verdict.Summary). Observed: $stashObserved.")
 
     # The MAC-match sweep above already ran on this path; reusing its answer
     # keeps a second ICMP sweep out of a script that has already made the
@@ -278,7 +272,7 @@ Write-Verbose ""
 # guest that is still compiling has not completed anything yet -- it is a
 # successful bring-up whose service is not up, and saying so is what stops the
 # operator looking for a UI that does not answer.
-if ($stashVerdict.Outcome -eq 'StillBuilding') {
+if ($verdict.Outcome -eq 'StillBuilding') {
     Write-Output "== stash-service start: STILL BUILDING -- '$VMName' is up, daemon not serving yet =="
     Write-Verbose "  VM:       $VMName"
     Write-Verbose "  Host:     $HostType"

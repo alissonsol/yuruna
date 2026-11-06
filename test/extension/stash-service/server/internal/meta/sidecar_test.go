@@ -15,7 +15,8 @@ import (
 
 // TestSidecarRoundTrip writes a sidecar for a committed record, then --
 // against a FRESH (empty) index, simulating a reimaged VM -- rebuilds from
-// the on-share sidecars and confirms the record comes back intact (section 8.5).
+// the on-share sidecars and confirms the record comes back intact (see
+// https://yuruna.link/429e934f-000f).
 func TestSidecarRoundTrip(t *testing.T) {
 	share := t.TempDir()
 	dayDir := filepath.Join(share, "files", "2026", "06", "14")

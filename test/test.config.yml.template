@@ -177,6 +177,11 @@ vmStart:
   # See https://yuruna.link/42f6b05f-0056
   cachingProxyZotSha256: ""
   cachingProxyZotVersion: ""
+  # Names hosts and browsers use to reach the stash, download-agent and
+  # caching-proxy VMs built here, besides their addresses, host names,
+  # localhost and the proxy names this file already holds; a request naming
+  # any other host is refused. Seed-time setting; rebuild those VMs to apply.
+  serviceHostNames: []
   startTimeoutSeconds: 120
   testVmNamePrefix: test-
   # Extra VM-name prefixes the cycle sweep may stop and delete, for a project

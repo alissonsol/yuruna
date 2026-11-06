@@ -472,7 +472,9 @@ portanto a interface e a linha de comando não podem divergir.
   `ubuntu.kvm`), **Memory**, **Cores**, **Total Storage** e **Free Storage**
   (o relatório de hardware do próprio hospedeiro, lido de seu status service),
   **Control** (o valor transmitido: `ready` / `none` / `mismatch` /
-  `skew`), **Framework** e **Project** (abaixo), e o
+  `skew`), **Framework** e **Project** (abaixo), **Runner** (o commit que o
+  executor residente do hospedeiro carregou e desde quando, que só um reinício
+  do executor muda; `--` até que um executor iniciado com esse relato o envie), e o
   seletor **Pool**, que *move* o hospedeiro.
   O armazenamento é o que a máquina mantém: cada grupo de espaço conta uma vez &mdash; os
   volumes de um contêiner APFS são um único grupo de 2 TB, não cinco &mdash; e
@@ -1339,6 +1341,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Voltar para [Yuruna](../../README.md)

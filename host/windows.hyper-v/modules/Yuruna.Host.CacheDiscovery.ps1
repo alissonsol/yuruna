@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4220bbab-79ca-404d-a1ce-4cb14b7a89c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,8 @@ function Get-CacheVmCandidateIp {
              specific VM. Stale 'Permanent' entries across VM
              rebuilds can map one MAC to multiple IPs; all returned so
              the caller's :3128 probe picks the live one.
+        The adapters are read by the VM's name, so the copy of a VM that a
+        bounded call returns serves as well as a live one.
     .OUTPUTS
         System.String[] -- zero or more IPv4, KVP entries first.
     #>
@@ -51,13 +53,13 @@ function Get-CacheVmCandidateIp {
     )
 
     # See https://yuruna.link/42e5cdfd-0028
-    $kvpIps = @($VM | Get-VMNetworkAdapter |
+    $kvpIps = @(Get-VMNetworkAdapter -VMName ([string]$VM.Name) |
         ForEach-Object { $_.IPAddresses } |
         Where-Object { Test-IpAddress $_ } |
         Where-Object { $_ -notmatch '^(127\.|169\.254\.)' -and $_ -inotmatch '^(::1$|fe80:)' })
 
     $arpIps = @()
-    $vmMac = ($VM | Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
+    $vmMac = (Get-VMNetworkAdapter -VMName ([string]$VM.Name) | Select-Object -First 1).MacAddress
     if ($vmMac -match '^[0-9A-Fa-f]{12}$' -and $vmMac -ne '000000000000') {
         $vmMacDashed = (($vmMac -replace '(..)(?!$)', '$1-')).ToUpper()
         # No InterfaceIndex filter: the MAC is the VM's MAC and only that
@@ -960,7 +962,12 @@ function Repair-YurunaExternalSwitch {
 
     Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_0a90ff42da4c208c' -Arguments @{ switchName = "$SwitchName"; name = "$($r.Adapter.Name)"; attempts = "$attempts"; maxAttempts = "$MaxAttempts"; reason = "$($r.Reason)" }) -InformationAction Continue
     try {
-        Set-VMSwitch -Name $SwitchName -NetAdapterName $r.Adapter.Name -AllowManagementOS $true -ErrorAction Stop
+        # Under the lifecycle cap: a rebind the management service takes and
+        # never completes is reported, not waited for.
+        $null = Invoke-HyperVLifecycleCmdlet -Verb 'Set-VMSwitch' -VMName $SwitchName -ArgumentList @($SwitchName, $r.Adapter.Name) -ScriptBlock {
+            param($Name, $AdapterName)
+            Set-VMSwitch -Name $Name -NetAdapterName $AdapterName -AllowManagementOS $true -ErrorAction Stop
+        }
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_ab1fcde57a7857c8' -Arguments @{ switchName = "$SwitchName"; name = "$($r.Adapter.Name)"; message = "$($_.Exception.Message)" })
         return $false
@@ -980,9 +987,15 @@ function Repair-YurunaExternalSwitch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a06c9a13a89841f7' -Arguments @{ switchName = "$SwitchName"; name = "$($r.Adapter.Name)"; verifySeconds = "${VerifySeconds}" })
         try {
             if ($priorAdapterName) {
-                Set-VMSwitch -Name $SwitchName -NetAdapterName $priorAdapterName -AllowManagementOS $true -ErrorAction Stop
+                $null = Invoke-HyperVLifecycleCmdlet -Verb 'Set-VMSwitch' -VMName $SwitchName -ArgumentList @($SwitchName, $priorAdapterName) -ScriptBlock {
+                    param($Name, $AdapterName)
+                    Set-VMSwitch -Name $Name -NetAdapterName $AdapterName -AllowManagementOS $true -ErrorAction Stop
+                }
             } else {
-                Remove-VMSwitch -Name $SwitchName -Force -ErrorAction Stop
+                $null = Invoke-HyperVLifecycleCmdlet -Verb 'Remove-VMSwitch' -VMName $SwitchName -ArgumentList @($SwitchName) -ScriptBlock {
+                    param($Name)
+                    Remove-VMSwitch -Name $Name -Force -ErrorAction Stop
+                }
             }
         } catch {
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_44815e503565a001' -Arguments @{ switchName = "$SwitchName"; message = "$($_.Exception.Message)" })
@@ -1135,7 +1148,10 @@ function Get-OrCreateYurunaExternalSwitch {
 
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_f1828451620bc0f7' -Arguments @{ switchName = "$SwitchName"; interfaceAlias = "$($nic.InterfaceAlias)" })
     try {
-        New-VMSwitch -Name $SwitchName -NetAdapterName $nic.InterfaceAlias -AllowManagementOS:$true -ErrorAction Stop | Out-Null
+        $null = Invoke-HyperVLifecycleCmdlet -Verb 'New-VMSwitch' -VMName $SwitchName -ArgumentList @($SwitchName, $nic.InterfaceAlias) -ScriptBlock {
+            param($Name, $AdapterName)
+            New-VMSwitch -Name $Name -NetAdapterName $AdapterName -AllowManagementOS:$true -ErrorAction Stop
+        }
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_3aa815d3eed4c968' -Arguments @{ message = "$($_.Exception.Message)" })
         return $null

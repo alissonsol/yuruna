@@ -281,6 +281,7 @@ módulo Go próprio. Os pacotes usados diretamente por um serviço:
 | `beacon` | Presença por `POST /announce`: saudação na inicialização, novo anúncio a cada intervalo (qualquer anúncio que falhe é repetido em uma cadência de recuperação que dobra) e despedida `active:false`. O agregador que recebe os anúncios é definido uma vez, na criação por `New-VM` -- consulte [Quando o caching proxy é reconstruído](#when-the-caching-proxy-is-rebuilt). |
 | `pool` | Cliente de leitura para o **provedor de informações**: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz` e `Get`/`GetURL` para rotas sem tipagem. |
 | `labgate` | Controle de escrita: `Require`, `RequireBearer`, `HandleLogin`, `Session`. |
+| `hostcheck` | A lista de nomes permitidos no cabeçalho Host contra DNS rebinding, aplicada a todo o mux de um daemon: qualquer endereço, `localhost`, o nome de host da máquina e seu primeiro rótulo, e os nomes configurados para o serviço são aceitos; qualquer outro nome recebe `421` (`auth.host_not_served`) antes que uma rota seja executada. Os nomes em `X-Forwarded-Host` vindos de um par de loopback, que um proxy reverso na mesma máquina encaminha, também são avaliados. |
 | `hostrefresh` | Autorização de atualização remota do hospedeiro: a prova de atualização versionada (`Proof`, `Verify` com relógio explícito e tolerância temporal em ambas as direções), o `Signer` que a emite a partir da autoridade de assinatura, o carregador do arquivo secreto e o `Gate` da credencial de atualização, que lê apenas `X-Yuruna-Refresh-Credential`. Apenas pool-control o importa; consulte [Atualização remota do hospedeiro](../pool-admin.md#remote-host-refresh). |
 
 `pool.Host` também contém `Refresh`, a capacidade de atualização do
@@ -572,6 +573,14 @@ daemon; assim, um valor só passa a valer na inicialização que o incorpora.
 três serviços. Ela deve permanecer abaixo da tolerância de saúde de cinco
 minutos do agregador; consulte
 [o manifesto](#1-the-manifest----what-the-area-declares).
+
+Os nomes aos quais os daemons do stash e do download-agent respondem no
+cabeçalho `Host`, além de qualquer endereço, do nome de host da VM e de
+`localhost`, não são uma variável do convidado: o hospedeiro que constrói a VM
+os incorpora em `/etc/yuruna/service-host-names.env` a partir da própria
+configuração ([`vmStart.serviceHostNames`](../test-config.md#42b11c32-0015)), e
+a inicialização os passa como `--allowed-host-names`. O daemon de gerenciamento
+da VM do caching proxy usa o mesmo arquivo.
 
 **No hospedeiro**, cada `Start-<Service>VM.ps1` espera o daemon responder em
 `:80`, e a espera pode ser substituída, pois o primeiro boot compila o
@@ -1103,7 +1112,7 @@ esse procedimento acrescenta o manifesto, o SDK e o marcador a estas etapas.
 
 ## POST /announce (pool-aggregator-service)
 
-`handleAnnounce` em `test/extension/pool-aggregator-service/main.go` é a
+`HandleAnnounce` em `test/extension/pool-aggregator-service/internal/routes/ingest.go` é a
 interface de gravação da presença de extensões: uma VM de serviço (por exemplo,
 o beacon do serviço stash) envia por POST `{hostId, area, targetPort, active}`
 na inicialização, a cada período de beacon e com `active=false` no desligamento,
@@ -1308,6 +1317,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Voltar a [Yuruna](../../README.md)

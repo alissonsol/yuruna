@@ -14,7 +14,7 @@
       "source": "docs/extensions-api.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/extensions-api.md",
-      "sourceHash": "def4827ccf0bb4ac0b2935f49cb0702123e013a9b1bd6605b8befd603420c9e9",
+      "sourceHash": "6e6f5548ab0727858281abad6017e893c9d627f129f3eeadcbeac5c976cbb4c4",
       "origin": "machine"
     },
     {
@@ -22,7 +22,7 @@
       "source": "docs/failure-schema.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/failure-schema.md",
-      "sourceHash": "05334e1a06105eb35e1ef146313ffee8730081ad235bc4beb3c0d738b9398a75",
+      "sourceHash": "6773368efaeb1e4056e713f2e204f2191ed7fa755a37e6a5ff14b4f65253632e",
       "origin": "machine"
     },
     {
@@ -30,7 +30,7 @@
       "source": "docs/framework-implementation-notes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/framework-implementation-notes.md",
-      "sourceHash": "b03ae4d9863aa2065f4a4279469007c047b30f8437867260dbd30a3f4f70fb79",
+      "sourceHash": "8e153a8c1a6814db412107cb945f58be80147b3e1a97166e846189b82223cf7b",
       "origin": "machine"
     },
     {
@@ -38,7 +38,7 @@
       "source": "docs/host-implementation-notes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/host-implementation-notes.md",
-      "sourceHash": "5025c88f62d50420c6112ea21e5b9b7f1b3768c681715e3e3e25c8438fe328b8",
+      "sourceHash": "83784ec77620a7f4b35c1872440c429ba65eb35c8b664ed174ecbf8e39a3be76",
       "origin": "machine"
     },
     {
@@ -46,7 +46,7 @@
       "source": "docs/install.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/install.md",
-      "sourceHash": "21f8fbd656b7572f2dd9b0a2e54d9318058404c76dba3755ab075b8980f93d0c",
+      "sourceHash": "49533a600b708b55bf2153e4ce4e3750aa9cb816f210ee18efceb19a3c8abdf8",
       "origin": "machine"
     },
     {
@@ -70,7 +70,7 @@
       "source": "docs/operator.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/operator.md",
-      "sourceHash": "7ede31363332e71d72f3513418b9c2992b8e6569c3c6d60112218ba67c819e64",
+      "sourceHash": "31ed69b977ea5394c47e1cdb23be5816a1a74ab4198d0feecf4d2e62551fc068",
       "origin": "machine"
     },
     {
@@ -78,7 +78,7 @@
       "source": "docs/pool-admin.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/pool-admin.md",
-      "sourceHash": "4149f1ab3239b21138c11a14353021d5da94bac0374ec4d48a4688b8437fe052",
+      "sourceHash": "6f871f45fdf4df822c25fc580414ee91655c0bb87056c83ad431fca1e0e50c8a",
       "origin": "machine"
     },
     {
@@ -86,7 +86,7 @@
       "source": "docs/project-implementation-notes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/project-implementation-notes.md",
-      "sourceHash": "8539142dac84d0104c50b96982fa2a3c37191e066183f4d2d6db4518d9c11d16",
+      "sourceHash": "7ecb63f5d8531db52e96f53617cd59d75378e1f0250e6d80f2b1c9e8c762f48f",
       "origin": "machine"
     },
     {
@@ -94,7 +94,7 @@
       "source": "docs/test-harness.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/test-harness.md",
-      "sourceHash": "994eb99fbfeaee1957b7b2de87fa39d9f65ae5f50163ecd0484c274161e51963",
+      "sourceHash": "c087ad0fe46813c6204597bf5d691a39da8ce2e51ed6d51047e22eae662ae111",
       "origin": "machine"
     },
     {
@@ -102,7 +102,7 @@
       "source": "docs/vmconfig.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/vmconfig.md",
-      "sourceHash": "4680fd3361cc97c9e7f71abb7e1918d67e4954a4746df4f298fc953126eaa2df",
+      "sourceHash": "4921f5ce9c11cb649cdc3ff0af4bafc53931dd4bbf5ec89cc3de40e98f18c390",
       "origin": "machine"
     },
     {
@@ -164,7 +164,7 @@
       "source": "README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/README.md",
-      "sourceHash": "a52699f93422aa89c0b80a9fe05136023d341b0da30d588f375487efbd830a77",
+      "sourceHash": "6adad04a71cf5c9fa9a1770c1867169956d9b5a5695f3c4745bf3988f33de7e3",
       "origin": "machine"
     },
     {

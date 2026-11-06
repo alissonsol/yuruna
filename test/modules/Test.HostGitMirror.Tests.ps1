@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42d67854-78e5-47cc-bb39-1453d818809f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -486,10 +486,11 @@ Describe 'Host operations use the production mirror coordinator and Git transpor
         }
     }
 
-    It 'uses a retained pin only after both routes fail as transport and retains its confirmation time' {
+    It 'keeps the fallback-mode origin check and uses a retained pin only after both routes fail as transport' {
         $first = Resolve-GitSourceSelection -RepositoryUrl https://github.com/example/repo.git -SourceContext $script:Live.context
         $first.success | Should -BeTrue -Because $first.detail
         [IO.File]::WriteAllText($script:Live.noUpstreamPath, 'fixture outage')
+        $script:Live.context.mode = 'fallback'
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand { @{ ExitCode = 124; Output = 'connection timed out' } }
         $selected = Resolve-GitSourceSelection -RepositoryUrl https://github.com/example/repo.git -SourceContext $script:Live.context -InstalledRevision $script:Live.revision
         $selected.success | Should -BeTrue -Because $selected.detail
@@ -501,28 +502,33 @@ Describe 'Host operations use the production mirror coordinator and Git transpor
         Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommand -Exactly -Times 1
     }
 
-    It 'uses direct confirmation when only the mirror upstream route is blocked' {
+    It 'serves the retained pin without a host origin check while the mirror cannot reach upstream' {
         $first = Resolve-GitSourceSelection -RepositoryUrl https://github.com/example/repo.git -SourceContext $script:Live.context
         $first.success | Should -BeTrue -Because $first.detail
+        [IO.File]::WriteAllText((Join-Path $script:Live.upstream source.txt), 'later source')
+        $null = Invoke-MirrorFixtureGit $script:Live.upstream @('commit', '--quiet', '-am', 'advance')
         [IO.File]::WriteAllText($script:Live.noUpstreamPath, 'fixture outage')
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand {
             $translated = @($GitArgs | ForEach-Object { if ($_ -ceq 'https://github.com/example/repo.git') { $script:Live.upstreamUrl } else { $_ } })
             & $script:RealOriginCommand -GitArgs $translated -TimeoutSeconds $TimeoutSeconds -DeadlineUtc $DeadlineUtc
         }
-        $selected = Resolve-GitSourceSelection -RepositoryUrl https://github.com/example/repo.git -SourceContext $script:Live.context
+        $selected = Resolve-GitSourceSelection -RepositoryUrl https://github.com/example/repo.git -SourceContext $script:Live.context -InstalledRevision $script:Live.revision
         $selected.success | Should -BeTrue -Because $selected.detail
-        $selected.verification | Should -BeExactly origin-direct
+        $selected.verification | Should -BeExactly mirror-stale
         $selected.source | Should -BeExactly mirror
         $selected.selectedSha | Should -BeExactly $first.selectedSha
+        $selected.originCheckedAt | Should -BeExactly $first.originCheckedAt
         $selected.fallbackReason | Should -BeExactly mirror-upstream-unreachable
         $selected.failureClass | Should -BeNullOrEmpty
-        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommand -Exactly -Times 1
+        @($selected.attempts | Where-Object source -CEQ origin).Count | Should -Be 0
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommand -Exactly -Times 0
     }
 
-    It 'does not resurrect a retained pin after direct origin denies access' {
+    It 'does not resurrect a retained pin after a fallback-mode origin check denies access' {
         $first = Resolve-GitSourceSelection -RepositoryUrl https://github.com/example/repo.git -SourceContext $script:Live.context
         $first.success | Should -BeTrue -Because $first.detail
         [IO.File]::WriteAllText($script:Live.noUpstreamPath, 'fixture outage')
+        $script:Live.context.mode = 'fallback'
         Mock -ModuleName Test.HostGit Invoke-GitNetworkCommand { @{ ExitCode = 128; Output = 'fatal: Authentication failed' } }
         $selected = Resolve-GitSourceSelection -RepositoryUrl https://github.com/example/repo.git -SourceContext $script:Live.context
         $selected.success | Should -BeFalse
@@ -571,6 +577,7 @@ Describe 'Host operations use the production mirror coordinator and Git transpor
         $selected.success | Should -BeFalse
         $selected.fallbackReason | Should -BeExactly mirror-stale-expired
         $selected.failureClass | Should -BeExactly network_timeout
+        Should -Invoke -ModuleName Test.HostGit Invoke-GitNetworkCommand -Exactly -Times 1
     }
 
     It 'uses protected first acceptance for a long cycle but refuses expiry bypass through a selection field' {

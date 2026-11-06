@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42367dc8-87ed-6a22-76cb-f406abe4051a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,511 @@
         ' 未为其写入哨兵或来源记录。'
     )
     'host.clock_service_description' = 'Windows时间服务（W32Time）'
+    'host.deep_diagnostics_applying' = @(
+        '正在应用'
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ')……'
+    )
+    'host.deep_diagnostics_change' = @(
+        '    '
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'previous'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -> '
+        @{
+            'arg' = 'new'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_component_failed' = @(
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '未应用：'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_dependencies_kept' = @(
+        '安装'
+        @{
+            'arg' = 'package'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '时一并安装的软件包已被apt标记为自动安装，由于其他软件可能会使用它们，因此予以保留；/var/log/apt/history.log在该次安装下列出了它们。若也要移除它们：sudo apt-get purge <这些软件包>。apt-get autoremove还会移除apt不再需要的所有其他软件包，其中包括旧内核'
+    )
+    'host.deep_diagnostics_enable_incomplete' = @(
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '个组件失败，其余组件已生效；请排除原因后重新运行Enable-DeepDiagnostics.ps1。'
+    )
+    'host.deep_diagnostics_evidence_kept' = @(
+        '证据包保留在'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '中；-RemoveEvidence会删除它们'
+    )
+    'host.deep_diagnostics_existing_unreadable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '已存在但无法读取，因此之后无法将其恢复；已保持原样'
+    )
+    'host.deep_diagnostics_journal_directory_created' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '是在深度诊断模式开启期间创建的；只要它存在，journald就会保留持久日志。若要恢复为仅保存在内存中的日志，请运行：sudo rm -rf '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' && sudo systemctl restart systemd-journald'
+    )
+    'host.deep_diagnostics_key_netconsole' = 'netconsole目标'
+    'host.deep_diagnostics_key_pstore_backend' = 'pstore后端'
+    'host.deep_diagnostics_module_in_use' = @(
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '保持加载状态，因为仍有程序在使用它'
+    )
+    'host.deep_diagnostics_netconsole_how_to' = '若要将内核日志实时发送到另一台机器，请在那台机器上运行pwsh test/lab/Receive-Netconsole.ps1，然后使用-NetconsoleTarget <那台机器的IPv4地址>[:port]重新运行此脚本。'
+    'host.deep_diagnostics_netconsole_no_dispatcher' = '未安装NetworkManager，因此目标仅在启动时设置，此宿主机的地址变化后不会重新设置'
+    'host.deep_diagnostics_netconsole_no_target' = '未指定-NetconsoleTarget'
+    'host.deep_diagnostics_netconsole_not_enabled' = 'netconsole目标未能启用；请查看：journalctl -t yuruna-netconsole'
+    'host.deep_diagnostics_not_enabled' = @(
+        '此宿主机未启用深度诊断模式：'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '不存在。'
+    )
+    'host.deep_diagnostics_nothing_to_change' = '此宿主机上的深度诊断模式已生效；未进行任何更改。'
+    'host.deep_diagnostics_plan_apply' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): 将应用'
+    )
+    'host.deep_diagnostics_plan_current' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): 已生效'
+    )
+    'host.deep_diagnostics_plan_header' = @(
+        @{
+            'arg' = 'hostName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '上的深度诊断模式：计划的更改'
+    )
+    'host.deep_diagnostics_plan_note' = @(
+        '    说明: '
+        @{
+            'arg' = 'note'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_plan_skip' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): 跳过 -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_pstore_backend' = @(
+        'pstore已在使用'
+        @{
+            'arg' = 'backend'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '后端'
+    )
+    'host.deep_diagnostics_pstore_legacy_bios' = '此宿主机以旧版BIOS启动，而efi-pstore需要UEFI'
+    'host.deep_diagnostics_pstore_no_backend' = @(
+        'efi_pstore已加载，但pstore仍报告没有后端（'
+        @{
+            'arg' = 'backend'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '）'
+    )
+    'host.deep_diagnostics_pstore_unit_masked' = 'systemd-pstore.service已被屏蔽（masked）；请解除屏蔽（unmask），以便在启动时归档崩溃记录'
+    'host.deep_diagnostics_pstore_unsupported' = '此内核不支持pstore'
+    'host.deep_diagnostics_reason_declined' = '未确认'
+    'host.deep_diagnostics_reason_interrupted' = 'Enable-DeepDiagnostics.ps1在此组件生效之前已停止'
+    'host.deep_diagnostics_receiver_command' = @(
+        '请在目标机器上保持接收器运行：pwsh test/lab/Receive-Netconsole.ps1 -Port '
+        @{
+            'arg' = 'port'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_requires_linux' = '深度诊断模式适用于Ubuntu KVM宿主机，而此宿主机运行的不是Linux。未进行任何更改。'
+    'host.deep_diagnostics_requires_systemd' = '深度诊断模式要求正在运行的init系统为systemd，而此宿主机上不存在/run/systemd/system。未进行任何更改。'
+    'host.deep_diagnostics_restore_done' = @(
+        '深度诊断模式已关闭；已撤销'
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '项更改。'
+    )
+    'host.deep_diagnostics_restore_failed' = @(
+        @{
+            'arg' = 'item'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '未恢复：'
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_restore_header' = @(
+        '深度诊断模式（由'
+        @{
+            'arg' = 'enabledBy'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '于'
+        @{
+            'arg' = 'enabledAtUtc'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '启用）：计划的恢复'
+    )
+    'host.deep_diagnostics_restore_incomplete' = @(
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '项更改无法撤销；'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '已保留，因此再次运行Disable-DeepDiagnostics.ps1即可完成恢复。'
+    )
+    'host.deep_diagnostics_setting_overridden' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '设置了'
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '='
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '，且读取顺序在深度诊断配置片段之后，因此启动时以其值为准。'
+    )
+    'host.deep_diagnostics_should_apply' = '应用'
+    'host.deep_diagnostics_should_record' = '记录当前值并应用深度诊断模式'
+    'host.deep_diagnostics_should_restore' = '恢复启用深度诊断模式之前记录的值'
+    'host.deep_diagnostics_state_record' = @(
+        '以上每个值都会在首次更改之前记录到'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '；Disable-DeepDiagnostics.ps1会根据该记录恢复宿主机。'
+    )
+    'host.deep_diagnostics_state_unreadable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '已存在，但不是深度诊断状态文件（'
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）。未进行任何更改；请先恢复该文件或将其移走，然后再运行。'
+    )
+    'host.deep_diagnostics_step_failed' = @(
+        @{
+            'arg' = 'command'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '失败（退出码'
+        @{
+            'arg' = 'exitCode'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '）：'
+        @{
+            'arg' = 'output'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_sudo_unavailable' = '深度诊断模式会更改归root所有的设置，而sudo未能在不询问密码的情况下运行命令。未进行任何更改。请在可以输入sudo密码的终端中重新运行此脚本，或以root身份运行。'
+    'host.deep_diagnostics_summary_applied' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': 已应用'
+    )
+    'host.deep_diagnostics_summary_failed' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': 失败 -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_summary_header' = '深度诊断模式：'
+    'host.deep_diagnostics_summary_skipped' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': 已跳过 -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_sysctl_not_exposed' = @(
+        '此内核未提供'
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '，因此略过该项。'
+    )
+    'host.deep_diagnostics_target_invalid' = @(
+        '-NetconsoleTarget '''
+        @{
+            'arg' = 'target'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''不是IPv4地址（端口可选），例如192.168.1.20或192.168.1.20:6666。未进行任何更改。'
+    )
+    'host.deep_diagnostics_title_boot_evidence' = '每次启动时生成的证据包'
+    'host.deep_diagnostics_title_journald' = '每10秒同步一次的持久日志'
+    'host.deep_diagnostics_title_netconsole' = '发送到另一台机器的内核日志'
+    'host.deep_diagnostics_title_pstore' = '保存在UEFI存储中的崩溃记录'
+    'host.deep_diagnostics_title_rasdaemon' = '硬件错误日志'
+    'host.deep_diagnostics_title_sysctl' = '发生锁死或oops时触发panic并重启'
+    'host.deep_diagnostics_title_vitals' = '每10秒写入内核日志的宿主机运行指标'
+    'host.deep_diagnostics_title_watchdog' = '硬件看门狗复位'
+    'host.deep_diagnostics_value_absent' = '不存在'
+    'host.deep_diagnostics_value_evidence' = '证据包'
+    'host.deep_diagnostics_value_installed' = '已安装'
+    'host.deep_diagnostics_value_loaded' = '已加载'
+    'host.deep_diagnostics_value_none' = '无'
+    'host.deep_diagnostics_value_not_installed' = '未安装'
+    'host.deep_diagnostics_value_not_loaded' = '未加载'
+    'host.deep_diagnostics_value_removed' = '已移除'
+    'host.deep_diagnostics_value_restored_content' = @(
+        '保存在'
+        @{
+            'arg' = 'statePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '中的原有内容'
+    )
+    'host.deep_diagnostics_value_saved_content' = @(
+        '其他内容，已保存在'
+        @{
+            'arg' = 'statePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '中'
+    )
+    'host.deep_diagnostics_value_yuruna_file' = '深度诊断版本'
+    'host.deep_diagnostics_verify' = '若要端到端检查该路径，请运行下面的命令；它写入的行会出现在此处的''journalctl -k -n 5''输出中，启用netconsole时也会出现在接收器的日志中：echo ''<5>yuruna-deep-diagnostics: check'' | sudo tee /dev/kmsg'
+    'host.deep_diagnostics_watchdog_daemon' = @(
+        @{
+            'arg' = 'unit'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '正在运行并占用看门狗设备；请停止并禁用它，以便systemd使用该设备'
+    )
+    'host.deep_diagnostics_watchdog_held' = @(
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '已被另一个进程打开，而看门狗设备同一时间只能由一个使用者打开；请停止该进程，以便systemd使用它'
+    )
+    'host.deep_diagnostics_watchdog_no_device' = @(
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '已加载，但未注册任何硬件看门狗，这通常表示固件已将其禁用（请查看：sudo dmesg | grep -i '
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '）'
+    )
+    'host.deep_diagnostics_watchdog_no_driver' = @(
+        '未注册任何硬件看门狗，且没有已知适用于CPU厂商'''
+        @{
+            'arg' = 'vendor'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''的驱动程序；不使用softdog，因为它在完全死机时无法触发'
+    )
+    'host.deep_diagnostics_watchdog_nowayout' = @(
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '设置了nowayout：一旦激活，不重启就无法停止，因此Disable-DeepDiagnostics.ps1将无法恢复此宿主机'
+    )
+    'host.deep_diagnostics_watchdog_provider_unknown' = @(
+        '无法确定提供'
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '（'''
+        @{
+            'arg' = 'identity'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''）的内核模块（已加载的看门狗驱动：'
+        @{
+            'arg' = 'drivers'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '），因此下次启动时不会有任何组件加载它，重启后看门狗将消失；请在只加载一个硬件看门狗驱动时再次运行'
+    )
+    'host.deep_diagnostics_watchdog_softdog' = @(
+        '只注册了softdog（'
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '）。softdog运行在死机时会停止运行的处理器上，因此在完全死机时无法触发；而且只要softdog仍处于加载状态，硬件驱动程序就不会注册为watchdog0；请卸载softdog（sudo modprobe -r softdog）后重新运行'
+    )
     'host.download_incomplete' = @(
         @{
             'arg' = 'uri'
@@ -82,10 +587,10 @@
         '；已保留进程ID文件，未发送任何信号。'
     )
     'host.hyperv_bounded_call_no_answer' = @(
-        'Hyper-V 调用结束时未返回结果（作业状态：'
+        'Hyper-V 调用结束时未返回结果（子进程退出代码：'
         @{
-            'arg' = 'state'
-            'type' = 'token'
+            'arg' = 'exitCode'
+            'type' = 'detail'
             'trust' = 'internal'
         }
         '；原因：'
@@ -261,6 +766,44 @@
         }
         "`”是否存在；未更改任何内容。"
     )
+    'host.hyperv_worker_lookup_failed' = @(
+        '  查找虚拟机'
+        @{
+            'arg' = 'vmId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '的vmwp.exe工作进程失败；将重试Stop-VM。错误：'
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.hyperv_worker_lookup_unanswered' = @(
+        '  查找虚拟机'
+        @{
+            'arg' = 'vmId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '的vmwp.exe工作进程未在'
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '秒内得到响应；将重试Stop-VM。'
+    )
+    'host.kvm_config_port_firewall' = @(
+        '  配置服务防火墙：'
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.kvm_config_port_rule_delete' = '删除Yuruna添加的配置服务规则'
     'host.kvm_force_stop_pid_unverified' = @(
         'Stop-VMForce：'
         @{
@@ -306,6 +849,8 @@
         }
         '发送信号；请为/bin/kill安装sudoers规则，或手动停止该域。'
     )
+    'host.kvm_journal_group_missing' = '组''systemd-journal''不存在，因此测试运行器的诊断功能无法读取系统日志或上一次启动的内核日志。systemd会根据sysusers.d创建该组；请运行''sudo systemd-sysusers''恢复该组，然后重新运行此脚本。'
+    'host.kvm_journal_group_session_stale' = '  /etc/group中已有''systemd-journal''组成员关系；当前shell的组集合尚未更新。请注销并重新登录，然后从该新会话启动测试运行器，以便其诊断功能能够读取系统日志。'
     'host.kvm_rename_destination_dir_exists' = @(
         "无法重命名为`“"
         @{
@@ -5685,7 +6230,7 @@
         }
         '  （测试框架密钥已获授权）'
     )
-    'host.operator_a0e97dcbb626019f' = '仅移除ufw状态端口规则——已确认该规则由本工具创建。组成员资格、$HOME ACL、libvirtd/virtlogd和GNOME键将保持原样，并在报告中列出。'
+    'host.operator_a0e97dcbb626019f' = '仅移除Yuruna标记为自己所加的ufw规则。组成员资格、$HOME ACL、libvirtd/virtlogd和GNOME键将保持原样，并在报告中列出。'
     'host.operator_a127790ebde6e4ff' = '其上的缓存虚拟机），或手动定义它，请参阅'
     'host.operator_a19074ac4867746e' = '  控制台/SSH登录：'
     'host.operator_a1a6059aaacffcb8' = @(

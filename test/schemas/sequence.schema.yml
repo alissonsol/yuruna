@@ -456,6 +456,9 @@ $defs:
           properties:
             timeoutSeconds: { type: integer, minimum: 1 }
             arm64HyperVProcessorCount: { type: [integer, string] }
+            # The wait is for the install's own power-off, not for a requested
+            # shutdown: a VM that never stops is the install not finishing.
+            installPowerOff: { type: boolean, default: false }
 
       - if: { properties: { action: { const: tapOn } } }
         then:
@@ -508,6 +511,10 @@ $defs:
             noSegmentMatch:      { type: boolean, default: false }
             sinceStepStart:      { type: boolean }
             failurePatterns:     { $ref: "#/$defs/patternOrArray" }
+            # A wait that starts while the guest boots: blank captures are the
+            # expected run-up, so the engine does not treat them as a stale
+            # capture feed to repair.
+            expectBlankConsole:  { type: boolean, default: false }
 
       - if: { properties: { action: { const: waitForTextWithNudge } } }
         then:
@@ -521,6 +528,9 @@ $defs:
             noSegmentMatch:      { type: boolean, default: false }
             sinceStepStart:      { type: boolean }
             failurePatterns:     { $ref: "#/$defs/patternOrArray" }
+            # As on waitForText: the canonical nudged login wait starts while
+            # the guest boots after the install or a cold restart.
+            expectBlankConsole:  { type: boolean, default: false }
             nudgeKey:
               type: string
               enum: [Enter, Tab, Space, Escape, Up, Down, Left, Right,

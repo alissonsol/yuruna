@@ -111,7 +111,7 @@ mid-autoinstall with a confusing diagnostic.
 | `host/vmconfig/ubuntu.server.base.user-data` | The shared base -- same for Ubuntu Server 24 and 26. Contains anchor lines like `# === YURUNA_OVERLAY_NETWORK ===` that the merger replaces. |
 | `host/vmconfig/ubuntu.server.hyperv.overlay.yml` | Per-host overlay: `hv_balloon` denylist + `hyperv_fb` framebuffer pin. |
 | `host/vmconfig/ubuntu.server.kvm.overlay.yml` | Per-host overlay: VT-blanking early-command + `consoleblank=0` + fb-safe GRUB cmdline. |
-| `host/vmconfig/ubuntu.server.utm.overlay.yml` | Per-host overlay: `network:` block pinning IPv4 DHCP and refusing IPv6 RA. |
+| `host/vmconfig/ubuntu.server.utm.overlay.yml` | Per-host overlay: `network:` block pinning IPv4 DHCP and refusing IPv6 RA; `shutdown: poweroff`, so the runner cold-starts the installed system; journald forwarding to the PL011 serial console. |
 | `host/vmconfig/amazon.linux.2023.base.user-data` | The shared AL2023 base. Uses cloud-init `runcmd:` (AL2023 boots a prebuilt cloud image rather than running an Ubuntu-style autoinstall), with its own anchor set. |
 | `host/vmconfig/amazon.linux.2023.hyperv.overlay.yml` | Per-host AL2023 overlay (Hyper-V). |
 | `host/vmconfig/amazon.linux.2023.kvm.overlay.yml` | Per-host AL2023 overlay (KVM): `consoleblank=0` runcmd. |
@@ -126,12 +126,13 @@ Each anchor line in the base reads
 `# === YURUNA_OVERLAY_<NAME> ===`. The anchor set differs by guest type
 (autoinstall vs prebuilt-image `runcmd:`):
 
-**Ubuntu Server** -- six anchors: the four below plus `HOST_AGENT_PKG` and
+**Ubuntu Server** -- seven anchors: the five below plus `HOST_AGENT_PKG` and
 `LATE_HOST_AGENT` for the host-agent package and late-command slots:
 
 | Anchor | Purpose | Used by overlays |
 |---|---|---|
 | `NETWORK` | Per-host network: block | All hosts (MAC-based DHCP); UTM also refuses IPv6 RA |
+| `SHUTDOWN` | What the installer does when it finishes (`shutdown:`) | UTM only (`poweroff`); KVM and Hyper-V leave it empty and keep the installer's reboot |
 | `EARLY_COMMANDS` | Pre-install commands | All hosts (quiet kernel output and stop tmpfiles-clean timer); KVM also disables VT blanking |
 | `GRUB_PRE_CONSOLE_QUIET` | Kernel quirks before `console-quiet` block | Hyper-V (`hv_balloon`+`hyperv_fb`), KVM (`consoleblank`) |
 | `GRUB_POST_CONSOLE_QUIET` | Kernel quirks after `console-quiet` block | KVM only (`nomodeset` fb-safe) |
@@ -1819,7 +1820,7 @@ squid-exporter unit: binary go-installed in runcmd, loopback-only (Prometheus sc
 
 ### Grafana anonymous Viewer
 
-Grafana: anonymous Viewer (no login/sign-up); admin/admin still editable. GF_* env vars applied via systemd drop-in.
+Grafana: anonymous Viewer (no login/sign-up). The `admin` password is new on every build: the drop-in's `EnvironmentFile=` reads `GF_SECURITY_ADMIN_PASSWORD` from `/etc/yuruna/grafana-admin.env` (0600, root), and Grafana applies it when it creates its database at first start. GF_* env vars applied via systemd drop-in.
 
 <a id="429f3d06-004f"></a>
 
@@ -2671,6 +2672,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

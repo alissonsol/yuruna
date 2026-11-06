@@ -879,14 +879,14 @@
       "message": "检查配置验证诊断中的 sourceSelections 和镜像状态；保持签名和提交验证启用。"
     },
     "remediation.vm_not_stopped_rationale": {
-      "sourceHash": "08037372e114765752250461f6454c4ff930fd653db40d4d3b2fef71e4cd2beb",
+      "sourceHash": "67d9ba7057afe04c7599ed41f863a642e8fe1822b6d8009d05e6091eb5e4b495",
       "origin": "machine",
-      "message": "{vmName}始终未进入该步骤等待的停止状态：客户机忽略了关机请求，再次等待无法改变这一点。冷关机再开机可以。"
+      "message": "{vmName}始终未进入该步骤等待的停止状态：客户机忽略了关机请求，再次等待无法改变这一点。从宿主机将其关闭则可以。"
     },
     "remediation.vm_not_stopped_action_power": {
-      "sourceHash": "640f5e262c898dcd8a1c107df70ea1f19a9723d1b55c9c5880a7bc01dd5ece1c",
+      "sourceHash": "399b9963fefc5899d338efe0f266d9c5ea82915ff4f0464948ee714849948360",
       "origin": "machine",
-      "message": "从宿主机关闭该虚拟机（带restartVmBeforeRetry: coldPowerCycle的retry会这样做），然后再次运行该步骤。"
+      "message": "从宿主机关闭该虚拟机（序列中带forceOnTimeout: true的stopVm步骤会这样做，或从虚拟机监控程序关闭它），然后再次运行该步骤。"
     },
     "remediation.vm_not_stopped_action_inspect": {
       "sourceHash": "15879774c917340e974da8827f0752cbe47da1a3c47659d751689a71d933031b",
@@ -907,6 +907,21 @@
       "sourceHash": "28e9abf2f74ea280b26312eeac2fb6013582d2472223baf12eb8e542297f5001",
       "origin": "machine",
       "message": "阅读客户机的执行日志，查明是什么结束了该进程。"
+    },
+    "remediation.guest_kernel_stalled_rationale": {
+      "sourceHash": "bc0a003299513ecd19e24ff1959e3dd720e005c2b9a8bf890f0ab10883a409b0",
+      "origin": "machine",
+      "message": "{vmName}发生guest_kernel_stalled：客户机内核已停止推进，因此该步骤无法完成（内核报告：{kinds}；未处理任何中断的虚拟处理器：{processors}；所有虚拟处理器被滞留在虚拟机监控程序中的秒数：{heldSeconds}）。这不是镜像源缓慢或载荷故障，同一次启动也无法恢复；下一次尝试会重新启动客户机。"
+    },
+    "remediation.guest_kernel_stalled_action_evidence": {
+      "sourceHash": "faed7b16f8ed518f23a820df987b3398d39f77f3c91a2885e20ecffc37ef9bb2",
+      "origin": "machine",
+      "message": "阅读last_failure.json中的causeDetail.guestKernelStallEnd和causeDetail.guestLivelock，以及客户机文件夹中serial-console.log里的内核报告"
+    },
+    "remediation.guest_kernel_stalled_retry_reason": {
+      "sourceHash": "1b906c06363703bde982a019ed4c54ab3c9246b202868ee4a6b500a212af7786",
+      "origin": "machine",
+      "message": "已停止推进的客户机内核只有在重新启动后才能恢复，而下一次尝试会执行这次启动；这些重试消耗单独的每日预算"
     }
   }
 }

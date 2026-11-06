@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -764,6 +764,23 @@ function Resolve-GitSourceSelection {
         }
         $result.attempts += @{ source = 'mirror'; success = [bool]($receipt -and $receipt.status -eq 'ready'); reason = $result.fallbackReason; failureClass = $result.failureClass }
     }
+    $staleRefusal = ''
+    if (-not $result.success -and -not $result.failureClass -and $receipt -and $receipt.status -eq 'stale') {
+        # A stale receipt still names the pin the mirror last confirmed. Using it
+        # without a host GitHub check keeps a GitHub outage away from every host
+        # the mirror serves. Only fallback mode asked GitHub first, so only there
+        # is the host's own route known to have failed.
+        $maximumAge = if ($SourceContext.Contains('mirrorOnlyMaxAgeSeconds')) { [double]$SourceContext.mirrorOnlyMaxAgeSeconds } else { 604800 }
+        $age = ($now - [DateTimeOffset]::Parse($receipt.originCheckedAt, [Globalization.CultureInfo]::InvariantCulture)).TotalSeconds
+        if ($maximumAge -gt 0 -and $maximumAge -le 1209600 -and $age -ge -60 -and $age -le $maximumAge) {
+            $candidate = @{ verification = 'mirror-stale'; selectedSha = $receipt.selectedSha; repository = $repository; ref = $Ref; originCheckedAt = $receipt.originCheckedAt }
+            if (-not (Test-GitStaleReplacement -Selection $candidate -InstalledRevision $InstalledRevision -InstalledProvenance $InstalledProvenance)) { $staleRefusal = 'mirror-stale-rollback-blocked' }
+            else {
+                $result.success = $true; $result.source = 'mirror'; $result.verification = 'mirror-stale'; $result.fallbackReason = 'mirror-upstream-unreachable'
+                $result.failureClass = if ($origin) { 'host_network_degraded' } else { '' }
+            }
+        } else { $staleRefusal = 'mirror-stale-expired' }
+    }
     if (-not $result.success -and -not $origin) {
         $origin = Resolve-GitOriginSelection -RepositoryUrl $RepositoryUrl -Ref $Ref -DeadlineUtc $DeadlineUtc -Clock $Clock
         $result.attempts += @{ source = 'origin'; success = $origin.success; reason = $origin.reason }
@@ -776,14 +793,8 @@ function Resolve-GitSourceSelection {
         $result.acceptedAt = $result.originCheckedAt
         if ($receipt -and $receipt.objectReady -and $receipt.selectedSha -ceq $origin.selectedSha) { $result.source = 'mirror' }
         if ($result.failureClass -ne 'source_integrity') { $result.failureClass = '' }
-    } elseif (-not $result.success -and -not $result.failureClass -and $receipt -and $receipt.status -eq 'stale' -and $origin.failureClass -eq 'network_timeout') {
-        $maximumAge = if ($SourceContext.Contains('mirrorOnlyMaxAgeSeconds')) { [double]$SourceContext.mirrorOnlyMaxAgeSeconds } else { 604800 }
-        $age = ($now - [DateTimeOffset]::Parse($receipt.originCheckedAt, [Globalization.CultureInfo]::InvariantCulture)).TotalSeconds
-        if ($maximumAge -gt 0 -and $maximumAge -le 1209600 -and $age -ge -60 -and $age -le $maximumAge) {
-            $candidate = @{ verification = 'mirror-stale'; selectedSha = $receipt.selectedSha; repository = $repository; ref = $Ref; originCheckedAt = $receipt.originCheckedAt }
-            if (-not (Test-GitStaleReplacement -Selection $candidate -InstalledRevision $InstalledRevision -InstalledProvenance $InstalledProvenance)) { $result.fallbackReason = 'mirror-stale-rollback-blocked' }
-            else { $result.success = $true; $result.source = 'mirror'; $result.verification = 'mirror-stale'; $result.fallbackReason = 'mirror-upstream-unreachable'; $result.failureClass = 'host_network_degraded' }
-        } else { $result.fallbackReason = 'mirror-stale-expired' }
+    } elseif (-not $result.success -and $staleRefusal -and $origin.failureClass -eq 'network_timeout') {
+        $result.fallbackReason = $staleRefusal
     }
     if ($result.success -and $result.source -eq 'mirror') {
         $result.selectedSha = $receipt.selectedSha; $result.fetchRef = $receipt.fetchRef; $result.fetchUrl = "$base/git/$repository.git"
@@ -2372,8 +2383,10 @@ function Get-HostRepositoryAccess {
 # answers for the gallery, change the code every runner imports. To move a pin,
 # read the new version's PackageHash from
 #   https://www.powershellgallery.com/api/v2/Packages(Id='<name>',Version='<version>')
-# and compare it with the SHA-512 of the downloaded .nupkg. install/macos.utm.sh
-# carries its own copy of the powershell-yaml pin (it runs before any checkout).
+# and compare it with the SHA-512 of the downloaded .nupkg. The host installers
+# under install/ carry their own copy of the powershell-yaml pin (each runs
+# before any checkout) and tools/Install-TestModule.ps1 its own copy of the
+# PSScriptAnalyzer pin; Test.HostGitInstall keeps every copy equal to this table.
 $script:YurunaGalleryModulePin = @{
     'powershell-yaml'  = @{ Version = '0.4.12'; Sha512 = 'Vc5DLyw7hLsCL6yFlSvzsdUUWmgfqoM35XmRavtKOz37GHBg3p+vWxaO/9wS8MbptzWspdUBcVRGSqAdlJmtUg==' }
     'PSScriptAnalyzer' = @{ Version = '1.25.0'; Sha512 = '5/tXMmLmBLqymRSuYpIdJLl8L4i1GbQSd7QD72zhY/FLfRs23HNEmmjlrlqNlQKJGxDCZBMf0YE63ym/ExwWYw==' }

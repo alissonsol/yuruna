@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a250bd-06e8-40d3-8cee-cc9f04e23650
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,8 +47,22 @@
 #>
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'ExitOk',
     Justification = 'The service readiness parts this script runs in its scope exit with it.')]
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'buildDegraded',
-    Justification = 'The service readiness parts this script runs in its scope hand it to the start outcome.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'resolveServiceVmAddress',
+    Justification = 'The service readiness parts this script runs in its scope dot-source it.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'recoverServiceVmAddress',
+    Justification = 'The service readiness parts this script runs in its scope dot-source it.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'reportServiceVmSource',
+    Justification = 'The service readiness parts this script runs in its scope dot-source it.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'decideServiceStartOutcome',
+    Justification = 'The service readiness parts this script runs in its scope dot-source it.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'vmIp',
+    Justification = 'Set by a shared readiness step for the part that dot-sources it.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'ipWaitSeconds',
+    Justification = 'Set by a shared readiness step for the part that dot-sources it.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'sourceAccepted',
+    Justification = 'Set by a shared readiness step for the part that dot-sources it.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'serviceOpResult',
+    Justification = 'Set by the shared outcome step; read in the finally that closes the start operation.')]
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)][string]$VMName,
@@ -131,6 +145,9 @@ is fixed.
 $guestKey  = "guest.$Area"
 $guestUser = $serviceProfile.User
 $startName = [IO.Path]::GetFileNameWithoutExtension($CallerScript)
+# The stop entry script paired with the caller, which the messages that send
+# the operator to it name.
+$stopScript = "$($startName -replace '^Start-', 'Stop-').ps1"
 
 if ($serviceProfile.SessionPreferences) {
     $global:InformationPreference = "Continue"
@@ -344,6 +361,69 @@ if ($adoption.Decision -ne 'rebuild') {
     $build = Invoke-YurunaServiceVmBuild -BuilderPath $newVm -HostType $HostType -VMName $VMName -OperationContext $serviceOp -AllowPseudoLocale:$AllowPseudoLocale -Confirm:$false
     if (-not $build.Ok) { Write-Error $build.Error -ErrorAction Continue; exit $build.ExitCode }
     $buildDegraded = @($build.Degraded)
+}
+
+# --- REGION: Shared readiness steps
+# The pool-control and download-agent parts run the same steps around their
+# readiness probe, and every part decides its outcome the same way. The steps
+# live here once, as script blocks a part dot-sources in this scope where it
+# runs them, so the variables a step reads and sets ($vmIp, $endpoint,
+# $verdict, ...) are the part's own; a part hands a step what differs through
+# those variables, such as the forwarder re-point in $repointForwarder.
+# See https://yuruna.link/42e220c4-0008
+$resolveServiceVmAddress = {
+    # The address the hypervisor reports is where the part's host forward
+    # and readiness wait start. None within the wait is not a boot failure:
+    # the VM is running, so the part asks the guest itself, and the seconds
+    # spent here are what its messages and a recovered endpoint report.
+    Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
+    $ipWaitStart = (Get-Date)
+    $vmIp = try { Wait-VMIp -VMName $VMName -TimeoutSeconds 120 } catch { Write-Verbose "Wait-VMIp: $($_.Exception.Message)"; $null }
+    $ipWaitSeconds = [int]((Get-Date) - $ipWaitStart).TotalSeconds
+}
+# See https://yuruna.link/4220a755-0046
+$recoverServiceVmAddress = {
+    # A wait that ended without the daemon answering looks for the guest by a
+    # route the wait could not use; a guest found serving there is adopted at
+    # that address, and the host forward is re-pointed to it. The probe is
+    # deliberately short: it runs only after the ordinary wait has already
+    # spent its whole budget, and it is confirming a listener that either
+    # answers within a few polls or was never there.
+    $recoveryProbeSeconds = 60
+    $recoveredIp = ''
+    if ((Get-ServiceVmReadinessVerdict -Endpoint $endpoint).IsFailure) {
+        $recovery = Confirm-ServiceVmAtRecoveredAddress -VMName $VMName -Port 80 -KnownAddress ([string]$vmIp) -TimeoutSeconds $recoveryProbeSeconds
+        $recoveredIp = [string]$recovery.Address
+        Write-Verbose "  $($recovery.Summary)."
+        if ($recovery.Ready) {
+            $vmIp = $recoveredIp
+            $endpoint = New-ServiceVmRecoveredEndpoint -Endpoint $endpoint -Address $recoveredIp -WaitedSeconds $ipWaitSeconds
+            & $repointForwarder $recoveredIp
+        }
+    }
+}
+# See https://yuruna.link/42fffc2c-0013
+$reportServiceVmSource = {
+    # The daemon is serving, so this is the first point where the framework it
+    # was built from can be answered from evidence rather than prediction. It
+    # is read before anything is published, so a refused build is never
+    # advertised.
+    $sourceAccepted = $true
+    if ($daemonReady) {
+        $sourceAccepted = Assert-ServiceVmFrameworkSource -Address ([string]$vmIp) -Port 80 `
+            -GuestKey $guestKey -User $guestUser -Expected $frameworkExpected -ServiceLabel $Area `
+            -AllowMirrorSource:$AllowMirrorSource
+    }
+}
+$decideServiceStartOutcome = {
+    # One record decides the census result, the advertisement and the exit. A
+    # stop requested while this start ran wins: nothing is advertised for it.
+    $stillWanted = Test-YurunaServiceOperationCurrent -Context $serviceOp
+    $startOutcome = Resolve-YurunaServiceStartOutcome -Verdict $verdict -StillWanted $stillWanted -SourceAccepted $sourceAccepted -Degraded $buildDegraded
+    if ($startOutcome.Result -eq 'confirmed') { $serviceOpResult = 'confirmed' }
+    if (-not $stillWanted) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_start_stop_requested' -Arguments @{ vmName = $VMName; stopScript = $stopScript })
+    }
 }
 
 # --- REGION: Run the service's readiness phases

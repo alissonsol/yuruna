@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -235,8 +235,8 @@ try {
     $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Add-VMDvdDrive' -Parameter @{ VMName = $VMName; Path = $SeedIso }
     Grant-SeedMediaVmRead -Path $SeedIso -VMId (Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VM' -Parameter @{ Name = $VMName }).Id -Confirm:$false
 
-    $dvdDrive = @(Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VMDvdDrive' -Parameter @{ VMName = $VMName }) | Where-Object { $_.Path -eq $baseImageFile }
-    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMFirmware' -Parameter @{ VMName = $VMName; FirstBootDevice = $dvdDrive }
+    # The DVD drive is named by the image it holds; the call finds the drive.
+    $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Set-VMFirmware' -Parameter @{ VMName = $VMName; FirstBootDevice = $baseImageFile }
 
     # --- REGION: https://yuruna.link/42fa6f45-0015
     $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))

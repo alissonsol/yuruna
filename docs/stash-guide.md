@@ -203,9 +203,16 @@ is read into memory whole, so it is bounded like the file it becomes (100 MiB,
 plus room for the encoding), and only one text body over 1 MiB is read at a
 time: another answers `503` with `Retry-After` while the first is arriving, and
 a body still arriving after five minutes is cut off. Pasting in the web UI and
-uploading files are not affected. A request a browser marks cross-site is
-refused (`403`), so a page elsewhere cannot create stashes through an
-operator's browser; `scp`, `sftp` and scripts are not affected. On port 22 a
+uploading files send a multipart form instead, and at most four of those are
+received at once: another answers `503` with `Retry-After` until one of them
+ends. A request a browser marks cross-site is refused (`403`), so a page
+elsewhere cannot create stashes through an operator's browser; `scp`, `sftp`
+and scripts are not affected. A request must also name the VM in its `Host`
+header by an address, its host name (`yuruna-stash-service`), `localhost`, or a
+name the building host lists in
+[`vmStart.serviceHostNames`](test-config.md#42b11c32-0015); any other name is
+refused (`421`), so a page whose own name was made to resolve to the VM cannot
+use it either. On port 22 a
 connection has 30 seconds to complete its SSH handshake, at most 64
 connections are served at once, and one SFTP session holds at most 16 files
 open.
@@ -237,6 +244,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

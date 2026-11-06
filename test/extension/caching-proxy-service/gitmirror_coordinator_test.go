@@ -158,6 +158,60 @@ func TestMirrorInitialMetadataFailureCanRetryWithoutRestart(t *testing.T) {
 		t.Fatalf("retry requires worker restart: %+v", retry)
 	}
 }
+
+// Each systemd ReadWritePaths entry is its own bind mount, and rename(2)
+// between two of them fails with EXDEV even on one filesystem, so the
+// population must be staged inside the directory it is published into.
+func TestMirrorPopulationStagesBesideItsPublishedPath(t *testing.T) {
+	h := newMirrorHarness(t)
+	published := mirrorRepoPath(h.c.options.Root, "example/repo")
+	stage := ""
+	h.c.git.before = func(args []string) {
+		if len(args) == 3 && args[0] == "init" {
+			stage = args[2]
+		}
+	}
+	if ready := h.resolve(t, "HEAD"); !ready.ObjectReady {
+		t.Fatalf("population: %+v", ready)
+	}
+	if stage == "" || filepath.Dir(stage) != filepath.Dir(published) {
+		t.Fatalf("population staged at %q, outside %q", stage, filepath.Dir(published))
+	}
+}
+func TestMirrorPublishedRepositoryIsReadableByTheReaderGroup(t *testing.T) {
+	h := newMirrorHarness(t)
+	if ready := h.resolve(t, "HEAD"); !ready.ObjectReady {
+		t.Fatalf("population: %+v", ready)
+	}
+	info, err := os.Stat(mirrorRepoPath(h.c.options.Root, "example/repo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0050 != 0050 {
+		t.Fatalf("published repository mode %v denies the reader group", info.Mode().Perm())
+	}
+}
+func TestMirrorStartupRemovesInterruptedPopulations(t *testing.T) {
+	h := newMirrorHarness(t)
+	ready := h.resolve(t, "HEAD")
+	h.c.close()
+	leftover := filepath.Join(filepath.Dir(mirrorRepoPath(h.c.options.Root, "example/repo")), ".population-1")
+	if err := os.MkdirAll(filepath.Join(leftover, "objects"), 0750); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := newMirrorCoordinator(context.Background(), h.c.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.c = restarted
+	t.Cleanup(restarted.close)
+	if _, err = os.Stat(leftover); !os.IsNotExist(err) {
+		t.Fatal("interrupted population survived a worker restart")
+	}
+	if got := h.resolve(t, "HEAD"); got.SelectedSHA != ready.SelectedSHA {
+		t.Fatalf("published repository after restart: %+v", got)
+	}
+}
 func TestMirrorChangedRefsAndTransportStale(t *testing.T) {
 	h := newMirrorHarness(t)
 	first := h.resolve(t, "HEAD")

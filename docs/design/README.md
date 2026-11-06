@@ -15,10 +15,10 @@ the sibling local checkout during regeneration.
 | --- | --- | --- |
 | [01 Context and components](01-context-and-components.md) | Seven responsibility boundaries and their dependencies. | [install/setup.ps1](../../install/setup.ps1), [automation/](../../automation/), [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1), [host/](../../host/), [guest/](../../guest/). |
 | [02 Component breakdown](02-component-breakdown.md) | The scripts, modules, and directories inside each boundary. | [automation/](../../automation/), [test/modules/](../../test/modules/), [test/extension/](../../test/extension/), [source selection](../../test/modules/Test.SourceSelection.psm1), [host contract](../../host/Yuruna.Host.Contract.psm1), [tools/](../../tools/). |
-| [03 Data flows](03-data-flows.md) | Phase execution, VM test cycles and startup cold restarts, GUI transport recovery, source selection through the Git mirror, guest archive verification, cache/stash fetches, pool and stash share layouts, and configuration synchronization. | [phase modules](../../automation/), [runner modules](../../test/modules/), [source selection](../../test/modules/Test.SourceSelection.psm1), [Git mirror](../../test/extension/caching-proxy-service/), [guest fetch](../../automation/fetch-and-execute.sh), [pool administration](../../test/pool/), [extension services](../../test/extension/), [service seeds](../../host/vmconfig/). |
-| [04 Lifecycle state](04-lifecycle-state.md) | Runner and VM transitions, supervisor re-entry and framework rescue, host and OCR admission, failure evidence, diagnostic holds, watchdog and cycle-ceiling recovery, startup login retries, and host refresh. | [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.RunnerState](../../test/modules/Test.RunnerState.psm1), [Test.DiagnosticPreservation](../../test/modules/Test.DiagnosticPreservation.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1). |
+| [03 Data flows](03-data-flows.md) | Phase execution and its retry ledger, VM test cycles and startup cold restarts, events queued between cycles, GUI transport recovery, source selection through the Git mirror, guest archive verification, pool telemetry through the Loki outbox, cache/stash fetches, pool and stash share layouts, and configuration synchronization. | [phase modules](../../automation/), [runner modules](../../test/modules/), [source selection](../../test/modules/Test.SourceSelection.psm1), [Git mirror](../../test/extension/caching-proxy-service/), [guest fetch](../../automation/fetch-and-execute.sh), [pool administration](../../test/pool/), [extension services](../../test/extension/), [service seeds](../../host/vmconfig/). |
+| [04 Lifecycle state](04-lifecycle-state.md) | Runner and VM transitions, supervisor re-entry and framework rescue, host and OCR admission, failure evidence, host-restart evidence, diagnostic holds, watchdog and cycle-ceiling recovery, startup login retries, UTM install power-off, and host refresh. | [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.RunnerState](../../test/modules/Test.RunnerState.psm1), [Test.DiagnosticPreservation](../../test/modules/Test.DiagnosticPreservation.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1). |
 | [05 Configuration data model](05-data-model.md) | Configuration scopes, phase list entries, output references, project selection, and separate test identities. | [project configurations](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config), [project template](https://github.com/alissonsol/yuruna-project/tree/main/template), [validation](../../automation/Yuruna.Validation.psm1), [variable expansion](../../automation/Yuruna.VariableExpansion.psm1), [sequence resolution](../../test/modules/Test.SequenceResolve.psm1), [authentication](../../test/extension/authentication/), [schemas](../../test/schemas/), [test configuration template](../../test/test.config.yml.template). |
-| [06 Deployment topology](06-deployment.md) | Hosts, guests, services, shares, network links, Git mirror source routing, CA enrollment, and service credentials. | [host providers](../../host/), [service launchers](../../test/service/), [extension daemons](../../test/extension/), [caching proxy and Git mirror](../../test/extension/caching-proxy-service/), [CA trust recovery](../../test/modules/Test.CachingProxyService.psm1), [guest setup](../../guest/ubuntu.server.26/). |
+| [06 Deployment topology](06-deployment.md) | Hosts, guests, services, shares, network links, Git mirror source routing, CA enrollment, service credentials, and the deep diagnostics netconsole. | [host providers](../../host/), [service launchers](../../test/service/), [extension daemons](../../test/extension/), [caching proxy and Git mirror](../../test/extension/caching-proxy-service/), [CA trust recovery](../../test/modules/Test.CachingProxyService.psm1), [guest setup](../../guest/ubuntu.server.26/). |
 | [07 Globalization](07-globalization.md) | Catalog production, request locale selection, browser rendering, response caching, and example service diagnostics. | [locale manifest](../../globalization/locale-manifest.json), [Test.Locale](../../test/modules/Test.Locale.psm1), [Go i18n SDK](../../test/extension/extension-sdk/i18n/), [browser kernel](../../globalization/kernel/yuruna.i18n.js), [example request localization](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/components/frontend/text-to-sql-ui/Program.cs). |
 
 <a id="425aae9a-0002"></a>
@@ -46,11 +46,13 @@ box, while validation and requirement modules stay with the deploy engine
 that alone imports them.
 The configuration views split filesystem scopes, phase records, and test
 identities. Deployment separates runner endpoints, service VMs and storage,
-cache processes, Git mirror source routing, service credentials, and the
-localhost, AWS, and Azure targets. Its source-routing view aggregates the
-download-agent, pool-control, and stash VMs, whose seeds share one fetch order,
-and its credential view aggregates the same three VMs, which share one
-credential route.
+cache processes, Git mirror source routing, service credentials, the deep
+diagnostics netconsole, and the localhost, AWS, and Azure targets. Its
+source-routing view aggregates the download-agent, pool-control, and stash VMs,
+whose seeds share one fetch order, and its credential view aggregates the same
+three VMs, which share one credential route. Its pool view draws the host-address
+lookup from the workload guest box, which also stands for the service VMs that
+make the same query.
 The startup login retry has its own lifecycle diagram, separate from the runner's.
 Localization separates catalog delivery, resolver precedence, status requests,
 Go page responses, and the example's diagnostic resources.
@@ -87,6 +89,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 [Architecture](../architecture.md) | [Design overview](README.md)

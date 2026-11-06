@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -270,17 +270,10 @@ foreach ($n in $script:ForwardEnvNames) {
 }
 
 # --- REGION: Startup refusals
-# A start that is going to refuse must not first stop the runner it would
-# replace, or clear the runtime state that runner is using, so a fresh start
-# runs every refusal before the boot recovery and the takeover below.
-# A refusal is an orderly exit, and a launch record left open would read as a
-# runner for a refresh to restart, so a refusing start records its launch
-# ended cleanly -- unless a live runner owns runner.pid, whose record is that
-# runner's and is left alone. Once this runner has written its own record
-# (the Launch record region), $completeLaunchRecord only completes it.
 # See https://yuruna.link/42f909ad-0008
-# The one definition of the record, written here by a refusing start or at
-# the Launch record region by the runner that owns the runtime.
+# A fresh start runs every refusal before the boot recovery and the takeover
+# below. The one definition of the launch record, written here by a refusing
+# start or at the Launch record region by the runner that owns the runtime.
 $launchScriptPath = $PSCommandPath
 $launchBoundParameters = $PSBoundParameters
 $writeLaunchRecord = {
@@ -534,6 +527,21 @@ Write-Output "========"
 # A resumed start refuses here, where the refresh has already reclaimed what
 # it needed; a fresh start ran the same refusals before taking anything over.
 if ($RefreshResume) { . $refuseStart }
+
+# --- REGION: Runner report
+# This process keeps the modules it imported until it exits, and a host pull
+# changes only what each later cycle process loads, so the runner publishes the
+# commit it started on and when, for the host page and the pool's Hosts page. A
+# report, not a gate: one that cannot be written changes nothing about the run.
+# A resumed start's preflight writes no new status document, so it only updates
+# one that exists.
+try {
+    Import-Module (Join-Path $ModulesDir 'Test.Status.psm1') -Global -DisableNameChecking -ErrorAction Stop
+    $null = Set-StatusRunnerResident -StatusPath (Join-Path $env:YURUNA_RUNTIME_DIR 'status.json') -ExistingOnly:$RefreshResume `
+        -CommitSha ([string](Get-OuterCommitSha -RepoRoot $RepoRoot)) -StartedAtUtc (Get-Process -Id $PID).StartTime -Confirm:$false
+} catch {
+    Write-Verbose "The runner's commit and start time were not published: $($_.Exception.Message)"
+}
 
 # --- REGION: Eternal loop
 # See https://yuruna.link/42010605-0031

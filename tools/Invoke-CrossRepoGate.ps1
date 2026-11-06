@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,10 +54,26 @@
 .PARAMETER EvidencePath
     Optional no-BOM JSON report containing both tree hashes and every row.
 .PARAMETER GateThrottleLimit
-    Maximum gates running at once. Every gate except the two inline project
-    checks runs in its own process from one pool, focused Pester slices
-    included. Default: half the logical processors, at least 2 and at most 12;
-    use 1 for serial execution.
+    Maximum gates running at once. Every gate runs in a process of its own:
+    the four project and amisad.dev stages one after another, then every other
+    gate, focused Pester slices included, from one pool. Default: half the
+    logical processors, at least 2 and at most 12; use 1 for serial execution.
+.PARAMETER StageTimeoutSeconds
+    The ceiling of every stage. A stage still running after this many seconds
+    is stopped together with every process it started, and its row fails with
+    a detail that says so. Default 1800. The longest healthy stage is the
+    accessibility check: about 280 s of a five-minute full gate on a 32-thread
+    host, where it loads 16 pages at once. It loads half as many pages at once
+    for every halving of the logical processors, so an 8-thread host needs
+    about 1100 s; 1800 s covers that with room and still turns a wedged
+    browser, interpreter or suite into a failed row within half an hour.
+    Raise it on a host where a healthy stage needs longer.
+.PARAMETER SerialStage
+    Internal: run one of the four serial stages (project-lint,
+    project-shellcheck, project-tests, amisad-tests) in this process and print
+    its rows on one YURUNA_GATE_STAGE line. The gate starts itself this way
+    for each of them, so the ceiling can stop a stage with everything it
+    started.
 .PARAMETER Quiet
     Print only the summary and any findings.
 .EXAMPLE
@@ -76,6 +92,9 @@ param(
     [string]$LinkMap,
     [string]$EvidencePath,
     [ValidateRange(1, 64)][int]$GateThrottleLimit = [Math]::Clamp([int][Math]::Floor([Environment]::ProcessorCount / 2), 2, 12),
+    [ValidateRange(1, 86400)][int]$StageTimeoutSeconds = 1800,
+    [Parameter(DontShow)][ValidateSet('project-lint', 'project-shellcheck', 'project-tests', 'amisad-tests')]
+    [string]$SerialStage,
     [switch]$Quiet
 )
 
@@ -121,6 +140,8 @@ function Get-GateRemediation {
         The row's state. A passing row never carries a repair.
     .PARAMETER Detail
         The row's detail, matched against a candidate's regex where it has one.
+    .PARAMETER TimedOut
+        The row's stage was stopped at the gate's ceiling.
     .OUTPUTS
         A [pscustomobject] carrying Code and Action, or $null for a passing row.
     .EXAMPLE
@@ -131,10 +152,25 @@ function Get-GateRemediation {
     param(
         [string]$Gate,
         [string]$State,
-        [string]$Detail
+        [string]$Detail,
+        [switch]$TimedOut
     )
 
     if ($State -eq 'pass') { return $null }
+
+    # A stage stopped at the ceiling has one repair whatever tool it ran, and
+    # that tool's own entry below would send the reader after a defect the
+    # stage never got far enough to report.
+    if ($TimedOut) {
+        return [pscustomobject]@{
+            Code = 'stage-timeout'
+            Action = 'A stage ran past the gate''s ceiling and was stopped together with every process it ' +
+                'started; the detail says after how many seconds and ends with what the stage printed until ' +
+                'then. Run the tool the row names on its own to tell a hang from a slow host: a tool that ' +
+                'hangs needs its own wait bounded, and a host where a healthy stage needs longer runs the ' +
+                'gate with -StageTimeoutSeconds <seconds> (default 1800).'
+        }
+    }
 
     # First match wins. Match is a regex over the detail; an empty Match takes
     # any state that is not a pass, which is what a gate whose details all lead
@@ -153,11 +189,15 @@ function Get-GateRemediation {
                 '-RepairLinks -Locale <tag> -Path <source> (it rebases every relative link of the ' +
                 'files it selects).' }
         @{ Gate = 'region-anchors'; Match = ''; Code = 'region-anchors'
-            Action = 'A documentation region anchor or a public short-link target no longer resolves. ' +
-                'Re-run pwsh -NoProfile -File tools/Test-RegionAnchors.ps1 -ProjectRoot <project ' +
-                'checkout> -LinkMap <yuruna.link.json>; the detail names the anchor and the file. ' +
+            Action = 'A documentation region anchor or a public short-link target no longer resolves, or an ' +
+                'implementation-note heading names a region other than the one its source pointer sits in. ' +
+                'Re-run pwsh -NoProfile -File tools/Test-RegionAnchors.ps1 -HeadingRegion -ProjectRoot ' +
+                '<project checkout> -LinkMap <yuruna.link.json>; the detail names the anchor and the file. ' +
                 'Fix the heading or the link-map entry it names -- do not rename or merge the ' +
-                'document, because a published short link 404s when its slug moves.' }
+                'document, because a published short link 404s when its slug moves. Detail ''sits in ' +
+                'region'' means the code moved under another REGION marker: rename the heading, and its ' +
+                'translation, to the region its pointer now sits in and run pwsh -NoProfile -File ' +
+                'tools/Invoke-DocAnchor.ps1 -Update; the anchor id stays, so published links keep working.' }
         @{ Gate = 'project-lint'; Match = ''; Code = 'lint'
             Action = 'The detail lists ''<file>:<line> <rule>'' entries in the project checkout. Fix each ' +
                 'one and re-run pwsh -NoProfile -File tools/Invoke-CrossRepoGate.ps1 -Mode ' +
@@ -190,6 +230,15 @@ function Get-GateRemediation {
             Action = 'A project text file is not valid UTF-8 or carries a BOM. Run pwsh -NoProfile -File ' +
                 'tools/Test-ProjectTextEncoding.ps1 -ProjectRoot <project checkout>; it names the ' +
                 'file. Re-save it as UTF-8 without a BOM.' }
+        @{ Gate = 'source-metadata'; Match = ''; Code = 'source-metadata'
+            Action = 'A code or manifest file in one of the four workspace repositories lacks its license ' +
+                'pointer, copyright line or 42-prefixed GUID, two files declare the same GUID, or an entry ' +
+                'of tools/source-metadata.exemptions.json no longer matches what it exempts. Run pwsh ' +
+                '-NoProfile -File tools/Test-SourceMetadata.ps1 -All -Detail -Root <framework>,<project>,' +
+                '<yuruna.link>,<amisad.dev> ; each finding names the file, the rule and the lines to add ' +
+                '(CONTRIBUTING.md, Source metadata). Add the header it shows, or declare a generated or ' +
+                'vendored path in the exemptions file with its reason. Detail ''is not usable'' means the ' +
+                'exemptions file itself is invalid, and the lines after it say why.' }
         @{ Gate = 'affected-slice-map'; Match = ''; Code = 'affected-slice-map'
             Action = 'The affected-slice artifact is not byte-current with the code registry it is ' +
                 'derived from. Run pwsh -NoProfile -File tools/Invoke-AffectedSliceMap.ps1 -Update ' +
@@ -365,36 +414,87 @@ function Invoke-ToolGateBatch {
     <#
     .SYNOPSIS
         Run independent tools in isolated processes and retain every outcome.
+    .DESCRIPTION
+        Every tool runs under the same ceiling. One still running when it
+        expires is stopped together with every process it started -- a
+        browser, an interpreter, a suite -- and its result says so, so a wedged
+        tool costs the gate its ceiling instead of the whole run. Both output
+        streams are drained while the tool runs: a tool that fills a pipe
+        nobody reads would otherwise stall until the ceiling.
+    .PARAMETER Work
+        One item per tool: its Name and its Arguments, which run under this
+        gate's own pwsh with -NonInteractive added, or under FilePath when the
+        item carries one.
+    .PARAMETER TimeoutSeconds
+        The ceiling of each tool.
     .PARAMETER ResultOnly
-        Return one result per tool (Name, Code, Output, Seconds) instead of
-        recording rows, for a caller that judges some results itself.
+        Return one result per tool (Name, Code, Output, Seconds, TimedOut)
+        instead of recording rows, for a caller that judges some results itself.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Work,
         [Parameter(Mandatory)][ValidateRange(1, 64)][int]$ThrottleLimit,
+        [Parameter(Mandatory)][ValidateRange(1, 86400)][int]$TimeoutSeconds,
         [switch]$ResultOnly
     )
     $gatePowerShell = (Get-Process -Id $PID).Path
+    # A process started here inherits the process's directory, not the
+    # session's location, which is where a relative path given to the gate
+    # was meant from.
+    $location = (Get-Location -PSProvider FileSystem).ProviderPath
     # Parallel records use the parent's preference when forwarded to the host.
     $InformationPreference = 'Continue'
     $results = @($Work | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
         $ErrorActionPreference = 'Stop'
-        $PSNativeCommandUseErrorActionPreference = $false
         $item = $_
+        $limit = $using:TimeoutSeconds
         $clock = [Diagnostics.Stopwatch]::StartNew()
+        $timedOut = $false
+        $process = $null
         try {
-            $arguments = [string[]]$item.Arguments
-            $output = & $using:gatePowerShell -NonInteractive @arguments 2>&1 | Out-String
-            $code = $LASTEXITCODE
+            if ($item.PSObject.Properties['FilePath']) {
+                $start = [Diagnostics.ProcessStartInfo]::new([string]$item.FilePath)
+            } else {
+                $start = [Diagnostics.ProcessStartInfo]::new($using:gatePowerShell)
+                $start.ArgumentList.Add('-NonInteractive')
+            }
+            foreach ($argument in [string[]]$item.Arguments) { $start.ArgumentList.Add($argument) }
+            $start.UseShellExecute = $false
+            $start.WorkingDirectory = $using:location
+            $start.RedirectStandardOutput = $true
+            $start.RedirectStandardError = $true
+            $process = [Diagnostics.Process]::Start($start)
+            $streams = @($process.StandardOutput.ReadToEndAsync(), $process.StandardError.ReadToEndAsync())
+            $stopped = 'it was stopped with every process it started'
+            if (-not $process.WaitForExit($limit * 1000)) {
+                $timedOut = $true
+                try { $process.Kill($true) } catch { $stopped = "stopping it failed: $($_.Exception.Message)" }
+                $null = $process.WaitForExit(5000)
+            }
+            $code = if ($timedOut) { 124 } else { $process.ExitCode }
+            # A process the tool left behind can hold a pipe open after the
+            # tool is gone. Its output is not waited for past a short grace.
+            $output = @($streams | ForEach-Object {
+                    if ($_.Wait(5000)) { $_.Result.TrimEnd() } else { '[output still held open by a process the tool left behind]' }
+                } | Where-Object { $_ }) -join "`n"
+            if ($timedOut) {
+                $output = "timed out after $limit s, the gate's ceiling for one stage; $stopped`n$output".TrimEnd()
+            }
         } catch {
             $code = 2
             $output = $_.Exception.Message
+        } finally {
+            if ($process) { $process.Dispose() }
         }
-        Write-Information ("Completed {0} in {1:n1}s (exit {2})" -f $item.Name, $clock.Elapsed.TotalSeconds, $code) -InformationAction Continue
+        if ($timedOut) {
+            Write-Information ("Stopped {0} at the {1}s ceiling" -f $item.Name, $limit) -InformationAction Continue
+        } else {
+            Write-Information ("Completed {0} in {1:n1}s (exit {2})" -f $item.Name, $clock.Elapsed.TotalSeconds, $code) -InformationAction Continue
+        }
         [pscustomobject]@{
             Name = $item.Name; Code = $code; Output = $output.Trim()
-            Seconds = $clock.Elapsed.TotalSeconds
+            Seconds = $clock.Elapsed.TotalSeconds; TimedOut = $timedOut
         }
     })
     if ($ResultOnly) { return $results }
@@ -406,19 +506,20 @@ function Invoke-ToolGateBatch {
         }
         $row = $result[0]
         Add-Row -Gate $item.Name -State $(if ($row.Code -eq 0) { 'pass' } elseif ($row.Code -eq 2) { 'cannot-run' } else { 'fail' }) `
-            -Detail $row.Output -Seconds $row.Seconds
+            -Detail $row.Output -Seconds $row.Seconds -TimedOut:$row.TimedOut
     }
 }
 
 function Add-Row {
     param([string]$Gate, [string]$State, [string]$Detail,
-        [string]$RemediationCode = '', [string]$Remediation = '', [Nullable[double]]$Seconds = $null)
+        [string]$RemediationCode = '', [string]$Remediation = '', [Nullable[double]]$Seconds = $null,
+        [switch]$TimedOut)
     # Derive the repair centrally. Every call site that only reports a state
     # keeps working unchanged, and no new one can add a row that fails without
     # telling the reader what to do about it. Both fields are advisory: a
     # consumer that knows only gate/state/detail keeps reading rows as before.
     if (-not $Remediation -and $State -in @('fail', 'cannot-run')) {
-        $fix = Get-GateRemediation -Gate $Gate -State $State -Detail $Detail
+        $fix = Get-GateRemediation -Gate $Gate -State $State -Detail $Detail -TimedOut:$TimedOut
         if ($fix) { $RemediationCode = $fix.Code; $Remediation = $fix.Action }
     }
     $rows.Add([pscustomobject]@{
@@ -426,6 +527,58 @@ function Add-Row {
             RemediationCode = $RemediationCode; Remediation = $Remediation
             Seconds = if ($null -ne $Seconds) { [Math]::Round($Seconds, 3) } else { $null }
         })
+}
+
+function Add-SerialStageRow {
+    <#
+    .SYNOPSIS
+        Run one serial stage in a process of its own and record the rows it reports.
+    .DESCRIPTION
+        The stage process prints its rows on one YURUNA_GATE_STAGE line. A stage
+        stopped at the ceiling, or one that ends without that line, still
+        leaves a failing row under its own name, so a stage cannot drop out of
+        the gate's census.
+    .PARAMETER Name
+        The stage, which names its row when the stage reports none.
+    .PARAMETER Arguments
+        What the gate's pwsh runs for the stage.
+    .PARAMETER TimeoutSeconds
+        The ceiling of the stage.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [Parameter(Mandatory)][ValidateRange(1, 86400)][int]$TimeoutSeconds
+    )
+    $outcome = @(Invoke-ToolGateBatch -Work @([pscustomobject]@{ Name = $Name; Arguments = $Arguments }) `
+            -ThrottleLimit 1 -TimeoutSeconds $TimeoutSeconds -ResultOnly)
+    if ($outcome.Count -ne 1) {
+        Add-Row -Gate $Name -State 'cannot-run' -Detail 'the stage worker did not return exactly one result'
+        return
+    }
+    $result = $outcome[0]
+    if ($result.TimedOut) {
+        Add-Row -Gate $Name -State 'fail' -Detail $result.Output -Seconds $result.Seconds -TimedOut
+        return
+    }
+    $marker = 'YURUNA_GATE_STAGE '
+    $line = @(([string]$result.Output) -split "`r?`n" | Where-Object { $_.StartsWith($marker) }) | Select-Object -Last 1
+    $reported = @()
+    $why = 'it printed no YURUNA_GATE_STAGE line'
+    if ($line) {
+        try { $reported = @(ConvertFrom-Json -InputObject $line.Substring($marker.Length)) }
+        catch { $why = "its YURUNA_GATE_STAGE line does not parse: $($_.Exception.Message)" }
+    }
+    if ($reported.Count -eq 0) {
+        Add-Row -Gate $Name -State $(if ($result.Code -eq 2) { 'cannot-run' } else { 'fail' }) -Seconds $result.Seconds `
+            -Detail ("the stage reported no row (exit {0}): {1}`n{2}" -f $result.Code, $why, $result.Output).TrimEnd()
+        return
+    }
+    foreach ($stageRow in $reported) {
+        Add-Row -Gate ([string]$stageRow.gate) -State ([string]$stageRow.state) -Detail ([string]$stageRow.detail) `
+            -Seconds $result.Seconds
+    }
 }
 
 # Every stage below runs a child process and captures its output, so a release
@@ -479,6 +632,47 @@ function Get-GitCandidatePath {
             $path = [string]$_
             @($Include | Where-Object { $path -like $_ }).Count -gt 0
         } | ForEach-Object { [string]$_ } | Sort-Object -Unique)
+}
+
+function Get-SourceMetadataRoot {
+    <#
+    .SYNOPSIS
+        The four workspace checkouts the source-metadata row compares, and the
+        ones that are not there.
+    .DESCRIPTION
+        The rules hold the framework's own repositories, so the project the
+        gate was given counts only when it is a yuruna-project checkout, a
+        staged clone or snapshot named so; a lab's own project is somebody
+        else's repository and is never held to these headers, and the
+        yuruna-project beside the framework is compared instead. yuruna.link
+        sits beside the framework, and amisad.dev beside it or, cloned under
+        its organization, at alius-git/amisad.dev: the places the region-anchor
+        row reads them from. The publisher's work path holds its public clones
+        and its two read-only checkouts side by side in the same way.
+    .OUTPUTS
+        [pscustomobject] carrying Root (the checkouts found, in that order) and
+        Absent (the names of the ones that are not there).
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$FrameworkRoot,
+        [Parameter(Mandatory)][string]$ProjectRoot
+    )
+    $workspace = Split-Path -Parent $FrameworkRoot
+    $project = if ((Split-Path -Leaf $ProjectRoot.TrimEnd('/', '\')) -eq 'yuruna-project') { $ProjectRoot }
+    else { Join-Path $workspace 'yuruna-project' }
+    $found = [Collections.Generic.List[string]]::new()
+    $found.Add($FrameworkRoot)
+    $absent = [Collections.Generic.List[string]]::new()
+    foreach ($sibling in @(
+            @{ Name = 'yuruna-project'; Candidate = @($project) }
+            @{ Name = 'yuruna.link'; Candidate = @(Join-Path $workspace 'yuruna.link') }
+            @{ Name = 'amisad.dev'; Candidate = @((Join-Path $workspace 'amisad.dev'), (Join-Path $workspace 'alius-git/amisad.dev')) })) {
+        $checkout = @($sibling.Candidate | Where-Object { Test-Path -LiteralPath $_ -PathType Container }) | Select-Object -First 1
+        if ($checkout) { $found.Add($checkout) } else { $absent.Add($sibling.Name) }
+    }
+    return [pscustomobject]@{ Root = $found.ToArray(); Absent = $absent.ToArray() }
 }
 
 function Get-FocusedPesterCompleteness {
@@ -756,76 +950,78 @@ $focusedGates = @(
 $plannedStages = [Collections.Generic.List[string]]::new()
 $plannedStages.AddRange([string[]]@('doc-translation', 'region-anchors', 'project-lint',
         'project-shellcheck', 'project-tests', 'amisad-tests', 'project-locale-map', 'project-utf8',
-        'affected-slice-map'))
+        'source-metadata', 'affected-slice-map'))
 if ($isRelease) { $plannedStages.Add('staged-tree-hashes') }
 if ($runFramework) {
     $plannedStages.AddRange([string[]]@($frameworkGates | ForEach-Object { $_.Name }))
     $plannedStages.AddRange([string[]]@($focusedGates | ForEach-Object { $_.Gate }))
 }
-# Progress counts what runs one after another: the four inline project checks,
-# the release tree hashes, and the pool as one stage.
+# Progress counts what runs one after another: the four serial stages, the
+# release tree hashes, and the pool as one stage.
 $script:StageTotal = 5 + [int]$isRelease
 
 # --- REGION: Cross-repository gates
 # Every gate below reads the trees and writes nothing another gate reads, so
-# after the two inline project checks and the release tree hashes they all run
-# in one pool of processes: the slow browser and Go checks beside the quick
-# ones, and each focused Pester slice in a process of its own. Their rows are
-# put back in the planned order before anything reads them.
+# after the four serial stages and the release tree hashes they all run in one
+# pool of processes: the slow browser and Go checks beside the quick ones, and
+# each focused Pester slice in a process of its own. Their rows are put back in
+# the planned order before anything reads them.
 $pool = [Collections.Generic.List[object]]::new()
 
 # --- REGION: Project script validation
-Write-GateProgress -Stage 'project-lint'
-$settings = Join-Path $ProjectRoot 'PSScriptAnalyzerSettings.psd1'
-$scripts = @()
-$scriptDiscoveryFailed = $false
-try { $scripts = @(Get-GitCandidatePath -Root $ProjectRoot -Include @('*.ps1', '*.psm1')) }
-catch {
-    $scriptDiscoveryFailed = $true
-    Add-Row -Gate 'project-lint' -State 'cannot-run' -Detail $_.Exception.Message
-}
-if (-not $scriptDiscoveryFailed) {
-    if ($scripts.Count -eq 0) {
-        Add-Row -Gate 'project-lint' -State 'not-applicable' -Detail 'the project ships no PowerShell'
-    } elseif (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
-        Add-Row -Gate 'project-lint' -State 'cannot-run' -Detail 'PSScriptAnalyzer is not installed on this host'
-    } else {
-        Import-Module PSScriptAnalyzer -ErrorAction Stop
-        $found = @()
-        foreach ($rel in $scripts) {
-            $full = Join-Path $ProjectRoot $rel
-            if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
-            # Not $args: that is an automatic variable, and shadowing it is a trap
-            # even where it happens to work.
-            $analyzerArgs = @{ Path = $full; Severity = @('Error', 'Warning') }
-            if (Test-Path -LiteralPath $settings -PathType Leaf) { $analyzerArgs['Settings'] = $settings }
-            foreach ($r in @(Invoke-ScriptAnalyzer @analyzerArgs)) { $found += "${rel}:$($r.Line) $($r.RuleName)" }
+if ($SerialStage -eq 'project-lint') {
+    $settings = Join-Path $ProjectRoot 'PSScriptAnalyzerSettings.psd1'
+    $scripts = @()
+    $scriptDiscoveryFailed = $false
+    try { $scripts = @(Get-GitCandidatePath -Root $ProjectRoot -Include @('*.ps1', '*.psm1')) }
+    catch {
+        $scriptDiscoveryFailed = $true
+        Add-Row -Gate 'project-lint' -State 'cannot-run' -Detail $_.Exception.Message
+    }
+    if (-not $scriptDiscoveryFailed) {
+        if ($scripts.Count -eq 0) {
+            Add-Row -Gate 'project-lint' -State 'not-applicable' -Detail 'the project ships no PowerShell'
+        } elseif (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Add-Row -Gate 'project-lint' -State 'cannot-run' -Detail 'PSScriptAnalyzer is not installed on this host'
+        } else {
+            Import-Module PSScriptAnalyzer -ErrorAction Stop
+            $found = @()
+            foreach ($rel in $scripts) {
+                $full = Join-Path $ProjectRoot $rel
+                if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+                # Not $args: that is an automatic variable, and shadowing it is a trap
+                # even where it happens to work.
+                $analyzerArgs = @{ Path = $full; Severity = @('Error', 'Warning') }
+                if (Test-Path -LiteralPath $settings -PathType Leaf) { $analyzerArgs['Settings'] = $settings }
+                foreach ($r in @(Invoke-ScriptAnalyzer @analyzerArgs)) { $found += "${rel}:$($r.Line) $($r.RuleName)" }
+            }
+            Add-Row -Gate 'project-lint' -State $(if ($found.Count -eq 0) { 'pass' } else { 'fail' }) `
+                -Detail $(if ($found.Count -eq 0) { "$($scripts.Count) script(s) clean under the project's own settings" } else { $found -join '; ' })
         }
-        Add-Row -Gate 'project-lint' -State $(if ($found.Count -eq 0) { 'pass' } else { 'fail' }) `
-            -Detail $(if ($found.Count -eq 0) { "$($scripts.Count) script(s) clean under the project's own settings" } else { $found -join '; ' })
     }
 }
 
 # Shell scripts the project ships into guests.
-Write-GateProgress -Stage 'project-shellcheck'
-$shell = @()
-$shellDiscoveryFailed = $false
-try { $shell = @(Get-GitCandidatePath -Root $ProjectRoot -Include @('*.sh')) }
-catch {
-    $shellDiscoveryFailed = $true
-    Add-Row -Gate 'project-shellcheck' -State 'cannot-run' -Detail $_.Exception.Message
-}
-if (-not $shellDiscoveryFailed) {
-    if ($shell.Count -eq 0) {
-        Add-Row -Gate 'project-shellcheck' -State 'not-applicable' -Detail 'the project ships no shell scripts'
-    } elseif (-not (Get-Command shellcheck -ErrorAction SilentlyContinue)) {
-        Add-Row -Gate 'project-shellcheck' -State 'cannot-run' -Detail 'shellcheck is not installed on this host'
-    } else {
-        $shellPaths = [string[]]@($shell | ForEach-Object { Join-Path $ProjectRoot $_ })
-        $shellOutput = & shellcheck --severity=error --format=gcc -- @shellPaths 2>&1 | Out-String
-        $shellCode = $LASTEXITCODE
-        Add-Row -Gate 'project-shellcheck' -State $(if ($shellCode -eq 0) { 'pass' } else { 'fail' }) `
-            -Detail $(if ($shellCode -eq 0) { "$($shell.Count) script(s) clean" } else { "shellcheck exit ${shellCode}: $($shellOutput.Trim())" })
+if ($SerialStage -eq 'project-shellcheck') {
+    $shell = @()
+    $shellDiscoveryFailed = $false
+    try { $shell = @(Get-GitCandidatePath -Root $ProjectRoot -Include @('*.sh')) }
+    catch {
+        $shellDiscoveryFailed = $true
+        Add-Row -Gate 'project-shellcheck' -State 'cannot-run' -Detail $_.Exception.Message
+    }
+    if (-not $shellDiscoveryFailed) {
+        if ($shell.Count -eq 0) {
+            Add-Row -Gate 'project-shellcheck' -State 'not-applicable' -Detail 'the project ships no shell scripts'
+        } elseif (-not (Get-Command shellcheck -ErrorAction SilentlyContinue)) {
+            Add-Row -Gate 'project-shellcheck' -State 'cannot-run' -Detail 'shellcheck is not installed on this host'
+        } else {
+            $shellPaths = [string[]]@($shell | ForEach-Object { Join-Path $ProjectRoot $_ })
+            $shellOutput = & shellcheck --severity=error --format=gcc -- @shellPaths 2>&1 | Out-String
+            $shellCode = $LASTEXITCODE
+            Add-Row -Gate 'project-shellcheck' -State $(if ($shellCode -eq 0) { 'pass' } else { 'fail' }) `
+                -Detail $(if ($shellCode -eq 0) { "$($shell.Count) script(s) clean" } else { "shellcheck exit ${shellCode}: $($shellOutput.Trim())" })
+        }
     }
 }
 
@@ -833,40 +1029,41 @@ if (-not $shellDiscoveryFailed) {
 # The project's tests are Python and Node programs that no runner of the
 # project starts, so they run here beside its other checks, each from its own
 # folder as its author runs it.
-Write-GateProgress -Stage 'project-tests'
-$testPrograms = @()
-$testDiscoveryFailed = $false
-try { $testPrograms = @(Get-GitCandidatePath -Root $ProjectRoot -Include @('test_*.py', '*/test_*.py', '*_contracts.py', '*.test.cjs', '*.test.js')) }
-catch {
-    $testDiscoveryFailed = $true
-    Add-Row -Gate 'project-tests' -State 'cannot-run' -Detail $_.Exception.Message
-}
-if (-not $testDiscoveryFailed) {
-    $python = Get-Command python3 -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($testPrograms.Count -eq 0) {
-        Add-Row -Gate 'project-tests' -State 'not-applicable' -Detail 'the project ships no test programs'
-    } elseif (@($testPrograms | Where-Object { $_ -like '*.py' }).Count -and -not $python) {
-        Add-Row -Gate 'project-tests' -State 'cannot-run' -Detail 'python3 is not installed on this host'
-    } elseif (@($testPrograms | Where-Object { $_ -notlike '*.py' }).Count -and -not $node) {
-        Add-Row -Gate 'project-tests' -State 'cannot-run' -Detail 'node is not installed on this host'
-    } else {
-        $failedPrograms = [Collections.Generic.List[string]]::new()
-        foreach ($rel in $testPrograms) {
-            $full = Join-Path $ProjectRoot $rel
-            $leaf = Split-Path -Leaf $full
-            Push-Location -LiteralPath (Split-Path -Parent $full)
-            try {
-                $programOutput = if ($leaf -like 'test_*.py') { & $python.Source -B -m unittest ([IO.Path]::GetFileNameWithoutExtension($leaf)) 2>&1 }
-                    elseif ($leaf -like '*.py') { & $python.Source -B $leaf 2>&1 }
-                    else { & $node.Source $leaf 2>&1 }
-                if ($LASTEXITCODE -ne 0) {
-                    $failedPrograms.Add("$rel exit ${LASTEXITCODE}: $((@($programOutput) | Select-Object -Last 3) -join ' ')")
-                }
-            } finally { Pop-Location }
+if ($SerialStage -eq 'project-tests') {
+    $testPrograms = @()
+    $testDiscoveryFailed = $false
+    try { $testPrograms = @(Get-GitCandidatePath -Root $ProjectRoot -Include @('test_*.py', '*/test_*.py', '*_contracts.py', '*.test.cjs', '*.test.js')) }
+    catch {
+        $testDiscoveryFailed = $true
+        Add-Row -Gate 'project-tests' -State 'cannot-run' -Detail $_.Exception.Message
+    }
+    if (-not $testDiscoveryFailed) {
+        $python = Get-Command python3 -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($testPrograms.Count -eq 0) {
+            Add-Row -Gate 'project-tests' -State 'not-applicable' -Detail 'the project ships no test programs'
+        } elseif (@($testPrograms | Where-Object { $_ -like '*.py' }).Count -and -not $python) {
+            Add-Row -Gate 'project-tests' -State 'cannot-run' -Detail 'python3 is not installed on this host'
+        } elseif (@($testPrograms | Where-Object { $_ -notlike '*.py' }).Count -and -not $node) {
+            Add-Row -Gate 'project-tests' -State 'cannot-run' -Detail 'node is not installed on this host'
+        } else {
+            $failedPrograms = [Collections.Generic.List[string]]::new()
+            foreach ($rel in $testPrograms) {
+                $full = Join-Path $ProjectRoot $rel
+                $leaf = Split-Path -Leaf $full
+                Push-Location -LiteralPath (Split-Path -Parent $full)
+                try {
+                    $programOutput = if ($leaf -like 'test_*.py') { & $python.Source -B -m unittest ([IO.Path]::GetFileNameWithoutExtension($leaf)) 2>&1 }
+                        elseif ($leaf -like '*.py') { & $python.Source -B $leaf 2>&1 }
+                        else { & $node.Source $leaf 2>&1 }
+                    if ($LASTEXITCODE -ne 0) {
+                        $failedPrograms.Add("$rel exit ${LASTEXITCODE}: $((@($programOutput) | Select-Object -Last 3) -join ' ')")
+                    }
+                } finally { Pop-Location }
+            }
+            Add-Row -Gate 'project-tests' -State $(if ($failedPrograms.Count -eq 0) { 'pass' } else { 'fail' }) `
+                -Detail $(if ($failedPrograms.Count -eq 0) { "$($testPrograms.Count) program(s) passed" } else { $failedPrograms -join '; ' })
         }
-        Add-Row -Gate 'project-tests' -State $(if ($failedPrograms.Count -eq 0) { 'pass' } else { 'fail' }) `
-            -Detail $(if ($failedPrograms.Count -eq 0) { "$($testPrograms.Count) program(s) passed" } else { $failedPrograms -join '; ' })
     }
 }
 
@@ -874,30 +1071,48 @@ if (-not $testDiscoveryFailed) {
 # amisad.dev is deployed by this framework and tested by its own Pester suite,
 # which its hook does not run; where its checkout sits beside this one, it runs
 # here through the same suite shim as every framework suite.
-Write-GateProgress -Stage 'amisad-tests'
-$amisadRoot = Join-Path (Split-Path -Parent $RepoRoot) 'amisad.dev'
-$amisadSuite = Join-Path $amisadRoot 'test/AmisAd.Regression.Tests.ps1'
-if (-not (Test-Path -LiteralPath $amisadSuite -PathType Leaf)) {
-    Add-Row -Gate 'amisad-tests' -State 'not-applicable' -Detail 'no amisad.dev checkout beside this one'
-} else {
-    $amisadXml = Join-Path ([IO.Path]::GetTempPath()) ('amisad-regression-' + [guid]::NewGuid().ToString('N') + '.xml')
-    try {
-        $null = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $RepoRoot 'tools/_InvokeOneSuite.ps1') `
-            -Suite $amisadSuite -Xml $amisadXml 2>&1
-        if (-not (Test-Path -LiteralPath $amisadXml)) {
-            Add-Row -Gate 'amisad-tests' -State 'fail' -Detail 'the suite produced no result file'
-        } else {
-            $results = ([xml](Get-Content -LiteralPath $amisadXml -Raw)).'test-results'
-            $total = [int]$results.total
-            $broken = [int]$results.failures + [int]$results.errors
-            Add-Row -Gate 'amisad-tests' -State $(if ($total -gt 0 -and $broken -eq 0) { 'pass' } else { 'fail' }) `
-                -Detail "$total test(s), $broken failed, $([int]$results.skipped + [int]$results.'not-run' + [int]$results.ignored) skipped"
+if ($SerialStage -eq 'amisad-tests') {
+    $amisadRoot = Join-Path (Split-Path -Parent $RepoRoot) 'amisad.dev'
+    $amisadSuite = Join-Path $amisadRoot 'test/AmisAd.Regression.Tests.ps1'
+    if (-not (Test-Path -LiteralPath $amisadSuite -PathType Leaf)) {
+        Add-Row -Gate 'amisad-tests' -State 'not-applicable' -Detail 'no amisad.dev checkout beside this one'
+    } else {
+        $amisadXml = Join-Path ([IO.Path]::GetTempPath()) ('amisad-regression-' + [guid]::NewGuid().ToString('N') + '.xml')
+        try {
+            $null = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $RepoRoot 'tools/_InvokeOneSuite.ps1') `
+                -Suite $amisadSuite -Xml $amisadXml 2>&1
+            if (-not (Test-Path -LiteralPath $amisadXml)) {
+                Add-Row -Gate 'amisad-tests' -State 'fail' -Detail 'the suite produced no result file'
+            } else {
+                $results = ([xml](Get-Content -LiteralPath $amisadXml -Raw)).'test-results'
+                $total = [int]$results.total
+                $broken = [int]$results.failures + [int]$results.errors
+                Add-Row -Gate 'amisad-tests' -State $(if ($total -gt 0 -and $broken -eq 0) { 'pass' } else { 'fail' }) `
+                    -Detail "$total test(s), $broken failed, $([int]$results.skipped + [int]$results.'not-run' + [int]$results.ignored) skipped"
+            }
+        } catch {
+            Add-Row -Gate 'amisad-tests' -State 'cannot-run' -Detail $_.Exception.Message
+        } finally {
+            Remove-Item -LiteralPath $amisadXml -Force -ErrorAction SilentlyContinue
         }
-    } catch {
-        Add-Row -Gate 'amisad-tests' -State 'cannot-run' -Detail $_.Exception.Message
-    } finally {
-        Remove-Item -LiteralPath $amisadXml -Force -ErrorAction SilentlyContinue
     }
+}
+
+# --- REGION: Serial stages
+# The four stages above run one after another, each in a process of its own:
+# this script started again with -SerialStage. A check run inside this process
+# could not be stopped at the ceiling, and the analyzer, interpreters and suite
+# those stages start can hang. The stage process prints its rows on one line
+# and ends there; the gate reads that line back into its own rows.
+if ($SerialStage) {
+    Write-Output ('YURUNA_GATE_STAGE ' + (ConvertTo-Json -Compress -Depth 3 -InputObject @($rows | ForEach-Object {
+                    [ordered]@{ gate = $_.Gate; state = $_.State; detail = $_.Detail } })))
+    exit 0
+}
+foreach ($serialStage in @('project-lint', 'project-shellcheck', 'project-tests', 'amisad-tests')) {
+    Write-GateProgress -Stage $serialStage
+    Add-SerialStageRow -Name $serialStage -TimeoutSeconds $StageTimeoutSeconds `
+        -Arguments @('-NoProfile', '-File', $PSCommandPath, '-ProjectRoot', $ProjectRoot, '-SerialStage', $serialStage)
 }
 
 # The private-stripped trees are a distinct release artifact. Run the cheap
@@ -906,20 +1121,31 @@ if (-not (Test-Path -LiteralPath $amisadSuite -PathType Leaf)) {
 # both exact staged tree hashes.
 if ($isRelease) {
     Write-GateProgress -Stage 'staged-tree-hashes'
+    # Both trees at once, under the ceiling of one stage.
+    $hashResults = @(Invoke-ToolGateBatch -ThrottleLimit 2 -TimeoutSeconds $StageTimeoutSeconds -ResultOnly -Work @(
+            [pscustomobject]@{ Name = 'framework'; FilePath = 'git'; Arguments = @('-C', $RepoRoot, 'write-tree') }
+            [pscustomobject]@{ Name = 'project'; FilePath = 'git'; Arguments = @('-C', $ProjectRoot, 'write-tree') }))
     function Get-StagedHash {
-        param([Parameter(Mandatory)][string]$Root)
-        $output = & git -C $Root write-tree 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) { return @{ Code = $LASTEXITCODE; Hash = ''; Output = $output.Trim() } }
-        return @{ Code = 0; Hash = $output.Trim(); Output = '' }
+        param([Parameter(Mandatory)][string]$Name)
+        $result = @($hashResults | Where-Object Name -CEQ $Name)
+        if ($result.Count -ne 1) {
+            return @{ Code = 2; Hash = ''; Output = 'the tool worker did not return exactly one result'; TimedOut = $false }
+        }
+        if ($result[0].Code -ne 0) {
+            return @{ Code = $result[0].Code; Hash = ''; Output = $result[0].Output; TimedOut = $result[0].TimedOut }
+        }
+        return @{ Code = 0; Hash = $result[0].Output.Trim(); Output = ''; TimedOut = $false }
     }
-    $frameworkHash = Get-StagedHash -Root $RepoRoot
-    $projectHash = Get-StagedHash -Root $ProjectRoot
+    $frameworkHash = Get-StagedHash -Name 'framework'
+    $projectHash = Get-StagedHash -Name 'project'
     foreach ($hashRow in @(
             @{ Name = 'framework'; Actual = $frameworkHash; Expected = $FrameworkTreeHash }
             @{ Name = 'project'; Actual = $projectHash; Expected = $ProjectTreeHash })) {
         $detail = ''
         $state = 'pass'
-        if ($hashRow.Actual.Code -ne 0) {
+        if ($hashRow.Actual.TimedOut) {
+            $state = 'fail'; $detail = $hashRow.Actual.Output
+        } elseif ($hashRow.Actual.Code -ne 0) {
             $state = 'cannot-run'; $detail = "$($hashRow.Name) staged hash unavailable: $($hashRow.Actual.Output)"
         } elseif (-not $hashRow.Expected) {
             $state = 'fail'; $detail = "$($hashRow.Name) expected staged hash was not supplied"
@@ -928,7 +1154,7 @@ if ($isRelease) {
         } else {
             $detail = "$($hashRow.Name) staged tree $($hashRow.Actual.Hash)"
         }
-        Add-Row -Gate "staged-$($hashRow.Name)-hash" -State $state -Detail $detail
+        Add-Row -Gate "staged-$($hashRow.Name)-hash" -State $state -Detail $detail -TimedOut:$hashRow.Actual.TimedOut
     }
 
 }
@@ -946,8 +1172,10 @@ if ($runFramework -and -not $executeFramework) {
 $pool.Add([pscustomobject]@{ Name = 'doc-translation'
         Arguments = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-DocTranslation.ps1'), '-ProjectRoot', $ProjectRoot, '-Quiet') })
 
-# Documentation anchors and the public link map, which span both repositories.
-$anchorArgs = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-RegionAnchors.ps1'),
+# Documentation anchors and the public link map, which span both repositories,
+# and the heading check: a pointer whose heading names a region other than the
+# one the pointer sits in fails this row.
+$anchorArgs = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-RegionAnchors.ps1'), '-HeadingRegion',
     '-ProjectRoot', $ProjectRoot)
 if ($LinkMap) { $anchorArgs += @('-LinkMap', $LinkMap) }
 $pool.Add([pscustomobject]@{ Name = 'region-anchors'; Arguments = $anchorArgs })
@@ -962,6 +1190,22 @@ $pool.Add([pscustomobject]@{ Name = 'project-locale-map'
 # also reverse-checked here so removing one project path cannot shrink the gate.
 $pool.Add([pscustomobject]@{ Name = 'project-utf8'
         Arguments = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-ProjectTextEncoding.ps1'), '-ProjectRoot', $ProjectRoot, '-Quiet') })
+
+# License headers and GUIDs across the four workspace repositories, with any
+# finding a failure, so a GUID stays unique across all of them at every run and
+# at release. These are the framework's own repositories: a project of another
+# name is not held to their headers (Get-SourceMetadataRoot). Compared without one of them, a GUID that only the absent one
+# shares would pass, so an absent checkout makes the row not applicable, the
+# state the amisad.dev suite row gives a checkout that is not there.
+$metadataRoot = Get-SourceMetadataRoot -FrameworkRoot $RepoRoot -ProjectRoot $ProjectRoot
+if ($metadataRoot.Absent.Count -gt 0) {
+    Add-Row -Gate 'source-metadata' -State 'not-applicable' `
+        -Detail ('no {0} checkout in this workspace, so the four repositories are not compared' -f ($metadataRoot.Absent -join ' or '))
+} else {
+    $pool.Add([pscustomobject]@{ Name = 'source-metadata'
+            Arguments = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'Test-SourceMetadata.ps1'), '-All', '-FailOnDebt',
+                '-Root', ($metadataRoot.Root -join ',')) })
+}
 
 # Changed-domain mode is useful only if every newly discovered boundary can be
 # attributed to an owned slice.  Run this in all three modes: it is cheap, its
@@ -1002,7 +1246,8 @@ if ($executeFramework) {
 }
 
 Write-GateProgress -Stage "$($pool.Count) gates in parallel, at most $GateThrottleLimit at once"
-$poolResults = @(Invoke-ToolGateBatch -Work $pool.ToArray() -ThrottleLimit $GateThrottleLimit -ResultOnly)
+$poolResults = @(Invoke-ToolGateBatch -Work $pool.ToArray() -ThrottleLimit $GateThrottleLimit `
+        -TimeoutSeconds $StageTimeoutSeconds -ResultOnly)
 foreach ($item in $pool) {
     $result = @($poolResults | Where-Object Name -CEQ $item.Name)
     if ($result.Count -ne 1) {
@@ -1010,7 +1255,9 @@ foreach ($item in $pool) {
         continue
     }
     $outcome = $result[0]
-    if ($item.PSObject.Properties['Focused']) {
+    if ($outcome.TimedOut) {
+        Add-Row -Gate $item.Name -State 'fail' -Detail $outcome.Output -Seconds $outcome.Seconds -TimedOut
+    } elseif ($item.PSObject.Properties['Focused']) {
         Add-FocusedPesterRow -Gate $item.Name -RelativePath $item.Focused -Code $outcome.Code -Output $outcome.Output
     } else {
         Add-Row -Gate $item.Name -State $(if ($outcome.Code -eq 0) { 'pass' } elseif ($outcome.Code -eq 2) { 'cannot-run' } else { 'fail' }) `

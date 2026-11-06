@@ -8,6 +8,7 @@ carries the browser runtime its UI is built on.
 |---|---|
 | [`beacon`](beacon/) | The presence beacon. A hello at startup, a re-announce every interval (any failed announce retried on a doubling catch-up cadence until one lands), an `active:false` goodbye at shutdown -- so the dashboard's **Extension hosts** row survives the owning host's status service being down. |
 | [`controlproof`](controlproof/) | Verifies the bounded, HMAC-backed host-control proof carried by dashboard links. |
+| [`hostcheck`](hostcheck/) | The Host-header allow-list against DNS rebinding: any address, `localhost`, the machine's host name and its first label, and the names a service is configured with pass; any other name answers `421` (`auth.host_not_served`) before a route runs. A loopback peer's `X-Forwarded-Host` names are judged too. |
 | [`hostinfo`](hostinfo/) | Reads active host IP addresses for extension-service UIs. |
 | [`i18n`](i18n/) | Serves compiled message catalogs, locale selection and localized HTTP/page text. |
 | [`jsonbody`](jsonbody/) | Decodes bounded, single-document JSON request bodies. |
@@ -23,8 +24,8 @@ Nothing here imports anything outside the standard library and this module.
 `pool` imports only the standard library; `mcp` imports `jsonbody`. The
 caching-proxy-service seed stages the SDK packages its build needs, including
 `mcp` and `jsonbody`, so adding a package dependency requires updating that
-seed. `labgate` and `hostrefresh` use `i18n` for their refusal text, and
-`hostrefresh` uses `pool` for the rung vocabulary.
+seed. `labgate`, `hostcheck` and `hostrefresh` use `i18n` for their refusal
+text, and `hostrefresh` uses `pool` for the rung vocabulary.
 
 ## The browser runtime, and why it is a Go package
 

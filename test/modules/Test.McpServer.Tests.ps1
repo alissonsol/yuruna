@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b151d1-856e-48cb-8f07-88010f773bcb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,7 @@ Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameCh
 
 # Dot-source the server without letting it serve, so the tests drive the same
 # functions the stdio loop drives.
+$script:SavedNoRun = Save-YurunaTestEnvironment -Name 'YURUNA_MCP_SERVER_NO_RUN'
 $env:YURUNA_MCP_SERVER_NO_RUN = '1'
 . (Join-Path (Join-Path $TestRoot 'service') 'Start-McpServer.ps1')
 
@@ -72,6 +73,10 @@ function Invoke-McpExchange {
         ForEach-Object { $_ | ConvertFrom-Json })
 }
 
+}
+
+AfterAll {
+    Restore-YurunaTestEnvironment -Saved $script:SavedNoRun
 }
 
 Describe 'the core MCP server protocol' {

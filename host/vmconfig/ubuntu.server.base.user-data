@@ -44,6 +44,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
       emit_keys_to_console: false
   # See https://yuruna.link/429f3d06-0011
   interactive-sections: []
+# === YURUNA_OVERLAY_SHUTDOWN ===
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
   # --- REGION: late-commands
   late-commands:

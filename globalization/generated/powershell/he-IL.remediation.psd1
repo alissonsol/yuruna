@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a7417f-269d-7411-6f6f-5a366471b90c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,35 @@
 # locale: he-IL  domain: remediation
 
 @{
+    'remediation.guest_kernel_stalled_action_evidence' = 'קראו את ⁦causeDetail.guestKernelStallEnd⁩ ואת ⁦causeDetail.guestLivelock⁩ בקובץ ⁦last_failure.json⁩, ואת דיווחי הקרנל בקובץ ⁦serial-console.log⁩ שבתיקיית האורח'
+    'remediation.guest_kernel_stalled_rationale' = @(
+        'guest_kernel_stalled אצל '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': הקרנל של האורח הפסיק להתקדם, ולכן השלב לא יכול היה להסתיים (דיווחי הקרנל: '
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; מעבדים וירטואליים שלא טיפלו באף פסיקה: '
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; שניות שבהן כל המעבדים הווירטואליים הוחזקו במנהל המכונות הווירטואליות: '
+        @{
+            'arg' = 'heldSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '). אין זה שרת מראה איטי או תקלה במטען הנתונים, ואותו אתחול אינו מתאושש; הניסיון הבא מאתחל את האורח מחדש.'
+    )
+    'remediation.guest_kernel_stalled_retry_reason' = 'קרנל של אורח שהפסיק להתקדם מתאושש רק באתחול חדש, שהניסיון הבא מפעיל; ניסיונות חוזרים אלה צורכים תקציב יומי משלהם'
     'remediation.guest_run_lost_action_inspect' = 'קראו את יומן ההרצה של האורח כדי לברר מה סיים את התהליך.'
     'remediation.guest_run_lost_action_restore' = 'שחזרו את תמונת המצב התקינה האחרונה והריצו את הרצף שוב.'
     'remediation.guest_run_lost_rationale' = @(
@@ -763,13 +792,13 @@
         }
     )
     'remediation.vm_not_stopped_action_inspect' = 'אם זה קורה שוב, בדקו בקונסולת האורח מה מעכב את הכיבוי.'
-    'remediation.vm_not_stopped_action_power' = 'כבו את המכונה הווירטואלית מהמארח -- ⁦retry⁩ עם ⁦restartVmBeforeRetry: coldPowerCycle⁩ עושה זאת -- והריצו את השלב שוב.'
+    'remediation.vm_not_stopped_action_power' = 'כבו את המכונה הווירטואלית מהמארח -- שלב ⁦stopVm⁩ עם ⁦forceOnTimeout: true⁩ עושה זאת ברצף, או כבו אותה ממנהל המכונות הווירטואליות -- והריצו את השלב שוב.'
     'remediation.vm_not_stopped_rationale' = @(
         @{
             'arg' = 'vmName'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' לא הגיע למצב העצירה שהשלב המתין לו: האורח התעלם מבקשת הכיבוי, והמתנה נוספת לא תשנה זאת. כיבוי והפעלה קרים יכולים.'
+        ' לא הגיע למצב העצירה שהשלב המתין לו: האורח התעלם מבקשת הכיבוי, והמתנה נוספת לא תשנה זאת. כיבוי מהמארח כן יכול לשנות זאת.'
     )
 }

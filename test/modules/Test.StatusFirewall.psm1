@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42fadadf-22f5-4510-87bc-365af8d1047c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,28 @@ function Get-YurunaStatusFirewallRuleName {
     [OutputType([string])]
     param([Parameter(Mandatory)][int]$Port)
     "Yuruna: Allow inbound TCP :$Port (Status service)"
+}
+
+function Get-YurunaStatusFirewallRuleComment {
+    <#
+    .SYNOPSIS
+        The ufw comment on every allow rule the framework adds.
+    .DESCRIPTION
+        A ufw rule has no name, so this comment is what tells a rule the
+        framework added from one an operator added for the same port: the
+        Ubuntu KVM teardown removes only rules that carry it. One fixed string
+        for every port, so a rule added before the configured port changed is
+        still recognized. ASCII without quote characters: ufw refuses a
+        comment that contains "'".
+    .OUTPUTS
+        [string] the comment.
+    .EXAMPLE
+        Get-YurunaStatusFirewallRuleComment
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    'Yuruna test automation'
 }
 
 function Get-YurunaRulePortFilter {
@@ -103,8 +125,9 @@ function Set-YurunaStatusFirewallRule {
         so a caller in a start path can log and carry on. Windows: create /
         enable / rebuild the 'Yuruna: Allow inbound TCP :<port> (Status service)'
         Defender rule (inbound TCP Allow, profile Any); needs Administrator.
-        Linux: 'ufw allow <port>/tcp' when ufw is present AND active; needs
-        root / sudo. macOS: no-op (the port is not filtered by default).
+        Linux: 'ufw allow <port>/tcp comment <Get-YurunaStatusFirewallRuleComment>'
+        when ufw is present AND active and holds no rule for the port at all;
+        needs root / sudo. macOS: no-op (the port is not filtered by default).
     .PARAMETER Port
         The status-service TCP port (test.config.yml statusService.port, 8080 default).
     .PARAMETER NonInteractive
@@ -117,7 +140,8 @@ function Set-YurunaStatusFirewallRule {
         (determined to be actively firewalled AND not fixable here -- the caller
         should warn); and Message. Neither Ensured nor Blocked means the state
         was indeterminate (e.g. unprivileged and could not even read it) -- stay
-        quiet, host setup owns the durable fix.
+        quiet where host setup owns the durable fix (the status port); a caller
+        whose port no host-setup step opens warns on it instead.
     .EXAMPLE
         Set-YurunaStatusFirewallRule -Port 8080                  # host setup (elevated)
         Set-YurunaStatusFirewallRule -Port 8080 -NonInteractive  # self-heal at start
@@ -224,14 +248,29 @@ function Set-YurunaStatusFirewallRule {
                 Write-Verbose $result.Message
                 return $result
             }
+            # Any allow rule for the port counts, marked or not: ufw replaces a
+            # rule that differs from the one added only by its comment ("Rule
+            # updated"), so adding over an operator's own rule would mark it as
+            # the framework's, and the teardown would then remove it.
             if ($st.Output -match "(?im)^\s*$Port/tcp\s+ALLOW") {
                 $result.Ensured = $true
                 $result.Message = (Format-YurunaOperatorMessage -Key 'runner.operator_b7a070baef311891' -Arguments @{ port = "$Port" })
                 Write-Verbose $result.Message
                 return $result
             }
+            # The same holds for a rule of the port that differs from the one
+            # added by its action or log type, or that covers IPv6 only: ufw
+            # replaces it too, so the port is left to the rule already there.
+            $held = [regex]::Match($st.Output, "(?im)^[ \t]*$Port/tcp(?:[ \t]+\(v6\))?[ \t]+(?:ALLOW|DENY|REJECT|LIMIT)\b[^\r\n]*")
+            if ($held.Success) {
+                $result.Blocked = $true
+                $result.Message = (Format-YurunaOperatorMessage -Key 'runner.ufw_port_rule_left' -Arguments @{ port = "$Port"; rule = $held.Value.Trim() })
+                if ($NonInteractive) { Write-Verbose $result.Message } else { Write-Warning $result.Message }
+                return $result
+            }
             if ($PSCmdlet.ShouldProcess('ufw', "allow $Port/tcp")) {
-                $al = Invoke-YurunaFirewallNative -CommandLine ($prefix + @($ufwExe, 'allow', "$Port/tcp"))
+                # The comment is one argument, so no shell quoting is involved.
+                $al = Invoke-YurunaFirewallNative -CommandLine ($prefix + @($ufwExe, 'allow', "$Port/tcp", 'comment', (Get-YurunaStatusFirewallRuleComment)))
                 if ($al.ExitCode -eq 0) {
                     $result.Ensured = $true
                     $result.Changed = $true
@@ -265,4 +304,4 @@ function Set-YurunaStatusFirewallRule {
     return $result
 }
 
-Export-ModuleMember -Function Set-YurunaStatusFirewallRule, Get-YurunaStatusFirewallRuleName, Get-YurunaRulePortFilter
+Export-ModuleMember -Function Set-YurunaStatusFirewallRule, Get-YurunaStatusFirewallRuleName, Get-YurunaStatusFirewallRuleComment, Get-YurunaRulePortFilter

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 423e089a-1db3-4c9e-9470-56b8ea08d48b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,11 +110,13 @@ Describe 'each fault point sits where its name says' {
         Assert-Equal -Expected 1 -Actual ([regex]::Matches($text, $pattern)).Count -Because "one guarded call of $Point"
     }
 
-    It 'fires before-inner-pid before the inner records itself, and capture before each screen capture' {
+    It 'fires before-inner-pid before the inner records itself, capture before each screen capture, and ledger-read inside the reader every ledger read passes through' {
         $inner = [IO.File]::ReadAllText((Join-Path $script:TestRoot 'modules/Invoke-TestRunnerInnerLoop.ps1'))
         Assert-True ($inner.IndexOf("-Name 'before-inner-pid'") -lt $inner.IndexOf('$innerPidWritten = Write-YurunaStateFile -Path $InnerPidFile')) 'before inner.pid'
         $fn = Get-YurunaTestFunctionAst -Path (Join-Path $here 'Test.SequenceEngine.psm1') -Name 'Wait-ForText'
         $body = $fn.Body.Extent.Text
         Assert-True ($body.IndexOf("-Name 'capture'") -lt $body.IndexOf('$captured = Get-VMScreenshot')) 'before the capture'
+        $ledger = Get-YurunaTestFunctionAst -Path (Join-Path $here 'Test.RecoveryLedger.psm1') -Name 'Read-RecoveryLedgerEntry'
+        Assert-True ($ledger.Body.Extent.Text.Contains("-Name 'ledger-read'")) 'ledger-read sits in the one reader every ledger read passes through'
     }
 }

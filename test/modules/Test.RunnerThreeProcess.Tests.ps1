@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4227f6df-0fe0-4a7d-b85b-64c7c2f5ede7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ BeforeAll {
             Justification = 'Test fixture: copies the working tree into a private temp directory.')]
         [CmdletBinding()]
         [OutputType([hashtable])]
-        param([switch]$StubInner, [string]$StubPrologue = '')
+        param([switch]$StubInner)
         $base = New-YurunaTestTempDir -Prefix 'yrn-chain'
         $tree = Join-Path $base 'tree'
         Push-Location -LiteralPath $script:RepoRoot
@@ -130,7 +130,7 @@ while (-not (Test-Path -LiteralPath $release) -and [DateTime]::UtcNow -lt $until
 Remove-Item -LiteralPath $release -Force -ErrorAction SilentlyContinue
 exit 0
 '@
-            [System.IO.File]::WriteAllText($innerPath, "#requires -version 7`n" + $real.ParamBlock.Extent.Text + "`n" + $StubPrologue + "`n" + $body)
+            [System.IO.File]::WriteAllText($innerPath, "#requires -version 7`n" + $real.ParamBlock.Extent.Text + "`n" + $body)
         }
         return $f
     }
@@ -241,6 +241,75 @@ exit 0
             Start-Sleep -Milliseconds 500
         }
         return $null
+    }
+
+    function Wait-ChainRunnerFault {
+        <#
+        .SYNOPSIS
+            The chain's status.json once the resident has published the fault
+            of the given cycle (its runnerFault names that cycle's generation,
+            <runnerInstanceId>:<cycle>) or, with -FailureClass, the first fault
+            of that class; $null when none appears in time.
+        .DESCRIPTION
+            The resident writes its cycle row first and the fault after the
+            crash accounting, so a case that read the row cannot yet read the
+            verdict; this waits for the later write. The row itself does not
+            name the generation: only the cycle process runs under it. The
+            supervisor's record of an escaped exception names no attempt at
+            all, which is what the class match is for.
+        #>
+        [CmdletBinding()]
+        [OutputType([pscustomobject])]
+        param([hashtable]$F, [int]$Cycle = 1, [string]$FailureClass, [int]$Seconds = 120, [System.Diagnostics.Process]$Runner)
+        $path = Join-Path $F.Runtime 'status.json'
+        $until = [DateTime]::UtcNow.AddSeconds($Seconds)
+        while ([DateTime]::UtcNow -lt $until) {
+            $text = Read-ChainText -Path $path
+            if ($text.Trim()) {
+                try {
+                    $doc = $text | ConvertFrom-Json
+                    $fault = $doc.runnerFault
+                    if ($fault) {
+                        $matched = if ($FailureClass) { [string]$fault.failureClass -ceq $FailureClass } else { [string]$fault.attemptGeneration -match "^[0-9a-f]{32}:$Cycle$" }
+                        if ($matched) { return $doc }
+                    }
+                } catch { $null = $_ }
+            }
+            if ($Runner -and $Runner.HasExited) { break }
+            Start-Sleep -Milliseconds 500
+        }
+        return $null
+    }
+
+    function Get-ChainFaultLogPid {
+        <#
+        .SYNOPSIS
+            The process that fired the named fault point, read from the
+            chain's fault-injection.log; 0 when no such line exists yet.
+        #>
+        [CmdletBinding()]
+        [OutputType([int])]
+        param([hashtable]$F, [string]$Point)
+        $text = Read-ChainText -Path (Join-Path $F.Runtime 'fault-injection.log')
+        $m = [regex]::Match($text, "pid=(\d+) point=$([regex]::Escape($Point)) action=")
+        return $(if ($m.Success) { [int]$m.Groups[1].Value } else { 0 })
+    }
+
+    function Set-ChainStepTimeout {
+        <#
+        .SYNOPSIS
+            Shrink testCycle.stepTimeoutSeconds in the chain's private
+            configuration: the bound the cycle process arms its step
+            watchdog with, read from that file at every spawn.
+        #>
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+            Justification = 'Test fixture: rewrites the private configuration copy the chain reads.')]
+        [CmdletBinding()]
+        param([hashtable]$F, [int]$Seconds)
+        $text = [System.IO.File]::ReadAllText($F.Config)
+        $edited = [regex]::Replace($text, '(?m)^(\s*stepTimeoutSeconds:\s*)\d+', ('${1}' + $Seconds))
+        if ($edited -ceq $text) { throw "testCycle.stepTimeoutSeconds not found in $($F.Config)" }
+        [System.IO.File]::WriteAllText($F.Config, $edited)
     }
 
     function Initialize-ChainPrivateRoot {
@@ -500,6 +569,12 @@ Describe 'Case C: the real inner runs only its preflight and acknowledges it' -S
 # chain. Each case arms one point through YURUNA_FAULT_POINTS and the marker in
 # its private runtime folder, then asserts where the loop ends up: a scored
 # non-pass, the evidence of the point, and a resident that is still running.
+# The points inside the real inner's preamble (before-inner-pid, inner-import,
+# the first step heartbeat) run the unmodified inner: every one of them fires
+# before the inner detects the host, so no VM command can follow on any host.
+# The points past that preamble (status-write in the cycle body, capture and
+# ocr in a guest sequence) come after the host-touching work and are not
+# reachable in this harness; Test.FaultInjection pins where each one sits.
 Describe 'Chaos: a fault inside the real chain ends as a scored non-pass and the runner survives it' -Skip:(-not $script:CanRunChain) {
     It 'scores a cycle process that dies after loading its modules, without starting an inner' {
         $f = New-ChainTree -StubInner
@@ -523,11 +598,8 @@ Describe 'Chaos: a fault inside the real chain ends as a scored non-pass and the
         }
     }
 
-    It 'scores an inner that fails before it records itself, and leaves no live inner behind' {
-        # The stub inner opens with the real inner's guarded call (its placement
-        # before inner.pid is pinned in Test.FaultInjection), so a fault that
-        # failed to fire parks the stub instead of running a real preamble.
-        $f = New-ChainTree -StubInner -StubPrologue "if (`$env:YURUNA_FAULT_POINTS) { Import-Module (Join-Path `$PSScriptRoot 'Test.FaultInjection.psm1') -DisableNameChecking; Invoke-YurunaFaultPoint -Name 'before-inner-pid' }"
+    It 'scores a real inner that dies before it records itself, with the cycle process''s record naming it and nothing live behind it' {
+        $f = New-ChainTree
         $runner = $null
         try {
             $null = New-Item -ItemType File -Path (Join-Path $f.Runtime 'fault-injection.enabled')
@@ -535,16 +607,192 @@ Describe 'Chaos: a fault inside the real chain ends as a scored non-pass and the
                 -Arguments @('-ConfigPath', $f.Config, '-NoGitPull', '-NoStatusService', '-NoConfigGate')
             $row = Wait-ChainCycleRow -F $f -Runner $runner
             Assert-NotNull $row (Get-ChainDiagnostic -F $f)
-            Assert-True ($row.outcome -cne 'pass') "an inner that died is never a pass: $($row.outcome)"
-            Assert-Match -Pattern 'point=before-inner-pid action=throw' -Actual (Read-ChainText -Path (Join-Path $f.Runtime 'fault-injection.log'))
-            Assert-Equal -Expected 0 -Actual @(Get-ChildItem -LiteralPath $f.Runtime -Filter 'stub-capture.*.json' -ErrorAction SilentlyContinue).Count -Because 'the inner died before its own work'
-            # The cycle process records the inner it starts; what must not remain
-            # is a live inner behind that record.
-            $innerPidFile = Join-Path $f.Runtime 'inner.pid'
-            if (Test-Path -LiteralPath $innerPidFile) {
-                $innerPid = [int]((Get-Content -LiteralPath $innerPidFile -Raw).Trim())
-                Assert-Null (Get-Process -Id $innerPid -ErrorAction SilentlyContinue) "inner $innerPid is gone"
-            }
+            Assert-Equal -Expected 'fail' -Actual $row.outcome -Because "the cycle process recorded the inner's exit: $(Get-ChainDiagnostic -F $f)"
+            $innerPid = Get-ChainFaultLogPid -F $f -Point 'before-inner-pid'
+            Assert-True ($innerPid -gt 0) "the inner fired the point: $(Get-ChainDiagnostic -F $f)"
+            Assert-Match -Pattern "pid=$innerPid point=before-inner-pid action=throw" -Actual (Read-ChainText -Path (Join-Path $f.Runtime 'fault-injection.log'))
+            Assert-Null (Get-Process -Id $innerPid -ErrorAction SilentlyContinue) "inner $innerPid is gone"
+            # The cycle process records the inner it starts before that inner
+            # can record itself, so the watchdog is armed from the spawn and the
+            # record names the inner that died.
+            Assert-True (Test-Path -LiteralPath (Join-Path $f.Runtime 'inner.start')) 'the cycle process wrote the start record'
+            Assert-StringEqual ([string]$innerPid) (Read-ChainText -Path (Join-Path $f.Runtime 'inner.pid')).Trim() 'inner.pid names the inner that fired the point'
+            $status = Wait-ChainRunnerFault -F $f -Runner $runner
+            Assert-NotNull $status "the resident published the attempt's fault: $(Get-ChainDiagnostic -F $f)"
+            Assert-Equal -Expected 'inner_exited' -Actual ([string]$status.runnerFault.failureClass)
+            Assert-Match -Pattern 'inner exited 1\b' -Actual ([string]$status.runnerStateReason) -Because 'an unhandled throw ends the inner with code 1'
+            $result = Get-Content -LiteralPath (Join-Path $f.Runtime 'recovery.result.json') -Raw | ConvertFrom-Json
+            Assert-Equal -Expected 'failed' -Actual ([string]$result.outcome) -Because 'a recorded non-zero exit with no failure record is a failed cycle'
+            Assert-Equal -Expected 'unknown' -Actual ([string]$result.failureClass) -Because 'the inner left no failure record to classify from'
+            Assert-Equal -Expected ([string]$status.runnerFault.attemptGeneration) -Actual ([string]$result.cycleGeneration)
+            $health = Get-Content -LiteralPath (Join-Path $f.Runtime 'runner.framework-health.json') -Raw | ConvertFrom-Json
+            Assert-Equal -Expected 0 -Actual ([int]$health.streak) -Because 'a recorded inner failure is a verdict, not a cycle process that died'
+            Assert-False $runner.HasExited "the resident keeps running: $(Get-ChainDiagnostic -F $f)"
+        } finally {
+            if ($runner -and -not $runner.HasExited) { $runner.Kill($true) }
+            Remove-YurunaTestTempDir $f.Base
+        }
+    }
+
+    It 'scores a real inner that dies once its modules loaded as a recorded inner exit, not a framework strike' {
+        $f = New-ChainTree
+        $runner = $null
+        try {
+            $null = New-Item -ItemType File -Path (Join-Path $f.Runtime 'fault-injection.enabled')
+            $runner = Start-ChainRunner -F $f -Environment @{ YURUNA_FAULT_POINTS = 'inner-import' } `
+                -Arguments @('-ConfigPath', $f.Config, '-NoGitPull', '-NoStatusService', '-NoConfigGate')
+            $row = Wait-ChainCycleRow -F $f -Runner $runner
+            Assert-NotNull $row (Get-ChainDiagnostic -F $f)
+            # The cycle process outlived its inner and recorded the exit, so the
+            # resident scores the verdict from the record rather than guessing
+            # from a dead cycle process.
+            Assert-Equal -Expected 'fail' -Actual $row.outcome -Because "the cycle process recorded the inner's exit: $(Get-ChainDiagnostic -F $f)"
+            $innerPid = Get-ChainFaultLogPid -F $f -Point 'inner-import'
+            Assert-True ($innerPid -gt 0) "the inner fired the point: $(Get-ChainDiagnostic -F $f)"
+            Assert-Match -Pattern "pid=$innerPid point=inner-import action=throw" -Actual (Read-ChainText -Path (Join-Path $f.Runtime 'fault-injection.log'))
+            Assert-Null (Get-Process -Id $innerPid -ErrorAction SilentlyContinue) "inner $innerPid is gone"
+            $status = Wait-ChainRunnerFault -F $f -Runner $runner
+            Assert-NotNull $status "the resident published the attempt's fault: $(Get-ChainDiagnostic -F $f)"
+            Assert-True ($status.runnerState -in @('fault', 'paused')) "runner state after the fault: $($status.runnerState)"
+            Assert-Equal -Expected 'inner_exited' -Actual ([string]$status.runnerFault.failureClass)
+            Assert-Match -Pattern 'inner exited 1\b' -Actual ([string]$status.runnerStateReason) -Because 'an unhandled throw ends the inner with code 1'
+            # The typed result the resident recorded before reacting to the cycle.
+            $result = Get-Content -LiteralPath (Join-Path $f.Runtime 'recovery.result.json') -Raw | ConvertFrom-Json
+            Assert-Equal -Expected 'failed' -Actual ([string]$result.outcome) -Because 'a recorded non-zero exit with no failure record is a failed cycle'
+            Assert-Equal -Expected 'unknown' -Actual ([string]$result.failureClass) -Because 'the inner left no failure record to classify from'
+            Assert-Equal -Expected ([string]$status.runnerFault.attemptGeneration) -Actual ([string]$result.cycleGeneration)
+            Assert-Match -Pattern 'inner exited 1\b' -Actual ([string]$result.reason)
+            $health = Get-Content -LiteralPath (Join-Path $f.Runtime 'runner.framework-health.json') -Raw | ConvertFrom-Json
+            Assert-Equal -Expected 0 -Actual ([int]$health.streak) -Because 'a recorded inner failure is a verdict, not a cycle process that died'
+            Assert-False $runner.HasExited "the resident keeps running: $(Get-ChainDiagnostic -F $f)"
+        } finally {
+            if ($runner -and -not $runner.HasExited) { $runner.Kill($true) }
+            Remove-YurunaTestTempDir $f.Base
+        }
+    }
+
+    It 'scores a real inner that ends at its first step heartbeat with the exit code the fault set' {
+        $f = New-ChainTree
+        $runner = $null
+        try {
+            $null = New-Item -ItemType File -Path (Join-Path $f.Runtime 'fault-injection.enabled')
+            # The first heartbeat write follows inner.pid immediately, so the
+            # inner leaves its record behind with nothing live to clean it up.
+            $runner = Start-ChainRunner -F $f -Environment @{ YURUNA_FAULT_POINTS = 'step-heartbeat:exit' } `
+                -Arguments @('-ConfigPath', $f.Config, '-NoGitPull', '-NoStatusService', '-NoConfigGate')
+            $row = Wait-ChainCycleRow -F $f -Runner $runner
+            Assert-NotNull $row (Get-ChainDiagnostic -F $f)
+            Assert-Equal -Expected 'fail' -Actual $row.outcome -Because "an inner that ended before any work is never a pass: $(Get-ChainDiagnostic -F $f)"
+            $innerPid = Get-ChainFaultLogPid -F $f -Point 'step-heartbeat'
+            Assert-True ($innerPid -gt 0) "the inner fired the point: $(Get-ChainDiagnostic -F $f)"
+            Assert-Match -Pattern "pid=$innerPid point=step-heartbeat action=exit" -Actual (Read-ChainText -Path (Join-Path $f.Runtime 'fault-injection.log'))
+            Assert-Null (Get-Process -Id $innerPid -ErrorAction SilentlyContinue) "inner $innerPid is gone"
+            $status = Wait-ChainRunnerFault -F $f -Runner $runner
+            Assert-NotNull $status "the resident published the attempt's fault: $(Get-ChainDiagnostic -F $f)"
+            Assert-Equal -Expected 'inner_exited' -Actual ([string]$status.runnerFault.failureClass)
+            Assert-Match -Pattern 'inner exited 97\b' -Actual ([string]$status.runnerStateReason) -Because 'the exit code the fault set reaches the resident unchanged'
+            $result = Get-Content -LiteralPath (Join-Path $f.Runtime 'recovery.result.json') -Raw | ConvertFrom-Json
+            Assert-Equal -Expected 'failed' -Actual ([string]$result.outcome)
+            Assert-Equal -Expected 'unknown' -Actual ([string]$result.failureClass) -Because 'the inner left no failure record to classify from'
+            Assert-Equal -Expected 97 -Actual ([int]$result.exitCode)
+            Assert-Equal -Expected ([string]$status.runnerFault.attemptGeneration) -Actual ([string]$result.cycleGeneration)
+            Assert-False $runner.HasExited "the resident keeps running: $(Get-ChainDiagnostic -F $f)"
+        } finally {
+            if ($runner -and -not $runner.HasExited) { $runner.Kill($true) }
+            Remove-YurunaTestTempDir $f.Base
+        }
+    }
+
+    It 'kills a real inner whose step heartbeat hangs, scores the stop as wait_timeout, and the runner survives the stall' {
+        $f = New-ChainTree
+        $runner = $null
+        try {
+            $null = New-Item -ItemType File -Path (Join-Path $f.Runtime 'fault-injection.enabled')
+            # The hang sits at the inner's first heartbeat write, before any
+            # preamble phase is published, so the step bound is the one that
+            # applies: the chain's own configuration shrinks it from an hour
+            # to seconds, and the watchdog's poll interval sets the case's
+            # floor. The hang outlasts the case, so only a kill can end it.
+            Set-ChainStepTimeout -F $f -Seconds 10
+            $runner = Start-ChainRunner -F $f -Environment @{ YURUNA_FAULT_POINTS = 'step-heartbeat:hang'; YURUNA_FAULT_HANG_SECONDS = '900' } `
+                -Arguments @('-ConfigPath', $f.Config, '-NoGitPull', '-NoStatusService', '-NoConfigGate')
+            $row = Wait-ChainCycleRow -F $f -Runner $runner
+            Assert-NotNull $row (Get-ChainDiagnostic -F $f)
+            Assert-Equal -Expected 'fail' -Actual $row.outcome -Because "a killed inner is never a pass: $(Get-ChainDiagnostic -F $f)"
+            $innerPid = Get-ChainFaultLogPid -F $f -Point 'step-heartbeat'
+            Assert-True ($innerPid -gt 0) "the inner fired the point: $(Get-ChainDiagnostic -F $f)"
+            Assert-Match -Pattern "pid=$innerPid point=step-heartbeat action=hang" -Actual (Read-ChainText -Path (Join-Path $f.Runtime 'fault-injection.log'))
+            # The watchdog's verdict, recorded while the armed identity was
+            # still proven: no phase was published, so the stop is a step
+            # timeout against the shrunken bound, and the kill reached the inner.
+            $killPath = Join-Path $f.Runtime 'runner.watchdog-kill.json'
+            Assert-True (Test-Path -LiteralPath $killPath) "the watchdog left its stop record: $(Get-ChainDiagnostic -F $f)"
+            $kill = Get-Content -LiteralPath $killPath -Raw | ConvertFrom-Json
+            Assert-Equal -Expected 'wait_timeout' -Actual ([string]$kill.failureClass) -Because 'no preamble phase was published before the hang'
+            Assert-Equal -Expected '' -Actual ([string]$kill.phase)
+            Assert-Equal -Expected $innerPid -Actual ([int]$kill.innerPid)
+            Assert-Match -Pattern '^[0-9a-f]{32}:1$' -Actual ([string]$kill.attemptGeneration) -Because 'the stop names the first cycle'
+            Assert-Equal -Expected 10 -Actual ([int]$kill.timeoutSeconds)
+            Assert-True ([int]$kill.stepHeartbeatAgeSeconds -gt 10) "the heartbeat was stale past the bound: $($kill.stepHeartbeatAgeSeconds)s"
+            Assert-Match -Pattern "\[watchdog\] step heartbeat stale \d+s > bound 10s; killing inner PID $innerPid" -Actual (Read-ChainText -Path (Join-Path $f.Runtime 'outer.log'))
+            Assert-Null (Get-Process -Id $innerPid -ErrorAction SilentlyContinue) "the watchdog killed inner $innerPid"
+            # The cycle process turns the kill into the failure record the
+            # dashboard reads, since the inner left none.
+            $synthPath = Join-Path $f.Log 'last_failure.json'
+            Assert-True (Test-Path -LiteralPath $synthPath) "the cycle process synthesized last_failure.json: $(Get-ChainDiagnostic -F $f)"
+            $synth = Get-Content -LiteralPath $synthPath -Raw | ConvertFrom-Json
+            Assert-Equal -Expected 'watchdog_kill' -Actual ([string]$synth.reason)
+            Assert-Equal -Expected 'wait_timeout' -Actual ([string]$synth.failureClass)
+            Assert-Equal -Expected 'outer-watchdog' -Actual ([string]$synth.synthesizedBy)
+            $status = Wait-ChainRunnerFault -F $f -Runner $runner
+            Assert-NotNull $status "the resident published the attempt's fault: $(Get-ChainDiagnostic -F $f)"
+            Assert-True ($status.runnerState -in @('fault', 'paused')) "runner state after the stop: $($status.runnerState)"
+            Assert-Equal -Expected ([string]$kill.attemptGeneration) -Actual ([string]$status.runnerFault.attemptGeneration) -Because 'the fault is the stopped attempt''s'
+            Assert-Equal -Expected 'wait_timeout' -Actual ([string]$status.runnerFault.failureClass) -Because 'the resident takes the class from the stop record'
+            Assert-Match -Pattern "watchdog killing inner PID $innerPid" -Actual ([string]$status.runnerFault.errorMessage)
+            # The typed result classifies from the synthesized record: a failed
+            # cycle of class wait_timeout, not an infrastructure stage.
+            $result = Get-Content -LiteralPath (Join-Path $f.Runtime 'recovery.result.json') -Raw | ConvertFrom-Json
+            Assert-Equal -Expected 'failed' -Actual ([string]$result.outcome)
+            Assert-Equal -Expected 'wait_timeout' -Actual ([string]$result.failureClass) -Because 'the typed result reads the class from the synthesized record'
+            Assert-Equal -Expected ([string]$kill.attemptGeneration) -Actual ([string]$result.cycleGeneration)
+            Assert-False $runner.HasExited "the resident keeps running: $(Get-ChainDiagnostic -F $f)"
+        } finally {
+            if ($runner -and -not $runner.HasExited) { $runner.Kill($true) }
+            Remove-YurunaTestTempDir $f.Base
+        }
+    }
+
+    It 'survives a ledger read that throws inside the resident''s failure pause, publishing it as a script error' {
+        $f = New-ChainTree
+        $runner = $null
+        try {
+            $null = New-Item -ItemType File -Path (Join-Path $f.Runtime 'fault-injection.enabled')
+            # Two points: the inner dies at import, which puts the resident into
+            # its failure pause, and the pause's first act is a ledger read
+            # (Get-OuterEarlyEndHoldSeconds -> Get-RecoveryAttemptState ->
+            # Read-RecoveryLedgerEntry). That read runs only for a typed result
+            # that carries a fingerprint: ConvertTo-RunnerRecoveryResult classes
+            # the crash as unknown, and Get-FailureFingerprint keys on any
+            # non-empty class, so the result has one. The throw escapes the
+            # loop; the supervisor records it as a script error, holds, and
+            # re-enters, so the resident outlives its own fault.
+            $runner = Start-ChainRunner -F $f -Environment @{ YURUNA_FAULT_POINTS = 'inner-import,ledger-read' } `
+                -Arguments @('-ConfigPath', $f.Config, '-NoGitPull', '-NoStatusService', '-NoConfigGate')
+            $row = Wait-ChainCycleRow -F $f -Runner $runner
+            Assert-NotNull $row (Get-ChainDiagnostic -F $f)
+            Assert-Equal -Expected 'fail' -Actual $row.outcome -Because "the inner's exit was recorded: $(Get-ChainDiagnostic -F $f)"
+            Assert-True ((Get-ChainFaultLogPid -F $f -Point 'inner-import') -gt 0) "the inner fired its point: $(Get-ChainDiagnostic -F $f)"
+            $status = Wait-ChainRunnerFault -F $f -Runner $runner -FailureClass 'script_error'
+            Assert-NotNull $status "the supervisor published the escaped exception: $(Get-ChainDiagnostic -F $f)"
+            Assert-Equal -Expected 'paused' -Actual ([string]$status.runnerState) -Because 'the supervisor holds before re-entering the loop'
+            Assert-Match -Pattern 'YurunaFaultInjected: ledger-read' -Actual ([string]$status.runnerFault.errorMessage) -Because 'the fault names the point that escaped'
+            Assert-Match -Pattern 'YurunaFaultInjected: ledger-read' -Actual (Read-ChainText -Path (Join-Path $f.Runtime 'outer.log')) -Because 'the escape is logged with its message'
+            # Only the resident reads the ledger in this flow, so every firing
+            # of the point carries its pid; another pid would be a new reader.
+            $firings = [regex]::Matches((Read-ChainText -Path (Join-Path $f.Runtime 'fault-injection.log')), 'pid=(\d+) point=ledger-read action=throw')
+            Assert-True ($firings.Count -ge 1) "the resident fired the point: $(Get-ChainDiagnostic -F $f)"
+            foreach ($firing in $firings) { Assert-Equal -Expected $runner.Id -Actual ([int]$firing.Groups[1].Value) -Because 'a ledger read outside the resident' }
             Start-Sleep -Seconds 2
             Assert-False $runner.HasExited "the resident keeps running: $(Get-ChainDiagnostic -F $f)"
         } finally {

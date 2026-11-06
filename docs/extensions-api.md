@@ -254,6 +254,7 @@ Go module. The packages a service uses directly:
 | `beacon` | `POST /announce` presence: hello at boot, re-announce every interval (any failed announce retried on a doubling catch-up cadence), `active:false` goodbye. The aggregator it announces to is seeded once, at `New-VM` time -- see [When the caching proxy is rebuilt](#when-the-caching-proxy-is-rebuilt). |
 | `pool` | The read client for the **information provider**: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz`, and `Get`/`GetURL` for untyped routes. |
 | `labgate` | The write gate: `Require`, `RequireBearer`, `HandleLogin`, `Session`. |
+| `hostcheck` | The Host-header allow-list against DNS rebinding, wrapped around a daemon's whole mux: any address, `localhost`, the machine's host name and its first label, and the names the service is configured with pass; any other name answers `421` (`auth.host_not_served`) before a route runs. A loopback peer's `X-Forwarded-Host` names, which a reverse proxy on the same machine forwards, are judged too. |
 | `hostrefresh` | Remote host refresh authorization: the versioned refresh proof (`Proof`, `Verify` with an explicit clock and a two-sided skew), the `Signer` that mints it from the signing authority, the secret-file loader, and the refresh credential `Gate` that reads only `X-Yuruna-Refresh-Credential`. Only pool-control imports it; see [Remote host refresh](pool-admin.md#remote-host-refresh). |
 
 `pool.Host` also carries `Refresh`, the host's refresh capability as the
@@ -509,6 +510,13 @@ the bring-up that bakes it.
 `<SERVICE>_PRESENCE_INTERVAL` is the beacon cadence and defaults to `2m` in all
 three. It must stay under the aggregator's five-minute health grace; see
 [the manifest](#1-the-manifest----what-the-area-declares).
+
+The names the stash and download-agent daemons answer to in `Host`, besides any
+address, the VM's host name and `localhost`, are not a guest variable: the
+building host bakes them into `/etc/yuruna/service-host-names.env` from its own
+configuration ([`vmStart.serviceHostNames`](test-config.md#42b11c32-0015)), and
+the bring-up passes them as `--allowed-host-names`. The caching-proxy VM's
+management daemon takes the same file.
 
 **On the host**, each `Start-<Service>VM.ps1` waits for the daemon to answer
 `:80`, and the wait is overridable because first boot builds the daemon inside
@@ -980,7 +988,7 @@ instead: it adds the manifest, the SDK and the marker on top of these steps.
 
 ## POST /announce (pool-aggregator-service)
 
-`handleAnnounce` in `test/extension/pool-aggregator-service/main.go` is the
+`HandleAnnounce` in `test/extension/pool-aggregator-service/internal/routes/ingest.go` is the
 extension-presence write surface: a service VM (e.g. the stash service's
 beacon) POSTs `{hostId, area, targetPort, active}` on boot, every beacon
 period, and with `active=false` at shutdown, so the dashboard's Extension
@@ -1172,6 +1180,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

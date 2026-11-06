@@ -200,10 +200,10 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             (root / 'VERSION').write_text('2026.09.30\n')
             subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
 
-            (root / 'VERSION').write_text('2026.10.31\n')
+            (root / 'VERSION').write_text('2026.11.05\n')
             for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                 shared = root / f'guest/shared/ubuntu.{name}.sh'
-                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.10.31\nexit 17\n')
+                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.11.05\nexit 17\n')
             stale = subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py'), '--check'], capture_output=True, text=True)
             self.assertNotEqual(stale.returncode, 0)
             self.assertEqual(len(stale.stderr.splitlines()) - 1, 12)
@@ -213,7 +213,7 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
                 for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                     wrapper = (root / f'guest/ubuntu.server.{release}/ubuntu.server.{release}.{name}.sh').read_text()
                     digest = hashlib.sha256((root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
-                    self.assertIn('# Version: 2026.10.31\n', wrapper)
+                    self.assertIn('# Version: 2026.11.05\n', wrapper)
                     self.assertIn(f'expected="{digest}"', wrapper)
 
     def test_guest_workflow_pre_commit_stages_pins(self):
@@ -256,10 +256,10 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             git('-c', 'core.hooksPath=', 'commit', '-q', '-m', 'seed')
             git('config', 'core.hooksPath', 'tools/githooks')
 
-            (root / 'VERSION').write_text('2026.10.31\n')
+            (root / 'VERSION').write_text('2026.11.05\n')
             for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                 (root / f'guest/shared/ubuntu.{name}.sh').write_bytes(
-                    b'#!/bin/bash\n# Version: 2026.10.31\nexit 0\n')
+                    b'#!/bin/bash\n# Version: 2026.11.05\nexit 0\n')
             git('add', 'VERSION', 'guest/shared')
             committed = git('commit', '-q', '-m', 'version stamp')
             self.assertIn('regenerated and staged Ubuntu workflow checksum pins', committed.stderr)
@@ -272,7 +272,7 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
                     digest = hashlib.sha256(
                         (root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
                     self.assertIn(f'expected="{digest}"', wrapper)
-                    self.assertIn('# Version: 2026.10.31', wrapper)
+                    self.assertIn('# Version: 2026.11.05', wrapper)
 
             # A staged version with an unstaged workflow edit must not pin
             # bytes that the proposed commit does not contain.
@@ -311,6 +311,11 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             project = home / 'yuruna/project'
             (project / 'tools').mkdir(parents=True)
             shutil.copy(PROJECT / 'tools/example-workload.sh', project / 'tools')
+            # The fake store holds the registry release the helper runs, so
+            # registry mode fails at docker run with that image already local.
+            release = re.search(r'(?m)^REGISTRY_TAG="([^"]+)"$', (project / 'tools/example-workload.sh').read_text())
+            self.assertIsNotNone(release, 'the project helper names its registry release as REGISTRY_TAG')
+            registry_image = 'registry:' + release.group(1)
             for name, component in [('website', 'website'), ('text-to-sql', 'text-to-sql-ui')]:
                 (project / f'example/{name}/components/frontend/{component}').mkdir(parents=True)
                 # The helper reads the base images to seed from the component's Dockerfile.
@@ -328,7 +333,7 @@ printf '%s %s\n' "$name" "$*" >> "$FIXTURE_LOG"
 case "$name:$1" in
  docker:start) [ "$MODE" != registry ] && [ "$MODE" != pull ] ;;
  docker:run) [ "$MODE" != registry ] ;;
- docker:image) if [ "$2" = ls ] && [ "$MODE" != pull ]; then printf 'registry:2\ndotnet/sdk:10.0\ndotnet/aspnet:10.0\n'; fi ;;
+ docker:image) if [ "$2" = ls ] && [ "$MODE" != pull ]; then printf '%s\ndotnet/sdk:10.0\ndotnet/aspnet:10.0\n' "$FIXTURE_REGISTRY_IMAGE"; fi ;;
  docker:pull) exit 1 ;;
  docker:build) [ "$MODE" != build ] ;;
  docker:push) [ "$MODE" != push ] ;;
@@ -353,7 +358,8 @@ esac
                     log.write_text('')
                     source = re.sub(r'^REAL_HOME=.*$', lambda _: 'REAL_HOME="$FIXTURE_HOME"', path.read_text(), flags=re.M)
                     env = {**os.environ, 'MODE': mode, 'USER': 'fixture', 'FIXTURE_HOME': shell_home,
-                           'FIXTURE_LOG': shell_home + '/commands.log', 'http_proxy': 'http://fixture:3128'}
+                           'FIXTURE_LOG': shell_home + '/commands.log', 'http_proxy': 'http://fixture:3128',
+                           'FIXTURE_REGISTRY_IMAGE': registry_image}
                     result = bash('export PATH="$FIXTURE_HOME/bin:$PATH"\n' + source, env)
                     self.assertEqual(result.returncode == 0, mode == 'hit', f'{path} {mode}: {result.stderr}\n{result.stdout}')
                     commands = log.read_text()
@@ -365,6 +371,9 @@ esac
                         self.assertNotIn('docker build --progress=plain', commands)
                     elif mode in ('registry', 'pull', 'resource', 'component'):
                         self.assertNotIn('Set-Workload.ps1', commands)
+                        if mode == 'registry':
+                            self.assertIn('--name registry ' + registry_image, commands)
+                            self.assertNotIn('docker pull', commands)
                     elif mode == 'workload':
                         self.assertNotIn('kubectl wait', commands)
 
@@ -372,7 +381,8 @@ esac
                 with self.subTest(build_mode=mode):
                     log.write_text('')
                     env = {**os.environ, 'MODE': mode, 'USER': 'fixture', 'FIXTURE_HOME': shell_home,
-                           'FIXTURE_LOG': shell_home + '/commands.log', 'http_proxy': 'http://fixture:3128'}
+                           'FIXTURE_LOG': shell_home + '/commands.log', 'http_proxy': 'http://fixture:3128',
+                           'FIXTURE_REGISTRY_IMAGE': registry_image}
                     source = ('export PATH="$FIXTURE_HOME/bin:$PATH"\nREAL_HOME="$FIXTURE_HOME"\n'
                               '. "$REAL_HOME/yuruna/project/tools/example-workload.sh"\n'
                               'example_registry_prepare\nexample_build_and_push website website\n')

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 428f620a-6793-4a91-af55-61a1a07b3e6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,13 +27,15 @@ BeforeAll {
             Justification = 'Creates isolated component fixtures beneath TestDrive.')]
         [CmdletBinding()]
         param([string]$Root, [string]$Build = 'Set-Variable -Name LASTEXITCODE -Value 0 -Scope Global', [string]$Pre = '', [string]$Post = '', [int]$Timeout = 600,
-            [object]$BuildRetry = $null, [object]$EntryBuildRetry = $null)
+            [object]$BuildRetry = $null, [object]$EntryBuildRetry = $null,
+            [string]$Tag = 'Set-Variable -Name LASTEXITCODE -Value 0 -Scope Global',
+            [string]$Push = 'Set-Content -LiteralPath "$env:componentPushMarker" -Value pushed')
         $null = New-Item -ItemType Directory -Force -Path "$Root/config/lab", "$Root/components/sample"
         Set-Content -LiteralPath "$Root/components/sample/Dockerfile" -Value 'FROM scratch'
         $yaml = @{
             globalVariables = @{
-                buildCommand = $Build; tagCommand = 'Set-Variable -Name LASTEXITCODE -Value 0 -Scope Global'
-                pushCommand = 'Set-Content -LiteralPath "$env:componentPushMarker" -Value pushed'
+                buildCommand = $Build; tagCommand = $Tag
+                pushCommand = $Push
                 preProcessor = $Pre; postProcessor = $Post; commandTimeoutSeconds = $Timeout
             }
             components = @(@{ project = 'sample' })
@@ -71,6 +73,7 @@ Describe 'component command execution' {
         $null = New-Item -ItemType Directory $dockerFolder
         Set-Content -LiteralPath (Join-Path $dockerFolder 'docker.ps1') -Value @'
 $input | Set-Content -LiteralPath $env:componentPasswordCapture
+if ($env:componentLoginSleep) { Start-Sleep -Seconds ([int]$env:componentLoginSleep) }
 $global:LASTEXITCODE = [int]$env:componentLoginExit
 if ($global:LASTEXITCODE -eq 0) { 'Login Succeeded' } else { 'Login denied' }
 '@
@@ -108,6 +111,7 @@ if ($global:LASTEXITCODE -eq 0) { 'Login Succeeded' } else { 'Login denied' }
         $result = Publish-ComponentList $root lab
         Assert-False $result.success
         Assert-Equal 42 $result.exitCode
+        Assert-StringEqual 'tool_failed' $result.failureClass 'a login the registry refused is a tool failure, not a timeout'
         Assert-False (Test-Path -LiteralPath $env:componentPushMarker)
         Assert-False ($result.errorMessage.Contains($env:YURUNA_REGISTRY_PASSWORD))
         Assert-False ((Get-Content -Raw -LiteralPath "$root/.yuruna/lab/components/docker.stderr.log").Contains($env:YURUNA_REGISTRY_PASSWORD))
@@ -181,6 +185,57 @@ Start-Sleep -Seconds 60
             $state = (Get-Content -LiteralPath "/proc/$childPid/stat" -ErrorAction SilentlyContinue) -replace '^.*\) ', ''
             Assert-True ($state.StartsWith('Z ')) 'a live descendant must not survive a timed-out phase'
         } else { Assert-True ($null -eq $child -or $child.HasExited) }
+    }
+
+    It 'ends a <Phase> command stopped at commandTimeoutSeconds as tool_timeout' -ForEach @(
+        @{ Phase = 'preProcessor'; Hang = @{ Pre = 'Start-Sleep -Seconds 60' }; LoginSleep = '' }
+        @{ Phase = 'build'; Hang = @{ Build = 'Start-Sleep -Seconds 60' }; LoginSleep = '' }
+        @{ Phase = 'postProcessor'; Hang = @{ Post = 'Start-Sleep -Seconds 60' }; LoginSleep = '' }
+        @{ Phase = 'tag'; Hang = @{ Tag = 'Start-Sleep -Seconds 60' }; LoginSleep = '' }
+        @{ Phase = 'registryLogin'; Hang = @{}; LoginSleep = '60' }
+        @{ Phase = 'push'; Hang = @{ Push = 'Start-Sleep -Seconds 60' }; LoginSleep = '' }
+    ) {
+        # The hung command sleeps well past the bound, so only the bound can end
+        # its phase; the phases before it finish well inside theirs.
+        $root = Join-Path $TestDrive "timeout-$Phase"
+        if ($LoginSleep) { $env:componentLoginSleep = $LoginSleep }
+        New-ComponentExecutionFixture -Root $root -Timeout 5 @Hang
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        $result = Publish-ComponentList $root lab
+        $watch.Stop()
+        Assert-False $result.success
+        Assert-StringEqual 'tool_timeout' $result.failureClass "a $Phase command stopped at its bound must route like a hang the step watchdog ends: $($result.errorMessage)"
+        Assert-Equal 124 $result.exitCode
+        Assert-True ($watch.Elapsed.TotalSeconds -lt 45) "only the 5 s bound can end a command that sleeps 60 s (took $($watch.Elapsed.TotalSeconds) s)"
+        Assert-False (Test-Path -LiteralPath $env:componentPushMarker)
+        $log = Get-Content -Raw -LiteralPath "$root/.yuruna/lab/components/docker.stderr.log"
+        Assert-Match ('(?m)^== \[' + [regex]::Escape("$Phase[sample]") + '\] phase=end .* exit=124 outcome=timed_out ') $log
+    }
+
+    It 'ends a phase whose command exited but left its output held open past the bound as tool_failed' {
+        # Nothing was stopped at the cap: the command exited, and a process it
+        # left behind kept the output open, so the phase is the tool's own
+        # failure rather than a timeout. The holder starts -NoNewWindow because
+        # without it Windows starts it through ShellExecute, which hands down
+        # no handles, so nothing would keep the output open there.
+        $root = Join-Path $TestDrive 'drain-incomplete'
+        $env:componentHolderPid = Join-Path $TestDrive ('holder-' + [guid]::NewGuid().ToString('N'))
+        $build = @'
+$holder = Start-Process -FilePath ([Environment]::ProcessPath) -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') -NoNewWindow -PassThru
+Set-Content -LiteralPath $env:componentHolderPid -Value $holder.Id
+'@
+        New-ComponentExecutionFixture -Root $root -Build ($build.Replace('$', '`$')) -Timeout 5
+        try {
+            $result = Publish-ComponentList $root lab
+            Assert-False $result.success
+            Assert-StringEqual 'tool_failed' $result.failureClass "an output drain that did not finish is not a stop at the bound: $($result.errorMessage)"
+            Assert-Equal 124 $result.exitCode
+            $log = Get-Content -Raw -LiteralPath "$root/.yuruna/lab/components/docker.stderr.log"
+            Assert-Match '(?m)^== \[build\[sample\]\] phase=end .* exit=124 outcome=drain_incomplete ' $log
+        } finally {
+            $holderPid = [int](Get-Content -LiteralPath $env:componentHolderPid -ErrorAction SilentlyContinue)
+            if ($holderPid -gt 0) { Stop-Process -Id $holderPid -Force -ErrorAction SilentlyContinue }
+        }
     }
 
     It 'builds again after a passing fault while <Source> buildRetry allows another attempt' -ForEach @(

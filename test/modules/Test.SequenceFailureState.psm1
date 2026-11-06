@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -130,8 +130,8 @@ Add-SequenceFailureSlot -Name 'WaitForTextConsoleSecondOpinion' -Lifetime wait -
 Add-SequenceFailureSlot -Name 'WaitForTextGuestLivelock' -Lifetime wait -Default $null
 Add-SequenceFailureSlot -Name 'WaitForTextGuestLivelocked' -Lifetime wait -Default $false
 # The evidence a wait ended on before its deadline because the guest kernel
-# wedged with a processor silent (see Get-GuestKernelStallEnd); $null when
-# the wait did not end that way.
+# wedged with a processor or the whole guest silent (see
+# Get-GuestKernelStallEnd); $null when the wait did not end that way.
 Add-SequenceFailureSlot -Name 'WaitForTextKernelStallEnd' -Lifetime wait -Default $null
 # Seconds the console had read blank -- no engine found any text -- when
 # the wait ended. The content-static slot above measures only readable
@@ -702,15 +702,23 @@ function New-SequenceFailureRecord {
             $failureClass = 'input_lost'
             [string[]]$suggested = @('retry_with_backoff','pause_and_inspect')
         }
-        # The guest never reached the stopped state the step waited for. The
-        # registry's provisioning_failure describes a start or resize that
-        # failed; nothing here was started. Retrying the wait immediately only
-        # waits again for a shutdown the guest already ignored, so the hint is
-        # the cold restart a retry wrapper performs, then an operator look --
-        # and the class is its own, because wait_timeout is retried unattended
-        # as a transient.
-        elseif ($fail.StepVmNotStopped) {
+        # See https://yuruna.link/42820e91#failure-class-vm_not_stopped
+        # A retry wrapper's cold restart is no route here:
+        # Test-SequenceColdPowerCyclePolicy admits it only after a login wait. A
+        # wait for an install's own power-off requested no shutdown, so it keeps
+        # the verb's provisioning_failure.
+        elseif ($fail.StepVmNotStopped -and -not ($vmNotStopped -and $vmNotStopped.installPowerOff)) {
             $failureClass = 'vm_not_stopped'
+            [string[]]$suggested = @('retry_with_backoff','pause_and_inspect')
+        }
+        # See https://yuruna.link/42820e91#failure-class-guest_kernel_stalled
+        # A display verdict has no processor readings and a guest clock that jumped
+        # is never a stall on its own, so neither files here. After the guest's own
+        # statements and the facts above; before the flood a wedged kernel's repeated
+        # reports can print and the symptoms it causes.
+        elseif ($fail.WaitForTextKernelStallEnd -or
+            ($fail.WaitForTextGuestLivelocked -and $guestLivelock -and [int]$guestLivelock.virtualProcessors -gt 0)) {
+            $failureClass = 'guest_kernel_stalled'
             [string[]]$suggested = @('retry_with_backoff','pause_and_inspect')
         }
         elseif ($fail.WaitForTextConsoleFlood) {
@@ -958,9 +966,10 @@ function New-SequenceFailureRecord {
                     # recording to judge from.
                     guestLivelock = $guestLivelock
                     # Why a wait on a wedged guest kernel ended before its
-                    # deadline: the silent processors, their longest run and
-                    # the fault kinds on the serial console. $null when the
-                    # wait did not end that way.
+                    # deadline: the rule that held (basis), the silent
+                    # processors or the guest's silence readings, and the
+                    # fault kinds on the serial console. $null when the wait
+                    # did not end that way.
                     guestKernelStallEnd = $fail.WaitForTextKernelStallEnd
                     consoleSecondOpinion = $consoleSecondOpinion
                     progressAdvisory = $progressAdvisory

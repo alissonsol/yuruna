@@ -221,7 +221,7 @@ review; English remains the source of truth.
   adjectives, acronyms are words in camelCase -- plus the foreign contracts
   (Kubernetes, .NET, squid) that are deliberately exempt.
 - **[ontology/README.md](ontology/README.md)** -- the Yuruna ontology, one
-  OWL file per version (2026/10 is current): the English terminology and
+  OWL file per version (2026/11 is current): the English terminology and
   diagnostic vocabulary, including the assessment views and conditions defined
   in [definition.md](definition.md), and the tools that open and query it.
 
@@ -291,6 +291,11 @@ External documentation for the tools Yuruna uses, grouped by topic.
     `PSScriptAnalyzerSettings.psd1`)
   - `Invoke-ScriptAnalyzer -Path . -Recurse | Select-Object -Property Line, Column, ScriptPath, RuleName, Message`
   - BOM-only spot check: `Invoke-ScriptAnalyzer -Path . -Recurse | Where-Object RuleName -eq 'PSUseBOMForUnicodeEncodedFile'`
+  - Run these from the repository root: the settings load the repository's
+    `Measure-SilentCatch` rule through a `CustomRulePath` that PSScriptAnalyzer
+    resolves against the current directory. The rule and its allowance lists,
+    which only shrink, are described in
+    [Contributing](../CONTRIBUTING.md#guidelines).
 - [Quickstart: Configure Terraform using Azure PowerShell](https://learn.microsoft.com/en-us/azure/developer/terraform/get-started-powershell) (applicable to OpenTofu)
 
 <a id="42d43217-0012"></a>
@@ -308,6 +313,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

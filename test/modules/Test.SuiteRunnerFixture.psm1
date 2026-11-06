@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 427dfb8c-82bb-4431-af76-61f416d968b1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,7 +94,9 @@ function New-FixtureRunner {
         '            $script:SafeCommands[''Get-CimInstance''] = {'
         '                [CmdletBinding()]'
         '                param([Parameter(Mandatory, Position=0)][string]$ClassName)'
-        '                if ($ClassName -cne ''Win32_OperatingSystem'' -or $PSBoundParameters.Count -ne 1) {'
+        '                # The exporter supplies -ErrorAction Ignore with its OS query.'
+        '                if ($ClassName -cne ''Win32_OperatingSystem'' -or @($PSBoundParameters.Keys | Where-Object { $_ -cnotin @(''ClassName'', ''ErrorAction'') }).Count -ne 0 -or'
+        '                    ($PSBoundParameters.ContainsKey(''ErrorAction'') -and [string]$PSBoundParameters[''ErrorAction''] -cne ''Ignore'')) {'
         '                    throw ''The fixture exporter permits only its OS metadata query.'''
         '                }'
         '                [pscustomobject]@{ Name=''SuiteRunner fixture OS''; Version=''0.0.0.0'' }'

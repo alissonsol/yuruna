@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42032533-f42d-2a28-6797-9020555cc3d4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,7 @@
     'stash.api_stat_artifact' = 'stat artifact'
     'stash.api_too_many_files_in_one_upload' = 'too many files in one upload'
     'stash.api_too_many_stashes_in_one_request' = 'too many stashes in one request'
+    'stash.api_uploads_busy' = 'too many uploads are being received at once; try again shortly'
     'stash.archive' = 'Archive'
     'stash.archive_contents' = 'Archive contents'
     'stash.archive_value1_contents' = @(

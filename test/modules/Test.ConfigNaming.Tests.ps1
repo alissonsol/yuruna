@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42acc4f5-2748-4b33-95f6-25b431645860
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,6 +112,40 @@ function New-TempConfig {
 }
 
 $script:NamingRoot = New-YurunaTestTempDir -Prefix 'yrn-naming'
+
+# Another process holds the config's write lock, keeps the bytes it read, and
+# writes them back with one edit before releasing. A writer that does not wait
+# for the lock loses its own change to that write.
+$script:LockModule = Join-Path $here 'Test.SingleFlightLock.psm1'
+function Start-ConfigLockHolderJob {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
+        Justification = 'The arguments arrive through -ArgumentList into the job param() block; the analyzer does not follow that path.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test fixture: starts a disposable lock holder against a throwaway temp config.')]
+    param([string]$ConfigPath, [string]$ReadyPath, [string]$Find, [string]$Replace, [int]$HoldSeconds)
+    return Start-Job -ScriptBlock {
+        param([string]$LockModule, [string]$ConfigPath, [string]$ReadyPath, [string]$Find, [string]$Replace, [int]$HoldSeconds)
+        Import-Module $LockModule -DisableNameChecking
+        $lock = Enter-YurunaSingleFlightLock -Path ([IO.Path]::GetFullPath($ConfigPath) + '.lock') -WaitMilliseconds 0
+        if (-not $lock.Held) { return "lock not held: $($lock.Reason)" }
+        try {
+            $edited = [IO.File]::ReadAllText($ConfigPath).Replace($Find, $Replace)
+            [IO.File]::WriteAllText($ReadyPath, 'held')
+            Start-Sleep -Seconds $HoldSeconds
+            [IO.File]::WriteAllText($ConfigPath, $edited)
+            return $edited
+        } finally { Exit-YurunaSingleFlightLock -Lock $lock }
+    } -ArgumentList $script:LockModule, $ConfigPath, $ReadyPath, $Find, $Replace, $HoldSeconds
+}
+function Wait-ConfigLockHolderReady {
+    param($Job, [string]$ReadyPath)
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    while (-not (Test-Path -LiteralPath $ReadyPath)) {
+        if ($Job.State -notin @('NotStarted', 'Running')) { throw "the lock holder ended before taking the lock: $(($Job | Receive-Job) -join "`n")" }
+        if ([DateTime]::UtcNow -gt $deadline) { throw 'the lock holder did not take the lock within 60 s' }
+        Start-Sleep -Milliseconds 100
+    }
+}
 }
 
 AfterAll { Remove-YurunaTestTempDir $script:NamingRoot }
@@ -221,6 +255,29 @@ Describe 'Update-TestConfigNaming.ps1 (refuses to guess)' {
             # The backup too: a regression that does write one fails the assert
             # above, and must not then leave it behind.
             Remove-Item -LiteralPath $cfg, "$cfg.pre-renaming" -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Describe 'Update-TestConfigNaming.ps1 (under the config lock)' {
+    It 'converts the file as another process left it while waiting for the config lock, and journals what it replaces' {
+        $cfg = New-TempConfig $script:OldConfig
+        $ready = Join-Path $script:NamingRoot ('holder-' + [guid]::NewGuid().ToString('N') + '.ready')
+        $job = Start-ConfigLockHolderJob -ConfigPath $cfg -ReadyPath $ready -Find 'networkReplicate: true' -Replace 'networkReplicate: false' -HoldSeconds 4
+        try {
+            Wait-ConfigLockHolderReady -Job $job -ReadyPath $ready
+            $run = Invoke-MigrateTool -ConfigPath $cfg
+            $edited = [string]($job | Wait-Job -Timeout 60 | Receive-Job)
+            Assert-Equal -Expected 0 -Actual $run.ExitCode -Because $run.Output
+            $doc = Get-Content -Raw -LiteralPath $cfg
+            Assert-Equal -Expected 0 -Actual (@(Get-RetiredConfigKeyPresent -Text $doc)).Count -Because 'the conversion landed after the other writer, not under it'
+            Assert-True ($doc -match '(?m)^\s+networkReplicate:\s*false\s*$') 'the other process''s edit survives the conversion'
+            $entries = @(Get-ChildItem -LiteralPath "$cfg.journal" -Filter '*-config-naming.backup' -File -ErrorAction SilentlyContinue)
+            Assert-Equal -Expected 1 -Actual $entries.Count -Because 'one journal entry under the tool''s writer name'
+            Assert-Equal -Expected $edited -Actual ([IO.File]::ReadAllText($entries[0].FullName)) -Because 'the entry holds the bytes read after the holder released the lock'
+        } finally {
+            $job | Remove-Job -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $cfg, "$cfg.pre-renaming", "$cfg.journal", $ready -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }

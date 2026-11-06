@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,10 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
         # An input verb: a failed send is the retryable host_io_blocked.
         if ($Name -eq 'inputText') {
             return [pscustomobject]@{ FailureClass = 'host_io_blocked'; Severity = 'soft'; SuggestedRecoveries = @('retry_immediately') }
+        }
+        # The start verb: a start or resize that failed is provisioning_failure.
+        if ($Name -eq 'startVm') {
+            return [pscustomobject]@{ FailureClass = 'provisioning_failure'; Severity = 'hard'; SuggestedRecoveries = @('retry_immediately') }
         }
         return $null
     }
@@ -697,7 +701,7 @@ Describe 'New-SequenceFailureRecord OCR causeDetail' {
         Assert-Equal -Expected 1230 -Actual $r.Event.causeGuestLivelockedSeconds
         $violations = Test-CycleEventSchema -Record $r.Event
         Assert-Equal -Expected 0 -Actual (@($violations).Count) -Because "event still validates; got: $($violations -join '; ')"
-        Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass -Because 'the verdict is evidence for the reader, not a reclassification'
+        Assert-Equal -Expected 'guest_kernel_stalled' -Actual $r.File.failureClass -Because 'every virtual processor held in the hypervisor for the whole window is a wedged guest kernel'
     }
     It 'keeps the livelock field present and null when no host recording was read' {
         [void](Reset-FailState)
@@ -955,7 +959,7 @@ Describe 'Orchestration dependency record integration' {
 
 Describe 'A guest that never reached the stopped state' {
     BeforeAll { Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -Force -DisableNameChecking -Global }
-    It 'is a wait that timed out, carrying the observed state and the first silence' {
+    It 'is filed as vm_not_stopped, carrying the observed state and the first silence' {
         [void](Reset-FailState)
         $f = Get-SequenceFailureState
         $f.StepVmNotStopped = @{ observedState = 'running'; waitedSeconds = 180; requestedAtUtc = '2026-10-12T21:54:57Z'; action = 'startVm' }
@@ -982,6 +986,145 @@ Describe 'A guest that never reached the stopped state' {
         Assert-Equal -Expected '' -Actual $r.File.context.causeDetail.vmState -Because 'always present, empty when unobserved'
         Assert-Equal -Expected 0 -Actual $r.File.context.causeDetail.vmStateWaitedSeconds
         Assert-Equal -Expected '' -Actual $r.File.context.causeDetail.firstGuestSilenceUtc
+    }
+    # An install that powers the VM off at its end is waited for by startVm
+    # with installPowerOff; no shutdown was requested, so a wait that never saw
+    # the power-off is the install not finishing.
+    It 'files an install that never powered off as the start verb''s provisioning failure, keeping the observed state' {
+        $f = Reset-FailState
+        $f.LastFailedAction = 'startVm'
+        $f.StepVmNotStopped = @{ observedState = 'running'; waitedSeconds = 2400; requestedAtUtc = ''; action = 'startVm'; installPowerOff = $true }
+        try {
+            $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.26' -HostType 'host.macos.utm' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 19
+            $r.File.failureClass | Should -BeExactly 'provisioning_failure' -Because 'no shutdown was requested, so none was ignored'
+            $r.Event.failureClass | Should -BeExactly 'provisioning_failure'
+            $r.File.context.causeDetail.vmState | Should -BeExactly 'running' -Because 'the host state at the deadline is still the evidence'
+            $r.File.context.causeDetail.vmStateWaitedSeconds | Should -Be 2400
+            (Get-FailureClassRoute -FailureClass $r.File.failureClass).UnattendedRetry | Should -BeFalse
+        } finally { $f.StepVmNotStopped = $null }
+    }
+    It 'still files a start whose requested shutdown never came as vm_not_stopped' {
+        $f = Reset-FailState
+        $f.LastFailedAction = 'startVm'
+        $f.StepVmNotStopped = @{ observedState = 'running'; waitedSeconds = 120; requestedAtUtc = '2026-10-12T21:54:57Z'; action = 'startVm' }
+        try {
+            $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.26' -HostType 'host.windows.hyper-v' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 19
+            $r.File.failureClass | Should -BeExactly 'vm_not_stopped'
+        } finally { $f.StepVmNotStopped = $null }
+    }
+    It 'is documented as vm_not_stopped wherever a doc names the class of a stop that never came' {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $read = { param([string]$Relative) [IO.File]::ReadAllText((Join-Path $repoRoot $Relative)) }
+        $schema = & $read 'docs/failure-schema.md'
+        $schemaPtBr = & $read 'docs/pt-BR/failure-schema.md'
+        $flows = & $read 'docs/design/03-data-flows.md'
+        $lifecycle = & $read 'docs/design/04-lifecycle-state.md'
+        $sequences = & $read 'docs/test-sequences.md'
+        $schema | Should -Match '(?m)^\| `vmState` / .*The class is then `vm_not_stopped`'
+        $schemaPtBr | Should -Match '(?m)^\| `vmState` / .*A classe passa a ser `vm_not_stopped`'
+        $flows | Should -Match ([regex]::Escape('a guest that ignores the request fails as `vm_not_stopped` with that evidence'))
+        $lifecycle | Should -Match ([regex]::Escape('`Start-GuestOS` fails as `vm_not_stopped`'))
+        $sequences | Should -Match 'When the VM never reports stopped, the step fails as\s+`vm_not_stopped`'
+        $sequences | Should -Match 'absent fails as\s+`provisioning_failure`'
+        $schema | Should -Not -Match 'The class is then `wait_timeout`'
+        $schemaPtBr | Should -Not -Match 'passa a ser `wait_timeout`'
+        $flows | Should -Not -Match ([regex]::Escape('fails as `wait_timeout` with that evidence'))
+        $lifecycle | Should -Not -Match ([regex]::Escape('`Start-GuestOS` fails as `wait_timeout`'))
+        $sequences | Should -Not -Match 'the step fails as\s+`wait_timeout`'
+    }
+}
+
+# A wedged guest kernel was filed under whatever the waiting verb registered --
+# wait_timeout for a fetch, ocr_timeout for a screen wait -- so its retries
+# spent the budget real step timeouts need, and a screen wait on it was never
+# retried unattended at all.
+Describe 'A wait that ended on a wedged guest kernel' {
+    BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot 'Test.FailureTaxonomy.psm1') -Force -DisableNameChecking -Global
+        function New-KernelStallEnd {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: returns an in-memory reading.')]
+            [OutputType([System.Collections.Specialized.OrderedDictionary])]
+            param()
+            return [ordered]@{ basis = 'no-interrupts-serviced'; processors = [string[]]@('1'); noInterruptsServicedSeconds = 210
+                noInterruptsServicedSinceUtc = '2026-10-29T08:56:28.0000000Z'; kinds = [string[]]@('rcu-stall')
+                outputStaticSeconds = 240; recorderUploadAgeSeconds = 230; waitedSeconds = 311 }
+        }
+        function New-LivelockVerdict {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: returns an in-memory verdict.')]
+            [OutputType([pscustomobject])]
+            param([int]$VirtualProcessors)
+            return [pscustomobject]@{
+                Verdict = 'livelocked'; LivelockedSeconds = 345; MinimumSeconds = 300; VirtualProcessors = $VirtualProcessors
+                GuestRunPercent = 3.1; HypervisorRunPercent = 95.2; InterceptsPerSecond = 3500000
+                InterceptBreakdown = [ordered]@{}; DominantIntercept = 'SysReg Accesses/sec'; SampleCount = 70
+                NewestSampleUtc = '2026-10-29T09:01:30.0000000Z'; Detail = 'd'; Reason = ''; ProcessorWindow = $null
+            }
+        }
+        function New-StalledRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: builds an in-memory failure record.')]
+            [OutputType([hashtable])]
+            param()
+            return New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.26' -HostType 'host.windows.hyper-v' `
+                -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 9
+        }
+    }
+    It 'files a kernel-stall end under guest_kernel_stalled' {
+        $f = Reset-FailState
+        $f.WaitForTextKernelStallEnd = New-KernelStallEnd
+        $r = New-StalledRecord
+        $r.File.failureClass | Should -BeExactly 'guest_kernel_stalled'
+        $r.Event.failureClass | Should -BeExactly 'guest_kernel_stalled'
+        @($r.File.suggestedRecoveries) | Should -Contain 'retry_with_backoff'
+        $r.File.context.causeDetail.guestKernelStallEnd.basis | Should -BeExactly 'no-interrupts-serviced'
+        $r.File.docUrl | Should -BeLike '*#failure-class-guest_kernel_stalled'
+        @(Test-CycleEventSchema -Record $r.Event).Count | Should -Be 0 -Because 'the class is in the canonical enum'
+    }
+    It 'files a wait whose host reading held every processor in the hypervisor' {
+        $f = Reset-FailState
+        $f.WaitForTextGuestLivelock = New-LivelockVerdict -VirtualProcessors 2
+        $f.WaitForTextGuestLivelocked = $true
+        $r = New-StalledRecord
+        $r.File.failureClass | Should -BeExactly 'guest_kernel_stalled'
+        $r.Event.causeGuestLivelocked | Should -BeTrue
+        $r.Event.causeGuestLivelockedSeconds | Should -Be 345
+    }
+    It 'files an unregistered verb''s stall under the class' {
+        $f = Reset-FailState
+        $f.LastFailedAction = 'fetchAndExecute'
+        $f.WaitForTextKernelStallEnd = New-KernelStallEnd
+        $r = New-StalledRecord
+        $r.File.failureClass | Should -BeExactly 'guest_kernel_stalled' -Because 'the wait''s own evidence names the cause whatever the verb registered'
+    }
+    It 'outranks the console flood a wedged kernel prints' {
+        $f = Reset-FailState
+        $f.WaitForTextConsoleFlood = 'rcu: INFO: rcu_sched self-detected stall on CPU (38 of 48 lines)'
+        $f.WaitForTextKernelStallEnd = New-KernelStallEnd
+        $r = New-StalledRecord
+        $r.File.failureClass | Should -BeExactly 'guest_kernel_stalled'
+        $r.File.context.causeDetail.consoleFlood | Should -Match 'rcu_sched' -Because 'the flood stays in the record as evidence'
+    }
+    It 'keeps the guest''s own failure statement first' {
+        $f = Reset-FailState
+        $f.WaitForTextMatchedFailurePattern = 'FAILED'
+        $f.WaitForTextKernelStallEnd = New-KernelStallEnd
+        (New-StalledRecord).File.failureClass | Should -BeExactly 'pattern_matched_failure'
+    }
+    It 'leaves a display-only verdict to the verb''s class' {
+        $f = Reset-FailState
+        $verdict = New-LivelockVerdict -VirtualProcessors 0
+        $verdict | Add-Member -NotePropertyName ConsoleSecondOpinion -NotePropertyValue ([pscustomobject]@{ Verdict = 'guest-wedged'; Detail = 'frames identical' })
+        $f.WaitForTextGuestLivelock = $verdict
+        $f.WaitForTextGuestLivelocked = $true
+        $f.WaitForTextConsoleSecondOpinion = $verdict.ConsoleSecondOpinion
+        (New-StalledRecord).File.failureClass | Should -BeExactly 'ocr_timeout' -Because 'an inactive display with a busy emulator does not identify a kernel defect'
+    }
+    It 'leaves a guest clock anomaly on its own to the verb''s class' {
+        $f = Reset-FailState
+        $f.StepProgressAdvisory = Get-GuestProgressAdvisory -SshResponsiveness responsive -ClockWarningCodes @('cpu-idle-exceeds-boot-uptime')
+        (New-StalledRecord).File.failureClass | Should -BeExactly 'ocr_timeout' -Because 'a clock that jumped is never a stall signal on its own'
     }
 }
 

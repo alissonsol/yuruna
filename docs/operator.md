@@ -825,12 +825,22 @@ Its closing report distinguishes three things:
   restore** -- an uncaptured knob is listed under "Left as it is"
   instead. The capture file is kept so the command can be re-run;
   delete it yourself when done.
-- **Removed outright.** Only what is provably the framework's own, by
-  name: on Windows the status-port firewall rule and the rule
-  `Yuruna: Allow ICMPv4 Echo Request`; on Ubuntu the `ufw` allow rule
-  for the status port, plus `libvirt` / `kvm` group membership and the
-  `libvirt-qemu` ACL on `$HOME` -- those last two only when the capture
-  proves `Enable-TestAutomation` added them. macOS removes nothing.
+- **Removed outright.** What the framework adds: on Windows, by name,
+  the status-port firewall rule and the rule
+  `Yuruna: Allow ICMPv4 Echo Request`; on Ubuntu the `ufw` allow rules
+  it added for the status port and the config service port
+  (`configService.port`, 8443 by default), which carry the comment
+  `Yuruna test automation` -- a rule with that comment is removed
+  whatever its port, and a rule for either port without it stays,
+  including one an older version added before the framework began
+  marking its rules; a plain allow rule among them is also listed with
+  the command that removes it -- plus `libvirt` / `kvm` group membership
+  and the `libvirt-qemu` ACL on `$HOME`, those last two only when the
+  capture proves `Enable-TestAutomation` added them. macOS
+  removes nothing. On Windows the config service rule is not in this
+  list: `test/service/Start-ConfigService.ps1` opens it itself when it
+  launches, so remove the `Yuruna config service` rule yourself if you
+  no longer want it.
 - **Only reported.** The closing `NOT reversed (deliberately)` list
   names what it will not touch, most with the command to do it
   yourself: packages and PSGallery modules, the credential vault
@@ -899,6 +909,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

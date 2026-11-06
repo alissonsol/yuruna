@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42d1e8b3-6c4f-4a29-8e5b-3f7a9c0d2b61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,11 +80,7 @@ BeforeAll {
         param([string[]]$PathDirectory = @())
         $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Force -Path $root
-        $script:Saved = @{
-            Path = $env:PATH
-            ProgramFiles = $env:ProgramFiles
-            ProgramFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
-        }
+        $script:Saved = Save-YurunaTestEnvironment -Name 'PATH', 'ProgramFiles', 'ProgramFiles(x86)'
         $env:ProgramFiles = Join-Path $root 'pf'
         [Environment]::SetEnvironmentVariable('ProgramFiles(x86)', (Join-Path $root 'pf86'))
         $env:PATH = (@($PathDirectory | ForEach-Object { Join-Path $root $_ }) -join [IO.Path]::PathSeparator)
@@ -97,9 +93,7 @@ BeforeAll {
         [CmdletBinding()]
         param()
         if ($script:Saved) {
-            $env:PATH = $script:Saved.Path
-            $env:ProgramFiles = $script:Saved.ProgramFiles
-            [Environment]::SetEnvironmentVariable('ProgramFiles(x86)', $script:Saved.ProgramFilesX86)
+            Restore-YurunaTestEnvironment -Saved $script:Saved
             $script:Saved = $null
         }
     }

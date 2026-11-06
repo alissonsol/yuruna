@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.31
+# Version: 2026.11.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42ef384e-ac45-406f-811f-b88d5290b043
@@ -73,6 +73,9 @@ AUTH_TOKEN_FILE="${DOWNLOAD_AGENT_AUTH_TOKEN_FILE:-/etc/yuruna/internal-auth.key
 # Aggregator URL + host id from the shared env files (same as pool-control).
 AGGREGATOR_URL="$(sed -n 's/^YURUNA_AGGREGATOR_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 HOST_ID="$(sed -n 's/^YURUNA_HOST_ID=//p' /etc/yuruna/host.env 2>/dev/null | head -1 || true)"
+# Names the UI and API answer to besides the VM's addresses, its host name and
+# localhost; a request naming any other host is refused.
+ALLOWED_HOST_NAMES="$(sed -nE "s/^YURUNA_SERVICE_HOST_NAMES='(.*)'\$/\1/p" /etc/yuruna/service-host-names.env 2>/dev/null | head -1 || true)"
 
 # See https://yuruna.link/4268e4cb-0005
 # Read the root-only agent tunables through sudo for interactive admin launches.
@@ -205,6 +208,7 @@ DOWNLOAD_AGENT_AUTO_SEED=$AUTO_SEED
 DOWNLOAD_AGENT_PROXY_HTTP=$PROXY_HTTP
 DOWNLOAD_AGENT_PROXY_HTTPS=$PROXY_HTTPS
 DOWNLOAD_AGENT_PROXY_CA=$PROXY_CA
+DOWNLOAD_AGENT_ALLOWED_HOST_NAMES=$ALLOWED_HOST_NAMES
 EOF
 # See https://yuruna.link/4268e4cb-0005
 # systemd reads this root-only environment before dropping to the service user.
@@ -227,7 +231,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/download-agent-service.env
-ExecStart=/usr/local/bin/download-agent-service --http-addr=\${DOWNLOAD_AGENT_HTTP_ADDR} --aggregator-url=\${DOWNLOAD_AGENT_AGGREGATOR_URL} --host-id=\${DOWNLOAD_AGENT_HOST_ID} --presence-interval=\${DOWNLOAD_AGENT_PRESENCE_INTERVAL} --auth-token-file=\${DOWNLOAD_AGENT_AUTH_TOKEN_FILE} --pool-dir=\${DOWNLOAD_AGENT_POOL_DIR} --pool-network-path=\${DOWNLOAD_AGENT_POOL_NETWORK_PATH} --state-dir=\${DOWNLOAD_AGENT_STATE_DIR} --scan-interval=\${DOWNLOAD_AGENT_SCAN_INTERVAL} --freshness=\${DOWNLOAD_AGENT_FRESHNESS} --prefetch-lead=\${DOWNLOAD_AGENT_PREFETCH_LEAD} --auto-seed=\${DOWNLOAD_AGENT_AUTO_SEED} --proxy-http=\${DOWNLOAD_AGENT_PROXY_HTTP} --proxy-https=\${DOWNLOAD_AGENT_PROXY_HTTPS} --proxy-ca=\${DOWNLOAD_AGENT_PROXY_CA} --language=\${YURUNA_LANGUAGE} --allow-pseudo-locale=\${YURUNA_ALLOW_PSEUDO_LOCALE}
+ExecStart=/usr/local/bin/download-agent-service --http-addr=\${DOWNLOAD_AGENT_HTTP_ADDR} --aggregator-url=\${DOWNLOAD_AGENT_AGGREGATOR_URL} --host-id=\${DOWNLOAD_AGENT_HOST_ID} --presence-interval=\${DOWNLOAD_AGENT_PRESENCE_INTERVAL} --auth-token-file=\${DOWNLOAD_AGENT_AUTH_TOKEN_FILE} --pool-dir=\${DOWNLOAD_AGENT_POOL_DIR} --pool-network-path=\${DOWNLOAD_AGENT_POOL_NETWORK_PATH} --state-dir=\${DOWNLOAD_AGENT_STATE_DIR} --scan-interval=\${DOWNLOAD_AGENT_SCAN_INTERVAL} --freshness=\${DOWNLOAD_AGENT_FRESHNESS} --prefetch-lead=\${DOWNLOAD_AGENT_PREFETCH_LEAD} --auto-seed=\${DOWNLOAD_AGENT_AUTO_SEED} --proxy-http=\${DOWNLOAD_AGENT_PROXY_HTTP} --proxy-https=\${DOWNLOAD_AGENT_PROXY_HTTPS} --proxy-ca=\${DOWNLOAD_AGENT_PROXY_CA} --allowed-host-names=\${DOWNLOAD_AGENT_ALLOWED_HOST_NAMES} --language=\${YURUNA_LANGUAGE} --allow-pseudo-locale=\${YURUNA_ALLOW_PSEUDO_LOCALE}
 Restart=on-failure
 RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE

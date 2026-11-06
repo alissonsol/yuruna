@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 427e2e91-a49b-4c4a-99a0-cf1f450ad4c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,23 +171,29 @@ Describe 'Installer optional-dependency failures remain visible in the summary' 
         . ([scriptblock]::Create((Get-SourceFunction 'install/windows.hyper-v.ps1' 'Add-InstallIssue')))
         $script:YurunaIssue = [Collections.Generic.List[string]]::new()
         function Write-Warn { }
-        function Install-Module { throw 'gallery unavailable' }
+        function Install-YurunaPinnedGalleryModule { throw 'gallery unavailable' }
         $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$null, [ref]$null)
         $attempt = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.TryStatementAst] -and
-            $node.Body.Extent.Text -match 'Install-Module -Name powershell-yaml' -and $node.Body.Extent.Text.Length -lt 1000 }, $true)
+            $node.Body.Extent.Text -match "Install-YurunaPinnedGalleryModule -Name 'powershell-yaml'" -and $node.Body.Extent.Text.Length -lt 1000 }, $true)
+        if (-not $attempt) { throw 'the Windows installer does not install powershell-yaml through the pinned installer' }
         . ([scriptblock]::Create($attempt.Extent.Text))
         $script:YurunaIssue.Count | Should -Be 1
-        $script:YurunaIssue[0] | Should -Match 'gallery unavailable'
+        $script:YurunaIssue[0] | Should -Match 'powershell-yaml.*gallery unavailable'
     }
-    It 'records the shell YAML failure even when installation continues' -Skip:(-not (Get-Command bash -ErrorAction SilentlyContinue)) {
-        $source = Get-Content (Join-Path $script:RepoRoot 'install/ubuntu.kvm.sh') -Raw
-        $start = $source.IndexOf("pwsh -NoProfile -Command '`n    if (Get-Module -ListAvailable -Name powershell-yaml")
+    It 'records the shell YAML failure even when installation continues (<Installer>)' -ForEach @(
+        @{ Installer = 'install/ubuntu.kvm.sh' }, @{ Installer = 'install/macos.utm.sh' }
+    ) -Skip:(-not (Get-Command bash -ErrorAction SilentlyContinue)) {
+        $source = Get-Content (Join-Path $script:RepoRoot $Installer) -Raw
+        $start = $source.IndexOf("`nPOWERSHELL_YAML_VERSION=")
+        if ($start -lt 0) { throw "$Installer carries no powershell-yaml pin block" }
+        $start++
         $end = $source.IndexOf('# --- REGION:', $start)
         $body = $source.Substring($start, $end - $start)
         $fixture = Join-Path $TestDrive 'yaml-summary.sh'
         $prefix = @'
 set -euo pipefail
 YURUNA_ISSUES=()
+log() { :; }
 warn() { :; }
 note_issue() { YURUNA_ISSUES+=("$*"); warn "$*"; }
 pwsh() { return 1; }
@@ -195,7 +201,7 @@ pwsh() { return 1; }
         [IO.File]::WriteAllText($fixture, $prefix + "`n" + $body + "`nprintf '%s\n' `"`${YURUNA_ISSUES[@]}`"`n")
         $output = & bash $fixture 2>&1 | Out-String
         $LASTEXITCODE | Should -Be 0
-        $output | Should -Match 'powershell-yaml install reported an error'
+        $output | Should -Match 'Installing the powershell-yaml module reported an error'
     }
 }
 Describe 'Windows installer stops only the processes its PID files still name' {

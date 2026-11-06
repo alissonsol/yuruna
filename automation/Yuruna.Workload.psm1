@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -356,7 +356,9 @@ function Invoke-WorkloadListPublish {
         Iterates each workload, switches to its kube context, and runs
         each deployment (chart | kubectl | helm | shell). Chart
         deployments are copied to the .yuruna work folder with merged
-        variable values written to values.yaml before helm install.
+        variable values written to values.yaml before helm install. The
+        kubectl config calls around a context are bounded as the deployments'
+        calls are; one stopped at its deadline ends the phase as tool_timeout.
     .OUTPUTS
         [hashtable] result manifest produced by New-YurunaResultManifest.
     #>
@@ -427,19 +429,29 @@ function Invoke-WorkloadListPublish {
         # makes the read fail, and blindly restoring an empty $originalContext
         # in the finally would error or clobber the operator's active context,
         # so gate the restore on a confirmed read.
-        $originalContext = kubectl config current-context 2>$null
+        # Every kubectl config call here takes the bound of the phase's kubectl
+        # deployments, so one configured commandTimeoutSeconds covers them too:
+        # a kubeconfig that stops answering (a locked file, an exec plugin
+        # waiting on a prompt) ends the phase as tool_timeout instead of
+        # holding it to the step watchdog.
+        $contextSeconds = (Get-YurunaCommandTimeout -Call 'deployment' -GlobalVariables $workloadsYaml.globalVariables).Seconds
+        $contextOutcome = @{}
+        $originalContext = Invoke-YurunaToolWithDeadline -Label 'kubectl config current-context' -TimeoutSeconds $contextSeconds -Outcome $contextOutcome -ScriptBlock { kubectl config current-context 2>$null }
+        if ($contextOutcome['TimedOut']) { return (New-YurunaResultManifest -Success $false -ErrorMessage "kubectl config current-context was stopped after $contextSeconds seconds (context '$contextName' in $workloadsFile)" -FailureClass 'tool_timeout' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds) }
         $originalContextRead = ($LASTEXITCODE -eq 0) -and (-not [string]::IsNullOrWhiteSpace($originalContext))
         # Context must exist. `kubectl config get-contexts <name>` is a
         # non-mutating existence probe -- it exits non-zero when the context is
         # absent without switching the operator's current context, so a missing
         # context never leaves the shell on the wrong cluster.
-        $null = kubectl config get-contexts $contextName *>&1
+        $null = Invoke-YurunaToolWithDeadline -Label "kubectl config get-contexts $contextName" -TimeoutSeconds $contextSeconds -Outcome $contextOutcome -ScriptBlock { kubectl config get-contexts $contextName *>&1 }
         $probeExit = $LASTEXITCODE
+        if ($contextOutcome['TimedOut']) { return (New-YurunaResultManifest -Success $false -ErrorMessage "kubectl config get-contexts '$contextName' was stopped after $contextSeconds seconds (context '$contextName' in $workloadsFile)" -FailureClass 'tool_timeout' -ExitCode $probeExit -DurationMs $sw.ElapsedMilliseconds) }
         if ($probeExit -ne 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_9ec31ed2e8859fe3' -Arguments @{ contextName = "$contextName"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
         # Activate the context for the deployment loop; every kubectl/helm call
         # below targets whatever the kubeconfig's current context is.
-        kubectl config use-context $contextName *>&1 | Write-Verbose
+        $null = Invoke-YurunaToolWithDeadline -Label "kubectl config use-context $contextName" -TimeoutSeconds $contextSeconds -Outcome $contextOutcome -ScriptBlock { kubectl config use-context $contextName *>&1 | Write-Verbose }
         $useContextExit = $LASTEXITCODE
+        if ($contextOutcome['TimedOut']) { return (New-YurunaResultManifest -Success $false -ErrorMessage "kubectl config use-context '$contextName' was stopped after $contextSeconds seconds (context '$contextName' in $workloadsFile)" -FailureClass 'tool_timeout' -ExitCode $useContextExit -DurationMs $sw.ElapsedMilliseconds) }
         if ($useContextExit -ne 0) { Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_9ec31ed2e8859fe3' -Arguments @{ contextName = "$contextName"; workloadsFile = "$workloadsFile" }); return (New-YurunaResultManifest -Success $false -ErrorMessage "K8S context '$contextName' not usable (cluster unreachable or context not found) in $workloadsFile" -FailureClass 'cluster_unreachable' -DurationMs $sw.ElapsedMilliseconds); }
 
         # Restore $originalContext in a finally so every early-return failure
@@ -483,7 +495,7 @@ function Invoke-WorkloadListPublish {
         }
         }
         finally {
-            if ($originalContextRead) { kubectl config use-context $originalContext *>&1 | Write-Verbose }
+            if ($originalContextRead) { $null = Invoke-YurunaToolWithDeadline -Label "kubectl config use-context $originalContext" -TimeoutSeconds $contextSeconds -ScriptBlock { kubectl config use-context $originalContext *>&1 | Write-Verbose } }
         }
     }
 

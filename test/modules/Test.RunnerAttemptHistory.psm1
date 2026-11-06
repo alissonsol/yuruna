@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4276a748-cfa3-4a04-8af7-f29a0d4ab830
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,11 +100,20 @@ function Update-RunnerAttemptHistory {
         The index is derived data: rebuilding also recovers missing or corrupt indexes
         and includes evidence written by older runners. Publish first so readers never
         receive new index entries whose artifacts have already been removed.
+
+        attempts holds the latest MaxAttempts attempts. Every cycle is an attempt, so
+        on a host that recovers, the passing attempts after a failure push it out of
+        that window within hours. A failure older than the window that a later attempt
+        passed after is kept in olderFailures, up to MaxOlderFailures, with its
+        artifacts; it leaves when newer recovered failures take its place. A failure
+        no attempt has passed after yet stays bounded by the window, so retrying one
+        failure without end keeps only its latest MaxAttempts tries.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$RuntimeDir,
-        [ValidateRange(1, 1000)][int]$MaxAttempts = 20
+        [ValidateRange(1, 1000)][int]$MaxAttempts = 20,
+        [ValidateRange(0, 1000)][int]$MaxOlderFailures = 30
     )
     $root = Join-Path $RuntimeDir 'runner-attempts'
     if (-not $PSCmdlet.ShouldProcess($root, 'Publish retained runner attempt history')) { return }
@@ -117,11 +126,24 @@ function Update-RunnerAttemptHistory {
         if ($entry) { $entry }
     })
     $ordered = @($entries | Sort-Object -Property @{ Expression = { $_.finishedAtUtc }; Descending = $true }, @{ Expression = { $_.attemptGeneration }; Descending = $true })
-    $index = [ordered]@{ schemaVersion = 1; attempts = @($ordered | Select-Object -First $MaxAttempts) }
+    $olderFailures = [System.Collections.Generic.List[object]]::new()
+    $retired = [System.Collections.Generic.List[object]]::new()
+    $laterPass = $false
+    for ($i = 0; $i -lt $ordered.Count; $i++) {
+        $entry = $ordered[$i]
+        if ($i -ge $MaxAttempts) {
+            if (-not $entry.passed -and $laterPass -and $olderFailures.Count -lt $MaxOlderFailures) { $olderFailures.Add($entry) }
+            else { $retired.Add($entry) }
+        }
+        if ($entry.passed) { $laterPass = $true }
+    }
+    # Readers bound attempts to the window -- the pool aggregator refuses a longer
+    # list -- so the older failures are a list of their own.
+    $index = [ordered]@{ schemaVersion = 1; attempts = @($ordered | Select-Object -First $MaxAttempts); olderFailures = @($olderFailures) }
     if (-not (Write-YurunaStateFileJson -Path (Join-Path $root 'index.json') -InputObject $index -Depth 8 -Confirm:$false)) {
         throw 'Runner attempt history index could not be saved.'
     }
-    foreach ($entry in @($ordered | Select-Object -Skip $MaxAttempts)) {
+    foreach ($entry in $retired) {
         $directory = Get-Item -LiteralPath (Split-Path -Parent (Join-Path $RuntimeDir $entry.recordPath)) -Force -ErrorAction SilentlyContinue
         if (-not $directory -or ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
         # Attempt artifacts are flat files. Unexpected subdirectories or links

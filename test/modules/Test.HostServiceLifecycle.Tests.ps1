@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42541303-69a5-4838-b859-71ad4fcefc3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,14 +20,18 @@
 .SYNOPSIS
     Structural (AST) guards on the host-service lifecycle entry-point scripts:
     Stop-ConfigService.ps1, Stop-StatusService.ps1, Start-ConfigService.ps1,
-    and Start-StashServiceVM.ps1.
+    and Start-StashServiceVM.ps1, and the teardown order of the shared
+    Stop-ExtensionService.ps1.
 .DESCRIPTION
     These scripts run top-to-bottom with `exit`/`return` and heavy I/O
     (Import-Module, runtime-dir init, process control), so they are not
     invoked in-process here; instead the tests parse each file and assert the
     required defensive SHAPE via AST nodes (method invocations, command
     arguments, string literals) rather than raw source text -- so a code comment
-    cannot satisfy a guard and reformatting cannot break one.
+    cannot satisfy a guard and reformatting cannot break one. The shared
+    extension stop is the exception: it runs in a runspace of its own against
+    stand-ins that record every host effect, so its teardown order is observed
+    rather than read.
 
     Pinned invariants:
       * Both Stop-* scripts gate on an [int]::TryParse of the PID file (the parse
@@ -58,6 +62,7 @@ $testDir = Split-Path -Parent $here   # .../test
 
 $script:startHostConfig = Join-Path $testDir 'service/Start-ConfigService.ps1'
 $script:startStash      = Join-Path $testDir 'service/Start-StashServiceVM.ps1'
+$script:stopExtension   = Join-Path $testDir 'service/Stop-ExtensionService.ps1'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.ServiceStartSource.psm1') -Force -DisableNameChecking
@@ -160,6 +165,107 @@ function Get-AssignedValueText {
     $out
 }
 
+# Runs the real Stop-ExtensionService.ps1 in a runspace of its own with every
+# module and host effect replaced by a stand-in that records its call, for a
+# service deployed on a VM (no host-side process to stop). VMPresent decides
+# whether the host still has the VM registered when the stop begins.
+function Invoke-ExtensionStopFixture {
+    param([Parameter(Mandatory)][string]$ServiceKey, [Parameter(Mandatory)][string]$Area, [bool]$VMPresent = $true)
+    $driver = {
+        param($Path, $ServiceKey, $Area, $VMPresent)
+        # Read by the stand-ins below; bound here so the use is visible.
+        $null = $VMPresent
+        $fixture = @{ Order = [System.Collections.Generic.List[string]]::new(); ExitCall = ''; Removed = $false }
+        function Import-Module {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '',
+                Justification = 'Isolated test stub blocks real module loading.')]
+            param()
+        }
+        function Use-LogLevelFromEnv {}
+        function Initialize-YurunaEntryPoint { @{ RepoRoot = '/unused'; ModulesDir = '/unused/modules' } }
+        function Get-EntryPointExitCode { param([string]$Outcome) if ($Outcome -eq 'Ok') { 0 } else { 1 } }
+        function Invoke-LibvirtGroupReExecIfNeeded {}
+        function Get-HostType { 'test.host' }
+        function Initialize-YurunaHost { $true }
+        function Format-YurunaOperatorMessage { param([string]$Key) $Key }
+        function Initialize-YurunaRuntimeDir { '/unused/runtime' }
+        function Get-ExtensionServiceDeploymentIdentity { [pscustomobject]@{ HostingMode = 'vm'; Pid = $null; ProcessStartUnixMs = $null } }
+        function Enter-YurunaServiceOperation {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Isolated stub records the call without touching any state.')]
+            param()
+            $fixture.Order.Add('enter')
+            [pscustomobject]@{ Proceed = $true; Reason = 'ok'; Message = '' }
+        }
+        function Exit-YurunaServiceOperation {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Isolated stub records the call without touching any state.')]
+            param($Context, [string]$Result, [string]$FinalState)
+            $null = $Context
+            $fixture.ExitCall = "$Result|$FinalState"
+        }
+        function Read-ExtensionServiceMarker { [pscustomobject]@{ active = $true } }
+        function Remove-ExtensionServiceMarker {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Records fixture state without touching a file.')]
+            param()
+            $fixture.Order.Add('remove-marker')
+            $true
+        }
+        function Get-YurunaHostId { 'host' }
+        function Write-HostRegistrationRecord { $false }
+        function Remove-PortMap {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Isolated host-operation stub has no external effects.')]
+            param([string]$Owner)
+            $fixture.Order.Add("portmap:$Owner")
+            $true
+        }
+        function Get-VMState { if ($VMPresent -and -not $fixture.Removed) { 'running' } else { 'absent' } }
+        function Stop-VM {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Isolated host-operation stub has no external effects.')]
+            param()
+            $fixture.Order.Add('stop-vm')
+            $true
+        }
+        function Stop-VMForce {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Isolated host-operation stub has no external effects.')]
+            param()
+            $fixture.Order.Add('stop-vm-force')
+            $true
+        }
+        function Remove-GuestVMQuietly {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Records fixture state without touching a VM.')]
+            param()
+            $fixture.Order.Add('remove-vm')
+            $fixture.Removed = $true
+        }
+        $warned = $null
+        & $Path -VMName 'fixture-vm' -ServiceKey $ServiceKey -Area $Area -ServiceName 'Fixture' -CallerScript "Stop-$ServiceKey.ps1" -Confirm:$false -WarningVariable warned -WarningAction SilentlyContinue 1>$null 4>$null 5>$null 6>$null
+        $code = $LASTEXITCODE
+        [pscustomobject]@{
+            Order = [string[]]$fixture.Order.ToArray()
+            ExitCall = $fixture.ExitCall
+            ExitCode = $code
+            Warnings = [string[]]@($warned | ForEach-Object { "$_" })
+        }
+    }
+    $shell = [PowerShell]::Create()
+    try {
+        [void]$shell.AddScript($driver.ToString()).AddArgument($script:stopExtension).AddArgument($ServiceKey).AddArgument($Area).AddArgument($VMPresent)
+        $row = @($shell.Invoke()) | Select-Object -Last 1
+        [pscustomobject]@{
+            Errors = [string[]]@($shell.Streams.Error | ForEach-Object { "$_" })
+            Order = $row.Order; ExitCall = $row.ExitCall; ExitCode = $row.ExitCode; Warnings = $row.Warnings
+        }
+    } finally {
+        $shell.Dispose()
+    }
+}
+
 }
 
 # Case lists for the Describes below. Both are read while the file is being
@@ -257,5 +363,32 @@ Describe 'Start-StashServiceVM.ps1 surfaces status-service unreachability' {
         # -- rather than a blanket "won't appear", so match on that durable phrasing.
         $warn = @(Get-StringLiteralExtent -Ast $ast | Where-Object { $_ -match 'Extension hosts row depends' })
         Assert-True ($warn.Count -ge 1) 'a warning literal ties an unreachable status port to the degraded Extension-hosts row'
+    }
+}
+
+Describe 'Stop-ExtensionService.ps1 releases the host port forwards its service owns' {
+    # Every forward a service start adds is recorded under the service's area
+    # as its owner, so the stop can release exactly those: a forward left
+    # behind keeps a host port (on UTM, a forwarder process) pointed at an
+    # address nothing answers on until that owner's next start re-points it.
+    It 'removes the <Area> forwards under their owner, after the marker is cleared and before the VM goes' -ForEach @(
+        @{ Key = 'stash'; Area = 'stash-service' }
+        @{ Key = 'pool-control'; Area = 'pool-control-service' }
+        @{ Key = 'download-agent'; Area = 'download-agent-service' }
+    ) {
+        $run = Invoke-ExtensionStopFixture -ServiceKey $Key -Area $Area
+        Assert-Equal -Expected 0 -Actual $run.Errors.Count -Because ($run.Errors -join '; ')
+        Assert-StringEqual -Expected "enter,remove-marker,portmap:$Area,stop-vm,remove-vm" -Actual ($run.Order -join ',') `
+            -Because 'the forwards are released under the service''s own owner, once its advertisement is withdrawn and before its VM is torn down'
+        Assert-StringEqual -Expected 'confirmed|absent' -Actual $run.ExitCall
+        Assert-Equal -Expected 0 -Actual $run.ExitCode
+    }
+
+    It 'releases the forwards of a VM the host no longer has' {
+        $run = Invoke-ExtensionStopFixture -ServiceKey 'stash' -Area 'stash-service' -VMPresent $false
+        Assert-Equal -Expected 0 -Actual $run.Errors.Count -Because ($run.Errors -join '; ')
+        Assert-StringEqual -Expected 'enter,remove-marker,portmap:stash-service,remove-vm' -Actual ($run.Order -join ',') `
+            -Because 'a forward outlives a VM removed by hand until its owner releases it'
+        Assert-Equal -Expected 0 -Actual $run.ExitCode
     }
 }

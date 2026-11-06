@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42d9d074-28e8-46bf-a0d7-68b45ee5ec8c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -220,7 +220,9 @@ Start-Sleep -Seconds 20
         $null = Invoke-YurunaInstallerState -Action Capture -RepoRoot $f.Repo -RuntimeDir $f.Runtime -PrivateRoot $f.Private -SnapshotPath $f.Snapshot
         # This fixture starts a harmless console worker, so no GUI capability
         # is required even on a macOS test worker reached over SSH.
-        Mock Get-YurunaIdentityPlatform { 'Linux' } -ModuleName Test.SingleInstance
+        # Windows must keep its own identity rules so the parent reads the
+        # same case-normalized runtime key that the child writes.
+        if ($IsMacOS) { Mock Get-YurunaIdentityPlatform { 'Linux' } -ModuleName Test.SingleInstance }
         try {
             $started = Start-YurunaCapturedRunner -RepoRoot $f.Repo -SnapshotPath $f.Snapshot -TimeoutSeconds 15 -Confirm:$false
             $started.Started | Should -BeTrue

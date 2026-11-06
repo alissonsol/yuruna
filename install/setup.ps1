@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2035,89 +2035,100 @@ function Set-SetupNasStorageConfig {
 .SYNOPSIS
     Apply the selected NAS coordinates without rewriting unrelated YAML or comments.
 .DESCRIPTION
-    Only the six storage coordinates are edited. A complete backup and the
-    previous -> new reports precede the atomic write, so an operator can recover
-    an explicit change and compare it with the configuration they already had.
+    Only the six storage coordinates are edited. The read and the write hold
+    the config's write lock (Use-TestConfigLock), so a runner or the status
+    page's editor writing at the same time cannot have its change dropped by
+    this one, and the bytes being replaced go to the config's journal under
+    the writer name setup-storage, beside the complete .setup-storage.backup
+    copy. The previous -> new reports precede the atomic write, so an operator
+    can recover an explicit change and compare it with the configuration they
+    already had. The lock, journal and writer come from Test.ConfigSync, which
+    the config step imports before calling this.
 #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Read inside the block handed to Use-TestConfigLock, which the rule does not follow.')]
     param([Parameter(Mandatory)][string]$ConfigPath, [Parameter(Mandatory)][object[]]$Tier)
-    $text = [string](Get-Content -LiteralPath $ConfigPath -Raw)
-    $doc = $text | ConvertFrom-Yaml -Ordered
-    $storage = if ($doc -is [Collections.IDictionary] -and $doc['networkStorage'] -is [Collections.IDictionary]) {
-        $doc['networkStorage']
-    } else { @{} }
-    $changes = [ordered]@{}
-    foreach ($item in $Tier) {
-        foreach ($field in @('NetworkPath', 'NetworkUser', 'LocalPath')) {
-            $key = "$($item.ConfigPrefix)$field"
-            $value = [string]$item.$field
-            if ([string]::IsNullOrWhiteSpace($value)) { throw "networkStorage.$key is empty; complete the NAS answers before mounting." }
-            if ([string]$storage[$key] -cne $value) {
-                $changes[$key] = @{ Previous = [string]$storage[$key]; Value = $value }
+    $cmdlet = $PSCmdlet
+    return Use-TestConfigLock -Path $ConfigPath -Action {
+        $text = [string](Get-Content -LiteralPath $ConfigPath -Raw)
+        $doc = $text | ConvertFrom-Yaml -Ordered
+        $storage = if ($doc -is [Collections.IDictionary] -and $doc['networkStorage'] -is [Collections.IDictionary]) {
+            $doc['networkStorage']
+        } else { @{} }
+        $changes = [ordered]@{}
+        foreach ($item in $Tier) {
+            foreach ($field in @('NetworkPath', 'NetworkUser', 'LocalPath')) {
+                $key = "$($item.ConfigPrefix)$field"
+                $value = [string]$item.$field
+                if ([string]::IsNullOrWhiteSpace($value)) { throw "networkStorage.$key is empty; complete the NAS answers before mounting." }
+                if ([string]$storage[$key] -cne $value) {
+                    $changes[$key] = @{ Previous = [string]$storage[$key]; Value = $value }
+                }
             }
         }
-    }
-    if ($changes.Count -eq 0) { return $true }
-    $newline = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
-    $lines = [Collections.Generic.List[string]]::new()
-    $lines.AddRange([string[]]($text -split '\r?\n'))
-    $section = -1
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($lines[$i] -match '^networkStorage\s*:\s*(?:#.*)?$') { $section = $i; break }
-    }
-    if ($section -lt 0) {
-        if ($doc -is [Collections.IDictionary] -and $doc.Contains('networkStorage')) {
-            throw 'networkStorage must use an indented YAML mapping so setup can preserve the surrounding comments.'
+        if ($changes.Count -eq 0) { return $true }
+        $newline = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+        $lines = [Collections.Generic.List[string]]::new()
+        $lines.AddRange([string[]]($text -split '\r?\n'))
+        $section = -1
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^networkStorage\s*:\s*(?:#.*)?$') { $section = $i; break }
         }
-        $section = $lines.Count
-        $lines.Add('networkStorage:')
-    }
-    foreach ($key in $changes.Keys) {
-        $index = -1
-        $end = $section + 1
-        while ($end -lt $lines.Count -and $lines[$end] -notmatch '^[^\s#]') {
-            if ($lines[$end] -match "^(\s+)$([regex]::Escape($key))\s*:") { $index = $end }
-            $end++
-        }
-        $rendered = Format-YamlScalarValue -Value $changes[$key].Value
-        if ($index -ge 0) {
-            # A # inside a quoted path is data, while an unquoted # after
-            # whitespace starts the inline comment that belongs to this key.
-            $line = $lines[$index]
-            $quote = [char]0
-            $comment = ''
-            for ($j = $line.IndexOf(':') + 1; $j -lt $line.Length; $j++) {
-                $c = $line[$j]
-                if ($quote -ne [char]0) {
-                    if ($c -eq $quote) {
-                        if ($quote -eq "'" -and $j + 1 -lt $line.Length -and $line[$j + 1] -eq "'") { $j++ }
-                        elseif ($quote -ne '"' -or $j -eq 0 -or $line[$j - 1] -ne '\') { $quote = [char]0 }
-                    }
-                } elseif ($c -in @([char]39, [char]34)) { $quote = $c }
-                elseif ($c -eq '#' -and $j -gt 0 -and [char]::IsWhiteSpace($line[$j - 1])) { $comment = ' ' + $line.Substring($j); break }
+        if ($section -lt 0) {
+            if ($doc -is [Collections.IDictionary] -and $doc.Contains('networkStorage')) {
+                throw 'networkStorage must use an indented YAML mapping so setup can preserve the surrounding comments.'
             }
-            $indent = [regex]::Match($line, '^\s+').Value
-            $lines[$index] = "${indent}${key}: $rendered$comment"
-        } else { $lines.Insert($end, "  ${key}: $rendered") }
-    }
-    $updated = $lines -join $newline
-    $check = $updated | ConvertFrom-Yaml -Ordered
-    foreach ($key in $changes.Keys) {
-        if ([string]$check['networkStorage'][$key] -cne $changes[$key].Value) { throw "NAS configuration did not round-trip for networkStorage.$key; no file was written." }
-    }
-    if ($PSCmdlet.ShouldProcess($ConfigPath, 'Apply the selected NAS storage coordinates')) {
-        $backup = "$ConfigPath.setup-storage.backup"
-        Copy-Item -LiteralPath $ConfigPath -Destination $backup -Force
+            $section = $lines.Count
+            $lines.Add('networkStorage:')
+        }
         foreach ($key in $changes.Keys) {
-            $previous = if ($changes[$key].Previous) { $changes[$key].Previous } else { '(blank)' }
-            Write-SetupMessage "networkStorage.${key}: $previous -> $($changes[$key].Value)"
+            $index = -1
+            $end = $section + 1
+            while ($end -lt $lines.Count -and $lines[$end] -notmatch '^[^\s#]') {
+                if ($lines[$end] -match "^(\s+)$([regex]::Escape($key))\s*:") { $index = $end }
+                $end++
+            }
+            $rendered = Format-YamlScalarValue -Value $changes[$key].Value
+            if ($index -ge 0) {
+                # A # inside a quoted path is data, while an unquoted # after
+                # whitespace starts the inline comment that belongs to this key.
+                $line = $lines[$index]
+                $quote = [char]0
+                $comment = ''
+                for ($j = $line.IndexOf(':') + 1; $j -lt $line.Length; $j++) {
+                    $c = $line[$j]
+                    if ($quote -ne [char]0) {
+                        if ($c -eq $quote) {
+                            if ($quote -eq "'" -and $j + 1 -lt $line.Length -and $line[$j + 1] -eq "'") { $j++ }
+                            elseif ($quote -ne '"' -or $j -eq 0 -or $line[$j - 1] -ne '\') { $quote = [char]0 }
+                        }
+                    } elseif ($c -in @([char]39, [char]34)) { $quote = $c }
+                    elseif ($c -eq '#' -and $j -gt 0 -and [char]::IsWhiteSpace($line[$j - 1])) { $comment = ' ' + $line.Substring($j); break }
+                }
+                $indent = [regex]::Match($line, '^\s+').Value
+                $lines[$index] = "${indent}${key}: $rendered$comment"
+            } else { $lines.Insert($end, "  ${key}: $rendered") }
         }
-        Write-SetupMessage "Previous storage configuration is recoverable at $backup"
-        if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $updated -Confirm:$false)) { throw "Could not write NAS storage configuration to $ConfigPath; the previous file is at $backup." }
-        if (Get-Command Clear-TestConfigCache -ErrorAction SilentlyContinue) { Clear-TestConfigCache }
+        $updated = $lines -join $newline
+        $check = $updated | ConvertFrom-Yaml -Ordered
+        foreach ($key in $changes.Keys) {
+            if ([string]$check['networkStorage'][$key] -cne $changes[$key].Value) { throw "NAS configuration did not round-trip for networkStorage.$key; no file was written." }
+        }
+        if ($cmdlet.ShouldProcess($ConfigPath, 'Apply the selected NAS storage coordinates')) {
+            $backup = "$ConfigPath.setup-storage.backup"
+            Copy-Item -LiteralPath $ConfigPath -Destination $backup -Force
+            $null = Save-TestConfigJournalEntry -ConfigPath $ConfigPath -Writer 'setup-storage' -NewContent $updated
+            foreach ($key in $changes.Keys) {
+                $previous = if ($changes[$key].Previous) { $changes[$key].Previous } else { '(blank)' }
+                Write-SetupMessage "networkStorage.${key}: $previous -> $($changes[$key].Value)"
+            }
+            Write-SetupMessage "Previous storage configuration is recoverable at $backup"
+            if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $updated -Confirm:$false)) { throw "Could not write NAS storage configuration to $ConfigPath; the previous file is at $backup." }
+            if (Get-Command Clear-TestConfigCache -ErrorAction SilentlyContinue) { Clear-TestConfigCache }
+        }
+        return $true
     }
-    return $true
 }
 
 function Initialize-SetupNasCredential {
@@ -2218,49 +2229,67 @@ function Set-SetupProjectUrl {
 
     A line-level edit, deliberately: a full YAML round-trip through
     ConvertTo-Yaml would drop this file's comments, which are most of its
-    documentation.
+    documentation. The read and the write hold the config's write lock
+    (Use-TestConfigLock), so a runner or the status page's editor writing at
+    the same time cannot have its change dropped by this one; the bytes being
+    replaced go to the config's journal under the writer name
+    setup-project-url, and the write is the atomic temp-and-rename every other
+    config writer uses. The lock, journal and writer come from Test.ConfigSync,
+    which the config step imports before calling this.
 .OUTPUTS
     An object with Outcome ('kept', 'filled' or 'replaced'), Previous and
     Current.
 #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Read inside the block handed to Use-TestConfigLock, which the rule does not follow.')]
     param(
         [Parameter(Mandatory)][string]$ConfigPath,
         [Parameter(Mandatory)][string]$ProjectUrl,
         [switch]$FromAnswerFile
     )
-    $lines = @(Get-Content -LiteralPath $ConfigPath)
-    $index = -1
-    $indent = ''
-    $existing = ''
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($lines[$i] -match '^(\s*)projectUrl\s*:\s*(.*)$') {
-            $indent = $Matches[1]
-            $existing = "$($Matches[2])".Trim().Trim('"', "'")
-            $index = $i
-            break
+    $cmdlet = $PSCmdlet
+    return Use-TestConfigLock -Path $ConfigPath -Action {
+        $text = [string](Get-Content -LiteralPath $ConfigPath -Raw)
+        $newline = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+        $lines = [string[]]($text -split '\r?\n')
+        $index = -1
+        $indent = ''
+        $existing = ''
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^(\s*)projectUrl\s*:\s*(.*)$') {
+                $indent = $Matches[1]
+                $existing = "$($Matches[2])".Trim().Trim('"', "'")
+                $index = $i
+                break
+            }
         }
+        if ($index -lt 0) { throw "no projectUrl key found in $ConfigPath to set" }
+        if ($existing -and -not $FromAnswerFile) {
+            Write-SetupDetail "projectUrl kept as $existing (already set in $ConfigPath; set setup.projectUrl in an answer file to change it)"
+            return [pscustomobject]@{ Outcome = 'kept'; Previous = $existing; Current = $existing }
+        }
+        if ($existing -eq $ProjectUrl) {
+            Write-SetupDetail "projectUrl already $existing in $ConfigPath"
+            return [pscustomobject]@{ Outcome = 'kept'; Previous = $existing; Current = $existing }
+        }
+        $lines[$index] = "${indent}projectUrl: $ProjectUrl"
+        if ($cmdlet.ShouldProcess($ConfigPath, "set projectUrl to $ProjectUrl")) {
+            $updated = $lines -join $newline
+            $entry = Save-TestConfigJournalEntry -ConfigPath $ConfigPath -Writer 'setup-project-url' -NewContent $updated
+            if ($existing) {
+                Write-SetupMessage "projectUrl: $existing -> $ProjectUrl (replaced in $ConfigPath by setup.projectUrl from the answer file)"
+            } else {
+                Write-SetupDetail "projectUrl: (blank) -> $ProjectUrl"
+            }
+            if ($entry) { Write-SetupDetail "Previous configuration is recoverable at $entry" }
+            if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $updated -Confirm:$false)) { throw "Could not write projectUrl to $ConfigPath; the previous file is at $entry." }
+        }
+        if ($existing) {
+            return [pscustomobject]@{ Outcome = 'replaced'; Previous = $existing; Current = $ProjectUrl }
+        }
+        return [pscustomobject]@{ Outcome = 'filled'; Previous = ''; Current = $ProjectUrl }
     }
-    if ($index -lt 0) { throw "no projectUrl key found in $ConfigPath to set" }
-    if ($existing -and -not $FromAnswerFile) {
-        Write-SetupDetail "projectUrl kept as $existing (already set in $ConfigPath; set setup.projectUrl in an answer file to change it)"
-        return [pscustomobject]@{ Outcome = 'kept'; Previous = $existing; Current = $existing }
-    }
-    if ($existing -eq $ProjectUrl) {
-        Write-SetupDetail "projectUrl already $existing in $ConfigPath"
-        return [pscustomobject]@{ Outcome = 'kept'; Previous = $existing; Current = $existing }
-    }
-    $lines[$index] = "${indent}projectUrl: $ProjectUrl"
-    if ($PSCmdlet.ShouldProcess($ConfigPath, "set projectUrl to $ProjectUrl")) {
-        Set-Content -LiteralPath $ConfigPath -Value $lines
-    }
-    if ($existing) {
-        Write-SetupMessage "projectUrl: $existing -> $ProjectUrl (replaced in $ConfigPath by setup.projectUrl from the answer file)"
-        return [pscustomobject]@{ Outcome = 'replaced'; Previous = $existing; Current = $ProjectUrl }
-    }
-    Write-SetupDetail "projectUrl: (blank) -> $ProjectUrl"
-    return [pscustomobject]@{ Outcome = 'filled'; Previous = ''; Current = $ProjectUrl }
 }
 
 function Get-StorageAliasTier {

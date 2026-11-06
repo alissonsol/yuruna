@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4234ea6a-ddae-4da7-be02-26d47d418045
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -464,11 +464,12 @@ function New-CloudInitUserData {
           YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER, YURUNA_GITHUB_REPO_PLACEHOLDER,
           YURUNA_GITHUB_REF_PLACEHOLDER, GH_TOKEN_PLACEHOLDER,
           YURUNA_FRAMEWORK_URL_PLACEHOLDER, YURUNA_PROJECT_URL_PLACEHOLDER,
-          YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER.
+          YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER, YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER.
         A caller that passes any of them in -Replacement overrides the
         auto-populated value. That is right only when the caller has a better
         answer than the ambient one -- the service-VM seeds pass a hostId they
-        already resolved -- and is otherwise rarely what you want.
+        already resolved, and the service host names their build plan checked --
+        and is otherwise rarely what you want.
     .PARAMETER BasePath
         Absolute path to the shared base user-data template (e.g.
         $RepoRoot/host/vmconfig/ubuntu.server.base.user-data).
@@ -613,6 +614,18 @@ function New-CloudInitUserData {
             $channelKey = Get-YurunaGuestChannelKey -Create -Confirm:$false
         } catch { Write-Verbose "guest-channel key: $($_.Exception.Message)" }
         $fullReplacement['YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER'] = $channelKey
+    }
+    # The names a service VM answers to besides its addresses, host name and
+    # localhost, from this host's configuration. The service builders read them
+    # in their build plan and pass them in, so an entry that is neither a name
+    # nor an address refuses the build before a Start tears anything down. This
+    # fills them for any other caller, and is not caught: the same entry refuses
+    # that render.
+    if ($merged.Contains('YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER') -and -not $fullReplacement.ContainsKey('YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER')) {
+        if (-not (Get-Command Get-ExtensionServiceHostNameSeed -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $RepoRoot 'test/modules/Test.ExtensionService.psm1') -DisableNameChecking -Verbose:$false
+        }
+        $fullReplacement['YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER'] = Get-ExtensionServiceHostNameSeed -RepoRoot $RepoRoot
     }
     # The caching proxy compiles Go sources it fetches file by file.
     if ($merged.Contains('YURUNA_SOURCE_MANIFEST_BASE64_PLACEHOLDER') -and -not $fullReplacement.ContainsKey('YURUNA_SOURCE_MANIFEST_BASE64_PLACEHOLDER')) {

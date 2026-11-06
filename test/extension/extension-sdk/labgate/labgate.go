@@ -91,11 +91,11 @@ const (
 // of the lab's shared per-source attempts.
 var labTokenRE = regexp.MustCompile(`^[a-z0-9]{6}$`)
 
-// controlProofRE is the wire shape of a control proof, "<expiry>.<base64 HMAC>"
-// or, bound to one target, "<expiry>.<audience>.<base64 HMAC>". Checking it
-// locally keeps a truncated fragment from costing a round trip, and from
-// spending one of the lab's shared per-source attempts.
-var controlProofRE = regexp.MustCompile(`^[0-9]{1,20}\.(?:[A-Za-z0-9_-]{1,80}\.)?[A-Za-z0-9+/]{4,128}={0,2}$`)
+// controlProofRE is the wire shape of a control proof bound to one target,
+// "<expiry>.<audience>.<base64 HMAC>". Checking it locally keeps a truncated
+// fragment, or the retired unbound form that names no target, from costing a
+// round trip, and from spending one of the lab's shared per-source attempts.
+var controlProofRE = regexp.MustCompile(`^[0-9]{1,20}\.[A-Za-z0-9_-]{1,80}\.[A-Za-z0-9+/]{4,128}={0,2}$`)
 
 // Options configures a Gate.
 type Options struct {
@@ -360,20 +360,6 @@ func (g *Gate) verify(ctx context.Context, code string) (Verdict, string) {
 		// check) and anything else are all "no answer about the code".
 		return Unavailable, g.renderDetail(ctx, "auth.detail_http", map[string]any{"status": resp.StatusCode})
 	}
-}
-
-// verifyControlProof decides whether a wire proof "<expiry>.<base64 HMAC>" was
-// minted from token and is still inside its window: now <= expiry <= now+maxTTL
-// (a far-future expiry is refused, so a captured token cannot mint an eternal
-// pass), then a constant-time compare of HMAC-SHA256(token,
-// "yuruna-control|proof|<expiry>"). Byte-for-byte the same rule as the
-// aggregator's mint and the host-side PowerShell verifier -- one proof format,
-// three implementations, no dialect between them.
-//
-// Any malformed, expired or mismatched input is false, never an error a caller
-// could mistake for a verdict.
-func verifyControlProof(token, wire string, now time.Time, maxTTL time.Duration) bool {
-	return controlproof.Verify(token, wire, now, maxTTL)
 }
 
 // verifyProof judges an arriving control proof, locally when it can and by

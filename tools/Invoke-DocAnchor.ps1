@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42ab6d19-74c3-4f80-9e25-3d0c81af57b6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,12 +59,14 @@
     Exit codes follow the entry-point contract:
         0  Every heading has its id and the manifest is current.
         1  A heading is missing an id, or the manifest is stale (-Check), or
-           files were rewritten (-Update).
+           files were rewritten (-Update), or a heading names a region other
+           than the one its pointer sits in (-HeadingRegion).
         2  A translation's heading count does not match its source, or an id
            collision makes the mapping ambiguous.
 
 .PARAMETER Check
-    Report what is missing or stale without writing. The default.
+    Report what is missing or stale without writing. The default, unless
+    -Update or -HeadingRegion is given.
 .PARAMETER Update
     Inject the missing anchors and rewrite the manifest.
 .PARAMETER Path
@@ -74,11 +76,25 @@
 .PARAMETER Quiet
     Print only problems and the summary.
 .PARAMETER HeadingRegion
-    Also report each heading whose source pointer sits in a region the heading
-    does not name. A heading names its home either as `## <path>: <region>` or
-    as a heading followed by a backticked `<repo>/<path>` line; a pointer is
-    judged only when it sits in the comment block directly under a named
-    `--- REGION:` marker. The report does not change the exit code.
+    Also judge each heading whose source pointer sits in a region the heading
+    does not name; each one fails the run. A heading names its home either as
+    `## <path>: <region>` or as a heading followed by a backticked
+    `<repo>/<path>` line; a pointer is judged only when it sits in the comment
+    block directly under a named `--- REGION:` marker. Pointers are read from
+    this checkout, the project checkout and the amisad.dev checkout (beside
+    this one, or at alius-git/amisad.dev), plus any AdditionalSourceRoot. On
+    its own it asks only this question: a heading with no id yet, or a stale
+    manifest, decides the exit code only with -Check. That is how
+    tools/Test-RegionAnchors.ps1 -HeadingRegion asks it for the
+    cross-repository gate's region-anchors row.
+.PARAMETER AdditionalSourceRoot
+    Other Git checkouts whose pointers the heading check reads, each named by
+    its folder, for a workspace checkout that is not where the default
+    inventory looks. An absent one is no verdict (exit 2).
+.PARAMETER ProjectRoot
+    The project checkout whose registered documents and pointers are read.
+    Default: the sibling yuruna-project, which may be absent. A named one that
+    is absent is no verdict (exit 2).
 
 .EXAMPLE
     pwsh tools/Invoke-DocAnchor.ps1 -Update
@@ -86,7 +102,7 @@
 .EXAMPLE
     pwsh tools/Invoke-DocAnchor.ps1 -Check -HeadingRegion -Path docs/framework-implementation-notes.md
     Lists the implementation-note headings that name a region other than the
-    one their pointer sits in.
+    one their pointer sits in, beside any anchor problem in that document.
 #>
 
 [CmdletBinding()]
@@ -97,7 +113,9 @@ param(
     [string[]]$Path,
     [string]$Manifest,
     [switch]$Quiet,
-    [switch]$HeadingRegion
+    [switch]$HeadingRegion,
+    [string[]]$AdditionalSourceRoot,
+    [string]$ProjectRoot
 )
 
 Import-Module (Join-Path $PSScriptRoot '../test/modules/Test.Prelude.psm1') -DisableNameChecking
@@ -105,9 +123,11 @@ Import-Module (Join-Path $PSScriptRoot '../test/modules/Test.Prelude.psm1') -Dis
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$SiblingRoot = Join-Path (Split-Path -Parent $RepoRoot) 'yuruna-project'
+$SiblingRoot = if ($ProjectRoot) { $ProjectRoot } else { Join-Path (Split-Path -Parent $RepoRoot) 'yuruna-project' }
 if (-not $Manifest) { $Manifest = Join-Path $RepoRoot 'globalization/manifests/doc-anchors.json' }
-if (-not $Update) { $Check = $true }
+# -HeadingRegion on its own asks one question, so a gate can fail on a moved
+# pointer without failing too on a heading that has no id yet.
+if (-not $Update -and -not $HeadingRegion) { $Check = $true }
 
 $AnchorPattern = '^<a id="(42[0-9a-f]{6})-([0-9a-f]{4})"></a>\r?$'
 
@@ -122,7 +142,7 @@ function Get-RepoRootFor {
 # target in any language but English.
 #
 # Individual design records remain outside this registry. The design
-# overview and the ontology guide are enrolled explicitly because their
+# overview and the ontology guides are enrolled explicitly because their
 # published links need stable heading addresses; the other records remain
 # unchanged.
 function Get-SourceDocument {
@@ -131,7 +151,7 @@ function Get-SourceDocument {
         $list.Add(@{ Repo = 'yuruna'; Source = "docs/$($f.Name)" })
     }
     foreach ($extra in @('README.md', 'install/README.md', 'docs/design/README.md', 'docs/ontology/README.md',
-                         'docs/ontology/2026/10/README.md')) {
+                         'docs/ontology/2026/10/README.md', 'docs/ontology/2026/11/README.md')) {
         $list.Add(@{ Repo = 'yuruna'; Source = $extra })
     }
     foreach ($extra in @('README.md', 'template/README.md', 'example/README.md',
@@ -285,7 +305,7 @@ function Get-HeadingHome {
     for ($i = $HeadingIndex + 1; $i -lt $Line.Count -and $i -le $HeadingIndex + 4; $i++) {
         $candidate = $Line[$i].Trim()
         if ($candidate -eq '') { continue }
-        if ($candidate -match '^`(?<repo>yuruna(?:-project)?)/(?<path>[^`\s]+)`$') {
+        if ($candidate -match '^`(?<repo>yuruna(?:-project)?|amisad\.dev)/(?<path>[^`\s]+)`$') {
             return @{ Repo = $Matches['repo']; Path = $Matches['path']; Name = $text }
         }
         break
@@ -333,6 +353,29 @@ function Find-HeadingRegionMismatch {
     }
 }
 
+# The checkouts whose pointers are judged: this one, the project checkout
+# and amisad.dev, which this framework deploys and which cites the
+# implementation notes from its own sources. amisad.dev sits beside this
+# checkout or, cloned under its organization, at alius-git/amisad.dev, the
+# same two places the region anchor gate looks; a checkout elsewhere is named
+# with -AdditionalSourceRoot and keyed by its folder name.
+function Get-PointerRoot {
+    param([string[]]$AdditionalSourceRoot)
+    $root = @{ 'yuruna' = $RepoRoot }
+    if (Test-Path -LiteralPath $SiblingRoot -PathType Container) { $root['yuruna-project'] = $SiblingRoot }
+    $workspaceRoot = Split-Path -Parent $RepoRoot
+    foreach ($candidate in @((Join-Path $workspaceRoot 'amisad.dev'), (Join-Path $workspaceRoot 'alius-git/amisad.dev'))) {
+        if (Test-Path -LiteralPath $candidate -PathType Container) { $root['amisad.dev'] = $candidate; break }
+    }
+    foreach ($sourceRoot in $AdditionalSourceRoot) {
+        $candidate = if ([IO.Path]::IsPathRooted($sourceRoot)) { $sourceRoot } else { Join-Path $RepoRoot $sourceRoot }
+        if (-not (Test-Path -LiteralPath $candidate -PathType Container)) { throw "additional source checkout not found at '$candidate'" }
+        $resolved = (Resolve-Path -LiteralPath $candidate).Path
+        $root[(Split-Path -Leaf $resolved)] = $resolved
+    }
+    return $root
+}
+
 function Get-RegionPointer {
     param([Parameter(Mandatory)][hashtable]$Root)
 
@@ -362,6 +405,10 @@ function Get-RegionPointer {
 # --- REGION: Main
 try {
 
+if ($ProjectRoot -and -not (Test-Path -LiteralPath $ProjectRoot -PathType Container)) {
+    throw "project checkout not found at '$ProjectRoot'"
+}
+
 $existingManifest = @{}
 if (Test-Path -LiteralPath $Manifest -PathType Leaf) {
     $loaded = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($Manifest))
@@ -380,6 +427,7 @@ if ($Path -and $Path.Count -gt 0) {
     }
 }
 
+$pointerRoot = if ($HeadingRegion) { Get-PointerRoot -AdditionalSourceRoot $AdditionalSourceRoot } else { @{} }
 $problem = [Collections.Generic.List[string]]::new()
 $fileIdSeen = @{}
 # Seed the claims from the translation gate's own record, so a document that
@@ -605,23 +653,22 @@ if ($currentManifest -cne $manifestJson) {
     exit 2
 }
 
-foreach ($p in $problem) { Write-Output "  $p" }
+if ($Check -or $Update) { foreach ($p in $problem) { Write-Output "  $p" } }
+$mismatch = @()
 if ($HeadingRegion) {
-    $pointerRoot = @{ 'yuruna' = $RepoRoot }
-    if (Test-Path -LiteralPath $SiblingRoot -PathType Container) { $pointerRoot['yuruna-project'] = $SiblingRoot }
     $mismatch = @(Find-HeadingRegionMismatch -HomeById $homeById -Pointer @(Get-RegionPointer -Root $pointerRoot))
     foreach ($m in $mismatch) {
         Write-Output "  heading $($m.Label) $($m.Id) '$($m.Heading)': its pointer $($m.Pointer) sits in region '$($m.Region)'"
     }
-    Write-Output "Heading check: $($mismatch.Count) heading pointer(s) sit in a region the heading does not name (reported only)."
+    Write-Output "Heading check: $($mismatch.Count) heading pointer(s) sit in a region the heading does not name."
 }
 Write-Output ''
 if ($Update) {
     Write-Output "Injected $injected anchor(s); wrote $written file(s); $($problem.Count) problem(s)."
     if ($problem.Count -gt 0) { exit 2 }
-    if ($written -gt 0) { exit 1 }
+    if ($written -gt 0 -or $mismatch.Count -gt 0) { exit 1 }
     exit 0
 }
-Write-Output "Checked $(@($documents).Count) document(s); $($problem.Count) problem(s)."
-if ($problem.Count -gt 0) { exit 1 }
+if ($Check) { Write-Output "Checked $(@($documents).Count) document(s); $($problem.Count) problem(s)." }
+if (($Check -and $problem.Count -gt 0) -or $mismatch.Count -gt 0) { exit 1 }
 exit 0

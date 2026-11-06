@@ -58,7 +58,10 @@ and rebuilds it, then removes the old enrolled key.
 
 `repositories.mirror.mirrorOnlyMaxAgeSeconds` defaults to 604800 (seven days),
 accepts 0 through 1209600, and bounds outage use from the last successful origin
-confirmation. Zero disables outage use. A signed immutable pin and the installed
+confirmation: while the mirror cannot reach GitHub, hosts run its signed pins within
+this age, in `prefer` mode without contacting GitHub themselves and in `fallback`
+mode after their own GitHub attempt failed, and past it they check GitHub
+directly. Zero disables outage use. A signed immutable pin and the installed
 revision checks still apply; this setting does not authorize a rollback.
 
 `vmStart.cachingProxyGitMirrorRefreshSeconds` defaults to 60 and accepts integer
@@ -94,6 +97,9 @@ pwsh tools/Update-TestConfigNaming.ps1
 
 It keeps the previous file alongside as `test.config.yml.pre-renaming` (which
 holds the same secrets the live file does, and is gitignored for that reason),
+holds the config's write lock across the rewrite and journals the bytes it
+replaces in `test.config.yml.journal/` under the writer name `config-naming`
+(like every other writer),
 is a no-op on an already-converted file, and stops without changing the file
 when populated old and new values disagree. Equal values are consolidated;
 blank replacements can be filled from the old value. A subsequent migration
@@ -537,7 +543,8 @@ its own, through a short allow-list of bounded repairs recorded in a durable led
 ([Recovery after a failed cycle](runner-outer-loop.md#recovery-after-a-failed-cycle)):
 it ends the outer failure pause early for a clearly-safe transient failure class
 (`wait_timeout`, `instrumentation_failure`, `network_timeout`, `ip_not_discovered`,
-`host_io_blocked`) instead of waiting up to the failure-pause cap for a human commit;
+`host_io_blocked`, `input_lost`, `guest_kernel_stalled`) instead of waiting up to the
+failure-pause cap for a human commit;
 it moves aside a stale git lock that makes the framework pull or the project clone
 fail; and it retries a failed project clone with a health check.
 
@@ -730,6 +737,40 @@ it must parse as an IPv4/IPv6 address **and** answer on TCP `:3128`,
 so a dead IP is rejected before it is persisted. Full cache-source
 story: [caching.md](caching.md#external-cache-override).
 
+<a id="42b11c32-0015"></a>
+
+## vmStart.serviceHostNames -- names the service VMs answer to
+
+The stash, download-agent and caching-proxy daemons answer a request only when
+its `Host` header names them: by any address, by `localhost`, by the VM's own
+host name (`yuruna-stash-service`, `yuruna-download-agent-service`,
+`yuruna-caching-proxy-service`) or its first label, or by a name this host baked
+into the VM's seed. Any other name answers `421 Misdirected Request` with code
+`auth.host_not_served` before a route runs. That is the defense against DNS
+rebinding: a page on another site that makes its own name resolve to a service
+VM is same-origin with it in the browser, and only the name its requests carry
+gives it away. On the caching proxy the rule also covers the requests Apache
+forwards from port 80 (`/landing` and the git mirror's routes), which carry the
+caller's own `Host`.
+
+The baked names are this list plus the host names -- never the addresses -- in
+`vmStart.cachingProxyIp`, `repositories.mirror.url` and
+`pool.configurationGitUrl`, so a host that reaches its proxy by name keeps
+reaching it. Add here any other name a host or browser uses for one of these
+VMs: a DNS or `/etc/hosts` alias, or the name of a machine that forwards a port
+to one. An address needs no entry, and a blank entry is ignored. Every other
+entry must be a DNS name or an IP address; any other value (a space, a slash, a
+quote) refuses every stash, download-agent and caching-proxy build on this host
+with `service-host-name-invalid: vmStart.serviceHostNames`. Each builder checks
+the list in its `-PlanOnly` build plan, so a rebuild stops before the service's
+start script removes the VM it would replace or withdraws that VM's
+advertisement.
+
+The default is an empty list. The names are read when the VM is built, so a
+change reaches a VM only when that VM is rebuilt, and a VM built from an older
+tree answers every name until then. Only the three daemons' own listeners check
+the name; Apache's other routes on the caching proxy do not.
+
 <a id="42b11c32-0010"></a>
 
 ## users.yml — authentication users mapping
@@ -754,6 +795,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

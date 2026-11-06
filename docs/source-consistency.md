@@ -422,9 +422,10 @@ session; ownership repair is needed only when an earlier invocation used sudo.
 
 The host contract exports generic verbs that overlap Hyper-V cmdlets. Load only
 the active provider and qualify native Hyper-V calls. New contract operations
-must exist in every provider before callers use them. Check actual module
-exports, propagate inventory errors, and keep active neighbor refresh separate
-from passive address reads.
+must exist in every provider before callers use them: each provider checks its
+actual module exports at load and refuses to load when one is missing.
+Propagate inventory errors, and keep active neighbor refresh separate from
+passive address reads.
 
 A host driver is its root module, `host/<driver>/modules/Yuruna.Host.psm1`,
 plus part files beside it, one per responsibility (`Yuruna.Host.<Part>.ps1`).
@@ -438,21 +439,52 @@ of the root. A function is defined in exactly one of a driver's files
 `Test.DriverSource` or the shared AST and text readers, never by opening the
 root file alone.
 
-Every hypervisor call a contract verb makes is bounded, so a hypervisor that
-accepts a request and never answers becomes a classified fault inside a
-deadline instead of a step-watchdog kill. KVM runs every `virsh` call, and the
-builders' `virt-install` calls, under a cap (`Invoke-Virsh`,
-`Invoke-VirshBounded`, `Invoke-BoundedNativeCommand`); Hyper-V runs its
-lifecycle cmdlets in a thread job under a cap (`Invoke-HyperVBoundedCall`,
-`Invoke-HyperVLifecycleCmdlet`), and its test-guest builders send every
-Hyper-V cmdlet, named module-qualified, through
-`Invoke-HyperVGuestBuildCmdlet`; UTM goes through its bounded `utmctl`
-wrappers. A verb that returns a result record reports a call that did not
-answer as `failureClass` `hypervisor_unresponsive`, a builder records the
-`unresponsive` kind for its stage (and `tool` for a refusal), and a verb that
-returns a bool returns `$false` within the cap.
-`Yuruna.HostReliability.Tests.ps1` fails on a raw hypervisor call in a driver
-module or a KVM or Hyper-V test-guest builder.
+Hypervisor contract calls use bounded wrappers, with the Hyper-V exceptions
+listed below, so a wrapped request that never answers becomes a
+classified fault inside a deadline instead of a step-watchdog kill. KVM runs
+every `virsh` call of the driver and of its builders, and the builders'
+`virt-install` calls, under a
+cap (`Invoke-Virsh`, `Invoke-VirshBounded`, `Invoke-BoundedNativeCommand`);
+Hyper-V runs its lifecycle cmdlets, the reads behind `Get-VMState`,
+`Get-VMName`, `Get-VMIp`, `Get-VMMac`, `Get-ImagePath` and `Rename-VM`, and
+every cmdlet that changes a VM or a switch, the force-stops and their worker
+lookup included, in a
+child pwsh process that the cap kills (`Invoke-HyperVBoundedCall`,
+`Invoke-HyperVLifecycleCmdlet`), and its builders, test-guest and service
+alike, send every Hyper-V cmdlet, named module-qualified, through
+`Invoke-HyperVGuestBuildCmdlet`; UTM runs `utmctl` and `osascript` only
+through its bounded wrappers. Stopping a call inside the runner's own process
+waits for its cmdlet, and a cmdlet blocked on a management service that never
+answers ignores that stop, so only killing the child keeps such a call inside
+the cap. Only names and primitive values cross into the child; its output
+comes back as copies serialized at depth 1, and its error is rebuilt so it
+classifies as the cmdlet's own did. A verb that returns a
+result record reports a call that did not answer as `failureClass`
+`hypervisor_unresponsive`, a builder records the `unresponsive` kind for its
+stage (and `tool` for a refusal), a verb that returns a bool returns `$false`
+within the cap, and a presence read answers `unknown`.
+
+A child call costs a pwsh start and an import of the Hyper-V module, so the
+child is spent where a read would otherwise hold a verb, not on the paths
+that repeat. Starting a VM adds no child process for a read: the start's
+memory and storage sizing, and the serial pipe lookup after it, stay in
+process beside the state reads and the start that the verb already runs in
+children. The reads of a frame capture -- `Get-VMVideo` for the guest's
+resolution and the thumbnail read through CIM in the virtualization namespace
+(`Msvm_VirtualSystemSettingData`, `GetVirtualSystemThumbnailImage`) -- stay
+in process too, because a child per frame would put a process start into
+every OCR poll of every wait. The read-only Hyper-V cmdlets on a VM or VHD
+noun that the driver keeps in process are listed, each with its reason, in
+the parity row of `Yuruna.HostReliability.Tests.ps1`
+(`$script:HyperVUnboundedCall`). Such a read is bounded only by what bounds
+its caller -- in a cycle, the step watchdog -- and its reason names where it
+runs. The row fails on such a raw call outside the list in any driver file or
+builder, and on a listed call that no longer exists; it does not scan CIM
+calls. The image-download scripts read the host's virtual-hard-disk folder
+(`Get-VMHost`) before they load the driver, and the runner's own Hyper-V
+reads in `test/modules` are outside the row. The runner reads a guest's KVP
+addresses itself only when no driver is loaded, because the driver's
+`Get-VMIp` reads them under the cap.
 
 Host port forwards have owners. `Add-PortMap` and `Remove-PortMap` take a
 mandatory `-Owner` (the service name), and one host-level record
@@ -1193,6 +1225,13 @@ their bundles do not expose a QEMU guest-agent channel. Ubuntu's UTM autoinstall
 seed also leaves agent installation empty and retains the provider's existing
 address-discovery fallbacks. Keep these provider distinctions.
 
+Only Ubuntu's UTM overlay fills the `SHUTDOWN` section, with `shutdown: poweroff`,
+so the runner cold-starts the installed system. The KVM and Hyper-V overlays keep
+that section as a bare header and the installer's reboot: every line of a
+section, a comment included, is emitted into the seed, and the bare header keeps
+their seeds byte-identical to the base without the anchor. See
+[UTM install power-off](https://yuruna.link/42885ada-0014).
+
 Shared seed regions cover identity, packages, SSH keepalive, host coordinates,
 framework fetching, and service startup. The stash mounts its separate NAS before
 starting its daemon; pool-control and download-agent mount pool storage in their
@@ -1264,6 +1303,16 @@ image, so it omits autoinstall and waits for its ordinary login prompt.
 Its shorter first-boot budget is intentional. Ubuntu SSH variants use a blind
 GRUB bridge before sshd is available, then use the same guest workload
 scripts as console variants.
+
+On macOS UTM the Ubuntu install ends with a power-off, so that host runs its own
+copies, `start.guest.ubuntu.server.24.macos.utm.yml` and
+`start.guest.ubuntu.server.26.macos.utm.yml`. Each adds two steps after the
+autoinstall answer, outside any retry: a `startVm` with `installPowerOff: true`
+that waits for the install's own power-off and cold-starts the installed system,
+and a 15-second settle. Everything else matches the generic file, and a parity
+case in `test/modules/Test.SourceConsistency.Tests.ps1` fails when the two
+drift, so port each edit of a generic file into its UTM copy. The UTM SSH start
+variants have no copy.
 
 Manual stash and download-agent smoke workloads choose service-named accounts.
 The planner passes that account to the vanilla VM seed and prerequisite startup
@@ -1352,6 +1401,7 @@ Timeouts remain guest-specific where observations justify them:
 | Budget | Ubuntu 24.04 | Ubuntu 26.04 | Amazon Linux 2023 |
 |---|---:|---:|---:|
 | Autoinstall question | 1800 s | 1800 s | Not applicable |
+| Install power-off (UTM only) | 2400 s | 2400 s | Not applicable |
 | First login, per attempt | 1800 s | 2400 s | 300 s |
 | Workload install, console and SSH | 1800 s | 3000 s | 1800 s |
 
@@ -1416,10 +1466,14 @@ part's scriptblock, `(Get-Command -CommandType ExternalScript -Name
 $startPart).ScriptBlock`, inside the operation's `try` block: the part shares
 the start's scope, and its `exit` ends the start through the `finally` that
 closes the operation, where an `exit` in a dot-sourced script file would end
-only that file and fall through. Every part ends at an `exit` and refuses to
-run unless the shared start named it (`Test.ExtensionServiceStart`). Suites
-read what one start runs, the shared script with that service's part in
-place, through `Test.ServiceStartSource`.
+only that file and fall through. A step that parts run alike is a scriptblock
+in the shared script that a part dot-sources where it runs it: pool-control
+and download-agent wait for the guest address, recover it and report the
+deployed source that way, all three decide their outcome that way, and stash
+keeps its own address and source handling. Every part ends at an `exit` and
+refuses to run unless the shared start named it
+(`Test.ExtensionServiceStart`). Suites read what one start runs, the shared
+script with that service's part in place, through `Test.ServiceStartSource`.
 
 Every lifecycle script's `Initialize service runtime` region carries the same
 pointers, https://yuruna.link/42fffc2c-000b and https://yuruna.link/42162449-0004,
@@ -1716,7 +1770,7 @@ change alone does not prove the panel finished its collapse transition.
 
 ### Image acquisition and build boundaries
 
-A workload first reuses local images. When a cache is configured, it pulls the registry image explicitly as `<cache>:5000/library/registry:2`; a bare Docker Hub reference could let Docker abandon a slow mirror and consume the lab's upstream quota. In a lab without a cache, `registry:2` is the appropriate upstream reference. Five attempts with increasing delays tolerate a cache VM restart. Final diagnostics identify the actual source: an unavailable cache, an unavailable upstream, a slow response, or throttling. The registry's port is published on `127.0.0.1` only, because the deployment client and the node that pulls from it share the guest; a container an earlier run published on every address is created again. See [registry startup](https://yuruna.link/42f6b05f-0019).
+A workload first reuses local images. When a cache is configured, it pulls the registry image explicitly as `<cache>:5000/library/registry:2.8.3`; a bare Docker Hub reference could let Docker abandon a slow mirror and consume the lab's upstream quota. In a lab without a cache, `registry:2.8.3` is the appropriate upstream reference. The helper runs one exact registry release, written once as `REGISTRY_TAG`, and the caching proxy's warm set names the same tag; a parity case in `test/modules/Test.SourceConsistency.Tests.ps1` fails while the two differ. Five attempts with increasing delays tolerate a cache VM restart. Final diagnostics identify the actual source: an unavailable cache, an unavailable upstream, a slow response, or throttling. The registry's port is published on `127.0.0.1` only, because the deployment client and the node that pulls from it share the guest; a container an earlier run published on every address is created again. See [registry startup](https://yuruna.link/42f6b05f-0019).
 
 `warm_manifest` holds a bounded curl request open while a cold tag synchronizes. Docker's own response-header timeout can be shorter than this synchronization; increasing the surrounding pull timeout does not change Docker's internal limit. Warm-up is advisory and records HTTP status, elapsed time, and curl's exit code so connection refusal, DNS failure, and timeout remain distinguishable. The subsequent pull owns success or failure. `YURUNA_PULL_STALL_TIMEOUT` bounds elapsed pull time, not progress, and can be increased for slow links.
 
@@ -1899,12 +1953,14 @@ with the project and link repositories checked out beside the framework.
 An implementation-note heading names the code it explains, either as
 `## <path>: <region>` or as a heading followed by a backticked `<repo>/<path>`
 line, and that code points back from directly under its REGION marker. When
-code is reorganized the pointer moves with its block, so after moving or
-renaming regions run `tools/Invoke-DocAnchor.ps1 -Check -HeadingRegion` and
-rename each reported heading to the region its pointer now sits in. The report
-skips a pointer inside a function body or under a link-named marker, and a
-section whose pointers sit in more than one region, and it does not change the
-exit code.
+code is reorganized the pointer moves with its block, and a heading left naming
+the old region fails the cross-repository gate's `region-anchors` row, which
+runs `tools/Test-RegionAnchors.ps1 -HeadingRegion`. After moving or renaming
+regions, run `tools/Invoke-DocAnchor.ps1 -Check -HeadingRegion` and rename each
+reported heading to the region its pointer now sits in. The check skips a
+pointer inside a function body or under a link-named marker, and a section
+whose pointers sit in more than one region. `-HeadingRegion` on its own judges
+only the headings; with `-Check` the anchor problems fail the run as well.
 The anchor gate also scans the AmisAd checkout and accepts extra source roots;
 Git ignores continue to exclude generated artifacts. Anchor generation accepts
 LF and CRLF equally so a Windows checkout cannot reissue existing heading IDs.
@@ -2734,6 +2790,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

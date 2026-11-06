@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42218fa5-018e-4ea0-a6fe-a80cc7202613
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -405,9 +405,14 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
                 $unpinned.severity | Should -Be 'warning'
                 $unpinned.remedy   | Should -Be 'PIN-IT'
 
+                # A pinned NetworkManager bridge has its lease length read, from
+                # this stand-in rather than the machine's NetworkManager. A
+                # 30-minute period on a 40000 s lease is no lease running out.
+                function nmcli { $global:LASTEXITCODE = 0; 'DHCP4.OPTION[2]:dhcp_lease_time = 40000' }
                 Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkmanager'; pinned = $true; detail = 'x'; remedy = 'PIN-IT' } }
                 $pinned = Get-HostAddressStabilityReport -RuntimeDir $Dir -NowUtc $Now
                 $pinned.severity | Should -Be 'warning'
+                $pinned.message  | Should -Match 'not keying leases'
                 $pinned.remedy   | Should -Not -Be 'PIN-IT' -Because 'a pin that is already set cannot be the remedy for its own failure'
                 $pinned.remedy   | Should -Match 'reserv|static'
             }
@@ -544,6 +549,146 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
                 $r.message | Should -Match 'breaks every guest behind it'
             }
         } finally { Remove-YurunaTestTempDir $d }
+    }
+
+    # A client renews at half the lease and rebinds before it ends; a pinned
+    # host that still takes a new address one lease length apart is one whose
+    # renewals never took effect, so each lease ran out. Telling it that the
+    # server ignores the pin sends it after the wrong fault, since a renewal
+    # that never happened says nothing about how the server keys leases.
+    It 'says a pinned host that moves once per lease is not renewing, not that the server ignores the pin' {
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
+        try {
+            $now = [datetime]::UtcNow
+            # 40000 s is 666.7 min: three moves one lease apart, each to a new address.
+            foreach ($i in 0..2) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-10 - 666.7 * $i) -To "192.168.7.$(90 + $i)" }
+            InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Dir = $d; Now = $now } {
+                param($Dir, $Now)
+                $script:NmcliCalls = [System.Collections.Generic.List[string]]::new()
+                function nmcli { $script:NmcliCalls.Add($args -join ' '); $global:LASTEXITCODE = 0; 'DHCP4.OPTION[2]:dhcp_lease_time = 40000' }
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkmanager'; pinned = $true; detail = 'x'; remedy = 'PIN-IT' } }
+                $r = Get-HostAddressStabilityReport -RuntimeDir $Dir -NowUtc $Now
+                $r.verdict  | Should -Be 'renewal-churn'
+                $r.severity | Should -Be 'warning'
+                $r.message  | Should -Not -Match 'not keying leases'
+                $r.message  | Should -Match 'renewals are not taking effect'
+                $r.message  | Should -Match '40000 s'
+                $r.remedy   | Should -Match 'NetworkManager'
+                $r.remedy   | Should -Match 'reserv|static'
+                @($script:NmcliCalls) | Should -Be @('-t -f DHCP4 device show yuruna-br0')
+            }
+        } finally { Remove-YurunaTestTempDir $d }
+    }
+
+    It 'keeps the server-ignores-the-pin reading when a pinned host moves at half the lease' {
+        # A move at every renewal is a fresh allocation at each one: the case
+        # the pin cannot fix, whatever the lease length is.
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
+        try {
+            $now = [datetime]::UtcNow
+            foreach ($i in 0..3) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-10 - 333.3 * $i) -To "192.168.7.$(90 + $i)" }
+            InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Dir = $d; Now = $now } {
+                param($Dir, $Now)
+                function nmcli { $global:LASTEXITCODE = 0; 'DHCP4.OPTION[2]:dhcp_lease_time = 40000' }
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkmanager'; pinned = $true; detail = 'x'; remedy = 'PIN-IT' } }
+                $r = Get-HostAddressStabilityReport -RuntimeDir $Dir -NowUtc $Now
+                $r.verdict | Should -Be 'renewal-churn'
+                $r.message | Should -Match 'not keying leases'
+                $r.remedy  | Should -Not -Match 'dhcp4'
+            }
+        } finally { Remove-YurunaTestTempDir $d }
+    }
+
+    It 'keeps the server-ignores-the-pin reading when the lease length cannot be read: <Case>' -TestCases @(
+        @{ Case = 'NetworkManager does not know the bridge'; Backend = 'networkmanager'; Exit = 10; Lines = @("Error: Device 'yuruna-br0' not found."); Reads = 1 }
+        @{ Case = 'the lease names no length'; Backend = 'networkmanager'; Exit = 0; Lines = @('DHCP4.OPTION[3]:dhcp_server_identifier = 192.168.7.1'); Reads = 1 }
+        @{ Case = 'systemd-networkd owns the bridge'; Backend = 'networkd'; Exit = 0; Lines = @('DHCP4.OPTION[2]:dhcp_lease_time = 40000'); Reads = 0 }
+    ) {
+        param($Case, $Backend, $Exit, $Lines, $Reads)
+        $null = $Case
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
+        try {
+            $now = [datetime]::UtcNow
+            foreach ($i in 0..2) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-10 - 666.7 * $i) -To "192.168.7.$(90 + $i)" }
+            InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Dir = $d; Now = $now; Backend = $Backend; Exit = $Exit; Lines = $Lines; Reads = $Reads } {
+                param($Dir, $Now, $Backend, $Exit, $Lines, $Reads)
+                $script:NmcliCalls = [System.Collections.Generic.List[string]]::new()
+                $script:NmcliAnswer = @{ Exit = $Exit; Lines = $Lines }
+                function nmcli { $script:NmcliCalls.Add($args -join ' '); $global:LASTEXITCODE = $script:NmcliAnswer.Exit; $script:NmcliAnswer.Lines }
+                $script:IdentityBackend = $Backend
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = $script:IdentityBackend; pinned = $true; detail = 'x'; remedy = 'PIN-IT' } }
+                $r = Get-HostAddressStabilityReport -RuntimeDir $Dir -NowUtc $Now
+                $r.verdict | Should -Be 'renewal-churn'
+                $r.message | Should -Match 'not keying leases'
+                $r.message | Should -Not -Match 'renewals are not taking effect'
+                $script:NmcliCalls.Count | Should -Be $Reads -Because 'only a NetworkManager bridge has its lease read'
+            }
+        } finally { Remove-YurunaTestTempDir $d }
+    }
+
+    It 'does not say a renewal went unhonored when the moves follow no clock' {
+        # Moves at no fixed interval are reboots and link events; nothing in
+        # them dates a renewal, so the message must not name one.
+        $d = New-YurunaTestTempDir -Prefix 'yrn-churn'
+        try {
+            $now = [datetime]::UtcNow
+            $i = 0
+            foreach ($m in 5, 47, 63, 400, 415, 1200) {
+                $i++; Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-$m) -To "192.168.7.$(20 + $i)"
+            }
+            InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Dir = $d; Now = $now } {
+                param($Dir, $Now)
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkd'; pinned = $true; detail = 'pinned'; remedy = '' } }
+                $r = Get-HostAddressStabilityReport -RuntimeDir $Dir -NowUtc $Now
+                $r.verdict | Should -Be 'moved'
+                $r.message | Should -Match 'reboots or link events'
+                $r.message | Should -Not -Match 'not being honored'
+            }
+        } finally { Remove-YurunaTestTempDir $d }
+    }
+}
+
+Describe 'Get-HostBridgeDhcpLeaseTime -- how long the server lent the address' {
+
+    # NetworkManager answers for the device; the framework bridge's device and
+    # connection share the name. Every case stands in for nmcli, so the suite
+    # never reads the NetworkManager of the machine running it.
+
+    It 'reads dhcp_lease_time from what NetworkManager holds for the bridge, in <Shape> form' -TestCases @(
+        @{ Shape = 'terse'; Line = 'DHCP4.OPTION[2]:dhcp_lease_time = 40000' }
+        @{ Shape = 'aligned'; Line = 'DHCP4.OPTION[2]:                        dhcp_lease_time = 40000' }
+    ) {
+        param($Shape, $Line)
+        $null = $Shape
+        InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Line = $Line } {
+            param($Line)
+            $script:NmcliCalls = [System.Collections.Generic.List[string]]::new()
+            $script:NmcliLines = @('DHCP4.OPTION[1]:dhcp_client_identifier = 01:38:a7:46:e6:b9:aa', $Line, 'DHCP4.OPTION[3]:dhcp_server_identifier = 192.168.7.1')
+            function nmcli { $script:NmcliCalls.Add($args -join ' '); $global:LASTEXITCODE = 0; $script:NmcliLines }
+            Get-HostBridgeDhcpLeaseTime | Should -Be 40000
+            @($script:NmcliCalls) | Should -Be @('-t -f DHCP4 device show yuruna-br0')
+        }
+    }
+
+    It 'has no length to give when nmcli fails or holds no lease time' {
+        InModuleScope -ModuleName Test.HostAddressBeacon {
+            $script:NmcliAnswer = @{ Exit = 10; Lines = @("Error: Device 'yuruna-br0' not found.") }
+            function nmcli { $global:LASTEXITCODE = $script:NmcliAnswer.Exit; $script:NmcliAnswer.Lines }
+            Get-HostBridgeDhcpLeaseTime | Should -BeNullOrEmpty
+
+            $script:NmcliAnswer = @{ Exit = 0; Lines = @('DHCP4.OPTION[3]:dhcp_server_identifier = 192.168.7.1') }
+            Get-HostBridgeDhcpLeaseTime | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'has no length to give, and runs nothing, where nmcli is not installed' {
+        InModuleScope -ModuleName Test.HostAddressBeacon {
+            $script:NmcliCalls = [System.Collections.Generic.List[string]]::new()
+            function nmcli { $script:NmcliCalls.Add($args -join ' '); $global:LASTEXITCODE = 0; 'DHCP4.OPTION[2]:dhcp_lease_time = 40000' }
+            Mock Get-Command { $null } -ParameterFilter { $Name -eq 'nmcli' }
+            Get-HostBridgeDhcpLeaseTime | Should -BeNullOrEmpty
+            $script:NmcliCalls.Count | Should -Be 0
+        }
     }
 }
 

@@ -2211,6 +2211,33 @@
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "tombstone"
     },
+    "pool.runner": {
+      "message": "Runner",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html: header of the Hosts table column that shows the commit each host's resident runner loaded and when it started; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.runner_cell": {
+      "message": "{commit} since {startedAt}",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js: the Runner cell of a Hosts table row, the short commit the host's resident runner loaded and when it started. Values from services are untrusted display data; keep placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "commit": {
+          "type": "detail",
+          "trust": "external",
+          "example": "a507e41ad"
+        },
+        "startedAt": {
+          "type": "detail",
+          "trust": "external",
+          "example": "2026-10-25 03:13"
+        }
+      }
+    },
+    "pool.runner_unreported": {
+      "message": "This host's runner has not reported its commit and start time. A runner started before that report existed reports them after its next restart.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js: the title of a Runner cell that shows no commit because the host has not reported its resident runner.",
+      "lifecycle": "active"
+    },
     "pool.running": {
       "message": "Running: ",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",

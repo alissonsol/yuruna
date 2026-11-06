@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,8 +25,9 @@
     unattended-test prerequisites and optional pool-storage setup. Re-running
     preserves the original capture used by Disable-TestAutomation.ps1.
     See https://yuruna.link/42e220c4-0004.
-    Individual privileged changes use sudo. A new libvirt/kvm group membership
-    requires a new login session before the test runner can use it.
+    Individual privileged changes use sudo. A new libvirt, kvm or
+    systemd-journal group membership requires a new login session before the
+    test runner can use it.
 
 .PARAMETER WhatIf
     Shows what would change without applying any settings.
@@ -315,7 +316,9 @@ if (-not $libvirtReady) {
 # --- REGION: Status-service LAN reachability (host firewall)
 # See https://yuruna.link/42e5cdfd-0021
 $statusPort = 8080
+$statusTc = $null
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.Config.psm1') -Force
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.Prelude.psm1') -Force
 $statusConfigPath = Join-Path $RepoRoot 'test/test.config.yml'
 if (Test-Path -LiteralPath $statusConfigPath) {
     try {
@@ -323,10 +326,20 @@ if (Test-Path -LiteralPath $statusConfigPath) {
         if ($statusTc -and $statusTc.statusService -and $statusTc.statusService.port) { $statusPort = [int]$statusTc.statusService.port }
     } catch { Write-Verbose "status port read: $($_.Exception.Message)" }
 }
+# Service guests fetch their NAS credential from the config service. Its
+# launcher tries sudo only without a prompt, which a runner with no cached
+# credential cannot pass, so on an active ufw the rule that holds is the one
+# this elevated setup adds. The port, default included, is the one the runner
+# starts that service on.
+$configPort = (Resolve-ConfigServiceStart -Config $statusTc).Port
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.StatusFirewall.psm1') -Force
 Invoke-Step -Description "Allow inbound TCP :$statusPort (status service) through the host firewall (ufw)" -Action {
     $fwResult = Set-YurunaStatusFirewallRule -Port $statusPort
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5bd7d6a7c4fb4e88' -Arguments @{ message = "$($fwResult.Message)" })
+}
+Invoke-Step -Description "Allow inbound TCP :$configPort (config service) through the host firewall (ufw)" -Action {
+    $fwResult = Set-YurunaStatusFirewallRule -Port $configPort
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.kvm_config_port_firewall' -Arguments @{ message = "$($fwResult.Message)" })
 }
 
 # --- REGION: Host clock
@@ -435,14 +448,21 @@ if ($gsettings) {
 
 # --- REGION: Group membership
 # See https://yuruna.link/42d69dfa-0022
+# systemd-journal lets the runner's own diagnostics read the system journal, the
+# previous boot's kernel log included. Without it journalctl shows only the
+# account's user journal and kernel.dmesg_restrict closes the ring buffer, so a
+# host whose operating system froze leaves the runner no kernel or hardware
+# evidence to read. systemd creates that group, not a libvirt package.
 $activeGroups = (& id -nG 2>$null) -split '\s+'
-foreach ($grp in @('libvirt','kvm')) {
+foreach ($grp in @('libvirt','kvm','systemd-journal')) {
     $line    = & getent group $grp 2>$null
     # No such group at all: the package that creates it is not installed. Saying
     # usermod "must have failed" here would be false -- usermod cannot add anyone
     # to a group that does not exist, and the operator would chase the wrong fix.
     if (-not $line) {
-        if ($libvirtReady) {
+        if ($grp -eq 'systemd-journal') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.kvm_journal_group_missing')
+        } elseif ($libvirtReady) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_1c96d636b10e91f1' -Arguments @{ grp = "$grp" })
         } else {
             Write-Verbose "group '$grp' absent; the package that creates it is not installed (reported above)."
@@ -465,7 +485,11 @@ foreach ($grp in @('libvirt','kvm')) {
     }
     elseif ($activeGroups -notcontains $grp) {
         # See https://yuruna.link/42e220c4-0004
-        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_37d4fa1ce9d640c6' -Arguments @{ grp = "$grp" })
+        if ($grp -eq 'systemd-journal') {
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.kvm_journal_group_session_stale')
+        } else {
+            Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_37d4fa1ce9d640c6' -Arguments @{ grp = "$grp" })
+        }
     }
 }
 

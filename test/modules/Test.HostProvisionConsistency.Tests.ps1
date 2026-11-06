@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 427dc7e5-42e7-4d34-bef6-83be459c7402
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -227,6 +227,8 @@ Set-Content -LiteralPath (Join-Path $vmDir 'disk.qcow2') -Value 'retained guest 
     $script:VmRootDir = $ScratchRoot
     # Every virsh call the driver makes goes through Invoke-Virsh, so the
     # stand-in replaces it and no call reaches the host's libvirt.
+    # Inventory also checks command availability before invoking that helper.
+    function script:virsh { throw 'A native virsh call escaped the recording helper.' }
     function script:Invoke-Virsh {
         param([string[]]$VirshArgs, [int]$TimeoutSeconds)
         $null = $TimeoutSeconds

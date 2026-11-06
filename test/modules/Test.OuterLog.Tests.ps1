@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4218a8b5-0788-4d72-b8ee-d63d1a86be71
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,6 @@ BeforeAll {
     $script:OuterLoopPath = Join-Path $here 'Test.RunnerOuterLoop.psm1'
     $script:Pwsh = (Get-Process -Id $PID).Path
     if (-not $script:Pwsh) { $script:Pwsh = 'pwsh' }
-    $script:HadRuntimeDir = Test-Path -LiteralPath Env:YURUNA_RUNTIME_DIR
     $script:SavedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
 
     function Reset-OuterLogWarning {
@@ -48,12 +47,11 @@ BeforeAll {
         }
     }
 
-    # Removed, not set to '' or $null: an empty variable is still inherited
-    # by every child process.
+    # An entry that was absent is removed, not set to '' or $null: an empty
+    # variable is still inherited by every child process.
     function Restore-RuntimeDir {
         param()
-        if ($script:HadRuntimeDir) { Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeDir }
-        else { Remove-Item -LiteralPath Env:YURUNA_RUNTIME_DIR -ErrorAction SilentlyContinue }
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeDir
     }
 }
 

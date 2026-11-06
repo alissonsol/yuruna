@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 424533be-1c51-4584-9728-27ea5064d2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -302,12 +302,12 @@ Describe 'service VM lifecycle scripts record their intent around every mutation
     }
 
     It 'Stop-PoolControlServiceVM.ps1 stops a verified host process, or none at all, and then clears the marker: <HostProcess>' -ForEach @(
-        @{ HostProcess = 'verified'; Order = 'enter,stop-process,remove-marker,remove-vm'; StoppedPid = 4242 }
-        @{ HostProcess = 'exited'; Order = 'enter,remove-marker,remove-vm'; StoppedPid = 0 }
-        @{ HostProcess = 'none'; Order = 'enter,remove-marker,remove-vm'; StoppedPid = 0 }
+        @{ HostProcess = 'verified'; Order = 'enter,stop-process,remove-marker,portmap:pool-control-service,remove-vm'; StoppedPid = 4242 }
+        @{ HostProcess = 'exited'; Order = 'enter,remove-marker,portmap:pool-control-service,remove-vm'; StoppedPid = 0 }
+        @{ HostProcess = 'none'; Order = 'enter,remove-marker,portmap:pool-control-service,remove-vm'; StoppedPid = 0 }
     ) {
         $result = Invoke-PoolControlStopFixture -HostProcess $HostProcess
-        Assert-Equal -Expected 0 -Actual $result.Errors
+        Assert-Equal -Expected 0 -Actual $result.Errors -Because ($result.ErrorMessages -join ' | ')
         Assert-StringEqual -Expected $Order -Actual ($result.Order -join ',')
         Assert-Equal -Expected $StoppedPid -Actual $result.StoppedPid
         Assert-StringEqual -Expected 'confirmed|absent' -Actual $result.ExitCall
@@ -579,6 +579,13 @@ function Invoke-PoolControlStopFixture {
         }
         function Get-YurunaHostId { 'host' }
         function Write-HostRegistrationRecord { $false }
+        function Remove-PortMap {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Isolated host-operation stub records owned forward cleanup without touching the host.')]
+            param([string]$Owner)
+            $fixture.Order.Add("portmap:$Owner")
+            $true
+        }
         function Get-VMState { 'absent' }
         function Remove-GuestVMQuietly {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -609,6 +616,7 @@ function Invoke-PoolControlStopFixture {
         $row = $out | Select-Object -Last 1
         [pscustomobject]@{
             Errors = $shell.Streams.Error.Count
+            ErrorMessages = [string[]]@($shell.Streams.Error | ForEach-Object { "$_" })
             Order = $row.Order; ExitCall = $row.ExitCall; ExitCode = $row.ExitCode; StoppedPid = $row.StoppedPid; Warnings = $row.Warnings
         }
     } finally {

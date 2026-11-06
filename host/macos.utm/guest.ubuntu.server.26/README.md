@@ -6,7 +6,8 @@
 Boots the Ubuntu **Server** 26.04 live ISO for autoinstall. The Server
 ISO ships `linux-generic` on the cdrom plus a network-configured
 `/etc/apt/sources.list.d/ubuntu.sources`, so curtin's `install_kernel`
-step always succeeds. First boot lands in a text-mode login.
+step always succeeds. The install ends by powering the VM off; the
+next start boots the installed system to a text-mode login.
 
 **Nested-virt requirements (Docker/KVM inside the VM)**: macOS 15+,
 Apple **M3+**, UTM v4.6+ with the Apple Virtualization backend. This
@@ -32,12 +33,16 @@ pwsh ./New-VM.ps1 -VMName myhost
 ```
 
 Double-click `HOSTNAME.utm` in `~/yuruna/guest.nosync/` to import and
-start. Autoinstall is fully unattended. Keep the `guest.caching-proxy-service`
-VM running for much faster rebuilds.
+start. Autoinstall is fully unattended. When the VM stops at the end of
+the install, start it again; see
+[Ubuntu installs end with a power-off and a cold start](../../../docs/host-macos.md#42885ada-0014).
+Keep the `guest.caching-proxy-service` VM running for much faster
+rebuilds.
 
 Default user is `yuuser26` (override with `-Username`; the same name is
 declared in
-[test/sequences/start.guest.ubuntu.server.26.yml](../../../test/sequences/start.guest.ubuntu.server.26.yml)).
+[test/sequences/start.guest.ubuntu.server.26.macos.utm.yml](../../../test/sequences/start.guest.ubuntu.server.26.macos.utm.yml),
+the start sequence this host runs).
 Initial password comes from the per-cycle vault of the authentication
 extension (`test/extension/authentication/`) and is **expired** on
 first login, so the test sequence's Current/New/Retype rotation runs
@@ -51,6 +56,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../../../README.md)

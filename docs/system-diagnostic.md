@@ -10,6 +10,15 @@ state, Kubernetes state, install-time evidence (Linux only), and a
 "problems detected" summary aggregating signals that typically
 indicate trouble.
 
+Besides incident triage, the runner runs it at the start of every
+cycle, orchestrated cycles included, and keeps the dump as
+`host.diagnostic.txt` (with its problem sidecar
+`host.diagnostic.txt.json`) at the root of the cycle folder; the perf
+log's `hostInfoHash` is computed from that file. A standalone
+`Debug-TestSequence` run takes no cycle-start dump; when its guest chain
+fails, it still takes the failure-time one, `host.diagnostics.txt` in the
+guest's folder.
+
 The script's help block (`.SYNOPSIS` / `.DESCRIPTION` / per-parameter
 help) lists what each section reports. This document covers the
 **why** -- the incident classes each section catches, and the patterns
@@ -236,6 +245,17 @@ eth0` loop on `host/windows.hyper-v/` -- the discriminating signal
 `/var/log/installer/subiquity-server-debug.log` and the previous
 boot's journal, neither of which section 11 collects.
 
+Beside systemd-networkd's journal, the section prints the current boot's
+NetworkManager `dhcp4` lines, which carry the leases of a bridge
+NetworkManager built:
+`journalctl -b 0 -u NetworkManager --grep dhcp4 -n 100 --no-pager`. The
+DHCP4 lines under NETWORK show only the lease held now, its length and its
+expiry; these show what became of each lease during the boot: granted,
+extended at a renewal, or replaced after it ran out. That is the record a
+host that takes a new address at every lease expiry needs, and the
+address-stability report's lease-expiry advice
+([network.md](network.md#4220a755-0026)) points to it.
+
 <a id="423ef7f5-000c"></a>
 
 ### 11c. LIBVIRT GUEST NETWORKS
@@ -377,6 +397,102 @@ Pod image refs against `localhost:5000` take the form
 non-localhost `registryLocation`. The orphan check matches on the
 `/<repo>:` substring so both shapes resolve.
 
+<a id="423ef7f5-0016"></a>
+
+## Crash evidence on a Linux host
+
+A KVM host whose operating system froze is diagnosed after it restarts, from
+what the test runner's account can read. That account usually has no
+passwordless sudo, so every privileged probe in this report runs unelevated
+there. These parts of the report keep the evidence a freeze leaves within that
+account's reach, and say plainly when it is out of reach.
+
+<a id="423ef7f5-0017"></a>
+
+### System journal access
+
+On Linux, RECENT SYSTEM EVENTS starts by asking `journalctl --system` for one
+entry. journalctl exits non-zero when it can open no system journal file, an
+answer that holds whatever groups a distribution grants access to. Without
+access, journalctl answers every query from the account's own user journal and
+reports no error: the journal sections come back short or empty, and
+`journalctl --list-boots` shows a single boot. The report then names the
+account, journalctl's reason and the fix, membership in `systemd-journal`,
+which takes effect only in a new login session. When the group database
+already lists the membership, the report says this process started before it
+instead.
+
+[`host/ubuntu.kvm/Enable-TestAutomation.ps1`](../host/ubuntu.kvm/Enable-TestAutomation.ps1)
+adds the runner account to `systemd-journal`.
+[`Disable-TestAutomation.ps1`](../host/ubuntu.kvm/Disable-TestAutomation.ps1)
+removes that membership only when the pre-automation capture shows the account
+was not a member before; a capture with no record of the group leaves it as it
+is.
+
+<a id="423ef7f5-0018"></a>
+
+### Kernel log when dmesg is restricted
+
+`kernel.dmesg_restrict` closes the kernel ring buffer to an unprivileged
+account. The system journal keeps the same kernel records and opens them to its
+readers, so when dmesg is refused the ring-buffer tail and the OOM and
+hardware-error scans read the current boot's kernel journal instead:
+`journalctl -k -b 0`, its newest 5000 entries, with `-q` so that journalctl's own
+notices are never scanned as kernel records. The report says which source
+answered, and a problem found in the journal keeps the class it has when dmesg
+answers (`LINUX.oom-events`, `LINUX.hardware-errors`).
+
+Whichever source answers, the hardware-error scan counts these error reports: an
+`I/O error`, a `Hardware Error` (the `[Hardware Error]` prefix of a logged
+machine check or of an APEI or boot-error record, or a SCSI sense key), and an
+EDAC memory controller's count of corrected (`CE`) or uncorrected (`UE`)
+errors. The banners every boot prints, such as `EDAC MC: Ver: 3.0.0` and
+`MCE: In-kernel MCE decoding enabled.`, and an `edac` inside a device name or
+UUID raise nothing.
+
+<a id="423ef7f5-0019"></a>
+
+### Machine identity and microcode
+
+On Linux the BIOS section prints the DMI fields the kernel publishes
+world-readable under `/sys/class/dmi/id` (system, board and BIOS vendor, name
+and version, BIOS date and release) in a fixed order, rendered as the Windows
+BIOS rows are, followed by the CPU microcode revision from `/proc/cpuinfo`, with
+every distinct revision listed when the CPUs disagree. These tie a freeze on one
+host to the same board or firmware build on another. Serial numbers and UUIDs
+identify a single machine and are never read.
+
+<a id="423ef7f5-001a"></a>
+
+### Lockup and crash-evidence settings
+
+HOST DETAIL lists the settings that decide what a frozen or hung kernel leaves
+behind: `kernel.watchdog`, `kernel.nmi_watchdog`, `kernel.softlockup_panic`,
+`kernel.hardlockup_panic`, `kernel.panic`, `kernel.panic_on_oops`,
+`kernel.hung_task_timeout_secs`, `kernel.hung_task_panic` and `kernel.printk`,
+the pstore backend, each hardware watchdog device with its timeout, systemd's
+`RuntimeWatchdogUSec`, journald's `Storage=` (the last valid assignment in the
+files `systemd-analyze cat-config systemd/journald.conf` prints), and whether
+`/var/log/journal` exists. The journal of the boot that froze survives the
+restart only when `Storage=` is `persistent`, or `auto` (the default) with that
+directory present; `volatile` and `none` keep nothing on disk even where the
+directory exists. Every value is world-readable, so the view does not depend on
+sudo, and a setting this kernel does not have reads `(not reported)`, as does
+`Storage=` when systemd-analyze does not answer. `RuntimeWatchdogUSec` is asked
+with a 5-second cap, because PID 1 answers it and may not on a host in trouble.
+
+<a id="423ef7f5-001b"></a>
+
+### Deep diagnostics mode
+
+A host switched into deep diagnostics mode records what was applied in
+`/var/lib/yuruna/deep-diagnostics/state.json`. HOST DETAIL prints when the mode
+was enabled, then the schema, who enabled it, the host type, the netconsole
+target where a freeze's last kernel lines went, and each component's status and
+reason, every field named by its path in the document and shown as its JSON
+value. Fields the report does not know are left out. A file that is not a
+regular file of at most 64 KiB, is not JSON, or does not hold a JSON object is
+reported, and nothing in it is shown.
 
 <a id="423ef7f5-0014"></a>
 
@@ -475,6 +591,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

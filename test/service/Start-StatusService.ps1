@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -560,14 +560,17 @@ if (-not $RefreshSafe -and (Test-Path $StatusFile)) {
             $repoUrl = (Resolve-GitRemoteLink -Url ([string]$repoUrl)).Url
         }
         if ([string]$statusDoc.repoUrl -cne [string]$repoUrl) {
-            if ($statusDoc.PSObject.Properties['repoUrl']) {
-                $statusDoc.repoUrl = $repoUrl
-            } else {
-                $statusDoc | Add-Member -NotePropertyName 'repoUrl' -NotePropertyValue $repoUrl
-            }
             # See https://yuruna.link/42e5cdfd-0040
-            $statusJson = $statusDoc | ConvertTo-Json -Depth 10
-            [System.IO.File]::WriteAllText($StatusFile, $statusJson, [System.Text.UTF8Encoding]::new($false))
+            # A whole-document read-modify-write under the shared status-file
+            # lock, through the atomic writer: the runner and the listener's
+            # pause routes may be writing the same document while the service
+            # starts, and the copy read above is stale by the time it is written.
+            if (-not (Get-Command Update-StatusDocumentField -ErrorAction SilentlyContinue)) {
+                Import-Module (Join-Path $ModulesDir 'Test.Status.psm1') -Global -DisableNameChecking -ErrorAction Stop
+            }
+            if (-not (Update-StatusDocumentField -StatusPath $StatusFile -Field @{ repoUrl = $repoUrl } -Confirm:$false)) {
+                throw 'status.json was not rewritten'
+            }
             Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d930446c8044b6fe' -Arguments @{ repoUrl = "$repoUrl" })
         }
     } catch {

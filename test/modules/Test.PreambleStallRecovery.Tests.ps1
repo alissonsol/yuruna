@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 425d1ef1-c9ad-47cc-8b78-45a0c1156135
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,6 +77,17 @@ Describe 'Invoke-BoundedNativeCommand' {
         $r.Started  | Should -Be $false
         $r.TimedOut | Should -Be $false
         $r.ExitCode | Should -Be -1
+    }
+
+    It 'keeps the code of a launch the system refused' {
+        # A file that is there but cannot be run: the launch itself throws.
+        $notRunnable = Join-Path $TestDrive 'not-a-program.txt'
+        [IO.File]::WriteAllText($notRunnable, 'plain text')
+        $r = Invoke-BoundedNativeCommand -FilePath $notRunnable -TimeoutSeconds 5
+        $r.Started | Should -Be $false
+        $r.StartWin32Error | Should -BeOfType [int]
+        $r.StartWin32Error | Should -Not -Be 0 -Because 'a caller classifies a refused launch by its system error code'
+        $r.StartError | Should -Not -BeNullOrEmpty
     }
 
     It 'yields no lines for a timed-out or unlaunched command' {

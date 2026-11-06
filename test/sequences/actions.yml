@@ -118,7 +118,10 @@ actions:
     changes the processor count while the VM is off; the Hyper-V helper is a
     no-op on AMD64. Parameters: timeoutSeconds (integer, default 120 -- maximum
     time to wait for the VM to become stopped), arm64HyperVProcessorCount
-    (positive integer or substituted string, optional).
+    (positive integer or substituted string, optional), installPowerOff
+    (boolean, default false -- the wait is for an install that powers the VM
+    off on its own; a VM that never stops is then a provisioning_failure and
+    the guest is not marked silent).
 
   inputText: >
     Type a text string. Parameters: text (string), sensitive
@@ -285,6 +288,10 @@ actions:
     wait began -- for a prompt whose words also occur in the text above it),
     noSegmentMatch (boolean, default false; disable unrestricted segment
     matching while preserving OCR character tolerance; enable for login waits),
+    expectBlankConsole (boolean, default false; the wait starts while the
+    guest boots, so blank captures are its expected run-up and the capture
+    feed is not repaired for them -- for a login wait that follows an install
+    reboot or a cold restart),
     failurePatterns (string
     or string-array of anti-patterns; matching any short-circuits the
     wait and fails the step with a label that names the matched pattern

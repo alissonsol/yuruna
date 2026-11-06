@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42f65e66-8ecf-5728-a2d5-83dd16a2a464
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1290,6 +1290,21 @@
     )
     'pool.result' = 'תוצאה'
     'pool.row_number' = 'מספר שורה'
+    'pool.runner' = 'מריץ'
+    'pool.runner_cell' = @(
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' מאז '
+        @{
+            'arg' = 'startedAt'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.runner_unreported' = 'המריץ של המארח הזה לא דיווח על הקומיט ועל שעת ההפעלה שלו. מריץ שהופעל לפני שדיווח זה היה קיים ידווח עליהם לאחר ההפעלה מחדש הבאה שלו.'
     'pool.running' = 'בהרצה: '
     'pool.running_checks' = 'הבדיקות מתבצעות...'
     'pool.save_failed_value1' = @(

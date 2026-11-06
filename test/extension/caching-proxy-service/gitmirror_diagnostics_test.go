@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -121,6 +122,17 @@ func TestMirrorDiagnosticsPreserveWireOutcomes(t *testing.T) {
 		if outcome != tc.outcome || detail != tc.detail {
 			t.Errorf("diagnostics changed wire outcome: %s/%s", outcome, detail)
 		}
+	}
+}
+
+func TestMirrorDiagnosticsNameACrossDeviceRename(t *testing.T) {
+	err := mirrorWithPhase("publish", &os.LinkError{Op: "rename", Old: "stage", New: "published", Err: syscall.EXDEV})
+	var failure *mirrorFailure
+	if !errors.As(err, &failure) || failure.diagnostic.Phase != "publish" || failure.diagnostic.Failure != "filesystem-cross-device" {
+		t.Fatalf("cross-device rename was not named: %v", err)
+	}
+	if outcome, detail := mirrorOutcome(err); outcome != "local-error" || detail != "git-local-error" {
+		t.Fatalf("diagnostics changed wire outcome: %s/%s", outcome, detail)
 	}
 }
 

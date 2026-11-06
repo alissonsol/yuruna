@@ -52,8 +52,12 @@ script runs every phase up to the VM build. The phases from the guest address
 on differ per service and live in `Start-ExtensionService.<key>.ps1` (`stash`,
 `pool-control`, `download-agent`), which the shared script runs in its own
 scope inside the start operation's `try` block, so an `exit` there ends the
-start through the `finally` that closes the operation. A part refuses to run
-on its own. `Start-PoolControlServiceVM.ps1 -HostSideProof` keeps its
+start through the `finally` that closes the operation. A step that parts run
+alike is a script block in the shared script that a part dot-sources where it
+runs it: pool-control and download-agent wait for the guest address, recover
+it and report the deployed source that way, all three decide their outcome
+that way, and stash keeps its own address and source handling. A part refuses
+to run on its own. `Start-PoolControlServiceVM.ps1 -HostSideProof` keeps its
 host-side launch in its own script, and the caching proxy keeps its own start.
 See the shared [lifecycle rationale](https://yuruna.link/42e220c4-0008).
 
@@ -103,6 +107,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../../README.md)

@@ -854,20 +854,28 @@ count of an ARM64 Hyper-V guest while it is off, then start it through the host
 driver. On other hosts, and on AMD64 Hyper-V, the processor option changes
 nothing. This is the provisioning-to-workload transition used by Ubuntu 26:
 one vCPU for the serial installer/update path, two for kubeadm afterward.
+The macOS UTM Ubuntu start sequences also use it, with `installPowerOff`, to
+wait for the install's own power-off and cold-start the installed system (see
+[Ubuntu installs end with a power-off and a cold start](host-macos.md#42885ada-0014)).
 
 | Parameter | Type | Notes |
 |---|---|---|
 | `timeoutSeconds` | integer | Time to wait for the VM to become stopped; default `120`. |
+| `installPowerOff` | boolean | Optional; default `false`. The wait is for an install that powers the VM off on its own, not for a requested shutdown: a VM that never reports stopped then fails as `provisioning_failure`, because the install did not finish, and the guest is not recorded as silent. |
 | `arm64HyperVProcessorCount` | integer or string | Optional positive target; supports variable substitution. |
 | `frameIntervalSeconds` | integer | While waiting for the stopped state, capture a console frame with its OCR sidecar this often; default `30`, `0` disables. |
 
-When the VM never reports stopped, the step fails as `wait_timeout` rather than
-`provisioning_failure`: nothing was started. The record's `causeDetail` carries
-the state the host observed and the seconds waited (`vmState`,
-`vmStateWaitedSeconds`, `vmStateRequestedAtUtc`), the console frame and OCR
-text at that moment, and the host sampler's livelock verdict, and the guest is
-recorded as silent (`firstGuestSilenceUtc`). Precede it with `stopVm` so the
-shutdown itself is requested and observed through the host.
+When the VM never reports stopped, the step fails as `vm_not_stopped` rather
+than `provisioning_failure`: nothing was started. A VM the host reports
+absent fails as `provisioning_failure`, with no stopped-wait evidence. The
+record's `causeDetail` carries the state the host observed and the seconds
+waited (`vmState`, `vmStateWaitedSeconds`, `vmStateRequestedAtUtc`), the
+console frame and OCR text at that moment, and the host sampler's livelock
+verdict, and the guest is recorded as silent (`firstGuestSilenceUtc`). A step
+with `installPowerOff` instead keeps the verb's `provisioning_failure`, with
+the same evidence and no silence marker, because no shutdown was requested.
+Otherwise, precede it with `stopVm` so the shutdown itself is requested and
+observed through the host.
 
 <a id="428e4df6-003b"></a>
 
@@ -1089,6 +1097,7 @@ crash fails the cycle in ~20s instead of waiting the full
 | `freshMatch` | boolean | |
 | `freshMatchTailLines` | number | Default `12`. |
 | `sinceStepStart` | boolean | Match only text the guest printed after this wait began. |
+| `expectBlankConsole` | boolean | Default `false`. The wait starts while the guest boots, so blank captures are its expected run-up: the no-text capture repair stays off and a timeout still records `blankScreenSeconds`. Set on the login waits that follow the install reboot and a cold restart. |
 | `noSegmentMatch` | boolean | Default `false`; `passwdPrompt` defaults to `true`. Disable matching words scattered across the screen; retain bounded, per-line OCR tolerance. |
 | `failurePatterns` | string or string[] | Anti-patterns; matching any fails the step with a label naming the matched pattern. |
 
@@ -1138,7 +1147,7 @@ patterns before pressing the key.
 
 | Parameter | Type | Notes |
 |---|---|---|
-| `pattern`, `timeoutSeconds`, `pollSeconds`, `freshMatch`, `freshMatchTailLines`, `sinceStepStart`, `noSegmentMatch`, `failurePatterns` | same as `waitForText` | |
+| `pattern`, `timeoutSeconds`, `pollSeconds`, `freshMatch`, `freshMatchTailLines`, `sinceStepStart`, `noSegmentMatch`, `expectBlankConsole`, `failurePatterns` | same as `waitForText` | |
 | `nudgeKey` | string | Required key name; typically `Enter` for agetty. |
 | `nudgeIntervalSeconds` | integer | Required; must be at least `1`. The first periodic nudge occurs after this interval. |
 
@@ -1244,11 +1253,12 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | `Name`               | `[string]` (mandatory)                                                                                                                                                                                                                                                                         | Verb as it appears in YAML `action:` fields. Case-sensitive on read, OrdinalIgnoreCase on registry lookup.                                                  |
 | `FailureLabel`       | `[scriptblock]` `param($Context)` -> `[string]`                                                                                                                                                                                                                                                 | Builds the human-readable failure label. Defaults to the verb name when omitted.                                                                            |
 | `HostIORequirement`  | `[string[]]` from `Send-Key`, `Send-Text`, `Send-Click`                                                                                                                                                                                                                                        | Consumed by `Test-CyclePlanCapability` to refuse cycles on hosts that can't drive the needed I/O.                                                           |
+| `HostCommandRequirement` | `[string[]]` of host command names, such as `ssh`                                                                                                                                                                                                                                              | Host commands the Handler runs, looked up with `Get-Command -CommandType Application` the way `Invoke-BoundedNativeCommand` finds what it launches. `Test-CyclePlanCapability` refuses a plan whose steps need one this host lacks, as `plan_invalid`, before any VM is built. `sshWaitReady`, `sshExec` and `sshFetchAndExecute` declare `ssh` and `ssh-keygen`. |
 | `OcrRequired`        | `[bool]`                                                                                                                                                                                                                                                                                       | `$true` when the verb needs at least one enabled OCR provider.                                                                                              |
 | `Description`        | `[string]`                                                                                                                                                                                                                                                                                     | Free-form note carried on the entry. Nothing in the engine reads it; it is there for `Get-SequenceAction` consumers (matrix dumps, docs generators).         |
 | `Aliases`            | `[string[]]`                                                                                                                                                                                                                                                                                   | Alternate YAML names that resolve to the same entry (legacy renames).                                                                                       |
 | `Handler`            | `[scriptblock]` `param([hashtable]$c)` -> `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches.                                                                                                                |
-| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `console_flooded`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `lab_dependency_down`, `input_lost`, `hypervisor_unresponsive`, `source_integrity`, `vm_not_stopped`, `guest_run_lost`, `unknown` | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
+| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `console_flooded`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `lab_dependency_down`, `input_lost`, `hypervisor_unresponsive`, `source_integrity`, `vm_not_stopped`, `guest_run_lost`, `guest_kernel_stalled`, `unknown` | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
 | `Severity`           | `ValidateSet`: `hard`, `soft`, `unknown`                                                                                                                                                                                                                                                       | `soft` = retry is plausible; `hard` = retry won't help (e.g. snapshot restore failed); `unknown` = no claim either way.                                     |
 | `SuggestedRecoveries`| `[string[]]` -- free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `retry_with_backoff`, `restart_from_snapshot`, `operator_intervention_required`. A token outside the remediation dispatcher's vocabulary warns at registration. |
 | `UsesWaitSignals`    | `[bool]`                                                                                                                                                                                                                                                                                       | **Changes engine behavior.** `$true` lets the engine append `-- matched failurePattern "..."` to the step's failure label when the verb short-circuited on an anti-pattern. Set it on any verb that writes that signal: without it the step is labeled as a plain "pattern not found within Ns" timeout, so the ERROR banner and `last_failure.json` both hide the real cause -- a guest process that crashed and printed why. |
@@ -1329,7 +1339,8 @@ stylistic -- see [Naming collisions to watch](#naming-collisions-to-watch).
 
 1. Pick a Name (camelCase, present-tense imperative) and decide which
    `HostIORequirement` items it needs (`@()` if pure-PowerShell with
-   no host I/O).
+   no host I/O) and which host commands its Handler runs
+   (`HostCommandRequirement`, such as `ssh`).
 2. Add a `Register-SequenceAction ...` block to
    [`Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1).
 3. Fill in the metadata: `FailureClass` (pick from the ValidateSet --
@@ -1568,6 +1579,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

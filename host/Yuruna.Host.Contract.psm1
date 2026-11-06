@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42ab6606-a979-4194-9acd-a8d1c653dace
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,7 +22,8 @@
 .DESCRIPTION
     Each driver exports this common surface alongside its platform helpers.
     Assert-YurunaHostContractCoverage checks the actual module exports at load
-    time. See https://yuruna.link/42e220c4-0004 for scope and naming rules.
+    time and fails the load when one is missing. See
+    https://yuruna.link/42e220c4-0004 for scope and naming rules.
 #>
 
 # --- REGION: Host driver contract
@@ -90,10 +91,12 @@ function Assert-YurunaHostContractCoverage {
         only validate the contract against itself; the module's export
         table is what callers actually see, so a verb that is declared
         here but never reached Export-ModuleMember counts as missing.
-        Missing names are reported in a single Write-Warning naming
-        every gap so the operator sees the full delta in one line.
-        Returns $true when coverage is complete, $false otherwise --
-        callers can fail loudly or continue based on policy.
+        A gap throws one terminating error naming every missing verb, so
+        the operator sees the full delta in one line and the driver fails
+        to import instead of loading with part of the contract: a
+        host-neutral caller would otherwise stop at command-not-found
+        mid-cycle, or on Windows reach the Hyper-V cmdlet of the same name.
+        Returns $true when coverage is complete.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -119,8 +122,7 @@ function Assert-YurunaHostContractCoverage {
         if (-not $exported.Contains($name)) { [void]$missing.Add($name) }
     }
     if ($missing.Count -gt 0) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_a9f9eb3eae0014c6' -Arguments @{ hostType = "$HostType"; count = "$($missing.Count)"; join = "$($missing -join ', ')" })
-        return $false
+        throw (Format-YurunaOperatorMessage -Key 'host.operator_a9f9eb3eae0014c6' -Arguments @{ hostType = "$HostType"; count = "$($missing.Count)"; join = "$($missing -join ', ')" })
     }
     Write-Verbose "Yuruna.Host driver '$HostType' covers all $($script:YurunaHostContract.Count) contract verbs."
     return $true

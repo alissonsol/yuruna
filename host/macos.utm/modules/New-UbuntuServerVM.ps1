@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 420eae9d-b5a9-4ca6-af97-df678c83b820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -401,8 +401,10 @@ To intentionally skip the cache:
     # Per-VM VNC display number (Get-VncDisplayForVm hashes the name into
     # 10..89). Get-VncPortForVm in the harness derives the same value from
     # $VMName, so the producer (this plist) and the consumers (capture,
-    # keystrokes) agree without a sidecar file.
+    # keystrokes) agree without a sidecar file. The serial console and QEMU
+    # monitor ports follow the display the same way.
     $VncDisplay = Get-VncDisplayForVm -VMName $VMName
+    $ConsolePort = Get-UtmConsolePortForDisplay -Display $VncDisplay
 
     # --- REGION: https://yuruna.link/42fa6f45-0015
     $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
@@ -441,6 +443,8 @@ To intentionally skip the cache:
         '__SEED_IDENTIFIER__' = $SeedId
         '__SEED_IMAGE_NAME__' = 'seed.iso'
         '__VNC_DISPLAY__' = "$VncDisplay"
+        '__SERIAL_PORT__' = "$($ConsolePort.Serial)"
+        '__MONITOR_PORT__' = "$($ConsolePort.Monitor)"
         '__CPU_COUNT__' = "$vmCores"
         '__MEMORY_SIZE__' = "$vmMemoryMb"
     }
@@ -454,13 +458,14 @@ To intentionally skip the cache:
 Write-Output ""
 Write-Verbose "VM bundle created: $UtmDir"
 Write-Verbose "Backend: QEMU (HVF) with -vnc 127.0.0.1:$VncDisplay (port $(5900 + $VncDisplay))"
+Write-Verbose "Serial console on 127.0.0.1:$($ConsolePort.Serial), QEMU monitor on 127.0.0.1:$($ConsolePort.Monitor) (one client at a time)."
 Write-Verbose "Drive without focus: the harness picks up VNC automatically (Get-VncScreenshot,"
 Write-Verbose "Send-TextVNC, Send-KeyVNC). UTM no longer needs to be raised to inject keystrokes."
 Write-Verbose "Double-click '$VMName.utm' in ~/yuruna/guest.nosync/ to import it into UTM."
 Write-Verbose ""
 Write-Verbose "Boot sequence:"
 Write-Verbose "  1. Ubuntu Server autoinstalls via subiquity (~5-10 min)."
-Write-Verbose "  2. First boot lands at the text-mode login prompt."
+Write-Verbose "  2. The install powers the VM off; the next start lands at the text-mode login prompt."
 Write-Verbose ""
 Write-Verbose "Default credentials - username: $Username, password: <vault-managed> (must be changed on first login). Vault: test/status/extension/authentication/vault.yml"
 

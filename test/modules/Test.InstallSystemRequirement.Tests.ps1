@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42aa791a-a124-4a3c-98f2-d6d34623c3d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,6 +63,10 @@ Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameCh
 $repoRoot  = Get-YurunaTestRepoRoot -SuiteDirectory $here
 $installer = Join-Path $repoRoot 'install/windows.hyper-v.ps1'
 if (-not (Test-Path -LiteralPath $installer)) { throw "Installer not found: $installer" }
+
+# The stubs below describe a machine the host is not through the environment
+# block the preflight reads; the host's own values come back when the suite ends.
+$script:SavedEnvironment = Save-YurunaTestEnvironment -Name 'PROCESSOR_ARCHITEW6432', 'PROCESSOR_ARCHITECTURE', 'SystemDrive'
 
 # The installer is a top-to-bottom script that elevates, installs packages and
 # rewrites the checkout -- it cannot be dot-sourced. Lift the functions under
@@ -213,6 +217,10 @@ function Invoke-Preflight {
     Test-SystemRequirement
     return ($script:Said -join "`n")
 }
+}
+
+AfterAll {
+    Restore-YurunaTestEnvironment -Saved $script:SavedEnvironment
 }
 
 Describe 'installer preflight -- host architecture detection' {

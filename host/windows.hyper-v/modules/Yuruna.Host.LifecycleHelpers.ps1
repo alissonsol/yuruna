@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 420a31b4-d92e-47d9-a33f-d600f3b83a22
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,9 +42,15 @@ function Resolve-HyperVVM {
     Presence 'absent' is what callers treat as permission to build, reuse a name
     or delete files, which is why every doubtful case answers 'unknown'.
 
+    Both reads run under the lifecycle cap: a management service that takes a
+    read and never answers is 'unknown' with Cause 'unanswered', not a wait
+    that only the step watchdog can end. A lookup that did not answer is not
+    retried through the inventory, which would wait the same cap again on the
+    same silence.
+
     .OUTPUTS
     [pscustomobject] @{ Presence = present|absent|unknown; VM; Cause = ok|
-    missing-client|ambiguous|lookup-failed|inventory-failed }
+    missing-client|ambiguous|lookup-failed|inventory-failed|unanswered }
     #>
         [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -55,24 +61,34 @@ function Resolve-HyperVVM {
     # See https://yuruna.link/42e220c4-0004
     $lookupByName = $VMName -notmatch '[\[\]*?`]'
     if ($lookupByName) {
+        $lookup = Invoke-HyperVBoundedCall -ArgumentList @($VMName) -ScriptBlock {
+            param($Name)
+            Hyper-V\Get-VM -Name $Name -ErrorAction Stop
+        }
+        if ($lookup.TimedOut) {
+            Write-Verbose "Resolve-HyperVVM: lookup of '$VMName' did not answer within the cap."
+            return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'unanswered' }
+        }
         $candidates = @()
-        try {
-            $candidates = @(Hyper-V\Get-VM -Name $VMName -ErrorAction Stop)
-        } catch {
-            Write-Verbose "Resolve-HyperVVM: lookup of '$VMName' failed; deciding from the inventory: $($_.Exception.Message)"
-            $candidates = @()
+        if ($lookup.Error) {
+            Write-Verbose "Resolve-HyperVVM: lookup of '$VMName' failed; deciding from the inventory: $($lookup.Error.Exception.Message)"
+        } else {
+            $candidates = @($lookup.Output)
         }
         $exact = @($candidates | Where-Object { $null -ne $_ -and [string]$_.Name -eq $VMName })
         if ($exact.Count -eq 1) { return [pscustomobject]@{ Presence = 'present'; VM = $exact[0]; Cause = 'ok' } }
         if ($exact.Count -gt 1) { return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'ambiguous' } }
     }
-    $listed = @()
-    try {
-        $listed = @(Hyper-V\Get-VM -ErrorAction Stop | Where-Object { $null -ne $_ -and [string]$_.Name -eq $VMName })
-    } catch {
-        Write-Verbose "Resolve-HyperVVM: inventory failed: $($_.Exception.Message)"
+    $inventory = Invoke-HyperVBoundedCall -ScriptBlock { Hyper-V\Get-VM -ErrorAction Stop }
+    if ($inventory.TimedOut) {
+        Write-Verbose "Resolve-HyperVVM: inventory did not answer within the cap."
+        return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'unanswered' }
+    }
+    if ($inventory.Error) {
+        Write-Verbose "Resolve-HyperVVM: inventory failed: $($inventory.Error.Exception.Message)"
         return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'inventory-failed' }
     }
+    $listed = @($inventory.Output | Where-Object { $null -ne $_ -and [string]$_.Name -eq $VMName })
     if ($listed.Count -gt 1) { return [pscustomobject]@{ Presence = 'unknown'; VM = $null; Cause = 'ambiguous' } }
     if ($listed.Count -eq 1) {
         if (-not $lookupByName) { return [pscustomobject]@{ Presence = 'present'; VM = $listed[0]; Cause = 'ok' } }
@@ -114,7 +130,8 @@ Stop-VM -TurnOff can hang indefinitely on a stuck VM (any transient
 state where vmms can't complete the transition). Each running VM is
 hosted by a `vmwp.exe` worker process whose command line contains the
 VM's Id GUID; killing that process deallocates the VM and lets
-Remove-VM proceed.
+Remove-VM proceed. The worker lookup runs in a capped child, and a lookup
+that does not answer leaves the TurnOff retry.
 
 Presence comes from Resolve-HyperVVM: a VM positively absent is already
 stopped, and one whose presence cannot be established is never reported
@@ -143,25 +160,22 @@ function Stop-HyperVVMForce {
         return $false
     }
 
-    # First attempt: graceful-ish TurnOff in a background job so a hung
-    # vmms can't block us.
-    $stopJob = Start-Job -ScriptBlock {
-        Hyper-V\Stop-VM -Name $using:VMName -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    }
-
+    # First attempt: graceful-ish TurnOff under the stop's own deadline, so
+    # a hung vmms can't block us. The state is read at least once after it,
+    # which catches a TurnOff that took effect just as the cap ended it.
     $deadline = (Get-Date).AddSeconds($StopTimeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
+    # The call takes a cap of 1 to 3600 seconds; a deadline of 0 still tries
+    # the TurnOff once before it escalates.
+    $null = Invoke-HyperVBoundedCall -TimeoutSeconds ([Math]::Clamp($StopTimeoutSeconds, 1, 3600)) -ArgumentList @($VMName) -ScriptBlock {
+        param($Name)
+        Hyper-V\Stop-VM -Name $Name -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    }
+    do {
         $poll = Resolve-HyperVVM -VMName $VMName
-        if ($poll.Presence -eq 'absent' -or ($poll.Presence -eq 'present' -and $poll.VM.State -eq 'Off')) {
-            Stop-Job   -Job $stopJob -ErrorAction SilentlyContinue
-            Remove-Job -Job $stopJob -Force -ErrorAction SilentlyContinue
-            return $true
-        }
+        if ($poll.Presence -eq 'absent' -or ($poll.Presence -eq 'present' -and $poll.VM.State -eq 'Off')) { return $true }
         if ($poll.Presence -eq 'present') { $vm = $poll.VM }
         Start-Sleep -Milliseconds 500
-    }
-    Stop-Job   -Job $stopJob -ErrorAction SilentlyContinue
-    Remove-Job -Job $stopJob -Force -ErrorAction SilentlyContinue
+    } while ((Get-Date) -lt $deadline)
 
     # Escalate: kill the vmwp.exe worker process hosting this VM.
     $vmId = $vm.Id.Guid
@@ -171,26 +185,42 @@ function Stop-HyperVVMForce {
     # and a CommandLine-only match silently skips the worker, defeating the force-stop. Match on
     # the command line when it is readable, and otherwise on the owning account, whose user name
     # is the VM GUID.
-    $workers = @(Get-CimInstance -ClassName Win32_Process -Filter "Name='vmwp.exe'" -ErrorAction SilentlyContinue |
-        Where-Object {
-            ($_.CommandLine -and ($_.CommandLine -match [regex]::Escape($vmId))) -or
-            (($_ | Invoke-CimMethod -MethodName GetOwner -ErrorAction SilentlyContinue).User -eq $vmId)
-        })
+    # The lookup asks WMI, which is likely what is failing when TurnOff does not
+    # take, so it runs in a capped child and only the worker ids cross back. One
+    # that does not answer, or fails, leaves the TurnOff retry below.
+    $lookupSeconds = 30
+    $lookup = Invoke-HyperVBoundedCall -TimeoutSeconds $lookupSeconds -ArgumentList @($vmId) -ScriptBlock {
+        param($Id)
+        # An empty id would match every worker's command line.
+        if (-not $Id) { return }
+        Get-CimInstance -ClassName Win32_Process -Filter "Name='vmwp.exe'" -ErrorAction SilentlyContinue |
+            Where-Object {
+                ($_.CommandLine -and ($_.CommandLine -match [regex]::Escape($Id))) -or
+                (($_ | Invoke-CimMethod -MethodName GetOwner -ErrorAction SilentlyContinue).User -eq $Id)
+            } | ForEach-Object { [int]$_.ProcessId }
+    }
+    $workers = @(if (-not $lookup.TimedOut -and -not $lookup.Error) { @($lookup.Output) | ForEach-Object { [int]$_ } })
     if (-not $workers) {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_631642be837a8711' -Arguments @{ vmId = "$vmId" })
-        $retryJob = Start-Job -ScriptBlock {
-            Hyper-V\Stop-VM -Name $using:VMName -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        # A lookup that did not answer, or failed, learned nothing about the
+        # worker, so it is not reported as one that found none.
+        if ($lookup.TimedOut) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_worker_lookup_unanswered' -Arguments @{ vmId = "$vmId"; seconds = "$lookupSeconds" })
+        } elseif ($lookup.Error) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_worker_lookup_failed' -Arguments @{ vmId = "$vmId"; message = "$($lookup.Error.Exception.Message)" })
+        } else {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_631642be837a8711' -Arguments @{ vmId = "$vmId" })
         }
-        Wait-Job   -Job $retryJob -Timeout 10 | Out-Null
-        Stop-Job   -Job $retryJob -ErrorAction SilentlyContinue
-        Remove-Job -Job $retryJob -Force -ErrorAction SilentlyContinue
+        $null = Invoke-HyperVBoundedCall -TimeoutSeconds 10 -ArgumentList @($VMName) -ScriptBlock {
+            param($Name)
+            Hyper-V\Stop-VM -Name $Name -Force -TurnOff -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        }
     } else {
         foreach ($w in $workers) {
             try {
-                Stop-Process -Id $w.ProcessId -Force -ErrorAction Stop
-                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_60cb175cc471b1fe' -Arguments @{ processId = "$($w.ProcessId)"; vMName = "$VMName" })
+                Stop-Process -Id $w -Force -ErrorAction Stop
+                Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_60cb175cc471b1fe' -Arguments @{ processId = "$w"; vMName = "$VMName" })
             } catch {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c00f98d8832e6542' -Arguments @{ processId = "$($w.ProcessId)"; value = "$_" })
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_c00f98d8832e6542' -Arguments @{ processId = "$w"; value = "$_" })
             }
         }
     }
@@ -283,11 +313,17 @@ function Repair-HyperVVMStorageLocation {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
-    $vhdRoot = (Hyper-V\Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
+    # Every read and the NIC re-pin run under the lifecycle cap, as the storage
+    # move does; a call that does not answer throws like one that was refused.
+    $vhdRoot = (Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMHost' -VMName $VMName -ScriptBlock { Hyper-V\Get-VMHost -ErrorAction Stop } | Select-Object -First 1).VirtualHardDiskPath
     if (-not $vhdRoot) { return $true }
     $prefix = ([string]$vhdRoot).TrimEnd('\', '/') + '\'
     $foreign = $null
-    foreach ($path in @(Hyper-V\Get-VMHardDiskDrive -VMName $VMName -ErrorAction Stop | ForEach-Object { [string]$_.Path })) {
+    $disks = @(Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMHardDiskDrive' -VMName $VMName -ArgumentList @($VMName) -ScriptBlock {
+        param($Name)
+        Hyper-V\Get-VMHardDiskDrive -VMName $Name -ErrorAction Stop
+    })
+    foreach ($path in @($disks | ForEach-Object { [string]$_.Path })) {
         if (-not $path.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
         $leaf = $path.Substring($prefix.Length).Split([char[]]@('\', '/'))[0]
         if ($leaf -and -not [string]::Equals($leaf, $VMName, [System.StringComparison]::OrdinalIgnoreCase)) { $foreign = $leaf; break }
@@ -300,11 +336,23 @@ function Repair-HyperVVMStorageLocation {
         return $false
     }
     try {
-        $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
+        $vm = Invoke-HyperVLifecycleCmdlet -Verb 'Get-VM' -VMName $VMName -ArgumentList @($VMName) -ScriptBlock {
+            param($Name)
+            Hyper-V\Get-VM -Name $Name -ErrorAction Stop
+        } | Select-Object -First 1
         if ([string]$vm.State -eq 'Off') {
-            $adapter = Hyper-V\Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop | Select-Object -First 1
+            $adapter = Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMNetworkAdapter' -VMName $VMName -ArgumentList @($VMName) -ScriptBlock {
+                param($Name)
+                Hyper-V\Get-VMNetworkAdapter -VMName $Name -ErrorAction Stop
+            } | Select-Object -First 1
             if ($adapter -and (Test-YurunaGuestMacMatchesName -MacAddress ([string]$adapter.MacAddress) -VMName $foreign)) {
-                $adapter | Hyper-V\Set-VMNetworkAdapter -StaticMacAddress ((Get-YurunaGuestMacAddress -VMName $VMName) -replace ':', '') -ErrorAction Stop
+                # The adapter read above is a copy; the call reads the first
+                # adapter again to set it.
+                $null = Invoke-HyperVLifecycleCmdlet -Verb 'Set-VMNetworkAdapter' -VMName $VMName -ArgumentList @($VMName, ((Get-YurunaGuestMacAddress -VMName $VMName) -replace ':', '')) -ScriptBlock {
+                    param($Name, $StaticMac)
+                    Hyper-V\Get-VMNetworkAdapter -VMName $Name -ErrorAction Stop | Select-Object -First 1 |
+                        Hyper-V\Set-VMNetworkAdapter -StaticMacAddress $StaticMac -ErrorAction Stop
+                }
             }
         }
         $null = Invoke-HyperVLifecycleCmdlet -Verb 'Move-VMStorage' -VMName $VMName -ArgumentList @($VMName, ($prefix + $VMName)) -ScriptBlock {
@@ -1061,19 +1109,39 @@ function Get-HyperVStorageErrorCode {
 
 <#
 .SYNOPSIS
-    Run one Hyper-V cmdlet call in a thread job under a wall-clock cap.
+    Run one Hyper-V call in a child pwsh process that is killed at a
+    wall-clock cap.
 .DESCRIPTION
-    Returns @{ TimedOut; Error; Output }. Error is the call's own ErrorRecord,
-    kept intact (a thread job shares this process, so nothing is serialized),
-    so a caller can rethrow it into the classification it already does. A
-    call that reaches the cap is reported as timed out once its job is stopped;
-    the stop is synchronous, so a call that does not honor PowerShell's stop
-    request still holds the caller until it returns. The script block receives
-    -ArgumentList and must stop on its own errors (-ErrorAction Stop) for them
-    to reach Error. A job that ends without the answer object its body always
-    emits never ran that body to the end, so it reports an Error naming the
-    job's state, not an empty success that reads like a call which found
-    nothing.
+    Returns @{ TimedOut; Error; Output }. A call that reaches the cap has the
+    child's whole process tree killed and is reported as timed out at once.
+    Stopping a call that runs inside this process waits for its cmdlet to
+    return, and a cmdlet blocked on a management service that took the call
+    and never answers ignores PowerShell's stop request, so only a process
+    boundary keeps such a call from holding the caller past the cap. Every
+    call pays for it with a pwsh start and an import of the Hyper-V module,
+    which the child loads by the module-qualified names the block uses.
+
+    Nothing live crosses the boundary. The script block travels as text,
+    receives -ArgumentList, and must stop on its own errors (-ErrorAction
+    Stop) for them to reach Error. Arguments and output travel as CliXml at
+    depth 1, as through remoting: an output object keeps its properties, an
+    enumeration that is one of them arrives as its name and an object nested
+    in one arrives as its text. An enumeration the block emits on its own, or
+    keeps in a [pscustomobject] or hashtable it builds, arrives as its number,
+    so such a block casts it to [string]. A caller therefore hands over names
+    and primitive values,
+    never a VM, adapter or drive object, and where a cmdlet needs such an
+    object the block looks it up itself.
+
+    Error is rebuilt from the child's record so a caller classifies it as it
+    classified the cmdlet's own: every exception in the chain keeps its
+    message, its HResult and, where this process can construct it, its type,
+    a Win32Exception keeps its NativeErrorCode, and the record keeps its
+    FullyQualifiedErrorId, category and error details. Warnings the call wrote
+    are written again here. A child that exits, or cannot start, without
+    writing the answer it always writes did not run the call to the end, so it
+    reports an Error naming its exit code, not an empty success that reads
+    like a call which found nothing.
 #>
 function Invoke-HyperVBoundedCall {
     [CmdletBinding()]
@@ -1083,31 +1151,116 @@ function Invoke-HyperVBoundedCall {
         [object[]]$ArgumentList = @(),
         [ValidateRange(1, 3600)][int]$TimeoutSeconds = $script:HyperVLifecycleTimeoutSeconds
     )
-    # The block travels as text: a script block is bound to the runspace that
-    # created it, and invoking it from the job's thread would queue it back
-    # onto this one, which is blocked waiting for the job.
-    $job = Start-ThreadJob -ArgumentList (@($ScriptBlock.ToString()) + $ArgumentList) -ScriptBlock {
-        $call = [scriptblock]::Create($args[0])
-        $rest = @($args | Select-Object -Skip 1)
-        try { [pscustomobject]@{ Ok = $true; Output = @(& $call @rest); Error = $null } }
-        catch { [pscustomobject]@{ Ok = $false; Output = @(); Error = $_ } }
+    $marker = 'yuruna-hyperv-answer:'
+    # The request is a file rather than an argument because Windows caps a
+    # command line at 32767 characters. The child deletes it once read, and
+    # this call deletes it whatever became of the child.
+    $requestPath = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-hyperv-call-' + [guid]::NewGuid().ToString('N') + '.xml')
+    # The block runs with a fresh session's preferences. Its warnings travel
+    # with the answer, and the answer goes out last on standard output, in
+    # base64 so no console encoding can alter it.
+    $runner = @'
+$ProgressPreference = 'SilentlyContinue'
+$PSStyle.OutputRendering = 'PlainText'
+$request = [Management.Automation.PSSerializer]::Deserialize([IO.File]::ReadAllText('@REQUEST@'))
+Remove-Item -LiteralPath '@REQUEST@' -Force -ErrorAction SilentlyContinue
+$call = [scriptblock]::Create([string]$request.Script)
+$callArguments = @($request.Arguments)
+$callOutput = [Collections.Generic.List[object]]::new()
+$callWarnings = [Collections.Generic.List[string]]::new()
+$callError = $null
+try {
+    & $call @callArguments 3>&1 | ForEach-Object {
+        if ($_ -is [Management.Automation.WarningRecord]) { $callWarnings.Add($_.Message) } else { $callOutput.Add($_) }
     }
+} catch {
+    $callOutput.Clear()
+    $chain = [Collections.Generic.List[hashtable]]::new()
+    for ($exception = $_.Exception; $null -ne $exception -and $chain.Count -lt 16; $exception = $exception.InnerException) {
+        $link = @{ Type = $exception.GetType().FullName; Message = $exception.Message; HResult = $exception.HResult }
+        if ($exception -is [ComponentModel.Win32Exception]) { $link.NativeErrorCode = $exception.NativeErrorCode }
+        $chain.Add($link)
+    }
+    $callError = @{ Chain = $chain.ToArray(); ErrorId = $_.FullyQualifiedErrorId; Category = [string]$_.CategoryInfo.Category; Details = [string]$_.ErrorDetails.Message }
+}
+$answer = [Management.Automation.PSSerializer]::Serialize(@{ Output = $callOutput.ToArray(); Warnings = $callWarnings.ToArray(); Error = $callError }, 1)
+[Console]::Out.Write('@MARKER@' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($answer)))
+'@
+    $runner = $runner.Replace('@REQUEST@', [Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($requestPath)).Replace('@MARKER@', $marker)
+    $request = [Management.Automation.PSSerializer]::Serialize(@{ Script = $ScriptBlock.ToString(); Arguments = $ArgumentList }, 1)
     try {
-        if (-not (Wait-Job -Job $job -Timeout $TimeoutSeconds)) {
+        # A request that cannot be written is a call that failed with that
+        # error, so a full disk is classified by its own code.
+        try { [IO.File]::WriteAllText($requestPath, $request, [Text.UTF8Encoding]::new($false)) }
+        catch { return @{ TimedOut = $false; Error = $_; Output = @() } }
+        # This process's own pwsh, so the child runs the same version and
+        # finds the same modules.
+        $run = Invoke-BoundedNativeCommand -FilePath (Get-Process -Id $PID).Path -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command', $runner) `
+            -TimeoutSeconds $TimeoutSeconds -MaxCapturedChars 67108864
+        if ($run.TimedOut) {
+            if ($run.KillFailed) { Write-Verbose "Invoke-HyperVBoundedCall: child $($run.ProcessId) was not seen to exit after the kill at the cap." }
             return @{ TimedOut = $true; Error = $null; Output = @() }
         }
-        $answer = Receive-Job -Job $job | Select-Object -Last 1
-        if (-not $answer) {
-            $reason = if ($job.JobStateInfo.Reason) { [string]$job.JobStateInfo.Reason.Message } else { '' }
-            $message = Format-YurunaOperatorMessage -Key 'host.hyperv_bounded_call_no_answer' -Arguments @{ state = "$($job.State)"; reason = "$reason" }
-            $noAnswer = [Management.Automation.ErrorRecord]::new([InvalidOperationException]::new($message), 'HyperVBoundedCallNoAnswer',
+        $answer = $null
+        $reason = if ($run.Started) { ([string]$run.StdErr).Trim() } else { [string]$run.StartError }
+        $stdout = [string]$run.StdOut
+        $at = $stdout.LastIndexOf($marker, [StringComparison]::Ordinal)
+        if ($at -ge 0) {
+            try {
+                $encoded = ($stdout.Substring($at + $marker.Length) -split '\s', 2)[0]
+                $answer = [Management.Automation.PSSerializer]::Deserialize([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded)))
+            } catch {
+                # Cut short, by a child that died while writing it or by the
+                # capture limit, an answer is no answer.
+                $reason = "$reason $($_.Exception.Message)".Trim()
+            }
+        }
+        if ($null -eq $answer) {
+            $message = Format-YurunaOperatorMessage -Key 'host.hyperv_bounded_call_no_answer' -Arguments @{ exitCode = "$($run.ExitCode)"; reason = "$reason" }
+            # A child the host refused to start keeps the launch's own code,
+            # so it classifies as a refused cmdlet's would.
+            $cause = if (-not $run.Started -and $run.StartWin32Error) { [ComponentModel.Win32Exception]::new([int]$run.StartWin32Error, [string]$run.StartError) } else { $null }
+            $noAnswer = [Management.Automation.ErrorRecord]::new([InvalidOperationException]::new($message, $cause), 'HyperVBoundedCallNoAnswer',
                 [Management.Automation.ErrorCategory]::InvalidResult, $null)
             return @{ TimedOut = $false; Error = $noAnswer; Output = @() }
         }
-        return @{ TimedOut = $false; Error = $answer.Error; Output = @($answer.Output) }
+        foreach ($warning in @($answer.Warnings)) { Write-Warning $warning }
+        $record = $null
+        if ($answer.Error) {
+            # Innermost first, so each exception can wrap the one under it.
+            $exception = $null
+            $chain = @($answer.Error.Chain)
+            for ($index = $chain.Count - 1; $index -ge 0; $index--) {
+                $link = $chain[$index]
+                $message = [string]$link.Message
+                $rebuilt = $null
+                if ($null -ne $link.NativeErrorCode) {
+                    # A Win32 failure is classified by its code, and no
+                    # Win32Exception constructor takes an inner exception
+                    # beside one, so the chain below it ends here.
+                    $rebuilt = [ComponentModel.Win32Exception]::new([int]$link.NativeErrorCode, $message)
+                } else {
+                    $type = [string]$link.Type -as [type]
+                    $constructor = if ($type -and [Exception].IsAssignableFrom($type)) { $type.GetConstructor([type[]]@([string], [Exception])) }
+                    if ($constructor) {
+                        try { $rebuilt = $constructor.Invoke(@($message, $exception)) }
+                        catch { Write-Verbose "Invoke-HyperVBoundedCall: $($type.FullName) could not be rebuilt: $($_.Exception.Message)" }
+                    }
+                    # A type this process cannot build, or one that words its
+                    # own message, keeps the text on a plain Exception.
+                    if (-not $rebuilt -or $rebuilt.Message -cne $message) { $rebuilt = [Exception]::new($message, $exception) }
+                }
+                $rebuilt.HResult = [int]$link.HResult
+                $exception = $rebuilt
+            }
+            $category = [string]$answer.Error.Category -as [Management.Automation.ErrorCategory]
+            if ($null -eq $category) { $category = [Management.Automation.ErrorCategory]::NotSpecified }
+            $record = [Management.Automation.ErrorRecord]::new($exception, [string]$answer.Error.ErrorId, $category, $null)
+            if ($answer.Error.Details) { $record.ErrorDetails = [Management.Automation.ErrorDetails]::new([string]$answer.Error.Details) }
+        }
+        return @{ TimedOut = $false; Error = $record; Output = @($answer.Output) }
     } finally {
-        Stop-Job -Job $job -ErrorAction SilentlyContinue
-        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $requestPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -1145,8 +1298,11 @@ function Invoke-HyperVLifecycleCmdlet {
     The builders run as their own process and talk to the virtual machine
     management service directly, so each of their Hyper-V calls goes through
     the same cap as the driver's lifecycle verbs. -Command names the cmdlet
-    module-qualified, because the call runs in a thread job that sees only
-    modules it can load by name; -Parameter is splatted onto it. A call that
+    module-qualified, because the call runs in a child pwsh that loads modules
+    by name; -Parameter is splatted onto it and holds names and primitive
+    values only. Set-VMFirmware takes its -FirstBootDevice as a drive object,
+    which cannot be handed to the call, so a builder gives the path of the
+    image the DVD drive holds and the call looks the drive up. A call that
     does not answer records 'unresponsive' (hypervisor_unresponsive) and throws
     host.hyperv_lifecycle_unanswered; a refusal records 'tool' and rethrows the
     cmdlet's own error. With -Optional a refusal returns nothing instead, for a
@@ -1161,7 +1317,13 @@ function Invoke-HyperVGuestBuildCmdlet {
         [hashtable]$Parameter = @{},
         [switch]$Optional
     )
-    $call = Invoke-HyperVBoundedCall -ScriptBlock { param($Name, $Splat) & $Name @Splat -ErrorAction Stop } -ArgumentList $Command, $Parameter
+    $call = Invoke-HyperVBoundedCall -ArgumentList $Command, $Parameter -ScriptBlock {
+        param($Name, $Splat)
+        if ($Splat['FirstBootDevice'] -is [string]) {
+            $Splat['FirstBootDevice'] = @(Hyper-V\Get-VMDvdDrive -VMName $Splat['VMName'] -ErrorAction Stop) | Where-Object { $_.Path -eq $Splat['FirstBootDevice'] }
+        }
+        & $Name @Splat -ErrorAction Stop
+    }
     if ($call.TimedOut) {
         $message = Format-YurunaOperatorMessage -Key 'host.hyperv_lifecycle_unanswered' -Arguments @{ verb = "$Command"; vMName = "$VMName"; seconds = "$script:HyperVLifecycleTimeoutSeconds" }
         Write-YurunaProvisionResult -Kind 'unresponsive' -Message $message
@@ -1332,10 +1494,11 @@ reappear on every later restore. A 0-byte file with the +x bit still
 executes as an empty script under bash (exit 0, no output), so a truncated
 tool can survive a whole provisioning run without anything complaining.
 
-The shutdown request runs in a background job so a hung vmms cannot block
-the caller. A guest that cannot answer (no integration services, stuck at a
-firmware prompt) makes Stop-VM return quickly without ever reaching Off; the
-job-completed check below stops waiting out the full timeout in that case.
+The shutdown request runs as a bounded call capped at the timeout, so a hung
+vmms cannot block the caller past it. A guest that cannot answer (no
+integration services, stuck at a firmware prompt) makes Stop-VM return
+quickly without ever reaching Off; the VM is then watched for a short grace
+only, not for the rest of the timeout.
 
 Returns $true when the VM is positively gone or reached Off, $false when the
 guest did not follow through or its presence could not be established -- the
@@ -1360,31 +1523,27 @@ function Request-HyperVVMShutdown {
     if ($vm.State -in @('Off', 'Saved', 'OffCritical')) { return $true }
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_8cb88c0dfdc75d37'))) { return $false }
 
-    $shutdownJob = Start-Job -ScriptBlock {
-        Hyper-V\Stop-VM -Name $using:VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    $deadline = (Get-Date).AddSeconds($ShutdownTimeoutSeconds)
+    # The call takes a cap of 1 to 3600 seconds; a deadline of 0 still sends
+    # the request once.
+    $call = Invoke-HyperVBoundedCall -TimeoutSeconds ([Math]::Clamp($ShutdownTimeoutSeconds, 1, 3600)) -ArgumentList @($VMName) -ScriptBlock {
+        param($Name)
+        Hyper-V\Stop-VM -Name $Name -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
     }
-    try {
-        $deadline    = (Get-Date).AddSeconds($ShutdownTimeoutSeconds)
-        $jobDoneAt   = $null
-        # Grace after the request returns: Stop-VM can hand back before the VM's
-        # state has settled to Off, so a completed job is not by itself a refusal.
-        $graceSeconds = 5
-        while ((Get-Date) -lt $deadline) {
-            $poll = Resolve-HyperVVM -VMName $VMName
-            if ($poll.Presence -eq 'absent' -or ($poll.Presence -eq 'present' -and $poll.VM.State -eq 'Off')) { return $true }
-            if ($poll.Presence -eq 'present') { $vm = $poll.VM }
-            if ($shutdownJob.State -notin @('NotStarted', 'Running')) {
-                if ($null -eq $jobDoneAt) { $jobDoneAt = Get-Date }
-                elseif (((Get-Date) - $jobDoneAt).TotalSeconds -gt $graceSeconds) {
-                    Write-Verbose "Request-HyperVVMShutdown: shutdown request for '$VMName' completed but the VM is '$($vm.State)'; the guest is not honoring it."
-                    return $false
-                }
-            }
-            Start-Sleep -Milliseconds 500
-        }
-    } finally {
-        Stop-Job   -Job $shutdownJob -ErrorAction SilentlyContinue
-        Remove-Job -Job $shutdownJob -Force -ErrorAction SilentlyContinue
+    # Grace after the request returns: Stop-VM can hand back before the VM's
+    # state has settled to Off, so a returned request is not by itself a
+    # refusal. The grace stays inside the timeout, and the state is read at
+    # least once.
+    $graceDeadline = (Get-Date).AddSeconds(5)
+    if ($graceDeadline -gt $deadline) { $graceDeadline = $deadline }
+    do {
+        $poll = Resolve-HyperVVM -VMName $VMName
+        if ($poll.Presence -eq 'absent' -or ($poll.Presence -eq 'present' -and $poll.VM.State -eq 'Off')) { return $true }
+        if ($poll.Presence -eq 'present') { $vm = $poll.VM }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $graceDeadline)
+    if (-not $call.TimedOut) {
+        Write-Verbose "Request-HyperVVMShutdown: shutdown request for '$VMName' completed but the VM is '$($vm.State)'; the guest is not honoring it."
     }
     return $false
 }
@@ -1458,7 +1617,13 @@ function Confirm-HyperVVMStarted {
     # See https://yuruna.link/42e220c4-0004
     $deadlineUtc = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadlineUtc) {
-        $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
+        # Each poll runs under the lifecycle cap; a read that does not answer
+        # is one poll that saw nothing, and the deadline above ends the wait.
+        $call = Invoke-HyperVBoundedCall -ArgumentList @($VMName) -ScriptBlock {
+            param($Name)
+            Hyper-V\Get-VM -Name $Name -ErrorAction SilentlyContinue
+        }
+        $vm = if ($call.TimedOut -or $call.Error) { $null } else { @($call.Output) | Select-Object -First 1 }
         if ($vm -and $vm.State -eq 'Running') {
             Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_651f84ee3d7b34f4' -Arguments @{ vMName = "$VMName"; state = "$($vm.State)" })
             return $true

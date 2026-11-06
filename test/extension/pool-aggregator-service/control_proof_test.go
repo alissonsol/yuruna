@@ -59,24 +59,50 @@ func TestVerifyControlProofAcceptsWhatItMints(t *testing.T) {
 func TestVerifyControlProofRefusesWhatItDidNotMint(t *testing.T) {
 	now := time.Now()
 	fresh := now.Add(controlProofTTL).Unix()
+	bound := func(token string, expiry int64) string {
+		return controlproof.ProofFor(token, refreshHostIDForProofs, expiry)
+	}
 	cases := []struct {
 		name  string
 		token string
 		wire  string
 	}{
-		{"another lab's token", proofToken, controlProofFor("a-different-lab", fresh)},
+		{"another lab's token", proofToken, bound("a-different-lab", fresh)},
 		// The ceiling is what stops a captured token minting an eternal pass.
-		{"expiry beyond the ceiling", proofToken, controlProofFor(proofToken, now.Add(controlProofMaxTTL+time.Minute).Unix())},
-		{"already expired", proofToken, controlProofFor(proofToken, now.Add(-time.Second).Unix())},
-		{"tampered signature", proofToken, strconv.FormatInt(fresh, 10) + ".AAAA"},
+		{"expiry beyond the ceiling", proofToken, bound(proofToken, now.Add(controlProofMaxTTL+time.Minute).Unix())},
+		{"already expired", proofToken, bound(proofToken, now.Add(-time.Second).Unix())},
+		{"tampered signature", proofToken, strconv.FormatInt(fresh, 10) + "." + refreshHostIDForProofs + ".AAAA"},
 		{"no dot", proofToken, "not-a-proof"},
 		{"empty proof", proofToken, ""},
 		// A daemon holding no token has no key to check against, so nothing verifies.
-		{"no token held", "", controlProofFor(proofToken, fresh)},
+		{"no token held", "", bound(proofToken, fresh)},
 	}
 	for _, c := range cases {
 		if verifyControlProof(c.token, c.wire, "", now, controlProofMaxTTL) {
 			t.Errorf("%s: verified, want refused", c.name)
+		}
+	}
+}
+
+// The unbound form names no target, so it would open every host and service
+// that shares the key; it is refused whatever audience the caller names, and
+// the route an extension service asks answers it as not valid.
+func TestVerifyControlProofRefusesAnUnboundProof(t *testing.T) {
+	now := time.Now()
+	unbound := controlProofFor(proofToken, now.Add(controlProofTTL).Unix())
+	for _, audience := range []string{"", refreshHostIDForProofs, "svc-stash-service"} {
+		if verifyControlProof(proofToken, unbound, audience, now, controlProofMaxTTL) {
+			t.Errorf("an unbound proof verified for audience %q", audience)
+		}
+	}
+	s := newPoolState("default", 8080)
+	s.authToken = proofToken
+	for _, body := range []string{
+		`{"proof":` + strconv.Quote(unbound) + `}`,
+		`{"proof":` + strconv.Quote(unbound) + `,"audience":"svc-stash-service"}`,
+	} {
+		if rec := postProof(t, s, body); rec.Code != http.StatusUnauthorized {
+			t.Errorf("POST /api/v1/control-proof %s = %d, want 401", body, rec.Code)
 		}
 	}
 }
@@ -103,7 +129,7 @@ func TestControlProofRouteAnswersTheVerdictAndNothingElse(t *testing.T) {
 		t.Fatalf("body = %q, want {\"ok\":true}", rec.Body.String())
 	}
 
-	rec = postProof(t, s, `{"proof":`+strconv.Quote(controlProofFor("a-different-lab", time.Now().Add(time.Minute).Unix()))+`}`)
+	rec = postProof(t, s, `{"proof":`+strconv.Quote(mintControlProof("a-different-lab", "svc-stash-service", time.Minute))+`}`)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("proof from another lab = %d, want 401", rec.Code)
 	}

@@ -6,8 +6,9 @@ package store
 
 import "testing"
 
-// Each case mirrors a section 6.3 rule or its boundary. Cases for section 13's
-// option-c outcome cover the disallowed-character path.
+// Each case mirrors one stored-name rule or its boundary (see
+// https://yuruna.link/429e934f-000b); the disallowed-character cases cover the
+// rule that discards the whole extension.
 func TestExtractExtension(t *testing.T) {
 	cases := []struct {
 		name string
@@ -47,12 +48,12 @@ func TestExtractExtension(t *testing.T) {
 			"." + repeat("a", 31),
 		},
 
-		// Rule 5 + section 13 decision (option c): any disallowed char -> "".
+		// Any disallowed character rejects the whole extension.
 		{"charset/space", "file.bad name", ""},
 		{"charset/colon", "file.bad:name", ""},
 		{"charset/unicode", "file.café", ""},
 		{"charset/parens", "file.(1)", ""},
-		// Underscore and hyphen ARE allowed per section 10's table.
+		// Underscore and hyphen are valid extension characters.
 		{"charset/underscore-ok", "file.tar_gz", ".tar_gz"},
 		{"charset/hyphen-ok", "file.tar-gz", ".tar-gz"},
 	}

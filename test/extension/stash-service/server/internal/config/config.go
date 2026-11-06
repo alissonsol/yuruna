@@ -45,6 +45,12 @@ const (
 	// Only one such body is read at a time, so it also bounds how long one slow
 	// client can keep the next one waiting.
 	TextBodyReadTimeout = 5 * time.Minute
+	// MaxConcurrentMultipartCreates bounds the multipart creates (web UI
+	// pastes and file uploads) received at once. Each one can hold up to 32
+	// MiB of parts and 10 MB of form values in memory while it is parsed, so
+	// the budget bounds that memory; another create answers 503 with
+	// Retry-After.
+	MaxConcurrentMultipartCreates = 4
 )
 
 // Presence beacon (https://yuruna.link/429e934f-0006). The daemon self-announces to the pool-aggregator-service

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42bc2da1-ebdb-48ed-9d8a-68099d34d1f5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,7 +62,9 @@ Describe 'Warm-resume class eligibility' {
         Assert-Equal -Expected 7 -Actual (Get-WarmResumeEligibleClass).Count
     }
     It 'rejects hard/deterministic classes and blanks' {
-        foreach ($c in 'script_error','provisioning_failure','pattern_matched_failure','ocr_timeout','plan_invalid','') {
+        # guest_kernel_stalled: a resume in place would wait again on the same
+        # wedged kernel; only the next attempt's new boot recovers it.
+        foreach ($c in 'script_error','provisioning_failure','pattern_matched_failure','ocr_timeout','plan_invalid','guest_kernel_stalled','') {
             Assert-Equal -Expected $false -Actual (Test-WarmResumeEligibleClass -FailureClass $c) -Because "must not resume: '$c'"
         }
     }

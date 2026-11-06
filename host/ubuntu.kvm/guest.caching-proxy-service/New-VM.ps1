@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -180,6 +180,12 @@ $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
 # for when the pinned release cannot sync the lab's images.
 try { $zotOverride = Resolve-CachingProxyZotOverride -Config $tc }
 catch { Write-Error $_.Exception.Message; exit 1 }
+# The names the VM answers to besides its addresses, from the same file. Read in
+# the plan, while the working proxy is still in place, because a malformed
+# vmStart.serviceHostNames entry refuses the build.
+Import-Module (Join-Path $repoRoot 'test/modules/Test.ExtensionService.psm1') -DisableNameChecking -Verbose:$false
+try { $serviceHostNames = Get-ExtensionServiceHostNameSeed -Config $tc }
+catch { Write-Error $_.Exception.Message; exit 1 }
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 
 $virshUri = 'qemu:///system'
@@ -216,7 +222,7 @@ if ($networkName -eq 'default') {
     # --- REGION: Bridge-uplink preflight
     # See https://yuruna.link/42e220c4-0004
     # Require a physical uplink only for bridge-mode networks; NAT bridges need none.
-    $netXml = & virsh --connect $virshUri net-dumpxml $networkName 2>&1
+    $netXml = Invoke-Virsh -VirshArgs @('net-dumpxml', $networkName)
     $isBridgeMode = $false
     $bridgeDev = $null
     foreach ($line in @($netXml)) {
@@ -436,6 +442,13 @@ $gitMirrorSeed = Get-CachingProxyGitMirrorSeedSetting -RepoRoot $repoRoot -Confi
 $proxyCaStatement = ConvertTo-YurunaProxyCaStatement -SigningKeyBase64 ([string]$gitMirrorSeed.SigningKeyBase64) -CaPem $bumpCa.CertPem
 $proxyCaStatementB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($proxyCaStatement))
 
+# --- REGION: Grafana admin password
+# See https://yuruna.link/42f6b05f-0041
+# A new password for every build. It is recorded in the vault only after the seed
+# that carries it has rendered, so a refused render leaves the record matching the
+# previous build's VM.
+$grafanaAdminPassword = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLowerInvariant()
+
 # --- REGION: Render user-data / meta-data
 # Render user-data from the shared base + KVM overlay (host/vmconfig/
 # caching-proxy-service.*). New-CloudInitUserData resolves placeholders with literal
@@ -451,6 +464,7 @@ $userData = New-CloudInitUserData `
         SQUID_CACHE_MEM_PLACEHOLDER    = $SquidCacheMem
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
+        YURUNA_GRAFANA_ADMIN_PASSWORD_PLACEHOLDER = $grafanaAdminPassword
         YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
         YPOOL_NAS_REPLICATE_PLACEHOLDER     = $ypoolNasReplicate
@@ -477,10 +491,18 @@ $userData = New-CloudInitUserData `
         YURUNA_GIT_MIRROR_BUILD_COMMIT_PLACEHOLDER = $gitMirrorSeed.BuildCommit
         YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER = $zotOverride.Version
         YURUNA_ZOT_OVERRIDE_SHA256_PLACEHOLDER  = $zotOverride.Sha256
+        YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER   = $serviceHostNames
     } `
     -AllowedUnresolved 'AGGREGATOR_BASE_PLACEHOLDER' `
     -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
+# Recorded before this builder removes the old VM, so a failed write ends the
+# build first. Run on its own, the builder then leaves that VM running;
+# test/service/Start-CachingProxyServiceVM.ps1 has already removed it in its
+# Step 1, before the builder runs. -ErrorAction Stop because the vault module
+# does not see this script's preference when the builder runs in-process. The
+# vault keeps the value this replaces as previousPassword.
+Set-Password -Username 'caching-proxy-grafana-admin' -NewPassword $grafanaAdminPassword -ErrorAction Stop
 
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004

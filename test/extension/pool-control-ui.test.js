@@ -271,6 +271,45 @@ async function confirmationsAndBudgets() {
   assert.strictEqual(controls.writes[0].url, '/api/pool/host-control');
   assert.ok(controls.writes[0].opts.timeoutMs >= 90000, 'host action permits discovery, host fanout and intent work');
 }
+// The commit each host's resident runner loaded and when it started, beside the
+// repositories the host holds: a runner keeps that code until it restarts.
+async function hostsRunnerColumn() {
+  const html = require('fs').readFileSync(require('path').join(__dirname, 'pool-control-service', 'server', 'internal', 'httpsrv', 'web', 'hosts.html'), 'utf8');
+  const order = Array.from(html.matchAll(/<th data-sort="([A-Za-z]+)"/g), m => m[1]);
+  assert.deepStrictEqual(order.slice(-3), ['projectAccess', 'runner', 'pool'], 'the Runner column sits between Project and Pool');
+  assert.ok(/<th data-sort="runner"><button type="button" class="sort" data-i18n="pool\.runner">Runner<\/button><\/th>/.test(html), 'the column sorts and is localized');
+  const reported = '426d17ef0b88426b922180dad1a9e921';
+  const silent = '42bb17ef0b88426b922180dad1a9e922';
+  const commit = 'a507e41ad0123456789abcdef0123456789abcde';
+  const env = load('hosts.html', box => {
+    const api = box.Y.api;
+    box.Y.api = (url, opts) => {
+      if (url === '/api/hosts') {
+        return Promise.resolve({ok: true, pools: ['default'], targetPoolId: 'default', hostnamesVisible: true, hosts: [
+          {hostId: reported, hostname: 'one', type: 'kvm', pool: 'default', control: 'ready'},
+          {hostId: silent, hostname: 'two', type: 'kvm', pool: 'default', control: 'ready'}]});
+      }
+      if (url === '/api/hosts/facts') {
+        return Promise.resolve({ok: true, hosts: {
+          [reported]: {ok: true, runnerCommitSha: commit, runnerStartedAtUtc: '2026-10-25T03:13:08.0000000Z'},
+          [silent]: {ok: true}}});
+      }
+      return api(url, opts);
+    };
+  });
+  await settle();
+  const rows = env.byId['host-rows'].children;
+  assert.strictEqual(rows.length, 2, 'both hosts rendered');
+  const runnerCell = row => row.children[order.indexOf('runner') + 1].children[0];
+  const shown = runnerCell(rows.find(r => r.getAttribute('data-host-id') === reported));
+  assert.ok(shown.textContent.includes('a507e41ad'), 'the cell names the short commit: ' + shown.textContent);
+  assert.ok(!shown.textContent.includes('a507e41ad0'), 'the commit is shortened to nine characters');
+  assert.ok(shown.textContent.includes(env.box.YurunaI18n.fmtLocal(new Date('2026-10-25T03:13:08Z'))), 'the cell names the start time: ' + shown.textContent);
+  assert.ok(String(shown.getAttribute('title')).includes(commit), 'the full commit is the title');
+  const blank = runnerCell(rows.find(r => r.getAttribute('data-host-id') === silent));
+  assert.strictEqual(blank.textContent, '--', 'a host that has not reported shows the blank');
+  assert.strictEqual(blank.getAttribute('title'), env.box.YurunaI18n.t('pool.runner_unreported'), 'and says why');
+}
 function watchDocumentKeys(box) {
   const keys = new Set();
   const add = box.document.addEventListener;
@@ -690,6 +729,6 @@ async function diagnosticRefreshAndTimeout() {
   assert.strictEqual(failing, undefined, 'failed checks render as report data');
   assert.ok(report.byId['check-rows'].children.length, 'failed checks remain visible');
 }
-Promise.resolve().then(boardGenerations).then(confirmationsAndBudgets).then(repositoryColumn).then(statusBarrier).then(statusUnlockAndTimeout).then(statusOlderRead).then(blockingFocusLifetimes).then(dialogCleanup).then(focusAndBusyLifetimes).then(diagnosticRefreshAndTimeout).then(() => {
-  console.log('PASS: pool request budgets, latest board generation, mutation confirmation, current-row feedback, Pool Status blocking and the Framework / Project column');
+Promise.resolve().then(boardGenerations).then(confirmationsAndBudgets).then(repositoryColumn).then(hostsRunnerColumn).then(statusBarrier).then(statusUnlockAndTimeout).then(statusOlderRead).then(blockingFocusLifetimes).then(dialogCleanup).then(focusAndBusyLifetimes).then(diagnosticRefreshAndTimeout).then(() => {
+  console.log('PASS: pool request budgets, latest board generation, mutation confirmation, current-row feedback, Pool Status blocking, the Framework / Project column and the Runner column');
 }).catch(error => { console.error(error.stack); process.exitCode = 1; });

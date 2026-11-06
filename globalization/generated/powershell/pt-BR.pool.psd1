@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a178ea-1824-b745-63bc-87287e0b6b9a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1292,6 +1292,21 @@
     )
     'pool.result' = 'Resultado'
     'pool.row_number' = 'Número da linha'
+    'pool.runner' = 'Executor'
+    'pool.runner_cell' = @(
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' desde '
+        @{
+            'arg' = 'startedAt'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.runner_unreported' = 'O executor deste hospedeiro não informou seu commit e seu horário de início. Um executor iniciado antes de esse relatório existir passa a informá-los após o próximo reinício.'
     'pool.running' = 'Em execução:'
     'pool.running_checks' = 'A verificar...'
     'pool.save_failed_value1' = @(

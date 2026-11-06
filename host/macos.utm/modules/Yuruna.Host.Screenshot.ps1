@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 420b2519-f223-4eaf-b727-e70a356793f1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -168,8 +168,89 @@ function Get-UtmNetworkModeFromBundle {
 
 <#
 .SYNOPSIS
-    Write $Display into the VM bundle's -vnc QEMU argument. Returns $true
-    when the bundle now carries that display.
+    Return the loopback TCP ports of the serial console (6900 + display) and
+    the QEMU monitor (7900 + display) that go with a VNC display.
+.DESCRIPTION
+    Deriving them from the display gives them the display's guarantees: the
+    builder, the start-time reallocation and every reader compute the same
+    ports without a sidecar, and a display Find-FreeVncDisplay hands to one
+    bundle carries its console ports with it. The ranges sit 1000 and 2000
+    above the VNC ports, so they meet neither VNC nor each other.
+#>
+function Get-UtmConsolePortForDisplay {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][ValidateRange(0, 99)][int]$Display)
+    return [pscustomobject]@{ Serial = 6900 + $Display; Monitor = 7900 + $Display }
+}
+
+<#
+.SYNOPSIS
+    Return the serial console and QEMU monitor ports a VM bundle's TCP serial
+    devices listen on, -1 for a device the bundle does not carry.
+.DESCRIPTION
+    The bundle is the authority for the reason Get-VncPortForVm gives: the
+    display, and the console ports with it, can move at start. A VM built
+    without the devices has no console to read, so nothing falls back to a
+    port derived from the name.
+.PARAMETER Deadline
+    Optional shared deadline (New-YurunaDeadline) for the plutil read.
+#>
+function Get-UtmConsolePortFromBundle {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$VMName, $Deadline)
+    $ports = [ordered]@{ Serial = -1; Monitor = -1 }
+    $configPath = "$HOME/yuruna/guest.nosync/$VMName.utm/config.plist"
+    if (Test-Path -LiteralPath $configPath) {
+        try {
+            $config = Read-UtmBundleConfig -ConfigPath $configPath -Deadline $Deadline
+            if ($config.Readable -and $null -ne $config.Json.Serial) {
+                foreach ($device in @($config.Json.Serial)) {
+                    $port = 0
+                    if ("$($device.Mode)" -ne 'TcpServer' -or -not [int]::TryParse("$($device.TcpPort)", [ref]$port) -or $port -le 0) { continue }
+                    if ("$($device.Target)" -eq 'Auto' -and $ports.Serial -lt 0) { $ports.Serial = $port }
+                    elseif ("$($device.Target)" -eq 'Monitor' -and $ports.Monitor -lt 0) { $ports.Monitor = $port }
+                }
+            }
+        } catch {
+            Write-Debug "Get-UtmConsolePortFromBundle: could not read $configPath`: $($_.Exception.Message)"
+        }
+    }
+    return [pscustomobject]$ports
+}
+
+<#
+.SYNOPSIS
+    $true when a VM bundle's -vnc argument carries $Display and its serial
+    console and monitor ports are the ones that follow it.
+.DESCRIPTION
+    A start or a rename rewrites the bundle only when this is $false. The display
+    alone would vouch for console ports that a failed or interrupted
+    Set-VncDisplayInBundle left on another display's values, while
+    Find-FreeVncDisplay checks only the ports that follow the display it
+    hands out, and QEMU does not start when a port it must listen on is
+    taken. A device the bundle does not carry needs no port.
+#>
+function Test-VncDisplayInBundle {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][ValidateRange(0, 99)][int]$Display
+    )
+    if ((Get-VncDisplayFromBundle -VMName $VMName) -ne $Display) { return $false }
+    $want = Get-UtmConsolePortForDisplay -Display $Display
+    $have = Get-UtmConsolePortFromBundle -VMName $VMName
+    return (($have.Serial -lt 0 -or $have.Serial -eq $want.Serial) -and ($have.Monitor -lt 0 -or $have.Monitor -eq $want.Monitor))
+}
+
+<#
+.SYNOPSIS
+    Write $Display into the VM bundle's -vnc QEMU argument and the console
+    ports that follow it into the bundle's TCP serial devices. Returns $true
+    when the bundle now carries that display and every console port was
+    written.
 #>
 function Set-VncDisplayInBundle {
     [CmdletBinding(SupportsShouldProcess)]
@@ -194,7 +275,20 @@ function Set-VncDisplayInBundle {
             if ("$($qemuArgs[$i + 1])" -match ':\d+(,.*)$') { $suffix = $Matches[1] }
             $value = "127.0.0.1:${Display}${suffix}"
             $null = Invoke-UtmHostTool -Tool 'plistbuddy' -ArgumentList @('-c', "Set :QEMU:AdditionalArguments:$($i + 1) $value", $configPath) -TimeoutSeconds 10
-            return ((Get-VncDisplayFromBundle -VMName $VMName) -eq $Display)
+            # Console ports left on the old display's values would meet the VM
+            # that takes that display next, and QEMU does not start when a port
+            # it must listen on is taken.
+            $consoleWritten = $true
+            $console = Get-UtmConsolePortForDisplay -Display $Display
+            $devices = if ($null -ne $config.Json.Serial) { @($config.Json.Serial) } else { @() }
+            for ($j = 0; $j -lt $devices.Count; $j++) {
+                if ("$($devices[$j].Mode)" -ne 'TcpServer') { continue }
+                $port = if ("$($devices[$j].Target)" -eq 'Auto') { $console.Serial } elseif ("$($devices[$j].Target)" -eq 'Monitor') { $console.Monitor } else { 0 }
+                if ($port -le 0) { continue }
+                $write = Invoke-UtmHostTool -Tool 'plistbuddy' -ArgumentList @('-c', "Set :Serial:${j}:TcpPort $port", $configPath) -TimeoutSeconds 10
+                if (-not (Test-UtmBoundedResultComplete -Result $write) -or $write.ExitCode -ne 0) { $consoleWritten = $false }
+            }
+            return ($consoleWritten -and ((Get-VncDisplayFromBundle -VMName $VMName) -eq $Display))
         }
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6877083d4624d081' -Arguments @{ configPath = "$configPath"; message = "$($_.Exception.Message)" })
@@ -275,8 +369,14 @@ function Test-VncPortFree {
 
 <#
 .SYNOPSIS
-    Return a VNC display in 10..89 whose port is free, preferring $Preferred.
+    Return a VNC display in 10..89 whose ports are free, preferring $Preferred.
     Returns -1 when every display in the range is taken.
+.DESCRIPTION
+    A display stands for three loopback ports: its VNC port and the serial
+    console and monitor ports that follow it (Get-UtmConsolePortForDisplay).
+    QEMU does not start when a port it must listen on is taken, so a display
+    is handed out only when all three bind, whether or not the bundle being
+    placed carries the console devices.
 #>
 function Find-FreeVncDisplay {
     [CmdletBinding()]
@@ -289,12 +389,17 @@ function Find-FreeVncDisplay {
     # by other bundles so the choice holds once they all start.
     $excluded = [System.Collections.Generic.HashSet[int]]::new()
     foreach ($d in $ExcludeDisplays) { $null = $excluded.Add([int]$d) }
+    $free = {
+        param([int]$Display)
+        $console = Get-UtmConsolePortForDisplay -Display $Display
+        return ((Test-VncPortFree -Port (5900 + $Display)) -and (Test-VncPortFree -Port $console.Serial) -and (Test-VncPortFree -Port $console.Monitor))
+    }
     if ($Preferred -ge 10 -and $Preferred -le 89 -and
-        -not $excluded.Contains($Preferred) -and (Test-VncPortFree -Port (5900 + $Preferred))) {
+        -not $excluded.Contains($Preferred) -and (& $free $Preferred)) {
         return $Preferred
     }
     for ($d = 10; $d -le 89; $d++) {
-        if (-not $excluded.Contains($d) -and (Test-VncPortFree -Port (5900 + $d))) { return $d }
+        if (-not $excluded.Contains($d) -and (& $free $d)) { return $d }
     }
     return -1
 }

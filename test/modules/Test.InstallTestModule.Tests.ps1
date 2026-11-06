@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42318205-4701-4ec4-97ce-64b0837ff71b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,8 +19,9 @@
 <#
 .SYNOPSIS
     Behavioral Pester guard on how the host installers provide the test
-    modules: the newest Pester 6.x and PSScriptAnalyzer, and the preflight
-    that says whether the installed Pester is one the runner will load.
+    modules: the newest Pester 6.x and PSScriptAnalyzer at its pinned,
+    digest-checked version, and the preflight that says whether the installed
+    Pester is one the runner will load.
 .DESCRIPTION
     The gallery's newest Pester can be on a later major, so the line is
     requested by its own bounds, and the policy turns on choices no install
@@ -46,11 +47,17 @@ BeforeAll {
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
     $moduleScript = Join-Path $script:RepoRoot 'tools/Install-TestModule.ps1'
-    foreach ($name in @('Get-InstalledPester', 'Install-NewestPester', 'Install-PSScriptAnalyzerIfAbsent')) {
+    foreach ($name in @('Get-InstalledPester', 'Install-NewestPester', 'Install-PSScriptAnalyzerIfAbsent', 'Install-YurunaPinnedGalleryModule')) {
         $ast = Get-YurunaTestFunctionAst -Path $moduleScript -Name $name
         if (-not $ast) { throw "$name not found in tools/Install-TestModule.ps1" }
         . ([scriptblock]::Create($ast.Extent.Text))
     }
+    # The pin table those functions install from, lifted the same way.
+    $pinTable = (Get-YurunaTestFileAst -Path $moduleScript).Find({
+            param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$script:YurunaGalleryModulePin'
+        }, $true)
+    if (-not $pinTable) { throw 'YurunaGalleryModulePin not found in tools/Install-TestModule.ps1' }
+    . ([scriptblock]::Create($pinTable.Extent.Text))
     $preflight = Join-Path $script:RepoRoot 'tools/Invoke-Preflight.ps1'
     foreach ($name in @('Select-ModuleVersion', 'Get-VersionBoundProblem')) {
         $ast = Get-YurunaTestFunctionAst -Path $preflight -Name $name
@@ -184,23 +191,96 @@ Describe 'Install-NewestPester -Major 6' {
 }
 
 Describe 'Install-PSScriptAnalyzerIfAbsent' {
-    BeforeEach { Mock Install-Module { } }
-    It 'leaves an installed copy alone' {
-        Mock Get-Module { Get-StandInModule -Name PSScriptAnalyzer -Version '1.25.0' } -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
-        $out = @(Install-PSScriptAnalyzerIfAbsent) -join "`n"
-        Should -Invoke Install-Module -Times 0 -Exactly
-        Assert-Match 'PSScriptAnalyzer 1\.25\.0 already installed' $out 'the installed version is named'
+    BeforeEach {
+        Mock Install-YurunaPinnedGalleryModule { }
+        $script:PinnedVersion = [regex]::Escape($script:YurunaGalleryModulePin['PSScriptAnalyzer'].Version)
     }
-    It 'installs it when absent' {
-        Mock Get-Module { } -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
-        $null = Install-PSScriptAnalyzerIfAbsent
-        Should -Invoke Install-Module -Times 1 -Exactly -ParameterFilter { $Name -eq 'PSScriptAnalyzer' -and $Scope -eq 'CurrentUser' }
-    }
-    It 'reports a failed install' {
-        Mock Get-Module { } -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
-        Mock Install-Module { throw 'gallery unavailable' }
+    It 'leaves an installed copy alone, whatever its version' {
+        Mock Get-Module { Get-StandInModule -Name PSScriptAnalyzer -Version '1.24.0' } -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
         $out = @(Install-PSScriptAnalyzerIfAbsent) -join "`n"
-        Assert-Match '(?m)^MODULE-ISSUE: Installing PSScriptAnalyzer failed: gallery unavailable' $out 'the failure reaches the closing summary'
+        Should -Invoke Install-YurunaPinnedGalleryModule -Times 0 -Exactly
+        Assert-Match 'PSScriptAnalyzer 1\.24\.0 already installed' $out 'the installed version is named'
+    }
+    It 'installs the pinned version when absent' {
+        Mock Get-Module { } -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
+        $out = @(Install-PSScriptAnalyzerIfAbsent) -join "`n"
+        Should -Invoke Install-YurunaPinnedGalleryModule -Times 1 -Exactly -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
+        Assert-Match "installing PSScriptAnalyzer $script:PinnedVersion \(CurrentUser scope\)" $out 'the install is announced with the pinned version'
+        Assert-True ($out -notmatch 'MODULE-ISSUE') 'a successful install reports no issue'
+    }
+    It 'reports a failed install with the version it aimed for' {
+        Mock Get-Module { } -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
+        Mock Install-YurunaPinnedGalleryModule { throw 'gallery unavailable' }
+        $out = @(Install-PSScriptAnalyzerIfAbsent) -join "`n"
+        Assert-Match "(?m)^MODULE-ISSUE: Installing PSScriptAnalyzer $script:PinnedVersion failed: gallery unavailable" $out 'the failure names the version and the cause'
+    }
+}
+
+Describe 'Install-YurunaPinnedGalleryModule' {
+    BeforeAll {
+        # A package laid out the way the gallery serves one: the module files plus
+        # the NuGet packaging entries PowerShellGet leaves out of the module.
+        function New-FixturePackage {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes a throwaway package under TestDrive.')]
+            [OutputType([string])]
+            param([string]$Path, [hashtable]$Entry)
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [IO.Compression.ZipFile]::Open($Path, 'Create')
+            try {
+                foreach ($name in $Entry.Keys) {
+                    $writer = [IO.StreamWriter]::new($zip.CreateEntry($name).Open())
+                    try { $writer.Write($Entry[$name]) } finally { $writer.Dispose() }
+                }
+            } finally { $zip.Dispose() }
+            $sha = [Security.Cryptography.SHA512]::Create()
+            try { return [Convert]::ToBase64String($sha.ComputeHash([IO.File]::ReadAllBytes($Path))) } finally { $sha.Dispose() }
+        }
+        $script:FixtureEntries = @{
+            'yuruna-fixture.psd1'            = "@{ ModuleVersion = '1.2.3'; RootModule = 'yuruna-fixture.psm1' }"
+            'yuruna-fixture.psm1'            = 'function Get-Fixture { 1 }'
+            'yuruna-fixture.nuspec'          = '<package/>'
+            '[Content_Types].xml'            = '<Types/>'
+            '_rels/.rels'                    = '<Relationships/>'
+            'package/services/metadata/x.ps' = 'meta'
+        }
+    }
+    BeforeEach {
+        $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $script:Package = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.nupkg')
+        # The gallery answers with the fixture package.
+        Mock Invoke-WebRequest { Copy-Item -LiteralPath $script:Package -Destination $OutFile }
+    }
+    AfterEach { $script:YurunaGalleryModulePin.Remove('yuruna-fixture') }
+
+    It 'refuses a package whose SHA-512 differs from the pin and installs nothing' {
+        $null = New-FixturePackage -Path $script:Package -Entry $script:FixtureEntries
+        $script:YurunaGalleryModulePin['yuruna-fixture'] = @{ Version = '1.2.3'; Sha512 = ('A' * 86) + '==' }
+        $thrown = $null
+        try { Install-YurunaPinnedGalleryModule -Name 'yuruna-fixture' -ModuleRoot $script:Root } catch { $thrown = $_ }
+        Assert-Match 'SHA-512 .* does not match the pinned' "$thrown" 'the refusal names the digest check'
+        Should -Invoke Invoke-WebRequest -Times 1 -Exactly -ParameterFilter { $Uri -eq 'https://www.powershellgallery.com/api/v2/package/yuruna-fixture/1.2.3' }
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $script:Root 'yuruna-fixture'))) 'nothing is laid out from a refused package'
+    }
+    It 'installs a matching package as Name/Version without the NuGet packaging entries' {
+        $digest = New-FixturePackage -Path $script:Package -Entry $script:FixtureEntries
+        $script:YurunaGalleryModulePin['yuruna-fixture'] = @{ Version = '1.2.3'; Sha512 = $digest }
+        Install-YurunaPinnedGalleryModule -Name 'yuruna-fixture' -ModuleRoot $script:Root
+        $installed = @(Get-ChildItem -LiteralPath (Join-Path $script:Root 'yuruna-fixture') -Recurse -File -Force |
+                ForEach-Object { [IO.Path]::GetRelativePath($script:Root, $_.FullName).Replace('\', '/') } | Sort-Object)
+        $installed | Should -Be @('yuruna-fixture/1.2.3/yuruna-fixture.psd1', 'yuruna-fixture/1.2.3/yuruna-fixture.psm1')
+    }
+    It 'refuses a package entry that would land outside the module directory' {
+        $entries = $script:FixtureEntries.Clone()
+        $entries['../escaped.ps1'] = 'outside'
+        $digest = New-FixturePackage -Path $script:Package -Entry $entries
+        $script:YurunaGalleryModulePin['yuruna-fixture'] = @{ Version = '1.2.3'; Sha512 = $digest }
+        $thrown = $null
+        try { Install-YurunaPinnedGalleryModule -Name 'yuruna-fixture' -ModuleRoot $script:Root } catch { $thrown = $_ }
+        Assert-Match 'escapes the module directory' "$thrown" 'the escaping entry is named'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $script:Root 'yuruna-fixture/escaped.ps1'))) 'nothing lands outside the module directory'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $script:Root 'yuruna-fixture/1.2.3'))) 'no half module is left behind'
+        Assert-Equal -Expected 0 -Actual @(Get-ChildItem -LiteralPath (Join-Path $script:Root 'yuruna-fixture') -Force).Count 'the staging directory is removed'
     }
 }
 

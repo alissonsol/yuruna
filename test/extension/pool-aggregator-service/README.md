@@ -94,7 +94,7 @@ Every `-interval` (default 30s) it:
    discovery extends to any LAN client), and the row's `baseUrl` fills from the host
    view when the host is known. Because the URL comes from the source address,
    re-announcing is also the only way a service that has RENUMBERED reports where
-   it went -- which is why the period is set from `extensionHealthGrace` (point
+   it went -- which is why the period is set from `extensions.HealthGrace` (point
    5c-ii) rather than from the TTL: a beacon slower than that grace would leave
    the pool holding neither the old address nor the new one.
    Entries reap after `-announce-ttl` (default 45m), on a
@@ -117,7 +117,7 @@ Every `-interval` (default 30s) it:
    announce naming one is rejected outright (`400`).
    Each poll re-confirms every advertised address (bounded, concurrent). A
    confirmed address that goes quiet is carried for **5 minutes**
-   (`extensionHealthGrace`) so a service restart or a DHCP renewal does not empty
+   (`extensions.HealthGrace`) so a service restart or a DHCP renewal does not empty
    the panel, and is then *suppressed* -- for BOTH sources, and without removing
    the entry. A registration-sourced address is re-asserted by its owning host on
    every poll, so removing it would achieve nothing; an announce-sourced one
@@ -139,7 +139,7 @@ Every `-interval` (default 30s) it:
    services answer is not an operator preference, and a per-pool override would
    let one host's misconfiguration be configured away instead of fixed.
 5c-i. **Which source wins.** Both sources merge in ONE place
-   (`extensionCandidatesLocked`), read by the `/metrics` rows, `/api/v1/extension-hosts`,
+   (`extensions.Candidates`), read by the `/metrics` rows, `/api/v1/extension-hosts`,
    pool-status `stashBaseUrl`, and `/go/stash` alike -- a precedence rule written out
    four times is how a correction lands in one of them and not the others. The order
    puts **usability first** -- an address this aggregator has reached beats one it
@@ -344,8 +344,8 @@ buys the summary row a tile that says something on a healthy pool.
 hosts** table, a **per-host table** (control -
 type - framework version - last cycle - status - last seen - pass/fail, with
 deep-links to each host's own status page and cycle folder), a **host x time state-timeline**, and a collapsed **drill-down**
-row (incidents - **failures by class & severity** - recent step failures - full
-cycle event stream - status transitions) over Loki. **Every** panel identifies
+row (incidents - **failures by class & severity** - recent step failures - host
+restarts and runner faults - full cycle event stream - status transitions) over Loki. **Every** panel identifies
 each host by its opaque **Host ID** (the stable `hostId`, shown as its first 8
 characters and revealed in full, GUID-formatted, from the cell's own menu)
 and its `hostType`, **not** its hostname, so the whole pool view stays safe to
@@ -366,6 +366,16 @@ preflight; a retry still running does not hide the prior failure. The index
 retains the latest 20 attempts. If an old yellow block's evidence has expired
 or cannot be read, its link opens the host's runner-attempt history instead of
 the preceding cycle. Explicit `/go/cycle` links retain their cycle-only meaning.
+Older failures that a later attempt passed after are listed separately in the
+index's `olderFailures`, without the passes that followed them. Link resolution
+reads them only for a block older than every attempt among the latest 20, and at
+most 30 of them, as the host page shows. The latest one that finished by the
+clicked time answers unless a cycle began after it: a cycle opens only once an
+attempt has passed, so the block then belongs to that cycle. A red runner-fault
+or yellow preflight block therefore opens its own record. A block in a later
+cycle opens that cycle when red and the runner-attempt history when yellow, as
+does a block older than every retained failure. When no source can place the
+clicked cycle, the older failure's record opens.
 
 **Loki delivery.** Cycle transitions, event lines (polled and pushed to
 `/ingest`), incident and pool-alert lifecycle lines, presence beacons and the
@@ -376,11 +386,14 @@ retrying with a backoff from one second to a minute while Loki is away. A cycle
 transition is recorded as seen, and an event file's read position moves on,
 only once the line is held, so a line that could not be held is built and sent
 again by the next poll. The outbox holds up to 20,000 lines or 256 MiB; past
-that new lines are refused (logged once) and `/ingest` answers `503`. The
+that new lines are refused (logged once) and `/ingest` answers `503` with the
+code `aggregator.ingest_queue_full`. A line the outbox could not write to its
+folder is answered `503` with `aggregator.ingest_not_recorded` instead, so the
+pusher can tell a fault on the collector from backpressure. The
 `yuruna_pool_loki_outbox_pending` gauge shows how many lines wait. An announce
 is still pushed directly, because its reply states whether Loki took it. With
-no usable directory the outbox works in memory, which bridges a Loki outage but
-not a restart of the collector.
+no usable directory the outbox works in memory, capped at 64 MiB, which bridges
+a Loki outage but not a restart of the collector.
 
 **Framework canary ring.** For a pool whose `pools.yml` carries a
 `frameworkRing` block, the members it names as canaries track the framework tip
@@ -402,7 +415,7 @@ unaffected (graceful degradation).
 
 ## Files
 
-- `main.go`, `handover.go`, and `mcp.go` -- the collector, durable host-identity ledger, and MCP routes. `framework_ring.go` keeps the framework canary ring's facts and answers `/api/v1/framework-ring`. `localization.go` and `internal/catalog/` supply the compiled UI and API messages. Stdlib plus the shared extension SDK (a static binary, no Go toolchain at
+- `main.go`, `handover.go`, and `mcp.go` -- the collector's flags, settings and wiring, the durable host-identity ledger, and the MCP routes. `framework_ring.go` keeps the framework canary ring's facts and answers `/api/v1/framework-ring`. `internal/localization/` and `internal/catalog/` supply the compiled UI and API messages. Stdlib plus the shared extension SDK (a static binary, no Go toolchain at
   runtime), cross-platform (no host-specific syscalls; builds + vets on the
   Windows harness toolchain identically to the Linux target).
 - `backfill.go`, `backfill_index.go`, `backfill_loki.go`, `backfill_prom.go`,
@@ -410,8 +423,24 @@ unaffected (graceful degradation).
   backfill, the same binary's second mode (`pool-aggregator-service backfill`; see
   *History backfill* below). It builds its Loki lines with the collector's own
   builders, so the two cannot drift apart.
-- `internal/loki/` -- the Loki client: the push call, the readiness wait and the
-  outbox (*Loki delivery* above).
+- `internal/poll/` -- the poll: discovery from the squid log and the pool view,
+  the host probes, the merge of their answers into the view under its lock, and
+  the event tail that forwards each host's cycle events.
+- `internal/feed/` -- the Loki lines the collector writes: cycle transitions,
+  presence and announce beacons, forwarded events and the incident lifecycle,
+  and the sender that queues the best-effort ones through the outbox.
+- `internal/rehydrate/` -- the startup restore from Loki: cycle counters, open
+  incidents and alert latches, last-known host addresses and live announces.
+- `internal/routes/` -- the HTTP route handlers: pool status, extension hosts,
+  statistics, incidents and health, metrics, the dashboard deep links and the
+  archive, ingest, the announces, forget-host and the lab-token exchange.
+- `internal/extensions/` -- the extension merge: the registration and announce
+  sources, this aggregator's reachability verdict on each advertised address,
+  and the one resolution every consumer reads.
+- `internal/localization/` -- the catalog renderers behind the localized errors
+  and log lines, and the `-language` and `-allow-pseudo-locale` flags.
+- `internal/loki/` -- the Loki client: the push call, the query endpoints, the
+  readiness wait and the outbox (*Loki delivery* above).
 - `internal/hostpoll/` -- the host-facing half of the poll: the bounded reads of
   each host's status service and the wire types they decode.
 - `internal/incident/` -- the incident rules: host incidents, pool-wide
@@ -420,12 +449,19 @@ unaffected (graceful degradation).
 - `internal/poolstate/` -- the pool view and the one lock that guards it: the
   host records, the cycle counters, incidents, announces, the lab connection
   codes, the address counts, the identity aliases and the canary ring's facts.
-  Code reaches the view only inside `State.Do`; the cycle counters, the address
-  scan and footprints, the lab codes, the identity aliases and the last poll
-  time are reached through methods.
+  Code reaches the view only inside `State.Do`. Methods own host-map membership,
+  cycle counters, incidents, announces, lab codes, address counts, aliases and
+  ring facts, preserving their invariants. The poll (`internal/poll/`) still
+  updates individual host-record fields, and the extension merge
+  (`internal/extensions/`) the extension-health logging latch, while holding
+  the view's lock.
+- `internal/metrics/` -- the Prometheus exposition: one text body rendered from
+  the pool view under its lock, with the collector's settings and the resolved
+  extension services handed in. `internal/routes/` keeps the route and its
+  loopback gate.
 - `internal/httpserve/` -- the HTTP transport: the listener that serves plain
   HTTP and TLS on one port, and the shared request and response helpers. The
-  route handlers stay beside the pool view they read.
+  route handlers live in `internal/routes/`.
 - `go.mod` -- module + Go version. Zero external dependencies.
 - `pool-aggregator-service.service` -- systemd unit (`User=proxy`, hardened,
   `ReadOnlyPaths=/var/log/squid` to read the access log; `:9400`; `ExecStart`
@@ -510,7 +546,8 @@ plain HTTP otherwise) - `-backfill-state-dir` (default
 `/var/lib/pool-history-backfill`; where `/go/cycle` reads the history backfill's
 cycle indexes; empty skips them) - `-loki-outbox-dir` (default
 `/var/lib/pool-aggregator-service/loki-outbox`, in the unit's `StateDirectory`;
-empty keeps queued Loki lines in memory only) - `-framework-ring-state-file`
+empty keeps queued Loki lines in memory only, at most 64 MiB) -
+`-framework-ring-state-file`
 (default `/var/lib/pool-aggregator-service/framework-ring.json`, in the unit's
 `StateDirectory`; empty keeps the canary ring's facts in memory only).
 
@@ -734,7 +771,7 @@ dashboard's 30s refresh, with no Grafana or dashboard action.
   everywhere. The `hostname` label is dropped from every metric; the transition (`src=cycle`) and
   incident (`src=incident`) Loki lines carry no hostname (cross-host incidents
   report affected hosts by `hostId`); and each forwarded NDJSON event
-  (`src=event`) is run through `redactEventLine`, which strips the `hostname` field
+  (`src=event`) is run through `feed.RedactEventLine`, which strips the `hostname` field
   and the hostname-bearing `cycleFolder`. The metric/JSON struct field carrying
   the hostname is `json:"-"` (never parsed or serialized), so the unauthenticated
   `/api/v1/pool-status` snapshot is hostname-free too. The host's own (separately
@@ -761,6 +798,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../../../README.md)

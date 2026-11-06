@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 421d0074-dfda-ec67-2cc8-3e4de12f7caf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1208,6 +1208,22 @@
     )
     'pool.result' = '结果'
     'pool.row_number' = '行号'
+    'pool.runner' = '运行器'
+    'pool.runner_cell' = @(
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '，自 '
+        @{
+            'arg' = 'startedAt'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' 起'
+    )
+    'pool.runner_unreported' = '此宿主机的运行器尚未报告其提交和启动时间。在该报告功能出现之前启动的运行器，会在下次重启后报告这些信息。'
     'pool.running' = '正在运行：'
     'pool.running_checks' = '正在运行检查……'
     'pool.save_failed_value1' = @(

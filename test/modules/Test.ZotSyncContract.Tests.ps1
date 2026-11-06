@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4230f2fc-1a17-4a20-b766-368eff24c01c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -339,7 +339,7 @@ Describe 'The registry can store the Docker manifests the lab pulls' {
         @($mirror[0].content).prefix | Should -Contain 'library/**'
 
         $prewarm = Get-SeedFileBody -Path '/usr/local/bin/zot-prewarm.sh'
-        $prewarm | Should -Match "(?m)^WORKLOAD_REFS='mirror\.gcr\.io/library/registry:2'$"
+        $prewarm | Should -Match "(?m)^WORKLOAD_REFS='mirror\.gcr\.io/library/registry:\d+\.\d+\.\d+'$"
         $prewarm | Should -Match '(?m)^for r in \$WORKLOAD_REFS; do warm_one workload "\$r"; done$'
     }
 }
@@ -390,10 +390,15 @@ Describe 'The health page reports a refusal as a refusal' -Skip:(-not $script:Ca
         $run.Page | Should -Match 'resident-tag revalidation: FAILING -- a pull gives up after 30s'
     }
     It 'lists refused warm-set images apart from the cold shortfall' {
-        $rows = @("workload`tmirror.gcr.io/library/registry:2`t200`t0.050`tresident") +
+        # The page header and the warm run's WORKLOAD_REFS are separate
+        # literals. Expecting the header to name the warm set's own reference
+        # keeps both on the same release.
+        $workloadRef = [regex]::Match((Get-SeedFileBody -Path '/usr/local/bin/zot-prewarm.sh'), "(?m)^WORKLOAD_REFS='([^']*)'$").Groups[1].Value
+        $workloadRef | Should -Not -BeNullOrEmpty
+        $rows = @("workload`t$workloadRef`t200`t0.050`tresident") +
             @($script:k8sRefs | ForEach-Object { "k8s`tregistry.k8s.io/$_`t503`t0.100`tfailed" }) + $script:cniRows
         $run = Invoke-Exporter -ManifestCode '200' -ManifestSeconds '0.050' -Rows $rows
-        $run.Page | Should -Match '(?m)^  Workload support image set \(mirror\.gcr\.io/library/registry:2\):$'
+        $run.Page | Should -Match ('(?m)^  Workload support image set \(' + [regex]::Escape($workloadRef) + '\):$')
         $run.Page | Should -Match '(?m)^    resident {17}: 1 of 1 held$'
         $run.Page | Should -Match '(?m)^    resident {17}: 0 of 7 held$'
         $run.Page | Should -Match '(?m)^      refused \(HTTP 503\) {5}: 7   <-- a kubeadm init gets the same refusal$'

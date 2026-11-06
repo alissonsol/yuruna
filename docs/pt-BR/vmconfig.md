@@ -121,7 +121,7 @@ durante o autoinstall com um diagnóstico confuso.
 | `host/vmconfig/ubuntu.server.base.user-data` | A base compartilhada -- igual para Ubuntu Server 24 e 26. Contém linhas de âncora como `# === YURUNA_OVERLAY_NETWORK ===`, substituídas pelo combinador. |
 | `host/vmconfig/ubuntu.server.hyperv.overlay.yml` | Overlay por hospedeiro: lista de bloqueio de `hv_balloon` + fixação do framebuffer `hyperv_fb`. |
 | `host/vmconfig/ubuntu.server.kvm.overlay.yml` | Overlay por hospedeiro: comando inicial para impedir o apagamento do VT + `consoleblank=0` + linha de comando GRUB segura para framebuffer. |
-| `host/vmconfig/ubuntu.server.utm.overlay.yml` | Overlay por hospedeiro: bloco `network:` que fixa DHCP IPv4 e recusa RA IPv6. |
+| `host/vmconfig/ubuntu.server.utm.overlay.yml` | Overlay por hospedeiro: bloco `network:` que fixa DHCP IPv4 e recusa RA IPv6; `shutdown: poweroff`, para que o executor inicie a frio o sistema instalado; encaminhamento do journald para o console serial PL011. |
 | `host/vmconfig/amazon.linux.2023.base.user-data` | A base compartilhada de AL2023. Usa `runcmd:` do cloud-init (AL2023 inicia uma imagem de nuvem pré-compilada, em vez de executar um autoinstall no estilo Ubuntu), com seu próprio conjunto de âncoras. |
 | `host/vmconfig/amazon.linux.2023.hyperv.overlay.yml` | Overlay de AL2023 por hospedeiro (Hyper-V). |
 | `host/vmconfig/amazon.linux.2023.kvm.overlay.yml` | Overlay de AL2023 por hospedeiro (KVM): runcmd de `consoleblank=0`. |
@@ -138,13 +138,14 @@ Cada linha de âncora na base tem o formato
 `# === YURUNA_OVERLAY_<NAME> ===`. O conjunto de âncoras varia conforme o tipo de convidado
 (autoinstall ou `runcmd:` em imagem pré-compilada):
 
-**Ubuntu Server** -- seis âncoras: as quatro abaixo mais `HOST_AGENT_PKG` e
+**Ubuntu Server** -- sete âncoras: as cinco abaixo mais `HOST_AGENT_PKG` e
 `LATE_HOST_AGENT`, para os pontos de inserção do pacote do agente do hospedeiro
 e dos comandos tardios:
 
 | Âncora | Finalidade | Uso pelos overlays |
 |---|---|---|
 | `NETWORK` | Bloco network: por hospedeiro | Todos os hospedeiros (DHCP baseado em MAC); UTM também recusa RA IPv6 |
+| `SHUTDOWN` | O que o instalador faz ao terminar (`shutdown:`) | Apenas UTM (`poweroff`); KVM e Hyper-V o deixam vazio e mantêm a reinicialização do instalador |
 | `EARLY_COMMANDS` | Comandos anteriores à instalação | Todos os hospedeiros (reduzir a saída do kernel e parar o temporizador tmpfiles-clean); KVM também impede o apagamento do VT |
 | `GRUB_PRE_CONSOLE_QUIET` | Particularidades do kernel antes do bloco `console-quiet` | Hyper-V (`hv_balloon`+`hyperv_fb`), KVM (`consoleblank`) |
 | `GRUB_POST_CONSOLE_QUIET` | Particularidades do kernel após o bloco `console-quiet` | Apenas KVM (`nomodeset` seguro para framebuffer) |
@@ -1976,7 +1977,7 @@ Unidade squid-exporter: binário instalado com go em runcmd, apenas em loopback 
 
 ### Viewer anônimo do Grafana
 
-Grafana: Viewer anônimo (sem login/cadastro); admin/admin continua editável. Variáveis de ambiente GF_* aplicadas por arquivo complementar systemd.
+Grafana: Viewer anônimo (sem login/cadastro). A senha de `admin` é nova a cada construção: o `EnvironmentFile=` do arquivo complementar lê `GF_SECURITY_ADMIN_PASSWORD` de `/etc/yuruna/grafana-admin.env` (0600, root), e o Grafana a aplica quando cria seu banco de dados na primeira inicialização. Variáveis de ambiente GF_* aplicadas por arquivo complementar systemd.
 
 <a id="429f3d06-004f"></a>
 
@@ -2986,6 +2987,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42e0b38b-31d7-437e-bc6b-f7a324adb32c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1297,6 +1297,28 @@ function Send-ArchiveDigest {
     Send-JsonReply -Response $Response -Request $Request -StatusCode 200 -Body ([ordered]@{
             ok = $true; archive = $kind; commit = $commit; sha256 = $sha256; hostId = $digestHostId; proof = $proof })
 }
+# --- REGION: Get-TestConfigChannelProof
+# The guest-channel answer to /control/test-config?nonce=: this host's id and an
+# HMAC under its guest-channel key of the nonce and the two clone URLs the
+# document serves, an absent or non-string URL counting as empty. $null for a
+# malformed nonce or a host with no key, which then answer the document alone.
+function Get-TestConfigChannelProof {
+    param($Document, [string]$Nonce)
+    if ($Nonce -cnotmatch '^[0-9a-f]{16,128}$') { return $null }
+    $channelKey = ''
+    try { $channelKey = Get-YurunaGuestChannelKey } catch { Write-ServerErr "guest-channel key read failed: $($_.Exception.Message)" }
+    if (-not $channelKey) { return $null }
+    $repositories = if ($Document -is [System.Collections.IDictionary]) { $Document['repositories'] } else { $null }
+    $urls = foreach ($name in 'frameworkUrl', 'projectUrl') {
+        $url = if ($repositories -is [System.Collections.IDictionary]) { $repositories[$name] } else { $null }
+        if ($url -is [string]) { $url } else { '' }
+    }
+    $channelHostId = Get-ArchiveHostId
+    return [ordered]@{
+        hostId = $channelHostId
+        proof  = Get-YurunaGuestChannelProof -Key $channelKey -HostId $channelHostId -Nonce $Nonce -Scope 'test-config' -Value $urls
+    }
+}
 # --- REGION: Send-GitArchive
 # See https://yuruna.link/42fffc2c-0013
 function Send-GitArchive {
@@ -1680,6 +1702,12 @@ try {
                         Send-JsonError -Response $res -StatusCode 404 -Request $req -Key 'status.api_test_config_yml_not_found_3b38d785'
                         continue
                     }
+                    # A guest seeded with this host's guest-channel key asks with
+                    # a nonce and takes the clone URLs only from an answer that
+                    # proves the key over them. A request without a nonce gets
+                    # the document unchanged. guestChannel is a field of this
+                    # answer, never a configuration section.
+                    $configNonce = [string]$req.QueryString['nonce']
                     try {
                         $doc  = Read-TestConfig -Path $testConfigFile -ThrowOnError
                         # Readers share the cached document. Redact a response
@@ -1688,6 +1716,10 @@ try {
                         $view = [ordered]@{}
                         foreach ($key in $doc.Keys) {
                             $view[$key] = if ($key -eq 'secrets') { [ordered]@{} } else { $doc[$key] }
+                        }
+                        if ($configNonce) {
+                            $channel = Get-TestConfigChannelProof -Document $view -Nonce $configNonce
+                            if ($null -ne $channel) { $view['guestChannel'] = $channel }
                         }
                         $json = $view | ConvertTo-Json -Depth 20
                         $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
@@ -1816,6 +1848,13 @@ try {
                         }
                     }
                 }
+                # The commit the resident runner loaded and when it started, as
+                # the runner reported them in status.json; empty until a runner
+                # started with that report.
+                $hfRunner = $null
+                if (Get-Command Get-StatusRunnerResident -ErrorAction SilentlyContinue) {
+                    $hfRunner = Get-StatusRunnerResident -Document (Read-StatusDocFromDisk -StatusPath $statusJsonFile)
+                }
                 $payload = @{
                     ok                = $true
                     memoryBytes       = $hfMemory
@@ -1828,6 +1867,8 @@ try {
                     projectAccessState   = $hfState.project
                     frameworkUrl      = $hfLink.framework
                     projectUrl        = $hfLink.project
+                    runnerCommitSha   = if ($hfRunner) { [string]$hfRunner.commitSha } else { '' }
+                    runnerStartedAtUtc = if ($hfRunner) { [string]$hfRunner.startedAtUtc } else { '' }
                 } | ConvertTo-Json -Compress
                 $body = [System.Text.Encoding]::UTF8.GetBytes($payload)
                 $res.ContentLength64 = $body.Length

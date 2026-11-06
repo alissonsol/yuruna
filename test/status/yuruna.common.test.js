@@ -2,7 +2,7 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
   GUID: 42bcedaf-cf56-4cdd-a7de-021f1addaedb
-  Version: 2026.10.31
+  Version: 2026.11.05
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -191,6 +191,38 @@ assert.doesNotMatch(attemptsEl.innerHTML, /<li\b/, 'empty history must clear old
 var emptyAttemptText = attemptsEl.innerHTML;
 Y.renderRunnerAttempts(attemptsEl, null);
 assert.notStrictEqual(attemptsEl.innerHTML, emptyAttemptText, 'unavailable history must not claim there were no failures');
+var olderFailure = {
+  attemptGeneration: 'runner:3', passed: false, failureClass: 'inner_exited',
+  startedAtUtc: '2026-10-17T01:38:32Z', finishedAtUtc: '2026-10-17T01:40:48Z',
+  description: 'inner exited 3', frameworkCommitSha: 'abc123',
+  recordPath: 'runner-attempts/0123456789abcdef01234567/runner-fault.json', transcriptPath: ''
+};
+Y.renderRunnerAttempts(attemptsEl, { schemaVersion: 1, attempts: [{ attemptGeneration: 'runner:9', passed: true, failureClass: '' }], olderFailures: [olderFailure] });
+assert.strictEqual((attemptsEl.innerHTML.match(/<li\b/g) || []).length, 1, 'a failure kept past the window of latest attempts is still listed');
+assert.match(attemptsEl.innerHTML, /runtime\/runner-attempts\/0123456789abcdef01234567\/runner-fault\.json/);
+Y.renderRunnerAttempts(attemptsEl, { schemaVersion: 1, attempts: [], olderFailures: 'not-a-list' });
+assert.doesNotMatch(attemptsEl.innerHTML, /<li\b/, 'a malformed list of older failures is ignored');
+
+// (1d) The resident runner's report: the commit it loaded and when it started.
+//      A runner keeps that code until it restarts, so this is how a runner
+//      older than the host's checkout shows itself.
+assert.strictEqual(typeof Y.renderRunnerResident, 'function', 'Y.renderRunnerResident is exported');
+var residentEl = makeEl();
+residentEl.hidden = true;
+var residentCommit = 'a507e41ad' + '0123456789abcdef0123456789abcde';
+Y.renderRunnerResident(residentEl, { runnerResident: { commitSha: residentCommit, startedAtUtc: '2026-10-25T03:13:08Z' } });
+assert.strictEqual(residentEl.hidden, false, 'a reported runner is shown');
+assert.ok(residentEl.textContent.indexOf('a507e41ad') >= 0, 'the line names the commit: ' + residentEl.textContent);
+assert.ok(residentEl.textContent.indexOf('a507e41ad0') === -1, 'the commit is shortened to nine characters');
+assert.ok(residentEl.textContent.indexOf(Y.fmtDate('2026-10-25T03:13:08Z')) >= 0, 'the line names the start time: ' + residentEl.textContent);
+Y.renderRunnerResident(residentEl, { runnerResident: { commitSha: '<b>x</b>', startedAtUtc: '2026-10-25T03:13:08Z' } });
+assert.ok(residentEl.textContent.indexOf('<b>x</b>') >= 0, 'markup in the report stays text');
+assert.strictEqual(residentEl.innerHTML, '', 'the report is never parsed as markup');
+Y.renderRunnerResident(residentEl, { overallStatus: 'pass' });
+assert.strictEqual(residentEl.hidden, false);
+assert.strictEqual(residentEl.textContent, Y.t('status.runner_resident_unreported'), 'a runner that has not reported says so');
+Y.renderRunnerResident(residentEl, null);
+assert.strictEqual(residentEl.hidden, true, 'no status document, no claim about the runner');
 
 // (2) The shared BANNER_TEXT is exported with the five expected keys.
 assert.deepStrictEqual(

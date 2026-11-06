@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42fceff5-e96e-4072-9219-6ca416d6489c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -349,6 +349,74 @@ __READ__() {
             $output | Should -Match 'topology/core_id'
             $output | Should -Match 'snapshotCompleteUtc='
         } finally { Restore-YurunaTestEnvironment -Saved $oldMode }
+    }
+
+    It 'keeps sampling unprivileged and says so when sudo hangs' -Skip:(-not $IsLinux) {
+        $fixtureHome = Get-GuestFixtureHome
+        $fixture = @'
+bin="$HOME/bin"; mkdir -p "$bin"
+cat > "$bin/sudo" <<'STUB'
+#!/bin/bash
+printf 'ran %s\n' "$*" >> "$HOME/sudo.calls"
+exec sleep 30
+STUB
+cat > "$bin/journalctl" <<'STUB'
+#!/bin/bash
+printf 'journal read directly\n'
+STUB
+chmod +x "$bin/sudo" "$bin/journalctl"
+export PATH="$bin:$PATH"
+id() { if [ "$1" = -u ]; then printf '1000\n'; else command id "$@"; fi; }
+ps() {
+    case "$*" in
+        *etimes*) printf '7 300 S unix_wait_for_peer sudo\n8 299 S unix_wait_for_peer sshd-session\n9 12 S wait_woken systemd-journal\n10 400 S ep_poll unrelated\n' ;;
+    esac
+}
+ss() { printf 'u_dgr ESTAB 103 0 /run/systemd/journal/dev-log 4237 * 0\n'; }
+# Ends this fixture if the collector waits out the hung stub, so the failure is a
+# failed assertion rather than a suite that never returns.
+( sleep 40; kill -9 "$$" ) > /dev/null 2>&1 &
+SECONDS=0
+fae_recorder_collect
+printf 'collectSeconds=%s\n' "$SECONDS"
+printf 'SEPARATOR\n'
+fae_kernel_collect
+'@
+        $output = Invoke-GuestMetadataFixture -Functions $script:recorderFunctions -Fixture $fixture -FixtureHome $fixtureHome
+        $collect, $kernel = $output -split 'SEPARATOR'
+        $collect | Should -Match '\AsampleUtc=' -Because 'a sample that stalls later must still identify itself'
+        $collect | Should -Match '(?m)^recorderPrivilege=sudo-unresponsive$'
+        $collect | Should -Match '(?m)^MemTotal:' -Because 'unprivileged reads still run after the probe times out'
+        $collect | Should -Match '(?m)^sampleCompleteUtc='
+        [int]([regex]::Match($collect, 'collectSeconds=(\d+)').Groups[1].Value) | Should -BeLessThan 20 -Because 'the probe is bounded, so the hang does not consume the sample'
+        $collect | Should -Not -Match 'Killed' -Because 'the probe''s own death is not evidence and must not enter the sample'
+        (Get-Content -LiteralPath (Join-Path $fixtureHome 'sudo.calls') | Sort-Object -Unique) | Should -BeExactly 'ran -n true' -Because 'a hung probe drops privilege for the rest of the sample'
+        $collect | Should -Match '(?m)^7 300 S unix_wait_for_peer sudo$'
+        $collect | Should -Match '(?m)^9 12 S wait_woken systemd-journal$'
+        $collect | Should -Not -Match 'unrelated'
+        $collect | Should -Match 'dev-log' -Because 'the queue on the socket proves the clients wait on journald'
+        $kernel | Should -Match '(?m)^recorderPrivilege=sudo-unresponsive$'
+        $kernel | Should -Match 'journal read directly'
+    }
+
+    It 'uses sudo for the sample when the probe answers' -Skip:(-not $IsLinux) {
+        $fixtureHome = Get-GuestFixtureHome
+        $fixture = @'
+bin="$HOME/bin"; mkdir -p "$bin"
+cat > "$bin/sudo" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >> "$HOME/sudo.calls"
+shift; exec "$@"
+STUB
+chmod +x "$bin/sudo"
+export PATH="$bin:$PATH"
+id() { if [ "$1" = -u ]; then printf '1000\n'; else command id "$@"; fi; }
+journalctl() { :; }
+fae_recorder_collect
+'@
+        $output = Invoke-GuestMetadataFixture -Functions $script:recorderFunctions -Fixture $fixture -FixtureHome $fixtureHome
+        $output | Should -Not -Match 'recorderPrivilege='
+        (Get-Content -LiteralPath (Join-Path $fixtureHome 'sudo.calls') -Raw) | Should -Match '(?m)^-n ps -eo pid=,etimes=,stat=,wchan:24=,comm=$'
     }
 
     It 'captures raw memory pressure and cgroup counters before stacks can exhaust a sample' -Skip:(-not $IsLinux) {

@@ -79,12 +79,14 @@ func (s *Server) routes() http.Handler {
 	// Any page an operator opens can make the browser POST here, so a
 	// cross-site unsafe request is refused. Hosts and scripts send neither
 	// Origin nor Sec-Fetch-Site and pass; this service's own pages are
-	// same-origin.
-	return http.NewCrossOriginProtection().Handler(mux)
+	// same-origin. A page whose own name resolves here is same-origin too,
+	// which is why the Host check runs first.
+	return s.hostCheck.Handler(http.NewCrossOriginProtection().Handler(mux))
 }
 
 // handleShortRedirect maps a bare 4-char id to the stash's canonical
-// permalink and 302-redirects, so http://stash-service/h775 opens the stash.
+// permalink and 302-redirects, so http://yuruna-stash-service/h775 opens the
+// stash.
 func (s *Server) handleShortRedirect(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !validID(id) {
@@ -494,6 +496,15 @@ func (s *Server) serveBytes(w http.ResponseWriter, r *http.Request, attachment b
 // can watch a stalled body be cut off without waiting minutes for it.
 var textBodyReadTimeout = config.TextBodyReadTimeout
 
+// largeTextHeld, nil in production, is called once a text body holds the
+// large-text slot, so a test can send its next request knowing which one the
+// slot went to.
+var largeTextHeld func()
+
+// multipartHeld, nil in production, is called once a multipart create holds an
+// upload slot, so a test knows every slot is taken before it sends the next.
+var multipartHeld func()
+
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	clientIP := clientIP(r)
 	ct := r.Header.Get("Content-Type")
@@ -521,11 +532,29 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			s.writeLocalizedError(w, r, http.StatusServiceUnavailable, "stash.api_large_text_busy", "", nil)
 			return
 		}
+		if largeTextHeld != nil {
+			largeTextHeld()
+		}
 		control := http.NewResponseController(w)
 		_ = control.SetReadDeadline(time.Now().Add(textBodyReadTimeout))
 		// Cleared once the body is in: a deadline that fired during the
 		// ingest would cancel the request.
 		bodyIn = func() { _ = control.SetReadDeadline(time.Time{}) }
+	}
+	// A multipart create keeps its parsed parts in memory until it returns, so
+	// only a few are received at once. The web UI posts pastes this way too.
+	if !text {
+		select {
+		case s.multipart <- struct{}{}:
+			defer func() { <-s.multipart }()
+		default:
+			w.Header().Set("Retry-After", "30")
+			s.writeLocalizedError(w, r, http.StatusServiceUnavailable, "stash.api_uploads_busy", "", nil)
+			return
+		}
+		if multipartHeld != nil {
+			multipartHeld()
+		}
 	}
 
 	// JSON paste body: {text, title, author}.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,6 +136,8 @@ function Save-CachedHttpUri {
 
 . (Join-Path $PSScriptRoot 'Yuruna.Host.Screenshot.ps1')
 
+. (Join-Path $PSScriptRoot 'Yuruna.Host.Capture.ps1')
+
 # --- REGION: VM lifecycle
 # --- REGION: New-VM
 function New-VM {
@@ -176,7 +178,13 @@ function Start-VM {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_5115fc3aa0fb34ef'))) { return @{ success = $false; errorMessage = 'WhatIf' } }
-    return Start-UtmVM -VMName $VMName -Confirm:$false
+    # QEMU drops serial output while no client is attached, so the reader is
+    # armed before UTM powers the VM on. A start that moved the VNC display
+    # moved the console ports with it, and the second arming follows them.
+    [void](Start-VMSerialCapture -VMName $VMName)
+    $result = Start-UtmVM -VMName $VMName -Confirm:$false
+    if ($result -is [hashtable] -and $result.success) { [void](Start-VMSerialCapture -VMName $VMName) }
+    return $result
 }
 
 # --- REGION: Stop-VM
@@ -257,6 +265,7 @@ function Remove-VM {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_12924e738438f274'))) { return $false }
+    [void](Stop-VMSerialCapture -VMName $VMName)
     return [bool](Remove-UtmTestVM -VMName $VMName -Confirm:$false)
 }
 
@@ -349,6 +358,9 @@ function Rename-VM {
         }
         return $false
     }
+    # The stopped VM's serial reader keeps dialing its port under the old name,
+    # and the renamed VM can be given that port at its next start.
+    [void](Stop-VMSerialCapture -VMName $VMName)
 
     $guestDir  = "$HOME/yuruna/guest.nosync"
     $srcBundle = Join-Path $guestDir "$VMName.utm"
@@ -461,7 +473,7 @@ function Rename-VM {
             -ExcludeDisplays (Get-ClaimedVncDisplay -ExcludeVMName $NewName)
         if ($wantDisplay -lt 0) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_844a212ddde38874' -Arguments @{ newName = "$NewName"; newName2 = "$(Get-VncDisplayFromBundle -VMName $NewName)" })
-        } elseif ((Get-VncDisplayFromBundle -VMName $NewName) -ne $wantDisplay) {
+        } elseif (-not (Test-VncDisplayInBundle -VMName $NewName -Display $wantDisplay)) {
             if (Set-VncDisplayInBundle -VMName $NewName -Display $wantDisplay -Confirm:$false) {
                 Write-Verbose "Rename-VM: VNC display for '$NewName' set to $wantDisplay (port $(5900 + $wantDisplay))."
             } else {
@@ -3004,6 +3016,7 @@ Export-ModuleMember -Function Write-UtmBundleConfiguration, New-UtmServiceBundle
     Set-MacHostProxy, Restore-MacHostProxy, Disable-MacHostProxy, Remove-MacHostProxy, `
     Get-UtmNetworkModeFromBundle, Restore-SudoUserOwnership, `
     Get-VncDisplayForVm, Get-VncPortForVm, Get-VncDisplayFromBundle, Set-VncDisplayInBundle, Test-VncPortFree, Find-FreeVncDisplay, Get-ClaimedVncDisplay, Get-VncScreenshot, Get-UtmScreenshot, Get-UtmWindowScreenshot, Get-UtmVMProcessId, `
+    Get-UtmConsolePortForDisplay, Get-UtmConsolePortFromBundle, Start-VMSerialCapture, Stop-VMSerialCapture, Save-VMSerialCapture, `
     Set-GuestMacInBundle
 
 # --- REGION: Contract coverage

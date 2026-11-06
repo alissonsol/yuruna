@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42e5a9c3-7b16-4f02-a8d4-9c3b1e6f5a27
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,11 +25,11 @@
     The three host/<family>/modules/Yuruna.Host.psm1 drivers are near-identical
     siblings, and an edit that reaches two of them passes every suite that runs
     on the host doing the editing: the third driver only fails when it is
-    imported on its own platform, as a missing-verb warning, and a host-neutral
-    caller then stops at command-not-found there. This suite reads all
-    three drivers through the PowerShell AST -- no driver is imported, so it
-    runs identically on every host -- and holds each one to the verb list the
-    contract module itself returns.
+    imported on its own platform, where its load-time coverage check refuses
+    the import. This suite reads all three drivers through the PowerShell AST
+    -- no driver is imported, so it runs identically on every host -- and holds
+    each one to the verb list the contract module itself returns. The coverage
+    check itself runs on stub drivers, each imported in a process of its own.
 #>
 
 # Static per-family cases, computed at discovery time because -ForEach reads
@@ -221,6 +221,72 @@ Describe 'Host driver contract parity' {
         $dependent = Get-ParameterAst -FunctionAst $fn -Name 'DependentVMName'
         $dependent | Should -Not -BeNullOrEmpty
         $dependent.StaticType | Should -Be ([string[]])
+    }
+}
+
+# A driver loaded with part of the contract leaves a host-neutral caller to stop
+# at command-not-found mid-cycle, or on Windows to reach the Hyper-V cmdlet of
+# the same name, so the load itself must fail.
+Describe 'a driver whose exports miss a contract verb does not load' {
+    BeforeAll {
+        Import-Module (Join-Path $repoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
+        $script:ContractModulePath = Join-Path $repoRoot 'host/Yuruna.Host.Contract.psm1'
+
+        function New-ContractStubDriver {
+            <#
+            .SYNOPSIS
+                A driver module that defines and declares every contract verb,
+                exports all but -Omit, and runs the coverage check the way the
+                real drivers do, after its Export-ModuleMember.
+            #>
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes a throwaway module under the test drive.')]
+            [OutputType([string])]
+            param([string]$Directory, [string[]]$Omit = @())
+            $null = New-Item -ItemType Directory -Path $Directory -Force
+            $exported = @($script:ContractVerb | Where-Object { $Omit -notcontains $_ })
+            $declared = @($script:ContractVerb | ForEach-Object { "'$_'" }) -join ','
+            $lines = @(
+                "Import-Module '$($script:ContractModulePath.Replace("'", "''"))' -Force -DisableNameChecking"
+                foreach ($verb in $script:ContractVerb) { "function $verb { }" }
+                "Export-ModuleMember -Function $($exported -join ', ')"
+                "`$null = Assert-YurunaHostContractCoverage -HostType 'contract.stub' -Module `$ExecutionContext.SessionState.Module -ExportedFunction @($declared)"
+            )
+            $path = Join-Path $Directory 'Yuruna.Host.ContractStub.psm1'
+            [IO.File]::WriteAllText($path, ($lines -join "`n") + "`n")
+            return $path
+        }
+
+        function Import-StubInFreshProcess {
+            <#
+            .SYNOPSIS
+                Imports a stub driver in a new pwsh, so its contract reload never
+                touches this session, and reports whether it loaded and the error
+                that stopped it.
+            #>
+            param([string]$Path)
+            $command = "try { Import-Module '$($Path.Replace("'", "''"))' -Force -DisableNameChecking; 'IMPORTED' } " +
+                "catch { 'REFUSED: ' + `$_.Exception.Message }; 'LOADED=' + [bool](Get-Module Yuruna.Host.ContractStub)"
+            return @(& ([Environment]::ProcessPath) -NoLogo -NoProfile -NonInteractive -Command $command 2>&1 |
+                ForEach-Object { ("$_" -replace '\x1b\[[0-9;?]*[ -/]*[@-~]', '') })
+        }
+    }
+
+    It 'refuses the import with the message that names every missing verb' {
+        $path = New-ContractStubDriver -Directory (Join-Path $TestDrive 'missing') -Omit 'Stop-VMForce', 'Get-VMMac'
+        $output = Import-StubInFreshProcess -Path $path
+        $expected = Format-YurunaOperatorMessage -Key 'host.operator_a9f9eb3eae0014c6' -Arguments @{
+            hostType = 'contract.stub'; count = '2'; join = (@($script:ContractVerb | Where-Object { $_ -in 'Stop-VMForce', 'Get-VMMac' }) -join ', ')
+        }
+        $output | Should -Contain "REFUSED: $expected" -Because ($output -join ' | ')
+        $output | Should -Contain 'LOADED=False'
+    }
+
+    It 'imports a driver that exports every contract verb' {
+        $path = New-ContractStubDriver -Directory (Join-Path $TestDrive 'complete')
+        $output = Import-StubInFreshProcess -Path $path
+        $output | Should -Contain 'IMPORTED' -Because ($output -join ' | ')
+        $output | Should -Contain 'LOADED=True'
     }
 }
 

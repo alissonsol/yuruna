@@ -298,12 +298,17 @@ CLI subscription lookup and the image probe of the
 [deploy phase ledger](#42e568c8-0010) -- runs under a deadline
 (`Invoke-YurunaToolWithDeadline`, and `Invoke-WithYurunaRetry -TimeoutSeconds`
 for a retried call, in Yuruna.Retry.psm1). The `kubectl config` calls that read
-and switch kubeconfig contexts stay unbounded: they never contact a cluster. At the deadline the
-process tree the call started is killed, the call reports exit code 124, its
-log section ends with a line saying it was stopped, and the phase ends with the
-`tool_timeout` failure class, which the host routes as `wait_timeout`, the class
-a hang the step watchdog kills has. The component phase's commands run under
-the same kind of bound already (`commandTimeoutSeconds`).
+and switch kubeconfig contexts run under a `kubectl` deployment's bound as the
+workloads file's `globalVariables` set it, so a kubeconfig that stops answering
+(a locked file, an exec plugin waiting on a prompt) ends the phase the same
+way. At the deadline the process tree the call started is killed, the call
+reports exit code 124, its log section ends with a line saying it was stopped,
+and the phase ends with the `tool_timeout` failure class, which the host routes
+as `wait_timeout`, the class a hang the step watchdog kills has. The component
+phase's commands -- preprocessor, build, postprocessor, tag, registry login and
+push -- run under the same kind of bound (`commandTimeoutSeconds`); one stopped
+at it ends the phase as `tool_timeout` too, and one that fails on its own as
+`tool_failed`.
 
 The call still runs in the phase's own process, so its output, its environment
 changes and a project's PowerShell `shell` deployments behave as before; only
@@ -399,6 +404,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

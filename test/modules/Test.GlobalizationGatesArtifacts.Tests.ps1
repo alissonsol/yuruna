@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42ee0946-820e-4d0f-9db6-e2edc4b0eea3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,6 +136,24 @@ Describe 'the generated artifacts match their sources' {
         }
         Assert-True ($result.Output -match 'not-applicable') `
             'nothing is reported as inapplicable, which would mean every gate reaches a repository it cannot see'
+    }
+
+    It 'holds the workspace repositories to the source-metadata rules together' {
+        # One row compares the GUIDs of all four repositories. Without an
+        # amisad.dev checkout it says so as not applicable rather than passing
+        # over three of them.
+        Confirm-SiblingCheckout -Name 'yuruna-project', 'yuruna.link'
+        $result = Get-CrossRepoGateRun
+        $workspace = Split-Path -Parent $script:RepoRoot
+        $amisad = @('amisad.dev', 'alius-git/amisad.dev') | Where-Object {
+            Test-Path -LiteralPath (Join-Path $workspace $_) -PathType Container }
+        if ($amisad) {
+            Assert-Match '(?m)^source-metadata\s+pass\s+Test-SourceMetadata \[all\]: 4 repo\(s\)' $result.Output `
+                "the four repositories are not held to the source-metadata rules together:`n$($result.Output)"
+        } else {
+            Assert-Match '(?m)^source-metadata\s+not-applicable\s+no amisad\.dev checkout' $result.Output `
+                "an absent amisad.dev checkout is not reported as not applicable:`n$($result.Output)"
+        }
     }
 
     It 'keeps the private development repository out of every generated artifact' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 429a66cc-5713-49fc-2b0e-289ebc145f6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,21 @@
     'auth.detail_unconfigured' = 'no lab auth token and no aggregator URL configured'
     'auth.detail_unreachable' = 'unreachable'
     'auth.encode_refusal' = 'the gate could not encode its refusal'
+    'auth.host_not_served' = @(
+        'this service does not answer to the name '
+        @{
+            'arg' = 'host'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; open it by its address, or add the name to '
+        @{
+            'arg' = 'setting'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' on the host that builds this service''s VM and rebuild the VM'
+    )
     'auth.login_unavailable' = 'no aggregator URL is configured, so the pool aggregator cannot check a lab token; actions stay locked'
     'auth.malformed_request' = 'malformed request body'
     'auth.proof_check_failed' = @(

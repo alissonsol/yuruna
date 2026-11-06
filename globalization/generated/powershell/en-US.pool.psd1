@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4287c576-70ba-465a-5472-248e943d02a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1246,6 +1246,21 @@
     )
     'pool.result' = 'Result'
     'pool.row_number' = 'Row number'
+    'pool.runner' = 'Runner'
+    'pool.runner_cell' = @(
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' since '
+        @{
+            'arg' = 'startedAt'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'pool.runner_unreported' = 'This host''s runner has not reported its commit and start time. A runner started before that report existed reports them after its next restart.'
     'pool.running' = 'Running: '
     'pool.running_checks' = 'Running checks...'
     'pool.save_failed_value1' = @(

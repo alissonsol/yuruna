@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 const (
@@ -95,7 +97,7 @@ func parsePoolStatus(body []byte) ([]activeHost, error) {
 	var out []activeHost
 	for _, h := range doc.Hosts {
 		id := strings.TrimSpace(h.HostID)
-		if !plainHostIDRE.MatchString(id) || id != strings.ToLower(id) || !h.Reachable || h.Status == nil {
+		if !poolstate.IsPlainHostID(id) || id != strings.ToLower(id) || !h.Reachable || h.Status == nil {
 			continue
 		}
 		base := strings.TrimRight(strings.TrimSpace(h.BaseURL), "/")

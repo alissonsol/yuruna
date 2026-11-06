@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 424757c6-0173-447c-a3d1-c814f73109f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -414,5 +414,42 @@ Describe 'Cycle dispatch' {
             Restore-YurunaTestEnvironment -Saved $priorRuntimeDir
             Remove-YurunaTestTempDir $dir
         }
+    }
+}
+
+# The runner keeps the code it imported at start until it exits; its report of
+# that code belongs to the long-lived runner, written once it is sure to run.
+Describe 'The runner reports the code it runs' {
+    It 'publishes the runner''s commit and start time from the long-lived runner only' {
+        $outerAst = [System.Management.Automation.Language.Parser]::ParseFile($script:outerFile, [ref]$null, [ref]$null)
+        $commandsNamed = {
+            param([string]$Name)
+            $wanted = $Name
+            @($outerAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $wanted }, $true) |
+                Sort-Object -Property { $_.Extent.StartOffset })
+        }
+        $calls = @(& $commandsNamed 'Set-StatusRunnerResident')
+        $calls.Count | Should -Be 1 -Because 'the runner publishes its report once, as it starts'
+        $call = $calls[0]
+        $enclosing = $call.Parent
+        while ($enclosing -and $enclosing -isnot [System.Management.Automation.Language.ScriptBlockAst]) { $enclosing = $enclosing.Parent }
+        $enclosing | Should -Be $outerAst -Because 'a call inside a scriptblock or function might never run'
+        $offset = $call.Extent.StartOffset
+        $offset | Should -BeGreaterThan (& $commandsNamed 'Write-RunnerPidFile')[0].Extent.StartOffset -Because 'only the runner that holds the pidfile reports'
+        $refusals = @($outerAst.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+                $n.InvocationOperator -eq [System.Management.Automation.Language.TokenKind]::Dot -and $n.CommandElements[0].Extent.Text -eq '$refuseStart' }, $true) |
+            Sort-Object -Property { $_.Extent.StartOffset })
+        $refusals.Count | Should -BeGreaterThan 0
+        $offset | Should -BeGreaterThan $refusals[-1].Extent.StartOffset -Because 'a runner that refuses to start reports nothing, on fresh and resumed starts alike'
+        $offset | Should -BeLessThan (& $commandsNamed 'Invoke-RunnerOuterSupervisor')[0].Extent.StartOffset
+        $elements = @($call.CommandElements)
+        $commitAt = [array]::IndexOf(@($elements | ForEach-Object { if ($_ -is [System.Management.Automation.Language.CommandParameterAst]) { $_.ParameterName } else { '' } }), 'CommitSha')
+        $commitAt | Should -BeGreaterThan 0
+        $elements[$commitAt + 1].Extent.Text | Should -Match 'Get-OuterCommitSha' -Because 'the commit is the checkout the runner started on'
+        $existingOnly = @($elements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'ExistingOnly' })
+        $existingOnly.Count | Should -Be 1
+        $existingOnly[0].Argument.Extent.Text | Should -BeExactly '$RefreshResume' -Because 'a resumed start''s preflight writes no new status document'
+        (Get-CommandNameList -Path $script:cycleFile) -contains 'Set-StatusRunnerResident' | Should -BeFalse -Because 'a cycle process loads new code every cycle and is no runner'
     }
 }

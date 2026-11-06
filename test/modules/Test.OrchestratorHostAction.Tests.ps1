@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42c7e1a9-5b3d-4f0e-9a6c-2d8f1b7e4a53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -373,5 +373,190 @@ Describe 'Orchestration guest VM sizing' {
         Assert-Equal 8GB $captured.memory -Because 'variables.memoryStartupBytes reaches New-VM'
         Assert-Equal 4 $captured.cores -Because 'variables.cores reaches New-VM'
         Assert-True ([bool]$captured.expose) 'variables.exposeVirtualizationExtensions reaches New-VM'
+    }
+}
+
+# An orchestration owns the cycle the runner dispatches it in, and the runner
+# took the cycle-start host diagnostic only on the path where it opens the
+# cycle itself, so an orchestrated cycle's folder held no host.diagnostic.txt
+# and its perf rows no hostInfoHash. Each case runs the dispatch statement
+# exactly as its entry point wrote it, against the real orchestrator and the
+# real capture; a stub stands in for automation/Get-SystemDiagnostic.ps1.
+Describe 'Orchestration cycle-start host diagnostic' {
+    BeforeAll {
+        $modules = Split-Path -Parent $PSCommandPath
+        # The capture belongs to the runner's module; the orchestrator reaches it
+        # through the global command table, as it does in the runner's process.
+        Import-Module (Join-Path $modules 'Test.RunnerInnerLoop.psm1') -Force -Global -DisableNameChecking
+        $script:Dispatch = @{}
+        foreach ($entryPoint in @(
+                @{ Name = 'runner'; Path = (Join-Path $modules 'Test.RunnerInnerLoop.psm1') }
+                @{ Name = 'standalone'; Path = (Join-Path (Split-Path -Parent $modules) 'Debug-TestSequence.ps1') }
+            )) {
+            $calls = @((Get-YurunaTestFileAst -Path $entryPoint.Path).FindAll({ param($n)
+                        $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Invoke-OrchestrationSequence' }, $true))
+            Assert-Equal 1 $calls.Count "fixture sanity: one orchestration dispatch in $($entryPoint.Path)"
+            $script:Dispatch[$entryPoint.Name] = $calls[0].Extent.Text
+        }
+
+        function Invoke-HostDiagnosticFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Nested test doubles only record their arguments or create folders under the test drive.')]
+            [CmdletBinding()]
+            param([Parameter(Mandatory)][string]$Statement, [switch]$Nested, [switch]$NoDiagnosticScript)
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $runs = Join-Path $root 'diagnostic-runs.txt'
+            $null = New-Item -ItemType Directory -Force -Path (Join-Path $root 'automation')
+            if (-not $NoDiagnosticScript) {
+                # Records each run, then writes the dump and its problem sidecar
+                # where automation/Get-SystemDiagnostic.ps1 writes them for -OutFile.
+                $stub = @(
+                    'param([string]$OutFile)'
+                    "Add-Content -LiteralPath '$runs' -Value `$OutFile"
+                    'Set-Content -LiteralPath $OutFile -Value ''fixture host state'''
+                    'Set-Content -LiteralPath "$OutFile.json" -Value ''{"schema":"yuruna.diagnostic.problems/v1","count":1,"byClass":{"disk":1},"problems":[{"class":"disk","message":"fixture"}]}'''
+                )
+                Set-Content -LiteralPath (Join-Path $root 'automation/Get-SystemDiagnostic.ps1') -Value $stub -Encoding utf8
+            }
+            $savedFolder = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
+            $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+            $savedCache = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
+            try {
+                $env:YURUNA_RUNTIME_DIR = Join-Path $root 'runtime'
+                $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
+                $actual = Invoke-InOrchestrator {
+                    param($Root, $Text, $IsNested)
+                    $capture = @{ Perf = $null; Completed = 0 }
+                    $cycleFolder = Join-Path $Root '000001.fixture-cycle'
+                    $nestedContext = if ($IsNested) {
+                        @{ statusPath = (Join-Path $Root 'owner.json'); parentId = 'parent'; rootCycleFolder = $cycleFolder; cycleStartUtc = '2026-01-01T00:00:00Z'; cycleNumber = 1 }
+                    } else { $null }
+                    function Get-CycleContext { return $nestedContext }
+                    function Resolve-SequencePath { return (Join-Path $Root 'host-action.yml') }
+                    function Read-SequenceFile { return @{ host = @{} } }
+                    function Test-CachingProxyServiceAvailable { return $null }
+                    function Initialize-YurunaRuntimeDir { return $env:YURUNA_RUNTIME_DIR }
+                    # The real owner opens the transcript, which publishes the cycle folder.
+                    function Register-StandaloneCycle {
+                        $null = New-Item -ItemType Directory -Force -Path $cycleFolder
+                        Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $cycleFolder }
+                        return @{ CycleStartUtc = '2026-01-01T00:00:00Z'; CycleNumber = 1; LogFile = (Join-Path $cycleFolder 'cycle.html')
+                            FrameworkCommit = 'framework-sha'; ProjectCommit = $null; GitCommits = @() }
+                    }
+                    function Start-NestedLogFile {
+                        $folder = Join-Path $cycleFolder 'nested'
+                        $null = New-Item -ItemType Directory -Force -Path $folder
+                        Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $folder }
+                        return @{ LogRel = 'nested/nested.html'; LogFile = (Join-Path $folder 'nested.html') }
+                    }
+                    function Start-PerfCycle {
+                        param($HostDiagnosticPath)
+                        $capture.Perf = @{ Path = $HostDiagnosticPath; Existed = [bool]($HostDiagnosticPath -and (Test-Path -LiteralPath $HostDiagnosticPath)) }
+                    }
+                    function Get-CycleNumber { return 1 }
+                    function Set-GuestTopLevel { }
+                    function Set-GuestStatus { }
+                    function Set-StepStatus { }
+                    function Publish-CycleContext { }
+                    function Clear-CycleContext { }
+                    function Write-CycleStepEvent { }
+                    function Invoke-OrchestratorHostAction { return 0 }
+                    function Complete-Run { $capture.Completed++ }
+                    function Stop-LogFile { }
+                    function Register-NestedRunNode { }
+                    function Set-NestedRunStatus { }
+                    function Stop-NestedLogFile { }
+                    # What the dispatch statements read, under the names their entry points use.
+                    $orchestrationDoc = $topLevelDoc = @{ name = 'suite'; steps = @(@{ action = 'InvokeTestSequence'; sequence = 'host-action' }) }
+                    $orchestrationPath = $SequencePath = Join-Path $Root 'suite.yml'
+                    $RepoRoot = $SequencesDir = $TestRoot = $Root
+                    $HostType = 'host.ubuntu.kvm'
+                    $Config = @{ repositories = @{}; vmStart = @{} }
+                    $decideBeforeSeal = { param($Status, $Reason) $null = $Status, $Reason }
+                    $ShowSensitive = $false
+                    $null = @($orchestrationDoc, $topLevelDoc, $orchestrationPath, $SequencePath, $RepoRoot, $SequencesDir, $TestRoot, $HostType, $Config, $decideBeforeSeal, $ShowSensitive)
+                    $streams = @(. ([scriptblock]::Create($Text)) 6>&1 3>&1)
+                    $capture.Output = @($streams | Where-Object { $_ -isnot [System.Management.Automation.InformationRecord] -and $_ -isnot [System.Management.Automation.WarningRecord] })
+                    $capture.Information = @($streams | Where-Object { $_ -is [System.Management.Automation.InformationRecord] } | ForEach-Object { [string]$_.MessageData })
+                    $capture.Warnings = @($streams | Where-Object { $_ -is [System.Management.Automation.WarningRecord] } | ForEach-Object { [string]$_.Message })
+                    $capture.Dump = Join-Path $cycleFolder 'host.diagnostic.txt'
+                    # The lines a cycle the runner opens itself prints for the same capture.
+                    $capture.Lines = @(
+                        (Format-YurunaOperatorMessage -Key 'runner.operator_129990a926a40e2a' -Arguments @{ cycleBaseName = (Split-Path -Leaf $cycleFolder) })
+                        (Format-YurunaOperatorMessage -Key 'runner.operator_5d4003f8fdb37099' -Arguments @{ diagCount = '1'; diagTally = 'disk=1' })
+                    )
+                    $capture.MissingScript = Format-YurunaOperatorMessage -Key 'runner.operator_b7880bb57e65b573' -Arguments @{ hostDiagScript = (Join-Path $Root 'automation/Get-SystemDiagnostic.ps1') }
+                    return $capture
+                } @($root, $Statement, [bool]$Nested)
+            } finally {
+                Restore-YurunaTestGlobal -Saved $savedFolder
+                Restore-YurunaTestEnvironment -Saved $savedRuntime
+                Restore-YurunaTestEnvironment -Saved $savedCache
+            }
+            $actual.Root = $root
+            $actual.Runs = @(if (Test-Path -LiteralPath $runs) { Get-Content -LiteralPath $runs })
+            return $actual
+        }
+    }
+
+    It 'writes host.diagnostic.txt into the cycle folder a runner orchestration owns, before the perf log opens' {
+        $actual = Invoke-HostDiagnosticFixture -Statement $script:Dispatch.runner
+        Assert-Equal 1 $actual.Runs.Count 'an orchestration cycle the runner dispatches takes one cycle-start host diagnostic'
+        Assert-StringEqual $actual.Dump $actual.Runs[0] 'the dump is written at the root of the cycle folder'
+        Assert-True (Test-Path -LiteralPath $actual.Dump) 'host.diagnostic.txt is in the cycle folder'
+        Assert-StringEqual $actual.Dump $actual.Perf.Path 'the perf log hashes that dump'
+        Assert-True $actual.Perf.Existed 'the dump exists before the perf log opens over it'
+        Assert-Equal 1 $actual.Output.Count "the capture's lines stay out of the exit code: $($actual.Output -join ' | ')"
+        Assert-Equal 0 $actual.Output[0]
+        foreach ($line in $actual.Lines) {
+            Assert-True ($actual.Information -ccontains $line) "the cycle log carries '$line' as a runner cycle's does"
+        }
+    }
+
+    It 'leaves the capture to the cycle owner when nested' {
+        $actual = Invoke-HostDiagnosticFixture -Statement $script:Dispatch.runner -Nested
+        Assert-Equal 0 $actual.Runs.Count 'only the owner of the cycle takes it'
+        Assert-Equal 0 @(Get-ChildItem -LiteralPath $actual.Root -Recurse -Filter 'host.diagnostic.txt').Count 'no second dump anywhere in the cycle'
+        Assert-Null $actual.Perf 'a nested orchestration opens no perf log of its own'
+    }
+
+    It 'takes none for a standalone Debug-TestSequence run, as for every sequence shape it runs' {
+        $actual = Invoke-HostDiagnosticFixture -Statement $script:Dispatch.standalone
+        Assert-Equal 0 $actual.Runs.Count 'Debug-TestSequence opens its own cycles without the runner''s cycle-start host diagnostic'
+        Assert-False (Test-Path -LiteralPath $actual.Dump) 'no dump in the standalone cycle folder'
+        Assert-NotNull $actual.Perf 'the perf log still opens'
+        Assert-False $actual.Perf.Existed 'with no dump to hash'
+        Assert-Equal 0 $actual.Output[0]
+    }
+
+    It 'scopes the switch help to the cycle-start capture' {
+        # A standalone run whose guest chain fails still takes the failure-time
+        # capture (Save-ChainFailureArtifact), and an owner takes the cycle-start
+        # one only when its caller passes the switch, so both exemptions the help
+        # states are about the cycle-start capture alone.
+        $help = (Get-YurunaTestFunctionAst -Path $script:Orchestrator.Path -Name 'Invoke-OrchestrationSequence').GetHelpContent().Parameters['CAPTUREHOSTDIAGNOSTIC']
+        Assert-NotNull $help 'fixture sanity: the switch has parameter help'
+        $sentences = @(($help -replace '\s+', ' ').Trim() -split '(?<=\.)\s+')
+        $standalone = @($sentences | Where-Object { $_ -match 'standalone' })
+        Assert-True ($standalone.Count -gt 0) 'fixture sanity: the help says what a standalone run takes'
+        foreach ($sentence in $standalone) {
+            Assert-Match 'cycle-start' $sentence 'a standalone run whose guest chain fails still takes the failure-time capture'
+        }
+        Assert-Match 'host\.diagnostics\.txt' $help 'the help names the failure-time capture the switch leaves alone'
+        $nested = @($sentences | Where-Object { $_ -match 'nested' })
+        Assert-True ($nested.Count -gt 0) 'fixture sanity: the help says what a nested run takes'
+        foreach ($sentence in $nested) {
+            Assert-Match '\bonly\b.*\bowner\b' $sentence 'a standalone owner took no cycle-start capture for its nested runs'
+        }
+    }
+
+    It 'warns and still runs the cycle when the diagnostic script is missing' {
+        $actual = Invoke-HostDiagnosticFixture -Statement $script:Dispatch.runner -NoDiagnosticScript
+        Assert-True ($actual.Warnings -ccontains $actual.MissingScript) "the missing script is reported: $($actual.Warnings -join ' | ')"
+        Assert-False (Test-Path -LiteralPath $actual.Dump) 'nothing was captured'
+        Assert-NotNull $actual.Perf 'the perf log still opens'
+        Assert-Equal 1 $actual.Completed 'the cycle still runs to completion'
+        Assert-Equal 1 $actual.Output.Count
+        Assert-Equal 0 $actual.Output[0]
     }
 }

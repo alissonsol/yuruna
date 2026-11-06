@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 423d18da-7e97-4117-9ac0-6c6e5a592415
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,7 +46,6 @@ BeforeAll {
     $script:Pwsh = (Get-Process -Id $PID).Path
     if (-not $script:Pwsh) { $script:Pwsh = 'pwsh' }
     $script:User = if ($env:USER) { $env:USER } else { [Environment]::UserName }
-    $script:HadRelaunch = Test-Path -LiteralPath Env:YURUNA_SG_RELAUNCH
     $script:SavedRelaunch = Save-YurunaTestEnvironment -Name 'YURUNA_SG_RELAUNCH'
 
     function Get-FakeBoundedResult {
@@ -83,10 +82,8 @@ BeforeAll {
         return $bin
     }
 
-    function Restore-RelaunchMarker {
-        if ($script:HadRelaunch) { Restore-YurunaTestEnvironment -Saved $script:SavedRelaunch }
-        else { Remove-Item -LiteralPath Env:YURUNA_SG_RELAUNCH -ErrorAction SilentlyContinue }
-    }
+    # The snapshot records an absent marker as absent, and the restore removes it then.
+    function Restore-RelaunchMarker { Restore-YurunaTestEnvironment -Saved $script:SavedRelaunch }
 }
 
 Describe 'Test-LibvirtGroupReExecNeeded -- a decision with no side effects' {

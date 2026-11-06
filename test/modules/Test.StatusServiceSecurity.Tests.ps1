@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 427642c0-6914-46fa-a327-c4a7e4ddc547
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -496,6 +496,30 @@ foreach ($one in 0) {
         $age = (& $script:RunnerStatus $runtime).stepHeartbeatAgeSeconds
         $age | Should -BeGreaterOrEqual 99
         $age | Should -BeLessOrEqual 105
+    }
+}
+
+# The pool's Hosts page shows each runner's commit and start time from this
+# route, read from the report the runner writes into status.json as it starts.
+Describe 'host facts carry the runner''s own report' {
+    It 'reports the runner''s commit and start time in host facts' {
+        $start = $script:ServerText.IndexOf("if (`$path -eq 'control/host-facts')", [StringComparison]::Ordinal)
+        $end = $script:ServerText.IndexOf('# --- REGION: /control/perf-aggregates', $start, [StringComparison]::Ordinal)
+        ($start -ge 0 -and $end -gt $start) | Should -BeTrue -Because 'the host-facts route must exist'
+        $route = $script:ServerText.Substring($start, $end - $start)
+        $readStart = $route.IndexOf('$hfRunner = $null', [StringComparison]::Ordinal)
+        $readEnd = $route.IndexOf('$payload = @{', [StringComparison]::Ordinal)
+        ($readStart -ge 0 -and $readEnd -gt $readStart) | Should -BeTrue -Because 'the route reads the runner''s report before it builds its answer'
+        $read = [scriptblock]::Create("param([string]`$statusJsonFile)`n" + $route.Substring($readStart, $readEnd - $readStart) + "`nreturn `$hfRunner")
+        Import-Module (Join-Path $PSScriptRoot 'Test.Status.psm1') -Force -Global -DisableNameChecking
+        $statusFile = Join-Path $script:Work ('host-facts-status-' + [guid]::NewGuid().ToString('N') + '.json')
+        [IO.File]::WriteAllText($statusFile, '{"overallStatus":"pass","runnerResident":{"commitSha":"' + ('a' * 40) + '","startedAtUtc":"2026-10-25T03:13:08.1234567Z"}}')
+        $runner = & $read $statusFile
+        $runner.commitSha | Should -BeExactly ('a' * 40)
+        $runner.startedAtUtc | Should -BeExactly '2026-10-25T03:13:08.1234567Z'
+        (& $read (Join-Path $script:Work 'absent-status.json')) | Should -BeNullOrEmpty -Because 'a host with no status document reports no runner'
+        $route | Should -Match 'runnerCommitSha\s*=\s*if \(\$hfRunner\) \{ \[string\]\$hfRunner\.commitSha \} else \{ '''' \}'
+        $route | Should -Match 'runnerStartedAtUtc\s*=\s*if \(\$hfRunner\) \{ \[string\]\$hfRunner\.startedAtUtc \} else \{ '''' \}'
     }
 }
 

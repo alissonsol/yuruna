@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4229d039-c021-419e-a736-76c0a2f58264
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -928,5 +928,115 @@ Describe 'seed values cannot change the syntax around their placeholders' {
             }
             ($violations | ForEach-Object { "$($file.Name):$($_.Line) $($_.Placeholder) [$($_.Context)] $($_.Reason)" }) | Should -BeNullOrEmpty
         }
+    }
+}
+
+# Grafana creates its admin account when it first creates its database, which
+# happens on every proxy build, and with no password named that account is
+# admin/admin. The seed carries a password each build mints, and the building
+# host records it beside the proxy's other secrets.
+Describe 'the proxy gives Grafana a new admin password on every build' {
+    BeforeAll {
+        Import-Module powershell-yaml -Force
+        $script:SeedFiles = @((Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'host/vmconfig/caching-proxy-service.base.user-data') |
+                ConvertFrom-Yaml).write_files)
+
+        # The argument a command passes for one named parameter, as written.
+        function Get-NamedArgument {
+            param(
+                [Parameter(Mandatory)][Management.Automation.Language.CommandAst]$Command,
+                [Parameter(Mandatory)][string]$Name
+            )
+            $elements = $Command.CommandElements
+            for ($i = 1; $i -lt $elements.Count; $i++) {
+                if ($elements[$i] -is [Management.Automation.Language.CommandParameterAst] -and $elements[$i].ParameterName -eq $Name) {
+                    if ($elements[$i].Argument) { return $elements[$i].Argument }
+                    if ($i + 1 -lt $elements.Count) { return $elements[$i + 1] }
+                }
+            }
+            return $null
+        }
+    }
+
+    It 'passes the password to Grafana from a file only root can read, never from the drop-in' {
+        $dropIn = @($script:SeedFiles | Where-Object { $_.path -eq '/etc/systemd/system/grafana-server.service.d/yuruna.conf' })
+        $dropIn.Count | Should -Be 1
+        $unit = @(([string]$dropIn[0].content) -split "`r?`n")
+        $service = [array]::IndexOf($unit, '[Service]')
+        $service | Should -BeGreaterOrEqual 0
+        # No '-' prefix: a missing file stops Grafana instead of letting it create admin/admin.
+        $reads = @(for ($i = 0; $i -lt $unit.Count; $i++) { if ($unit[$i] -cmatch '^EnvironmentFile=/etc/yuruna/grafana-admin\.env$') { $i } })
+        $reads.Count | Should -Be 1 -Because 'the unit reads the password from the root-only file'
+        $reads[0] | Should -BeGreaterThan $service
+        @($unit[($service + 1)..($reads[0])] | Where-Object { $_ -match '^\s*\[' }).Count | Should -Be 0 -Because 'systemd honors EnvironmentFile= only in the [Service] section'
+        ([string]$dropIn[0].content).Contains('GF_SECURITY_ADMIN') | Should -BeFalse -Because 'the drop-in is world-readable'
+
+        $envFile = @($script:SeedFiles | Where-Object { $_.path -eq '/etc/yuruna/grafana-admin.env' })
+        $envFile.Count | Should -Be 1
+        $envFile[0].permissions | Should -BeExactly '0600'
+        $envFile[0].owner | Should -BeExactly 'root:root'
+        [string]$envFile[0].content | Should -MatchExactly '(?m)^GF_SECURITY_ADMIN_PASSWORD=YURUNA_GRAFANA_ADMIN_PASSWORD_PLACEHOLDER\r?$'
+        @($script:SeedFiles | Where-Object { ([string]$_.content).Contains('GF_SECURITY_ADMIN_PASSWORD') }).Count |
+            Should -Be 1 -Because 'no other file may hand Grafana a fixed password'
+    }
+
+    It '<Platform> seeds a new password and records it with the proxy secrets after the render and before removing the proxy VM' -ForEach @(
+        @{ Platform = 'ubuntu.kvm'; Remove = 'Remove-KvmDomainDefinition' }
+        @{ Platform = 'macos.utm'; Remove = 'Remove-UtmTestVM' }
+        @{ Platform = 'windows.hyper-v'; Remove = 'Remove-HyperVGuestDefinition' }
+    ) {
+        $errors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot "host/$Platform/guest.caching-proxy-service/New-VM.ps1"), [ref]$null, [ref]$errors)
+        @($errors).Count | Should -Be 0
+        $calls = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] }, $true))
+        $render = @($calls | Where-Object { $_.GetCommandName() -eq 'New-CloudInitUserData' })
+        $render.Count | Should -Be 1
+        $teardown = @($calls | Where-Object { $_.GetCommandName() -eq $Remove })
+        $teardown.Count | Should -Be 1
+        $planExit = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$PlanOnly' }, $true))
+        $planExit.Count | Should -Be 1
+
+        $binding = @((Get-NamedArgument -Command $render[0] -Name 'Replacement').KeyValuePairs |
+                Where-Object { $_.Item1.Extent.Text -eq 'YURUNA_GRAFANA_ADMIN_PASSWORD_PLACEHOLDER' })
+        $binding.Count | Should -Be 1 -Because 'the render resolves the seed placeholder'
+        $bound = $binding[0].Item2.Find({ param($n) $n -is [Management.Automation.Language.VariableExpressionAst] }, $true)
+        $bound | Should -Not -BeNullOrEmpty
+        $binding[0].Item2.Extent.Text | Should -BeExactly $bound.Extent.Text -Because 'the placeholder takes the minted value as it is'
+        $name = $bound.VariablePath.UserPath
+
+        $minted = @($ast.FindAll({ param($n)
+                    $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+                    $n.Left -is [Management.Automation.Language.VariableExpressionAst] -and $n.Left.VariablePath.UserPath -eq $name }, $true))
+        $minted.Count | Should -Be 1 -Because 'the build mints the value once'
+        $minted[0].Extent.StartOffset | Should -BeGreaterThan $planExit[0].Extent.EndOffset -Because '-PlanOnly changes nothing'
+        $minted[0].Right.Extent.Text | Should -Match 'RandomNumberGenerator'
+        $minted[0].Right.Extent.Text | Should -Not -Match 'Get-Password|Read-CachingProxyServiceState' -Because 'a stored value would repeat across builds'
+
+        $recorded = @($calls | Where-Object {
+                $user = if ($_.GetCommandName() -eq 'Set-Password') { Get-NamedArgument -Command $_ -Name 'Username' }
+                $user -is [Management.Automation.Language.StringConstantExpressionAst] -and $user.Value -eq 'caching-proxy-grafana-admin' })
+        $recorded.Count | Should -Be 1 -Because 'the vault keeps the password under its own logical user'
+        $value = Get-NamedArgument -Command $recorded[0] -Name 'NewPassword'
+        $value -is [Management.Automation.Language.VariableExpressionAst] | Should -BeTrue
+        $value.VariablePath.UserPath | Should -Be $name
+        $recorded[0].Extent.StartOffset | Should -BeGreaterThan $render[0].Extent.EndOffset -Because 'a refused render leaves the vault as the previous build wrote it'
+        $recorded[0].Extent.EndOffset | Should -BeLessThan $teardown[0].Extent.StartOffset -Because 'a failed write stops the build before this builder removes the old VM'
+        # A failed write ends the build only when nothing catches it.
+        for ($node = $recorded[0].Parent; $node; $node = $node.Parent) {
+            $node | Should -Not -BeOfType ([Management.Automation.Language.TryStatementAst]) -Because 'a caught failure would let the build remove the old VM'
+        }
+        # Set-Password is an authentication-module function, and a module reads
+        # the error preference from its own scope and the global one, not from
+        # this script's. Run in-process from a prompt, a failed write would not
+        # stop the build unless the call asks for Stop itself.
+        $stop = Get-NamedArgument -Command $recorded[0] -Name 'ErrorAction'
+        ($stop -is [Management.Automation.Language.StringConstantExpressionAst] -and $stop.Value -eq 'Stop') |
+            Should -BeTrue -Because 'a failed write must end the build however the builder is launched'
+        $preference = @($ast.FindAll({ param($n)
+                    $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$ErrorActionPreference' }, $true))
+        $preference.Count | Should -Be 1 -Because 'the builder stops at its first error'
+        $preference[0].Right.Extent.Text | Should -BeExactly "'Stop'"
+        $preference[0].Parent.Parent.Parent | Should -BeNullOrEmpty -Because 'the preference is set for the whole script'
+        $preference[0].Extent.EndOffset | Should -BeLessThan $recorded[0].Extent.StartOffset
     }
 }

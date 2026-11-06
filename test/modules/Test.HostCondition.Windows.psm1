@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,6 +57,60 @@ function Read-WindowsPowerSetting {
         Ac = ConvertFrom-YurunaPowerSettingIndex -Output $output -Scheme AC
         Dc = ConvertFrom-YurunaPowerSettingIndex -Output $output -Scheme DC
     }
+}
+
+function Write-WindowsPowerSetting {
+    <#
+    .SYNOPSIS
+    Apply one powercfg change through a bounded call; $true when powercfg
+    answered and accepted it.
+    .DESCRIPTION
+    The power service that answers Read-WindowsPowerSetting takes the writes
+    too, and one that stops answering held the setup run on an unbounded call
+    exactly as it once held the gate. A write that times out, cannot start or
+    exits non-zero is "not written", which the caller counts as a condition
+    the run could not put in place rather than as a change made.
+    .PARAMETER ArgumentList
+    The powercfg arguments, e.g. @('/change', 'monitor-timeout-ac', '0').
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string[]]$ArgumentList,
+        [ValidateRange(1, 300)][int]$TimeoutSeconds = 15
+    )
+    $write = Invoke-BoundedNativeCommand -FilePath 'powercfg' -ArgumentList $ArgumentList -TimeoutSeconds $TimeoutSeconds
+    return (-not $write.TimedOut -and [bool]$write.Started -and $write.ExitCode -eq 0)
+}
+
+function Read-WindowsHyperVFeatureState {
+    <#
+    .SYNOPSIS
+    The State DISM reports for Microsoft-Hyper-V-All, read through a bounded
+    call, or 'Unknown' when it could not be read.
+    .DESCRIPTION
+    dism asks the servicing stack, which can stay busy far longer than a setup
+    run should wait, and an unbounded call would hold the run with it. A read
+    that times out, cannot start or exits non-zero is 'Unknown', which the
+    caller reports with the advice it gives for any state other than Enabled.
+    The cap matches the driver's own feature-state read (Get-HyperVFeatureState).
+    .PARAMETER DismPath
+    Full path of dism.exe.
+    .OUTPUTS
+    [string] the first word of DISM's State value, or 'Unknown'.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$DismPath,
+        [ValidateRange(1, 600)][int]$TimeoutSeconds = 120
+    )
+    $read = Invoke-BoundedNativeCommand -FilePath $DismPath -ArgumentList @('/English', '/Online', '/Get-FeatureInfo', '/FeatureName:Microsoft-Hyper-V-All') -TimeoutSeconds $TimeoutSeconds
+    if ($read.TimedOut -or -not $read.Started -or $read.ExitCode -ne 0) { return 'Unknown' }
+    foreach ($line in @("$($read.StdOut)" -split '\r?\n')) {
+        if ($line -match '^State\s*:\s*(\S+)') { return $Matches[1] }
+    }
+    return 'Unknown'
 }
 
 function Test-YurunaUsbmmiddDevice {
@@ -1376,15 +1430,7 @@ function Set-WindowsHostConditionSet {
         #      re-run Enable-WindowsOptionalFeature.
         # Distinguish by asking DISM directly instead of guessing.
         $dismExe = Join-Path $env:WINDIR 'System32\dism.exe'
-        $featureState = 'Unknown'
-        if (Test-Path -LiteralPath $dismExe) {
-            $dismOut = & $dismExe /English /Online /Get-FeatureInfo /FeatureName:Microsoft-Hyper-V-All 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                foreach ($line in $dismOut) {
-                    if ($line -match '^State\s*:\s*(\S+)') { $featureState = $Matches[1]; break }
-                }
-            }
-        }
+        $featureState = if (Test-Path -LiteralPath $dismExe) { Read-WindowsHyperVFeatureState -DismPath $dismExe } else { 'Unknown' }
         if ($featureState -eq 'Enabled') {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_ddcd511702c4cced')
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_48da20f024cc7b4d')
@@ -1416,9 +1462,9 @@ function Set-WindowsHostConditionSet {
         $minutes = [math]::Round($currentAc / 60)
         if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_e7d251348e22eeb5' -Arguments @{ minutes = "$minutes" }), (Format-YurunaOperatorMessage -Key 'runner.operator_af80cb8b9805df26'))) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d7ba04fc3114a17e')
-            & powercfg /change monitor-timeout-ac 0
-            & powercfg /change monitor-timeout-dc 0
-            $changed = $true
+            $written = Write-WindowsPowerSetting -ArgumentList @('/change', 'monitor-timeout-ac', '0')
+            $written = (Write-WindowsPowerSetting -ArgumentList @('/change', 'monitor-timeout-dc', '0')) -and $written
+            if ($written) { $changed = $true } else { $unmet.Add('Display timeout could not be written through powercfg.') }
         }
     } else {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_f4faadbd7e5c2c6a')
@@ -1453,10 +1499,10 @@ function Set-WindowsHostConditionSet {
     } elseif ($consoleLockVal -ne 0 -or $consoleLockDc -ne 0) {
         if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_9ac9c7e924316ac3'), "Disable")) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_e23879fc293cffdb')
-            & powercfg /SETACVALUEINDEX SCHEME_CURRENT SUB_NONE CONSOLELOCK 0
-            & powercfg /SETDCVALUEINDEX SCHEME_CURRENT SUB_NONE CONSOLELOCK 0
-            & powercfg /SETACTIVE SCHEME_CURRENT
-            $changed = $true
+            $written = Write-WindowsPowerSetting -ArgumentList @('/SETACVALUEINDEX', 'SCHEME_CURRENT', 'SUB_NONE', 'CONSOLELOCK', '0')
+            $written = (Write-WindowsPowerSetting -ArgumentList @('/SETDCVALUEINDEX', 'SCHEME_CURRENT', 'SUB_NONE', 'CONSOLELOCK', '0')) -and $written
+            $written = (Write-WindowsPowerSetting -ArgumentList @('/SETACTIVE', 'SCHEME_CURRENT')) -and $written
+            if ($written) { $changed = $true } else { $unmet.Add('Resume lock setting could not be written through powercfg.') }
         }
     } else {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_74d629322c4c0da8')

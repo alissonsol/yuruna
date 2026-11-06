@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4284f1a3-c3b1-43a6-8b63-36822be6e25d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -139,6 +139,12 @@ $tc = $_statusSeed.Config
 $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
+# The names the VM answers to besides its addresses, from this host's
+# test.config.yml. Read in the plan, while the working VM is still advertised,
+# because a malformed vmStart.serviceHostNames entry refuses the build.
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.ExtensionService.psm1') -DisableNameChecking -Verbose:$false
+try { $serviceHostNames = Get-ExtensionServiceHostNameSeed -Config $tc }
+catch { Write-Error $_.Exception.Message; exit 1 }
 
 # --- REGION: Report seed values baked empty
 # The build goes on without them, because the guest can still serve, but it
@@ -155,7 +161,7 @@ if ($PlanOnly) {
 # One VHDX backs every extension service on this host; this VM grows its own
 # copy below (host/modules/Yuruna.Image.psm1).
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
-$downloadDir = (Get-VMHost).VirtualHardDiskPath
+$downloadDir = (Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VMHost').VirtualHardDiskPath
 $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'windows.hyper-v').BaseImageFile
 
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
@@ -256,6 +262,7 @@ $UserData = New-CloudInitUserData `
         DOWNLOAD_AGENT_AUTO_SEED_PLACEHOLDER     = $agentAutoSeed
         YURUNA_CACHE_PROXY_IP_PLACEHOLDER        = $cacheProxyIp
         YURUNA_CACHE_CA_CERT_BASE64_PLACEHOLDER  = $cacheCaB64
+        YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER    = $serviceHostNames
     } -Confirm:$false
 
 # --- REGION: Remove existing VM
@@ -321,7 +328,7 @@ try {
 
     # --- REGION: Create and configure the Hyper-V VM
     New-HyperVServiceGuest -VMName $VMName -SwitchName $switchName -DiskPath $vhdxFile -SeedPath $SeedIso -HostCores $hostCores -MemoryMb 2048 -Confirm:$false
-    $createdVm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
+    $createdVm = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VM' -Parameter @{ Name = $VMName }
     Grant-SeedMediaVmRead -Path $SeedIso -VMId $createdVm.Id -Confirm:$false
 
 } finally {
@@ -331,7 +338,7 @@ try {
 
 # --- REGION: Start the VM
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_44a010f47f51d941' -Arguments @{ vMName = "$VMName" })
-Hyper-V\Start-VM -Name $VMName
+$null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Start-VM' -Parameter @{ Name = $VMName }
 
 # --- REGION: Wait for VM IP
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b8c3e5-1f7a-4d96-a2c8-6e0b9d4f1a37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -282,10 +282,11 @@ Describe 'Remove-YurunaStaleTempEntry' {
             "yuruna-browser-profile-$g32", "yuruna-gotest-$g32", "yrn-suite-0123456789ab",
             "yrn-parser-follow-123456789", "yuruna-localization-$($g32)$($g32).lock", "yuruna-status-bounce-4242.log.err",
             "yuruna-squid-ca.pem", "yuruna-dhcp-test-guest-01.etl", "yrn-go-0123456789ab",
-            "yuruna-fae-recorder.ATLa2gnP", "yuruna-fae-profile.Q1w2E3", "yrn-run-0123456789ab")
+            "yuruna-fae-recorder.ATLa2gnP", "yuruna-fae-profile.Q1w2E3", "yrn-run-0123456789ab",
+            "yuruna-hyperv-call-$g32.xml")
         foreach ($name in $script:Harness) {
             $path = Join-Path $script:Stale $name
-            if ($name -match '\.(lock|err|pem|etl)$|^yuruna-fae-profile\.') { [IO.File]::WriteAllText($path, 'x') }
+            if ($name -match '\.(lock|err|pem|etl|xml)$|^yuruna-fae-profile\.') { [IO.File]::WriteAllText($path, 'x') }
             else { $null = New-Item -ItemType Directory -Force -Path (Join-Path $path 'inner'); [IO.File]::WriteAllText((Join-Path $path 'inner/f'), 'x') }
         }
         # Names the sweep must never take, however old they are.

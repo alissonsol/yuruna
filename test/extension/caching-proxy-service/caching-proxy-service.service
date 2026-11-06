@@ -31,6 +31,7 @@ ExecStart=/usr/local/bin/caching-proxy-service --language=${YURUNA_LANGUAGE} --a
   --presence-interval=${CACHING_PROXY_PRESENCE_INTERVAL} \
   --auth-token-file=${CACHING_PROXY_AUTH_TOKEN_FILE} \
   --parser-url=${CACHING_PROXY_PARSER_URL} \
+  --allowed-host-names=${CACHING_PROXY_ALLOWED_HOST_NAMES} \
   --mirror-build-source=${CACHING_PROXY_MIRROR_BUILD_SOURCE} \
   --mirror-build-repository=${CACHING_PROXY_MIRROR_BUILD_REPOSITORY} \
   --mirror-build-commit=${CACHING_PROXY_MIRROR_BUILD_COMMIT}

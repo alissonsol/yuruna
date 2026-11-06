@@ -4445,7 +4445,7 @@
       "lifecycle": "active"
     },
     "runner.operator_13a941989b043d74": {
-      "message": "This host changed address {changes} time(s) across {distinctAddresses} distinct addresses in the last {lookbackHours}h, at no fixed interval -- consistent with reboots or link events rather than a renewal that is not being honored. The discovery path absorbs this.",
+      "message": "This host changed address {changes} time(s) across {distinctAddresses} distinct addresses in the last {lookbackHours}h, at no fixed interval -- consistent with reboots or link events. The discovery path absorbs this.",
       "description": "Whole display-assignment-$report.message message in test/modules/Test.HostAddressBeacon.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -6411,7 +6411,7 @@
       }
     },
     "runner.operator_268e6069d124cd41": {
-      "message": "Added ufw allow {port}/tcp so LAN clients can reach the status service.",
+      "message": "Added ufw allow {port}/tcp so LAN clients can reach this host on TCP :{port}.",
       "description": "Whole display-assignment-$result.Message message in test/modules/Test.StatusFirewall.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -23755,6 +23755,43 @@
         }
       }
     },
+    "runner.host_address_lease_expiry_churn": {
+      "message": "This host changed address {changes} times in the last {lookbackHours}h, to {distinctAddresses} distinct addresses, one change every {medianIntervalMinutes} min -- about once per lease, which the DHCP server granted for {leaseSeconds} s. The bridge's DHCP identity IS pinned, and the moves come when a lease runs out rather than at a renewal: the renewals are not taking effect, so each lease expires and the next one is a fresh allocation. An address changing on a clock breaks every guest behind it each time it moves.",
+      "description": "Whole display-assignment-$report.message message in test/modules/Test.HostAddressBeacon.psm1 (Get-HostAddressStabilityReport) when the bridge's DHCP identity is pinned and the host moves about once per lease length; test/Test-Config.ps1 prints it and the host_address_footprint event carries it. Values are printed as measured; keep DHCP and the emphasis on IS.",
+      "lifecycle": "active",
+      "placeholders": {
+        "changes": {
+          "type": "detail",
+          "trust": "external",
+          "example": "3"
+        },
+        "lookbackHours": {
+          "type": "detail",
+          "trust": "external",
+          "example": "48"
+        },
+        "distinctAddresses": {
+          "type": "detail",
+          "trust": "external",
+          "example": "3"
+        },
+        "medianIntervalMinutes": {
+          "type": "detail",
+          "trust": "external",
+          "example": "666.7"
+        },
+        "leaseSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "40000"
+        }
+      }
+    },
+    "runner.host_address_lease_expiry_remedy": {
+      "message": "read NetworkManager's dhcp4 lines around a move (journalctl -b 0 -u NetworkManager --grep dhcp4, also printed in the host diagnostic) to see whether each lease was extended at a renewal or ran out, and check that the host firewall lets the server's replies reach UDP port 68; a capture on the bridge across the renewal at half the lease (tcpdump -ni yuruna-br0 'udp port 67 or udp port 68') shows whether the request was sent and answered, even when the host firewall then drops the reply; a DHCP reservation for the bridge MAC, or a static address, makes the address stable regardless -- see docs/network.md, 'Pinning the host address'.",
+      "description": "Remedy in test/modules/Test.HostAddressBeacon.psm1 (Get-HostAddressStabilityReport) for a pinned host that moves about once per lease length; test/Test-Config.ps1 prints it after 'Remedy:', so it starts in lower case. Preserve both commands, NetworkManager, dhcp4, UDP port 68, the path docs/network.md and the section title 'Pinning the host address'.",
+      "lifecycle": "active"
+    },
     "runner.operator_be3425294035d6f8": {
       "message": "  stash folder: {stashPath}",
       "description": "Whole Write-Output message in test/lab/New-Lab.ps1; preserve command names, paths, codes, and argument boundaries.",
@@ -26315,7 +26352,7 @@
       }
     },
     "runner.operator_d5b5d8e0969942b5": {
-      "message": "Could not query ufw (exit {exitCode}); status-port firewall state unknown. If :{port} is blocked, run elevated: sudo ufw allow {port}/tcp",
+      "message": "Could not query ufw (exit {exitCode}); firewall state of TCP :{port} unknown. If :{port} is blocked, run elevated: sudo ufw allow {port}/tcp",
       "description": "Whole display-assignment-$result.Message message in test/modules/Test.StatusFirewall.psm1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -32729,6 +32766,40 @@
         }
       }
     },
+    "runner.config_port_firewall_unconfirmed": {
+      "message": "The config service could not confirm that inbound TCP :{port} is open to service guests, which fetch their NAS credential there: {detail}",
+      "description": "Write-Warning in test/service/Start-ConfigService.ps1 when its launch could not confirm the host firewall admits the config service port. The detail is the firewall helper's own outcome: ufw absent, ufw unreadable, the allow refused, or an error inside the helper. Keep the placeholders unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "8443"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "ufw not found; nftables/iptables are not managed. If inbound TCP :8443 is firewalled, allow it manually (e.g. an nft accept rule)."
+        }
+      }
+    },
+    "runner.ufw_port_rule_left": {
+      "message": "Left the existing ufw rule for TCP :{port} as it is, because Yuruna replaces no rule it did not add: {rule}. If LAN clients must reach this host on :{port}, change that rule yourself, for example: sudo ufw allow {port}/tcp",
+      "description": "Message of Set-YurunaStatusFirewallRule in test/modules/Test.StatusFirewall.psm1 when ufw already holds a rule for the port that is not an IPv4 allow (a deny, reject or limit rule, or one for IPv6 only): adding the framework's rule would make ufw replace it. The rule is that ufw status line. Keep the placeholders and the command unchanged.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "8080"
+        },
+        "rule": {
+          "type": "detail",
+          "trust": "external",
+          "example": "8080/tcp                   DENY        Anywhere"
+        }
+      }
+    },
     "runner.status_listener_busy": {
       "message": "Status service (PID {processId}) on port {port} did not answer within 3 s, but its liveness lease shows it serving {route} for {seconds} s; leaving it running.",
       "description": "Write-Output in test/service/Start-StatusService.ps1 when the boundary probe of an existing listener times out and Get-StatusServiceLeaseVerdict reads alive or busy; the start exits 0 and any restart waits for the next start; preserve command names, paths, codes and placeholders.",
@@ -34258,6 +34329,155 @@
           "type": "detail",
           "trust": "internal",
           "example": "pmset"
+        }
+      }
+    },
+    "runner.capability_gate_host_command_missing": {
+      "message": "  Sequences run host commands this host does not have:",
+      "description": "Write-Output from Write-CapabilityGateFailureBanner in test/modules/Test.RunnerInnerLoop.psm1 when a step of the cycle plan has a handler that runs a host command, such as ssh, that this host does not have. The lines after it name each command and the steps that run it. Keep the leading indentation.",
+      "lifecycle": "active"
+    },
+    "runner.capability_gate_host_command_step": {
+      "message": "        {sequence}, step {step}: {action}",
+      "description": "Write-Output from Write-CapabilityGateFailureBanner in test/modules/Test.RunnerInnerLoop.psm1: one step of the cycle plan that runs the missing host command named on the line above. The step number counts the sequence's flat step list, as a failure record does. Preserve the sequence name and the action verb; keep the leading indentation.",
+      "lifecycle": "active",
+      "placeholders": {
+        "sequence": {
+          "type": "detail",
+          "trust": "external",
+          "example": "workload.guest.ubuntu.server.24.ssh"
+        },
+        "step": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        },
+        "action": {
+          "type": "token",
+          "trust": "internal",
+          "example": "sshExec"
+        }
+      }
+    },
+    "runner.capability_gate_host_command_remedy": {
+      "message": "  Install the missing commands on this host, or drop the steps that run them from the cycle's sequence YAMLs.",
+      "description": "Write-Output from Write-CapabilityGateFailureBanner in test/modules/Test.RunnerInnerLoop.psm1 after the missing host commands and the steps that run them: the two ways to let the cycle run. Keep the leading indentation.",
+      "lifecycle": "active"
+    },
+    "runner.netconsole_receiver_listening": {
+      "message": "Listening for netconsole on UDP port {port}; one log per sending host and UTC day goes to {directory}. Press Ctrl+C to stop.",
+      "description": "Write-Information in test/lab/Receive-Netconsole.ps1 once the UDP port is open. Preserve the key name Ctrl+C.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "token",
+          "trust": "internal",
+          "example": "6666"
+        },
+        "directory": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/ytest/yuruna/netconsole"
+        }
+      }
+    },
+    "runner.netconsole_receiver_bind_failed": {
+      "message": "UDP port {port} could not be opened: {message}",
+      "description": "Write-Error in test/lab/Receive-Netconsole.ps1 when the listening socket cannot bind, usually because another process holds the port; the script exits 1.",
+      "lifecycle": "active",
+      "placeholders": {
+        "port": {
+          "type": "token",
+          "trust": "internal",
+          "example": "6666"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Address already in use"
+        }
+      }
+    },
+    "runner.netconsole_receiver_write_failed": {
+      "message": "A received line could not be written under {directory}: {message}",
+      "description": "Write-Warning in test/lab/Receive-Netconsole.ps1 when a log file cannot be written; the receiver keeps listening.",
+      "lifecycle": "active",
+      "placeholders": {
+        "directory": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/ytest/yuruna/netconsole"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "No space left on device"
+        }
+      }
+    },
+    "runner.netconsole_receiver_stopped": {
+      "message": "Stopped after {count} datagram(s).",
+      "description": "Write-Information in test/lab/Receive-Netconsole.ps1 when the receiver stops, at Ctrl+C or at -DurationSeconds.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1024"
+        }
+      }
+    },
+    "runner.wait_ended_on_silent_guest": {
+      "message": "Text '{patternLabel}' wait ended after ~{waited}s of {timeoutSeconds}s: the guest's console output stayed unchanged for {outputStaticSeconds}s, its recorder had not reached the host for {uploadAgeSeconds}s, and its serial console reported {kinds}",
+      "description": "Whole Write-Warning message in test/modules/Test.SequenceEngine.psm1; preserve command names, paths, codes, and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "patternLabel": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$patternLabel"
+        },
+        "waited": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($kernelStallEnd.waitedSeconds)"
+        },
+        "timeoutSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${TimeoutSeconds}"
+        },
+        "outputStaticSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($kernelStallEnd.outputStaticSeconds)"
+        },
+        "uploadAgeSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($kernelStallEnd.recorderUploadAgeSeconds)"
+        },
+        "kinds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($kernelStallEnd.kinds -join ', ')"
+        }
+      }
+    },
+    "runner.netconsole_receiver_small_buffer": {
+      "message": "The system granted a UDP receive buffer of {granted} bytes, less than the {requested} bytes requested, so a burst of kernel messages, such as the backtraces a host sends before a panic, can overflow it and lose lines. On Linux, raise the limit with 'sudo sysctl -w net.core.rmem_max={requested}' and start the receiver again.",
+      "description": "Write-Warning in Request-NetconsoleReceiveBuffer (test/lab/Receive-Netconsole.ps1) at start when the socket's receive buffer is smaller than the one requested; the receiver keeps listening. Both values are raw byte counts and requested also appears inside the command, so they stay unformatted. Preserve the command, the sysctl name and the key name exactly.",
+      "lifecycle": "active",
+      "placeholders": {
+        "granted": {
+          "type": "token",
+          "trust": "external",
+          "example": "425984"
+        },
+        "requested": {
+          "type": "token",
+          "trust": "internal",
+          "example": "4194304"
         }
       }
     }

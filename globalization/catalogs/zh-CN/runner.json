@@ -1695,9 +1695,9 @@
       "message": "分辨率下限：应用操作返回{applyRc}（0 = 成功）。"
     },
     "runner.operator_268e6069d124cd41": {
-      "sourceHash": "3f426b36b45806bd2b3765c13e040c2f2c752af49180abcfeb9f753a00b2def5",
+      "sourceHash": "9f097fedfc47c8e14a130828099251366517c4314da595bb4755a69a26aa14d5",
       "origin": "machine",
-      "message": "已添加ufw allow {port}/tcp，使局域网客户端能够访问status service。"
+      "message": "已添加ufw allow {port}/tcp，使局域网客户端能够通过TCP :{port}访问此宿主机。"
     },
     "runner.operator_26ae0718f0a53461": {
       "sourceHash": "11c765bcb732cbb1b33e3bdbcb8ae0c9367b91e833acfbc6b29ea56b421a883e",
@@ -2290,9 +2290,9 @@
       "message": "此宿主机的采集记录早于操作系统版本记录功能，因此无法据此检测设置后是否发生过升级。重新运行Enable-TestAutomation可记录该版本。"
     },
     "runner.operator_13a941989b043d74": {
-      "sourceHash": "e8b5515bf125f7bb07192c0a177b9977687095fdc30f682d3831ca473f35f4d6",
+      "sourceHash": "2b000e3644a54c26942040f8d3ccd60ec744afd2d95f642779e3dbda58566134",
       "origin": "machine",
-      "message": "此宿主机在过去{lookbackHours}h内更改了{changes}次地址，涉及{distinctAddresses}个不同地址，且间隔不固定，这与重启或链路事件相符，而非续租未生效。发现流程会处理这些变化。"
+      "message": "此宿主机在过去{lookbackHours}h内更改了{changes}次地址，涉及{distinctAddresses}个不同地址，且间隔不固定，这与重启或链路事件相符。发现流程会处理这些变化。"
     },
     "runner.operator_13c098483d4f4c49": {
       "sourceHash": "f9652eabb813d9de1e9669d7ad9a53078b6b1cf75a1a314b0ae677e65f1aa7c3",
@@ -9114,6 +9114,16 @@
       "origin": "machine",
       "message": "{base} 网桥的DHCP身份已固定，因此服务器并未依据该身份分配租约。固定身份无法解决此问题。"
     },
+    "runner.host_address_lease_expiry_churn": {
+      "sourceHash": "25d2f889c750e0d1358c922c35da5c21c8815be4de276f398297ec2f9e5c24ba",
+      "origin": "machine",
+      "message": "此宿主机在过去{lookbackHours}h内更改了{changes}次地址，涉及{distinctAddresses}个不同地址，每{medianIntervalMinutes} min更改一次——大约每个租期一次，DHCP服务器授予的租期为{leaseSeconds} s。网桥的DHCP身份确实已固定，地址变化发生在租约到期时，而不是在续租时：续租没有生效，因此每个租约都会到期，下一个租约是全新分配。按固定周期变化的地址每次变化都会中断其后的所有客户机。"
+    },
+    "runner.host_address_lease_expiry_remedy": {
+      "sourceHash": "ee6f18cbee93214f76c700a49177a6995157e5d7fa71205c35507f405df072f0",
+      "origin": "machine",
+      "message": "查看一次地址变化前后NetworkManager的dhcp4日志行（journalctl -b 0 -u NetworkManager --grep dhcp4，宿主机诊断中也会打印），确认每个租约是在续租时得到延长还是已到期，并检查宿主机防火墙是否允许服务器的应答到达UDP端口68；在租期过半时的续租前后对网桥抓包（tcpdump -ni yuruna-br0 'udp port 67 or udp port 68'），可以看出请求是否已发送并得到应答，即使宿主机防火墙随后丢弃了该应答也能看到；为网桥MAC地址设置DHCP保留地址或使用静态地址，均可使地址保持稳定——请参阅docs/network.md中的“Pinning the host address”一节。"
+    },
     "runner.operator_be3425294035d6f8": {
       "sourceHash": "2b799ad53600132d8fb5540e533528d65c14a4d791971ae4520c02bd5bb0d953",
       "origin": "machine",
@@ -11160,9 +11170,9 @@
       "message": "{vmsg}（提示：复制模式会保留本地文件夹，因此这不会阻止周期运行——请在启用移动模式前修复。）"
     },
     "runner.operator_d5b5d8e0969942b5": {
-      "sourceHash": "60875b23f3dd387d866fef398491d4e9271592181ff0bf2bd1b5c409058c8aa1",
+      "sourceHash": "c11bab88c0f8b471ffa2b2f33de1972f1faaca6f416d9986c14dc699ded8ea0f",
       "origin": "machine",
-      "message": "无法查询ufw（退出码{exitCode}）；状态端口的防火墙状态未知。如果:{port}被阻止，请以提升的权限运行：sudo ufw allow {port}/tcp"
+      "message": "无法查询ufw（退出码{exitCode}）；TCP :{port}的防火墙状态未知。如果:{port}被阻止，请以提升的权限运行：sudo ufw allow {port}/tcp"
     },
     "runner.operator_d5df7de49d6582c5": {
       "sourceHash": "bce1d94f9374996721ebeb2b2db69e67ff91c16ffad18642f8e8967ba2297a41",
@@ -14448,6 +14458,16 @@
       "origin": "machine",
       "message": "http://localhost:{port}/status/ 可正常访问，但局域网客户端访问 http://{address}:{port}/status/ 将超时。"
     },
+    "runner.config_port_firewall_unconfirmed": {
+      "sourceHash": "28b64cd9ad83e6c8c1355bcfce6965c42c9a88fbcb5efa7ab85008b59b103790",
+      "origin": "machine",
+      "message": "配置服务无法确认入站TCP :{port}已对服务客户机开放，服务客户机从此端口获取其NAS凭据：{detail}"
+    },
+    "runner.ufw_port_rule_left": {
+      "sourceHash": "78ffe2fb34d253f9854a2a67a871d12fd8d00bdef3a767007300feb44972bec8",
+      "origin": "machine",
+      "message": "TCP :{port}现有的ufw规则保持不变，因为Yuruna不会替换并非由它添加的规则：{rule}。如果局域网客户端需要通过:{port}访问此主机，请自行修改该规则，例如：sudo ufw allow {port}/tcp"
+    },
     "runner.status_listener_busy": {
       "sourceHash": "fa084dae446914504db8f229fce6bcd4529e1731f3b1c6e67a22f504d221c2fd",
       "origin": "machine",
@@ -15072,6 +15092,51 @@
       "sourceHash": "7fdc6b34b1ab5468b2cdde1ab7a3ec85204038d9cd03e9b9aa8aef6616ebb6f8",
       "origin": "machine",
       "message": "无法读取{probe}：{tool} 没有响应，因此该设置无法确定，不能视为安全。"
+    },
+    "runner.capability_gate_host_command_missing": {
+      "sourceHash": "88496b61d861339fcd9178768b2b7e5e127d6a14df2826be7b6cdf1bdc189d9b",
+      "origin": "machine",
+      "message": "  序列会运行此宿主机上没有的命令："
+    },
+    "runner.capability_gate_host_command_step": {
+      "sourceHash": "44cd581585ef308c14d66c56bb383b2d39679c29798e66d05c66c6685c6c0b84",
+      "origin": "machine",
+      "message": "        {sequence}，步骤 {step}：{action}"
+    },
+    "runner.capability_gate_host_command_remedy": {
+      "sourceHash": "b5681177ba736ee2b54a82cec0e4f3037e23ac75a6a1fea36ce6e228f4ec40b3",
+      "origin": "machine",
+      "message": "  请在此宿主机上安装缺失的命令，或从此周期的序列YAML文件中移除运行这些命令的步骤。"
+    },
+    "runner.wait_ended_on_silent_guest": {
+      "sourceHash": "eb77fad8930c78797e50fcb5dce8efe22f6881ca94673be735f8adf5844fd153",
+      "origin": "machine",
+      "message": "等待文本“{patternLabel}”在约{waited}s后结束（上限{timeoutSeconds}s）：客户机的控制台输出已有{outputStaticSeconds}s未变化，其记录器已有{uploadAgeSeconds}s未向宿主机上传数据，且其串行控制台报告了{kinds}"
+    },
+    "runner.netconsole_receiver_listening": {
+      "sourceHash": "78b432ccbb462aad03c543a07b748b5ca1a3990151eb0fc15a757a15b3305edb",
+      "origin": "machine",
+      "message": "正在UDP端口{port}上监听netconsole；日志写入{directory}，每台发送方宿主机每个UTC日一个日志文件。按Ctrl+C停止。"
+    },
+    "runner.netconsole_receiver_bind_failed": {
+      "sourceHash": "b88c1dc0eaf00f5a9855743833948bd6882c0b549cdd5ba3c137e524b43fdcee",
+      "origin": "machine",
+      "message": "无法打开UDP端口{port}：{message}"
+    },
+    "runner.netconsole_receiver_write_failed": {
+      "sourceHash": "9c88847af386e1afa45f33c7ecfe94e6c708c348aec6c9f9bec07339301091ce",
+      "origin": "machine",
+      "message": "无法将收到的行写入{directory}：{message}"
+    },
+    "runner.netconsole_receiver_stopped": {
+      "sourceHash": "07ad9fa07c380d39e2a5cfe1a00d2f36edd77dd0516e8dd4dfee1478e7936297",
+      "origin": "machine",
+      "message": "收到{count}个数据报后已停止。"
+    },
+    "runner.netconsole_receiver_small_buffer": {
+      "sourceHash": "77142cc3bc61f0cc0bdb8ea6c34ae6ef2fb3dedab62dac4770b400479fa5d4d4",
+      "origin": "machine",
+      "message": "系统分配的UDP接收缓冲区为{granted}字节，小于请求的{requested}字节，因此一阵内核消息（例如宿主机在panic之前发送的回溯）可能使其溢出并丢失行。在Linux上，请使用'sudo sysctl -w net.core.rmem_max={requested}'提高该上限，然后重新启动接收器。"
     }
   }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42be03d8-4355-03c3-fc00-b4ab4c0856f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,34 @@
 # locale: zh-CN  domain: remediation
 
 @{
+    'remediation.guest_kernel_stalled_action_evidence' = '阅读last_failure.json中的causeDetail.guestKernelStallEnd和causeDetail.guestLivelock，以及客户机文件夹中serial-console.log里的内核报告'
+    'remediation.guest_kernel_stalled_rationale' = @(
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '发生guest_kernel_stalled：客户机内核已停止推进，因此该步骤无法完成（内核报告：'
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '；未处理任何中断的虚拟处理器：'
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '；所有虚拟处理器被滞留在虚拟机监控程序中的秒数：'
+        @{
+            'arg' = 'heldSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '）。这不是镜像源缓慢或载荷故障，同一次启动也无法恢复；下一次尝试会重新启动客户机。'
+    )
+    'remediation.guest_kernel_stalled_retry_reason' = '已停止推进的客户机内核只有在重新启动后才能恢复，而下一次尝试会执行这次启动；这些重试消耗单独的每日预算'
     'remediation.guest_run_lost_action_inspect' = '阅读客户机的执行日志，查明是什么结束了该进程。'
     'remediation.guest_run_lost_action_restore' = '恢复最后一个良好的快照，然后再次运行该序列。'
     'remediation.guest_run_lost_rationale' = @(
@@ -737,13 +765,13 @@
         }
     )
     'remediation.vm_not_stopped_action_inspect' = '如果再次发生，请在客户机控制台中查看是什么阻止了关机。'
-    'remediation.vm_not_stopped_action_power' = '从宿主机关闭该虚拟机（带restartVmBeforeRetry: coldPowerCycle的retry会这样做），然后再次运行该步骤。'
+    'remediation.vm_not_stopped_action_power' = '从宿主机关闭该虚拟机（序列中带forceOnTimeout: true的stopVm步骤会这样做，或从虚拟机监控程序关闭它），然后再次运行该步骤。'
     'remediation.vm_not_stopped_rationale' = @(
         @{
             'arg' = 'vmName'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '始终未进入该步骤等待的停止状态：客户机忽略了关机请求，再次等待无法改变这一点。冷关机再开机可以。'
+        '始终未进入该步骤等待的停止状态：客户机忽略了关机请求，再次等待无法改变这一点。从宿主机将其关闭则可以。'
     )
 }

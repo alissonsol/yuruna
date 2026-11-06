@@ -25,6 +25,7 @@ import (
 	"stash-service/internal/meta"
 	"stash-service/internal/sshsrv"
 	"stash-service/internal/store"
+	"yuruna.com/test/extension/extension-sdk/hostcheck"
 	"yuruna.com/test/extension/extension-sdk/labgate"
 	"yuruna.com/test/extension/extension-sdk/webui"
 	// Aliased: this package already calls the ARTIFACT index "pool", and the two
@@ -52,8 +53,13 @@ type Server struct {
 	listener     *http.Server
 	// gate authorizes DELETE (gate.go). Everything else is open on the LAN.
 	gate *labgate.Gate
+	// hostCheck refuses a request naming a host this service does not answer
+	// to, before any route runs.
+	hostCheck *hostcheck.Check
 	// largeText admits one large text create at a time (handleCreate).
 	largeText chan struct{}
+	// multipart holds one slot per multipart create being received (handleCreate).
+	multipart chan struct{}
 }
 
 // Options carries the VM-side configurable knobs.
@@ -67,6 +73,9 @@ type Options struct {
 	PoolRefresh       time.Duration
 	DefaultLimit      int
 	Version           string
+	// AllowedHostNames are the names, besides its addresses, host name and
+	// localhost, that requests may carry in Host to reach this service.
+	AllowedHostNames []string
 }
 
 // New builds the UI server. stashRoot and localHostID are derived from the
@@ -97,11 +106,16 @@ func New(sshServer *sshsrv.Server, opts Options) *Server {
 		defaultLimit: defaultLimit,
 		version:      opts.Version,
 		largeText:    make(chan struct{}, 1),
+		multipart:    make(chan struct{}, config.MaxConcurrentMultipartCreates),
 	}
 	// No BearerToken: this VM is never given the lab auth token, so the
 	// aggregator is the only judge of a lab token or a control proof, and the
 	// gate reports itself unconfigured when there is no aggregator to ask.
 	s.pages = prepareLocalizedPages(opts.Language, opts.AllowPseudoLocale)
+	s.hostCheck = hostcheck.New(hostcheck.Options{
+		Language: opts.Language, AllowPseudoLocale: opts.AllowPseudoLocale,
+		Names: opts.AllowedHostNames,
+	})
 	s.gate = labgate.New(labgate.Options{
 		Language: opts.Language, AllowPseudoLocale: opts.AllowPseudoLocale,
 		AggregatorURL: opts.AggregatorURL,

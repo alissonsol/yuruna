@@ -89,51 +89,57 @@
         "pool-aggregator"
       ],
       "consumers": [
-        "code:aggregator.announce_accepted_but_not_durably_recorded_retry:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.announce_accepted_but_not_recorded:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.announce_disabled:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.announced_address_did_not_serve_status_json:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.announced_address_serves_a_different_hostid:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.batch_mixes_multiple_hostids:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.encode_failed:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.failed_to_encode_extension_hosts:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.failed_to_encode_pool_status:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.failed_to_encode_result:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.failed_to_encode_scrape_targets:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.failed_to_seal_the_token:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.forget_host_disabled_no_auth_token_configured:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.host_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.hostid_must_be_a_42_prefixed_32_hex_id:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.ingest_disabled:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.invalid_hostid_or_area:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.invalid_hostid:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.invalid_statusport:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.invalid_target_address_detail:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.invalid_target_url:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.lab_token_exchange_disabled:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.labtoken_must_be_6_lowercase_letters_digits:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.loki_query_failed:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.malformed_announce:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.malformed_request:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.metrics_are_served_to_this_host_only:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.missing_host:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.no_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.no_live_host_for_that_extension_area:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.no_source_address:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.payload_too_large_or_unreadable:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.stash_target_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.target_host_must_be_the_announcing_address:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.the_pool_share_is_not_mounted_on_this_machine:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.too_many_announced_extensions:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.too_many_failed_attempts_retry_later:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.too_many_lines:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.unauthorized:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.unknown_or_expired_lab_token:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.unsupported_range_use_1h_24h_7d_or_30d:producer:test/extension/pool-aggregator-service/main.go",
-        "code:aggregator.unusable_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/main.go"
+        "code:aggregator.announce_accepted_but_not_durably_recorded_retry:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.announce_accepted_but_not_recorded:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.announce_disabled:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.announced_address_did_not_serve_status_json:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.announced_address_serves_a_different_hostid:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.batch_mixes_multiple_hostids:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+        "code:aggregator.encode_failed:producer:test/extension/pool-aggregator-service/internal/routes/stats.go",
+        "code:aggregator.failed_to_encode_extension_hosts:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+        "code:aggregator.failed_to_encode_pool_status:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+        "code:aggregator.failed_to_encode_result:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+        "code:aggregator.failed_to_encode_scrape_targets:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+        "code:aggregator.failed_to_seal_the_token:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+        "code:aggregator.forget_host_disabled_no_auth_token_configured:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+        "code:aggregator.host_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
+        "code:aggregator.host_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.hostid_must_be_a_42_prefixed_32_hex_id:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+        "code:aggregator.ingest_disabled:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.invalid_hostid_or_area:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.invalid_hostid:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.invalid_statusport:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.invalid_target_address_detail:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.invalid_target_url:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.lab_token_exchange_disabled:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+        "code:aggregator.labtoken_must_be_6_lowercase_letters_digits:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+        "code:aggregator.loki_query_failed:producer:test/extension/pool-aggregator-service/internal/routes/stats.go",
+        "code:aggregator.malformed_announce:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.malformed_request:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+        "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
+        "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+        "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+        "code:aggregator.metrics_are_served_to_this_host_only:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+        "code:aggregator.missing_host:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
+        "code:aggregator.no_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
+        "code:aggregator.no_live_host_for_that_extension_area:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+        "code:aggregator.no_source_address:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.no_source_address:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+        "code:aggregator.payload_too_large_or_unreadable:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.payload_too_large_or_unreadable:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+        "code:aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.stash_target_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
+        "code:aggregator.target_host_must_be_the_announcing_address:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.the_pool_share_is_not_mounted_on_this_machine:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
+        "code:aggregator.too_many_announced_extensions:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.too_many_failed_attempts_retry_later:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+        "code:aggregator.too_many_lines:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "code:aggregator.unauthorized:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+        "code:aggregator.unknown_or_expired_lab_token:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+        "code:aggregator.unsupported_range_use_1h_24h_7d_or_30d:producer:test/extension/pool-aggregator-service/internal/routes/stats.go",
+        "code:aggregator.unusable_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go"
       ]
     },
     {
@@ -1103,406 +1109,460 @@
   ],
   "consumers": [
     {
-      "id": "code:aggregator.announce_accepted_but_not_durably_recorded_retry:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.announce_accepted_but_not_durably_recorded_retry:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.announce_accepted_but_not_durably_recorded_retry",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.announce_accepted_but_not_recorded:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.announce_accepted_but_not_recorded:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.announce_accepted_but_not_recorded",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.announce_disabled:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.announce_disabled:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.announce_disabled",
       "role": "producer",
       "matchCount": 2
     },
     {
-      "id": "code:aggregator.announced_address_did_not_serve_status_json:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.announced_address_did_not_serve_status_json:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.announced_address_did_not_serve_status_json",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.announced_address_serves_a_different_hostid:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.announced_address_serves_a_different_hostid:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.announced_address_serves_a_different_hostid",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.batch_mixes_multiple_hostids:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.batch_mixes_multiple_hostids:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.batch_mixes_multiple_hostids",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "code": "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.encode_failed:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.encode_failed:producer:test/extension/pool-aggregator-service/internal/routes/stats.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/stats.go",
       "code": "aggregator.encode_failed",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.failed_to_encode_extension_hosts:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.failed_to_encode_extension_hosts:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/routes.go",
       "code": "aggregator.failed_to_encode_extension_hosts",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.failed_to_encode_pool_status:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.failed_to_encode_pool_status:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/routes.go",
       "code": "aggregator.failed_to_encode_pool_status",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.failed_to_encode_result:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.failed_to_encode_result:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/routes.go",
       "code": "aggregator.failed_to_encode_result",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.failed_to_encode_scrape_targets:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.failed_to_encode_scrape_targets:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/routes.go",
       "code": "aggregator.failed_to_encode_scrape_targets",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.failed_to_seal_the_token:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.failed_to_seal_the_token:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "code": "aggregator.failed_to_seal_the_token",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.forget_host_disabled_no_auth_token_configured:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.forget_host_disabled_no_auth_token_configured:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/routes.go",
       "code": "aggregator.forget_host_disabled_no_auth_token_configured",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.host_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.host_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "code": "aggregator.host_not_known_to_the_pool",
       "role": "producer",
-      "matchCount": 4
+      "matchCount": 3
     },
     {
-      "id": "code:aggregator.hostid_must_be_a_42_prefixed_32_hex_id:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.host_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
+      "code": "aggregator.host_not_known_to_the_pool",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.hostid_must_be_a_42_prefixed_32_hex_id:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/internal/routes/routes.go",
       "code": "aggregator.hostid_must_be_a_42_prefixed_32_hex_id",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.ingest_disabled:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.ingest_disabled:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.ingest_disabled",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.invalid_hostid_or_area:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.invalid_hostid_or_area:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.invalid_hostid_or_area",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.invalid_hostid:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.invalid_hostid:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.invalid_hostid",
       "role": "producer",
       "matchCount": 2
     },
     {
-      "id": "code:aggregator.invalid_statusport:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.invalid_statusport:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.invalid_statusport",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.invalid_target_address_detail:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.invalid_target_address_detail:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.invalid_target_address_detail",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.invalid_target_url:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.invalid_target_url:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.invalid_target_url",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.lab_token_exchange_disabled:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.lab_token_exchange_disabled:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "code": "aggregator.lab_token_exchange_disabled",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.labtoken_must_be_6_lowercase_letters_digits:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.labtoken_must_be_6_lowercase_letters_digits:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "code": "aggregator.labtoken_must_be_6_lowercase_letters_digits",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.loki_query_failed:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.loki_query_failed:producer:test/extension/pool-aggregator-service/internal/routes/stats.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/stats.go",
       "code": "aggregator.loki_query_failed",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.malformed_announce:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.malformed_announce:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.malformed_announce",
       "role": "producer",
       "matchCount": 2
     },
     {
-      "id": "code:aggregator.malformed_request:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.malformed_request:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "code": "aggregator.malformed_request",
       "role": "producer",
       "matchCount": 2
     },
     {
-      "id": "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "code": "aggregator.method_not_allowed",
       "role": "producer",
-      "matchCount": 7
+      "matchCount": 1
     },
     {
-      "id": "code:aggregator.metrics_are_served_to_this_host_only:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
+      "code": "aggregator.method_not_allowed",
+      "role": "producer",
+      "matchCount": 3
+    },
+    {
+      "id": "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+      "code": "aggregator.method_not_allowed",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:aggregator.method_not_allowed:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/internal/routes/routes.go",
+      "code": "aggregator.method_not_allowed",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.metrics_are_served_to_this_host_only:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/internal/routes/routes.go",
       "code": "aggregator.metrics_are_served_to_this_host_only",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.missing_host:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.missing_host:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "code": "aggregator.missing_host",
       "role": "producer",
       "matchCount": 4
     },
     {
-      "id": "code:aggregator.no_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.no_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "code": "aggregator.no_cycle_results_folder_for_that_host_at_that_time",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.no_live_host_for_that_extension_area:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.no_live_host_for_that_extension_area:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/routes.go",
       "code": "aggregator.no_live_host_for_that_extension_area",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.no_source_address:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.no_source_address:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.no_source_address",
       "role": "producer",
-      "matchCount": 4
+      "matchCount": 3
     },
     {
-      "id": "code:aggregator.payload_too_large_or_unreadable:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.no_source_address:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+      "code": "aggregator.no_source_address",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:aggregator.payload_too_large_or_unreadable:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.payload_too_large_or_unreadable",
       "role": "producer",
-      "matchCount": 5
+      "matchCount": 3
     },
     {
-      "id": "code:aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.payload_too_large_or_unreadable:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+      "code": "aggregator.payload_too_large_or_unreadable",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
+      "finding": "catalog-boundaries-aggregator",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.stash_target_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.stash_target_not_known_to_the_pool:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "code": "aggregator.stash_target_not_known_to_the_pool",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.target_host_must_be_the_announcing_address:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.target_host_must_be_the_announcing_address:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.target_host_must_be_the_announcing_address",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.the_pool_share_is_not_mounted_on_this_machine:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.the_pool_share_is_not_mounted_on_this_machine:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "code": "aggregator.the_pool_share_is_not_mounted_on_this_machine",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.too_many_announced_extensions:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.too_many_announced_extensions:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.too_many_announced_extensions",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.too_many_failed_attempts_retry_later:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.too_many_failed_attempts_retry_later:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "code": "aggregator.too_many_failed_attempts_retry_later",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.too_many_lines:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.too_many_lines:producer:test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
       "code": "aggregator.too_many_lines",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.unauthorized:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.unauthorized:producer:test/extension/pool-aggregator-service/internal/routes/routes.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/routes.go",
       "code": "aggregator.unauthorized",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.unknown_or_expired_lab_token:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.unknown_or_expired_lab_token:producer:test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/labtoken.go",
       "code": "aggregator.unknown_or_expired_lab_token",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.unsupported_range_use_1h_24h_7d_or_30d:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.unsupported_range_use_1h_24h_7d_or_30d:producer:test/extension/pool-aggregator-service/internal/routes/stats.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/stats.go",
       "code": "aggregator.unsupported_range_use_1h_24h_7d_or_30d",
       "role": "producer",
       "matchCount": 1
     },
     {
-      "id": "code:aggregator.unusable_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/main.go",
+      "id": "code:aggregator.unusable_cycle_results_folder_for_that_host_at_that_time:producer:test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "finding": "catalog-boundaries-aggregator",
       "source": "code-registry",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
       "code": "aggregator.unusable_cycle_results_folder_for_that_host_at_that_time",
       "role": "producer",
       "matchCount": 1
@@ -4850,6 +4910,12 @@
     },
     {
       "wireCode": "host_refresh.active",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1",
+      "matchCount": 10,
+      "reason": "systemd unit active state the deep-diagnostics plan reads, sets and restores; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
       "matchCount": 2,
       "reason": "systemd unit state and libvirt group membership; not the host-refresh state."
@@ -4868,9 +4934,27 @@
     },
     {
       "wireCode": "host_refresh.active",
-      "path": "test/extension/pool-aggregator-service/main.go",
-      "matchCount": 5,
-      "reason": "JSON field name of the control-area and pool-wide pause payloads; not the host-refresh state."
+      "path": "test/extension/pool-aggregator-service/internal/feed/feed.go",
+      "matchCount": 1,
+      "reason": "JSON field name of the extension announce line; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/extension/pool-aggregator-service/internal/rehydrate/rehydrate.go",
+      "matchCount": 1,
+      "reason": "JSON field name of a restored extension announce line; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/extension/pool-aggregator-service/internal/routes/ingest.go",
+      "matchCount": 1,
+      "reason": "JSON field name of the extension announce request; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.active",
+      "path": "test/extension/pool-aggregator-service/internal/routes/routes.go",
+      "matchCount": 2,
+      "reason": "JSON field name of the pool-wide incident answer; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.active",
@@ -5030,9 +5114,15 @@
     },
     {
       "wireCode": "host_refresh.failed",
-      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "path": "host/macos.utm/modules/Yuruna.Host.Capture.ps1",
       "matchCount": 2,
-      "reason": "macOS driver process-probe, signal and app-launch results; the refresh module folds driver results into its own rung outcomes, so this is not a host-refresh verdict."
+      "reason": "Outcome of the UTM control snapshot's serial-console tail copy and QEMU monitor capture; the snapshot records it as evidence, so it is not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
+      "matchCount": 4,
+      "reason": "macOS driver process-probe, signal and app-launch results, and the control snapshot's capture outcomes (QEMU monitor, serial console tail, screenshot); the refresh module folds driver results into its own rung outcomes, so this is not a host-refresh verdict."
     },
     {
       "wireCode": "host_refresh.failed",
@@ -5069,6 +5159,12 @@
       "path": "host/ubuntu.kvm/guest.windows.11/Get-Image.ps1",
       "matchCount": 1,
       "reason": "Download-agent fetch outcome for the Windows image; not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.failed",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1",
+      "matchCount": 3,
+      "reason": "Deep-diagnostics component status in its state file (applied, skipped or failed); not a host-refresh verdict."
     },
     {
       "wireCode": "host_refresh.failed",
@@ -5144,7 +5240,7 @@
     },
     {
       "wireCode": "host_refresh.failed",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/routes/stats.go",
       "matchCount": 1,
       "reason": "JSON counter field name; not a host-refresh verdict."
     },
@@ -5546,6 +5642,12 @@
     },
     {
       "wireCode": "host_refresh.partial",
+      "path": "host/macos.utm/modules/Yuruna.Host.Capture.ps1",
+      "matchCount": 1,
+      "reason": "QEMU monitor capture outcome when a command stopped answering after earlier ones answered; snapshot evidence, not a host-refresh verdict."
+    },
+    {
+      "wireCode": "host_refresh.partial",
       "path": "host/macos.utm/modules/Yuruna.Host.LifecycleHelpers.ps1",
       "matchCount": 3,
       "reason": "Outcome of the driver UTM stop and restart operations; the refresh module maps it to a rung outcome, so it is not a host-refresh verdict."
@@ -5744,13 +5846,13 @@
     },
     {
       "wireCode": "host_refresh.refused",
-      "path": "test/extension/pool-aggregator-service/internal/poolstate/labcodes.go",
+      "path": "test/extension/pool-aggregator-service/internal/metrics/metrics.go",
       "matchCount": 1,
       "reason": "Lab exchange outcome counter; not a host-refresh value."
     },
     {
       "wireCode": "host_refresh.refused",
-      "path": "test/extension/pool-aggregator-service/main.go",
+      "path": "test/extension/pool-aggregator-service/internal/poolstate/labcodes.go",
       "matchCount": 1,
       "reason": "Lab exchange outcome counter; not a host-refresh value."
     },
@@ -6375,8 +6477,8 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1",
-      "matchCount": 9,
-      "reason": "Uplink verdict, virtual machine state fallbacks, and storage admission inventory or capacity readings; not the host-refresh state."
+      "matchCount": 11,
+      "reason": "Uplink verdict, virtual machine state and unanswered inventory fallbacks, and storage admission inventory or capacity readings; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
@@ -6452,15 +6554,27 @@
     },
     {
       "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-aggregator-service/internal/metrics/metrics.go",
+      "matchCount": 3,
+      "reason": "DHCP identity pin and incident failure-class fallbacks in the metrics exposition; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
+      "path": "test/extension/pool-aggregator-service/internal/poolstate/incidents.go",
+      "matchCount": 2,
+      "reason": "Failure-class fallbacks for restored host and pool-wide incidents; not the host-refresh state."
+    },
+    {
+      "wireCode": "host_refresh.unknown",
       "path": "test/extension/pool-aggregator-service/internal/poolstate/views.go",
       "matchCount": 1,
       "reason": "Control-state fallback when the control route cannot be compared; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
-      "path": "test/extension/pool-aggregator-service/main.go",
-      "matchCount": 6,
-      "reason": "Failure-class, pause-control and pinned-commit fallbacks; not the host-refresh state."
+      "path": "test/extension/pool-aggregator-service/internal/rehydrate/rehydrate.go",
+      "matchCount": 1,
+      "reason": "Failure-class fallback for a rehydrated failed cycle; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",
@@ -6835,7 +6949,7 @@
     "openBlockerCount": 0,
     "displayOnlyCount": 10,
     "catalogBoundaryCount": 11,
-    "consumerCount": 414,
-    "literalExclusionCount": 333
+    "consumerCount": 420,
+    "literalExclusionCount": 342
   }
 }

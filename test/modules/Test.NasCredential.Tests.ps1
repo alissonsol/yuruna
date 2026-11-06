@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 426f60c6-12ae-47e8-bf91-92c9c1eadd18
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -230,6 +230,9 @@ Describe 'service guests can reach the config service' {
         $text = $block.Extent.Text.Replace('$PSScriptRoot', "'$serviceDir'")
         $Port = 8443
         $null = $Port # Read by the extracted production block.
+        # The launcher imports the message catalog above the block, for the
+        # warning a rule it cannot confirm raises.
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
         Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.StatusFirewall.psm1') -Force
         Mock Set-YurunaStatusFirewallRule { [pscustomobject]@{ Message = 'fixture' } }
         . ([scriptblock]::Create($text))

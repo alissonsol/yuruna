@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42e97954-e78f-416a-ba82-810b6f837f0e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -135,6 +135,18 @@ Describe 'The runner-minute budget of a failure class' {
         $over = Invoke-RecoveryAction -Name 'end_failure_pause_early' -Context @{ Result = $result; RuntimeDir = $script:Dir } -RuntimeDir $script:Dir -MaxAttempts 5
         $over.Decision | Should -Be 'declined'
         $over.Reason | Should -Match '^class-budget-spent: 190 of 180 runner-minutes in 24 h'
+    }
+    It 'spends a wedged kernel''s budget apart from wait_timeout''s, then lets the pause run its length' {
+        $result = New-RecoveryResult -EntryPoint runner -CycleGeneration (('b' * 32) + ':4') -Outcome failed -ExitCode 1 -FailureClass guest_kernel_stalled -Reason 'guest kernel wedged'
+        Add-FailedMinute -Class wait_timeout -Minutes 200
+        $own = Invoke-RecoveryAction -Name 'end_failure_pause_early' -Context @{ Result = $result; RuntimeDir = $script:Dir } -RuntimeDir $script:Dir -MaxAttempts 5
+        $own.Decision | Should -Be 'applied' -Because "wait_timeout's spent minutes are not the wedge's ($($own.Reason))"
+        $own.SkipFailurePause | Should -BeTrue
+        Add-FailedMinute -Class guest_kernel_stalled -Minutes 190
+        $spent = Invoke-RecoveryAction -Name 'end_failure_pause_early' -Context @{ Result = $result; RuntimeDir = $script:Dir } -RuntimeDir $script:Dir -MaxAttempts 5
+        $spent.Decision | Should -Be 'declined'
+        $spent.Reason | Should -Match '^class-budget-spent: 190 of 180 runner-minutes in 24 h'
+        $spent.SkipFailurePause | Should -BeFalse -Because 'once spent, the usual failure pause runs its full length'
     }
     It 'holds the probe end to the same budget' {
         $result = New-RecoveryResult -EntryPoint runner -CycleGeneration (('b' * 32) + ':3') -Outcome 'infrastructure-fault' -ExitCode 1 -FailureClass pool_storage_full

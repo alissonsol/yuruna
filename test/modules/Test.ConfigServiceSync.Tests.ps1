@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 424a2e17-dfe4-4ca3-ae90-6837265945f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -255,13 +255,14 @@ Describe 'Yuruna control proof (status-service control-route auth)' {
     }
     It 'accepts a fresh proof and rejects wrong token / tamper / malformed / no-token' {
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        $wire = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120)
-        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire $wire) 'fresh proof accepted'
-        Assert-True (-not (Test-YurunaControlProof -Token 'tok-2' -Wire $wire)) 'wrong token rejected'
-        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire (($now + 120).ToString() + '.AAAA'))) 'tampered proof rejected'
-        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire 'no-dot')) 'malformed wire rejected'
-        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire '')) 'empty wire rejected'
-        Assert-True (-not (Test-YurunaControlProof -Token '' -Wire $wire)) 'no token configured -> reject'
+        $hostA = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        $wire = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120) -Audience $hostA
+        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire $wire -Audience $hostA) 'fresh proof accepted'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-2' -Wire $wire -Audience $hostA)) 'wrong token rejected'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire ("$($now + 120).$hostA.AAAA") -Audience $hostA)) 'tampered proof rejected'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire 'no-dot' -Audience $hostA)) 'malformed wire rejected'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire '' -Audience $hostA)) 'empty wire rejected'
+        Assert-True (-not (Test-YurunaControlProof -Token '' -Wire $wire -Audience $hostA)) 'no token configured -> reject'
     }
     It 'accepts a proof minted at the aggregator TTL, so the cap stays above the mint' {
         # The aggregator mints expiry = now + 15 min. The verifier window has no skew
@@ -269,18 +270,19 @@ Describe 'Yuruna control proof (status-service control-route auth)' {
         # proof on any host whose clock trails the proxy by a second. Pin the surplus:
         # mint-length proof accepted, and a proof past the cap still rejected.
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $hostA = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
         $mintTtl = 15 * 60
-        $atMint = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + $mintTtl)
-        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire $atMint) 'proof minted at the aggregator TTL is accepted'
-        $beyondCap = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 1800)
-        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $beyondCap)) 'proof beyond the acceptance cap is still rejected'
+        $atMint = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + $mintTtl) -Audience $hostA
+        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire $atMint -Audience $hostA) 'proof minted at the aggregator TTL is accepted'
+        $beyondCap = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 1800) -Audience $hostA
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $beyondCap -Audience $hostA)) 'proof beyond the acceptance cap is still rejected'
     }
     It 'mints the shared bound golden wire (the Go controlproof.ProofFor vector)' {
         $vectors = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, '..', 'extension', 'extension-sdk', 'hostrefresh', 'testdata', 'vectors.json')))
         $b = $vectors.bound
         Assert-Equal -Expected $b.wire -Actual (Get-YurunaControlProof -Token $b.token -ExpiryUnixSeconds $b.expiryUnix -Audience $b.audience)
     }
-    It 'opens only the host a bound proof names, and still accepts an unbound one during the transition' {
+    It 'opens only the host a bound proof names, and refuses an unbound one' {
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
         $hostA = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
         $bound = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120) -Audience $hostA
@@ -289,7 +291,7 @@ Describe 'Yuruna control proof (status-service control-route auth)' {
         Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $bound -Audience '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')) 'another host refuses it'
         Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $bound)) 'a verifier that names no target refuses a bound proof'
         Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $bound.Replace($hostA, '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb') -Audience '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')) 'a swapped audience fails the MAC'
-        Assert-True (Test-YurunaControlProof -Token 'tok-1' -Wire (Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120)) -Audience $hostA) 'unbound proof accepted'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire (Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120)) -Audience $hostA)) 'unbound proof refused'
         Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire ("$($now + 120).a.b.c") -Audience $hostA)) 'four fields rejected'
     }
     It 'mints the shared scoped golden wire (the Go controlproof.ProofForScope vector)' {
@@ -317,8 +319,19 @@ Describe 'Yuruna control proof (status-service control-route auth)' {
     }
     It 'rejects an expired proof and a far-future (beyond MaxTtl) proof' {
         $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire (Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now - 60)))) 'expired rejected'
-        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire (Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 100000)))) 'far-future (beyond MaxTtl) rejected'
+        $hostA = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire (Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now - 60) -Audience $hostA) -Audience $hostA)) 'expired rejected'
+        Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire (Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 100000) -Audience $hostA) -Audience $hostA)) 'far-future (beyond MaxTtl) rejected'
+    }
+    # The unbound form names no target, so it would open every host that shares
+    # the key; no route takes it, whatever target or scope the route names.
+    It 'refuses an unbound proof on every route' {
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $hostA = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        $unbound = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds ($now + 120)
+        Assert-False (Test-YurunaControlProof -Token 'tok-1' -Wire $unbound -Audience $hostA) 'a route that names this host refuses it'
+        Assert-False (Test-YurunaControlProof -Token 'tok-1' -Wire $unbound) 'a verifier that names no target refuses it'
+        Assert-False (Test-YurunaControlProof -Token 'tok-1' -Wire $unbound -Audience $hostA -AllowedScope @('pause')) 'a pause route refuses it'
     }
 }
 
@@ -343,9 +356,10 @@ Describe 'Yuruna control tag (dashboard Control column)' {
     }
     It 'is domain-separated from the control proof' {
         # The tag rides on an OPEN read route, so anything on the LAN can fetch
-        # it. It must therefore be worthless for forging a proof: the proof signs
-        # "yuruna-control|proof|<expiry>", the tag signs a fixed "...|tag|v1"
-        # message no expiry can produce.
+        # it. It must therefore be worthless for forging a proof: every proof
+        # signs a "yuruna-control|proof|..." message that ends in its expiry
+        # (this case mints the retired unbound form), the tag signs a fixed
+        # "...|tag|v1" message no expiry can produce.
         $tag = Get-YurunaControlTag -Token 'tok-1'
         foreach ($exp in @(0, 1, 1900000000)) {
             $proof = Get-YurunaControlProof -Token 'tok-1' -ExpiryUnixSeconds $exp

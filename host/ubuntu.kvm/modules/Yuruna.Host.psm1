@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -199,10 +199,11 @@ function Get-VirshDomState {
     Run one virsh query under a wall-clock cap, with the same connection and
     locale pin as Invoke-Virsh, and return the bounded-command result.
 .DESCRIPTION
-    Invoke-Virsh is a bare `& virsh`: a libvirtd that accepts the connection and
-    then never answers holds its caller indefinitely. Callers that decide
-    something from the answer on a repair path (the responsiveness probe,
-    Get-VMState, force-stop, the rung-2 network step) use this instead.
+    Invoke-Virsh runs every call through this helper under the driver's
+    general cap and reduces the result to output lines and an exit code.
+    Callers that decide something from the bounded result itself on a repair
+    path (the responsiveness probe, force-stop, the rung-2 network step) call
+    this directly and read TimedOut and Started for themselves.
 
     The connection is always $script:VirshUri: omitting it lets virsh pick
     qemu:///session for an unprivileged user, a different daemon with a
@@ -2509,7 +2510,9 @@ function Assert-Virtualization {
 . (Join-Path $PSScriptRoot 'Yuruna.Host.ServiceGuest.ps1')
 
 # --- REGION: Exports
-Export-ModuleMember -Function Remove-KvmDomainDefinition, Resolve-KvmOsVariant, New-KvmServiceDomain, Repair-VMStorageLocation, `
+# Invoke-Virsh and Test-VirshLastCallUnanswered are exported for the service
+# builders, which run as their own process and make virsh calls of their own.
+Export-ModuleMember -Function Remove-KvmDomainDefinition, Resolve-KvmOsVariant, New-KvmServiceDomain, Repair-VMStorageLocation, Invoke-Virsh, Test-VirshLastCallUnanswered, `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, Start-VirtualizationServiceIfStopped, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, Get-VMDiskSnapshotState, `
     Test-VMConsoleOpen, Restart-VMConsole, `

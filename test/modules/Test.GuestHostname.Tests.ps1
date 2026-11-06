@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -157,7 +157,9 @@ $seqCase = @($seqFile | ForEach-Object { @{ name = $_.Name; path = $_.FullName }
 $passwordSequenceCase = @(
     'start.guest.amazon.linux.2023.yml'
     'start.guest.ubuntu.server.24.yml'
+    'start.guest.ubuntu.server.24.macos.utm.yml'
     'start.guest.ubuntu.server.26.yml'
+    'start.guest.ubuntu.server.26.macos.utm.yml'
 ) | ForEach-Object {
     @{ name = $_; path = Join-Path $discoveryRepoRoot "test/sequences/$_" }
 }
@@ -362,7 +364,9 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
         $script:runtimeExpectedPasswordPath = @(
             'start.guest.amazon.linux.2023.yml'
             'start.guest.ubuntu.server.24.yml'
+            'start.guest.ubuntu.server.24.macos.utm.yml'
             'start.guest.ubuntu.server.26.yml'
+            'start.guest.ubuntu.server.26.macos.utm.yml'
         ) | ForEach-Object { [IO.Path]::GetFullPath((Join-Path $sequenceRoot $_)) } | Sort-Object
 
         if ($script:runtimeSequenceFile.Count -lt 3) {
@@ -370,7 +374,7 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
         }
     }
 
-    It 'confines SetPassword to the three password-rotating start sequences' {
+    It 'confines SetPassword to the password-rotating start sequences' {
         $allFrameworkSequenceFile = $script:runtimeSequenceFile
         $expectedPasswordSequencePath = $script:runtimeExpectedPasswordPath
         $inlineWrites = @($allFrameworkSequenceFile | Where-Object {

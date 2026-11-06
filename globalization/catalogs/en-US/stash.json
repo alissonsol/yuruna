@@ -913,6 +913,11 @@
       "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",
       "lifecycle": "active"
     },
+    "stash.api_uploads_busy": {
+      "message": "too many uploads are being received at once; try again shortly",
+      "description": "HTTP error display text for a 503 answer with Retry-After when the stash service is already receiving its limit of multipart creates, which includes pastes and file uploads from the web UI. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior.",
+      "lifecycle": "active"
+    },
     "stash.api_search_failed": {
       "message": "the stash index could not be searched; the service log has the cause",
       "description": "HTTP error display text. The additive code and existing reason/status remain stable; never use translated prose to decide application behavior. External detail is displayed as data.",

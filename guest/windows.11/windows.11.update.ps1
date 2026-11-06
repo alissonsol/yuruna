@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4202eb15-d68a-475f-9f7f-9e84da9b500a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -179,6 +179,53 @@ function Get-GuestHostArchive {
     Write-Output "yuruna: $Archive archive $commit verified (sha256 $sha256)"
 }
 
+# --- REGION: Verified clone URLs
+# With the guest-channel key, take the clone URLs from /control/test-config only
+# when the answer proves the key over them for this guest's host; any other
+# answer throws, and the caller keeps the URLs seeded in host.env. Without the
+# key -- a guest built before it existed -- the answer is read as served.
+function Get-GuestRepositoryUrl {
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [string]$KeyPath = 'C:\ProgramData\yuruna\guest-channel.key',
+        [string]$HostId = ''
+    )
+    $key = ''
+    if (Test-Path -LiteralPath $KeyPath -PathType Leaf) {
+        $text = ([System.IO.File]::ReadAllText($KeyPath)).Trim()
+        if ($text -cmatch '^[0-9a-f]{64}$') { $key = $text }
+    }
+    $uri = "$BaseUrl/control/test-config"
+    $nonce = ''
+    if ($key) {
+        $bytes = New-Object byte[] 16
+        $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+        try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+        $nonce = ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
+        $uri = "$($uri)?nonce=$nonce"
+    }
+    $answer = Invoke-RestMethod -Uri $uri -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+    # An absent or non-string URL counts as empty, as the host counts it.
+    $frameworkUrl = if ($answer.repositories.frameworkUrl -is [string]) { $answer.repositories.frameworkUrl } else { '' }
+    $projectUrl = if ($answer.repositories.projectUrl -is [string]) { $answer.repositories.projectUrl } else { '' }
+    if ($key) {
+        $answerHostId = [string]$answer.guestChannel.hostId
+        $proof = [string]$answer.guestChannel.proof
+        if ($proof -cnotmatch '^[0-9a-f]{64}$') { throw "the test-config answer does not prove this host's guest-channel key" }
+        if ($HostId -and $answerHostId -ne $HostId) {
+            # Only id characters reach the transcript from an unproven answer.
+            throw "the test-config answer speaks for host '$($answerHostId -replace '[^A-Za-z0-9_-]', '')', not this guest's host '$HostId'"
+        }
+        $hmac = New-Object System.Security.Cryptography.HMACSHA256 (, [System.Text.Encoding]::ASCII.GetBytes($key))
+        try {
+            $message = [System.Text.Encoding]::UTF8.GetBytes("yuruna-test-config/1`n$answerHostId`n$nonce`n$frameworkUrl`n$projectUrl")
+            $expected = ($hmac.ComputeHash($message) | ForEach-Object { $_.ToString('x2') }) -join ''
+        } finally { $hmac.Dispose() }
+        if ($proof -cne $expected) { throw "the test-config answer does not prove this host's guest-channel key" }
+    }
+    [pscustomobject]@{ FrameworkUrl = $frameworkUrl; ProjectUrl = $projectUrl }
+}
+
 # --- REGION: Early yuruna framework extraction
 # See https://yuruna.link/42d69dfa-0037
 # Tarball-only here; the git-clone fallback lives in the Materialize section below.
@@ -282,17 +329,17 @@ Write-Output "<<< Git ready."
 $frameworkUrl = ''
 $projectUrl   = ''
 if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
-    $cfgUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/control/test-config"
     try {
-        $cfg = Invoke-RestMethod -Uri $cfgUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-        if ($cfg.repositories.frameworkUrl) { $frameworkUrl = [string]$cfg.repositories.frameworkUrl }
-        if ($cfg.repositories.projectUrl)   { $projectUrl   = [string]$cfg.repositories.projectUrl }
+        $served = Get-GuestRepositoryUrl -BaseUrl "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)" -HostId ([string]$env:YURUNA_HOST_ID)
+        $frameworkUrl = $served.FrameworkUrl
+        $projectUrl   = $served.ProjectUrl
     } catch {
-        Write-Output "yuruna: /control/test-config unreachable -- using seeded clone URLs when available."
+        Write-Output "yuruna: no clone URLs taken from /control/test-config -- $($_.Exception.Message); using seeded clone URLs when available."
     }
 }
 
-# host.env keeps clone URLs available while the status service is unreachable.
+# host.env keeps clone URLs available while the status service is unreachable
+# or its answer is not proven.
 if (-not $frameworkUrl) { $frameworkUrl = [string]$env:YURUNA_FRAMEWORK_URL }
 if (-not $projectUrl) { $projectUrl = [string]$env:YURUNA_PROJECT_URL }
 

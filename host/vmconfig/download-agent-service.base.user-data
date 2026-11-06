@@ -61,6 +61,14 @@ write_files:
       YURUNA_POOL_NETWORK_PATH=POOL_NAS_NETWORK_PATH_PLACEHOLDER
       YURUNA_POOL_NETWORK_IP=POOL_NAS_NETWORK_IP_PLACEHOLDER
       YURUNA_POOL_NETWORK_USER=POOL_NAS_NETWORK_USER_PLACEHOLDER
+  # Names the UI and API answer to besides the VM's addresses, host name and
+  # localhost, from the building host's configuration. Read with sed by the
+  # bring-up script, never sourced.
+  - path: /etc/yuruna/service-host-names.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_SERVICE_HOST_NAMES='YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER'
   # The squid CA, from the building host's pin; runcmd installs it.
   - path: /etc/yuruna/yuruna-squid-ca.crt
     permissions: '0644'

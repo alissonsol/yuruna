@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1920,6 +1920,120 @@ Describe 'The inter-cycle wait paces only a cycle that another will follow' {
         }
         $text = Get-Content -Raw (Join-Path $here 'Test.RunnerInnerLoop.psm1')
         Assert-Match -Pattern '\$effectiveDelay = Get-InterCycleDelay' -Actual $text -Because 'the cycle''s wait takes its length from the helper'
+    }
+}
+
+# A step whose handler runs a host command this host does not have stops the
+# cycle at its plan, on the path every capability gap takes: the operator
+# banner, a plan_invalid record, and an empty guest list, so no VM is built.
+Describe 'The capability gate refuses a plan whose steps need a missing host command' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.Capability.psm1') -Force -DisableNameChecking -Global
+        Import-Module (Join-Path $here 'Test.SequenceHandler.psm1') -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
+        $script:HostCommandPlanRoot = New-YurunaTestTempDir -Prefix 'yrn-gate-plan'
+        $script:HostCommandPlan = Join-Path $script:HostCommandPlanRoot 'workload.fixture.ssh.yml'
+        [IO.File]::WriteAllText($script:HostCommandPlan, @'
+resource:
+  ubuntu.server.24: []
+component:
+  - action: waitForSeconds
+    seconds: 1
+  - action: sshExec
+    command: "true"
+'@)
+        # The refusal branch of the cycle's capability gate, run on its own.
+        $gate = (Get-YurunaTestFunctionAst -Path (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Name 'Invoke-RunnerInnerCycle').Find({ param($n)
+                $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '-not $cap.supported' }, $true)
+        $body = $gate.Clauses[0].Item2.Extent.Text
+        $script:CapabilityRefusal = $body.Substring(1, $body.Length - 2)
+    }
+    AfterAll { Remove-YurunaTestTempDir $script:HostCommandPlanRoot }
+
+    It 'files plan_invalid naming each missing command and its step, and leaves no guest to build' {
+        $savedPath = Save-YurunaTestEnvironment -Name 'PATH'
+        try {
+            # A PATH that holds neither ssh nor ssh-keygen.
+            $env:PATH = $script:HostCommandPlanRoot
+            $cap = Test-CyclePlanCapability -SequencePath @($script:HostCommandPlan) -HostType 'host.ubuntu.kvm'
+        } finally { Restore-YurunaTestEnvironment -Saved $savedPath }
+        $cap.supported | Should -BeFalse
+        @($cap.missingHostCommand | ForEach-Object { $_.command }) | Should -Be @('ssh', 'ssh-keygen')
+
+        Mock -ModuleName Test.RunnerInnerLoop Write-CycleInfraFailure {}
+        $result = InModuleScope Test.RunnerInnerLoop -Parameters @{ Cap = $cap; Refusal = $script:CapabilityRefusal } {
+            param($Cap, $Refusal)
+            $HostType = 'host.ubuntu.kvm'
+            $GuestList = @('guest.ubuntu.server.24')
+            $SequenceList = @('workload.fixture.ssh')
+            $OverallPassed = $true
+            $null = @($Cap, $HostType) # Inputs read by the refusal branch run below, as $cap and $HostType.
+            $banner = @(. ([scriptblock]::Create($Refusal)))
+            @{
+                GuestList = $GuestList; SequenceList = $SequenceList; OverallPassed = $OverallPassed; Banner = $banner
+                StepLine = Format-YurunaOperatorMessage -Key 'runner.capability_gate_host_command_step' -Arguments @{ sequence = 'workload.fixture.ssh'; step = 2; action = 'sshExec' }
+            }
+        }
+        $result.GuestList.Count | Should -Be 0 -Because 'the guest loop must build nothing'
+        $result.SequenceList.Count | Should -Be 0
+        $result.OverallPassed | Should -BeFalse
+        $result.Banner | Should -Contain '    - ssh'
+        $result.Banner | Should -Contain '    - ssh-keygen'
+        @($result.Banner | Where-Object { $_ -eq $result.StepLine }).Count | Should -Be 2 -Because 'each missing command names the step that runs it'
+        Should -Invoke -ModuleName Test.RunnerInnerLoop Write-CycleInfraFailure -Times 1 -Exactly -ParameterFilter {
+            $Stage -eq 'Test-CyclePlanCapability' -and $FailureClass -eq 'plan_invalid' -and
+            $ErrorMessage.Contains('Missing host commands: ssh (workload.fixture.ssh step 2 sshExec); ssh-keygen (workload.fixture.ssh step 2 sshExec)')
+        }
+    }
+}
+
+# A cycle the runner opens and an orchestration cycle it dispatches take the
+# same cycle-start capture. The orchestrator returns its exit code on the
+# success stream, so the capture reports on the information stream instead.
+Describe 'The cycle-start host diagnostic of a cycle the runner opens' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.Perf.psm1') -Global -DisableNameChecking
+    }
+    AfterAll { Remove-Variable -Name __hostDiagnosticPerf -Scope Global -ErrorAction SilentlyContinue }
+
+    It 'writes the dump at the cycle-folder root, reports it off the success stream, then opens the perf log over it' {
+        $repo = Join-Path $TestDrive 'host-diagnostic-repo'
+        $cycle = Join-Path $TestDrive '000001.host-diagnostic-cycle'
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $repo 'automation'), $cycle
+        Set-Content -LiteralPath (Join-Path $repo 'automation/Get-SystemDiagnostic.ps1') -Encoding utf8 -Value @(
+            'param([string]$OutFile)'
+            'Set-Content -LiteralPath $OutFile -Value ''fixture host state'''
+            'Set-Content -LiteralPath "$OutFile.json" -Value ''{"schema":"yuruna.diagnostic.problems/v1","count":0,"byClass":{},"problems":[]}'''
+        )
+        $global:__hostDiagnosticPerf = $null
+        Mock -ModuleName Test.RunnerInnerLoop Start-PerfCycle {
+            $global:__hostDiagnosticPerf = @{ Path = $HostDiagnosticPath; Existed = (Test-Path -LiteralPath $HostDiagnosticPath) }
+        }
+        $saved = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
+        try {
+            Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $cycle }
+            $result = InModuleScope Test.RunnerInnerLoop -Parameters @{ Repo = $repo } {
+                param($Repo)
+                $output = @(Start-CycleHostDiagnostic -RepoRoot $Repo -CycleStartUtc '2026-01-01T00:00:00Z' -HostType 'host.ubuntu.kvm' `
+                        -Hostname 'fixture' -GitCommit 'framework-sha' -ProjectGitCommit '' -InformationVariable reported 6>$null)
+                @{
+                    Output   = $output
+                    Reported = @($reported | ForEach-Object { [string]$_.MessageData })
+                    Expected = @(
+                        (Format-YurunaOperatorMessage -Key 'runner.operator_129990a926a40e2a' -Arguments @{ cycleBaseName = '000001.host-diagnostic-cycle' })
+                        (Format-YurunaOperatorMessage -Key 'runner.operator_2f2b89b8229b6a83')
+                    )
+                }
+            }
+        } finally {
+            Restore-YurunaTestGlobal -Saved $saved
+        }
+        $dump = Join-Path $cycle 'host.diagnostic.txt'
+        (Test-Path -LiteralPath $dump) | Should -BeTrue -Because 'the dump sits at the cycle-folder root'
+        $result.Output.Count | Should -Be 0 -Because 'no caller''s success-stream value may carry the capture''s lines'
+        $result.Reported | Should -Be $result.Expected
+        Should -Invoke -ModuleName Test.RunnerInnerLoop Start-PerfCycle -Times 1 -Exactly
+        $global:__hostDiagnosticPerf.Path | Should -Be $dump -Because 'the perf log hashes the dump'
+        $global:__hostDiagnosticPerf.Existed | Should -BeTrue -Because 'the dump is written before the perf log opens'
     }
 }
 

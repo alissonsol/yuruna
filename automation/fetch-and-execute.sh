@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.31
+# Version: 2026.11.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 4293fe9e-c743-4e9d-b6c1-586585bfa3d1
@@ -505,17 +505,37 @@ export FAE_INVOCATION_SCRIPT
 # Replace the previous invocation before any source probe or download can fail.
 fae_log='/tmp/yuruna-last-fetch-and-execute.log'
 fae_log_completed=0
+# A process is named by its PID and its start time (field 22 of
+# /proc/<pid>/stat, in clock ticks since boot), so a recycled PID never passes
+# for the invocation that held it.
+fae_process_start() {
+    local stat fields=()
+    read -r stat 2>/dev/null < "/proc/$1/stat" || return 1
+    read -r -a fields <<< "${stat##*) }"
+    [[ ${fields[19]:-} =~ ^[0-9]+$ ]] || return 1
+    printf '%s' "${fields[19]}"
+}
 # The previous invocation's recorder folder and profile are named only in the
-# log this run is about to replace, and nothing reads them once it is gone.
-# Without this a guest keeps one recorder folder (up to ~2 MB) per step it has
-# ever run. Only paths of the exact shape this script creates are removed.
+# log this run is about to replace. Without this a guest keeps one recorder
+# folder (up to ~2 MB) per step it has ever run. That invocation can still be
+# running: a generated wrapper delegates to its shared workflow through a
+# nested invocation, and the outer recorder keeps writing into its folder and
+# the outer exit still writes the stop file there. The paths of an owner that
+# still runs are kept and printed as '# retained:' lines for the new log, so a
+# later invocation removes them once that owner has exited. A log without an
+# owner line names no process to wait for, so its paths are removed. Only
+# paths of the exact shape this script creates are removed.
 fae_prune_prior_invocation() {
-    local log="$1" line path
+    local log="$1" line path pid start owner_pid='' owner_start=''
     [ -f "$log" ] || return 0
     while IFS= read -r line; do
         case "$line" in
-            '# recorder: /tmp/yuruna-fae-recorder.'*) path="${line#'# recorder: '}" ;;
-            '# profile:   /tmp/yuruna-fae-profile.'*) path="${line#'# profile:   '}" ;;
+            '# owner: '*)
+                [ -n "$owner_pid" ] || read -r owner_pid owner_start _ <<< "${line#'# owner: '}"
+                continue ;;
+            '# recorder: /tmp/yuruna-fae-recorder.'*) path="${line#'# recorder: '}"; pid=$owner_pid; start=$owner_start ;;
+            '# profile:   /tmp/yuruna-fae-profile.'*) path="${line#'# profile:   '}"; pid=$owner_pid; start=$owner_start ;;
+            '# retained: '*) read -r pid start path <<< "${line#'# retained: '}" ;;
             *) continue ;;
         esac
         case "$path" in
@@ -523,11 +543,19 @@ fae_prune_prior_invocation() {
             *) continue ;;
         esac
         case "$path" in */*/*/*|*..*|*' '*) continue ;; esac
-        rm -rf -- "$path" 2>/dev/null || true
+        if [[ $pid =~ ^[0-9]+$ && $start =~ ^[0-9]+$ ]] && [ "$(fae_process_start "$pid")" = "$start" ]; then
+            printf '# retained: %s %s %s\n' "$pid" "$start" "$path"
+        else
+            rm -rf -- "$path" 2>/dev/null || true
+        fi
     done < "$log"
     return 0
 }
-fae_prune_prior_invocation "$fae_log"
+fae_retained=$(fae_prune_prior_invocation "$fae_log")
+fae_owner_start=$(fae_process_start "$$")
+# The owner line precedes this run's recorder and profile lines, which the next
+# run attributes to it in a single pass. Neither it nor the retained lines go
+# into the header, which the host reads, bounded, to join the log to its step.
 {
     echo '# Yuruna fetch-and-execute log'
     printf '# script:    %s\n' "$FAE_INVOCATION_SCRIPT"
@@ -536,6 +564,8 @@ fae_prune_prior_invocation "$fae_log"
     printf '# stepInvocationId: %s\n' "${E_SI:-}"
     printf '# sequenceInvocationId: %s\n' "${E_QI:-}"
     echo '# ---'
+    [ -z "$fae_owner_start" ] || printf '# owner: %s %s\n' "$$" "$fae_owner_start"
+    [ -z "$fae_retained" ] || printf '%s\n' "$fae_retained"
 } > "$fae_log" 2>/dev/null || true
 fae_note phase resolving-source
 if [ "$fae_identity_error" = 1 ]; then
@@ -859,10 +889,27 @@ fae_recorder_redact() {
 # The kernel uploader owns its HTTP stream independently of SSH, the payload,
 # and the slower process collector. Unchanged evidence uploads once per minute
 # so a stalled process sample can be distinguished from a stalled uploader.
+# sudo logs through journald's socket, so a wedged journald hangs sudo while the
+# rest of the guest keeps running. The probe is bounded and reports that hang, so
+# the collector continues unprivileged instead of spending its whole time budget
+# on sudo and leaving an empty sample. Sets the caller's recorder_priv.
+# shellcheck disable=SC2317 # Invoked in the exported collector child shell.
+fae_recorder_privilege() {
+    local probe_rc=0
+    if [ "$(id -u)" = 0 ] || ! command -v sudo >/dev/null 2>&1; then return 0; fi
+    # KILL also ends timeout's own process group, and bash would print that job's
+    # death into the sample: the outer redirection keeps it out.
+    { timeout --signal=KILL 1 sudo -n true >/dev/null 2>&1; } 2>/dev/null || probe_rc=$?
+    case "$probe_rc" in
+        0) recorder_priv=(sudo -n) ;;
+        124|137) printf 'recorderPrivilege=sudo-unresponsive\n' ;;
+    esac
+}
+
 # shellcheck disable=SC2317 # Invoked in the exported collector child shell.
 fae_kernel_collect() {
     local recorder_priv=()
-    if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then recorder_priv=(sudo -n); fi
+    fae_recorder_privilege
     # A stall header and its CPU stacks can exceed a short journal tail. The
     # caller still bounds collection time and redacted bytes independently.
     "${recorder_priv[@]}" journalctl -k -b --no-pager -n 256 -o short-monotonic 2>&1
@@ -900,7 +947,7 @@ fae_kernel_loop() {
     local owner=$1 folder=$2 interval=${3:-5} limit=${4:-1440} producer=${5:-} heartbeat=${6:-60} index=0 started=$SECONDS before slot path
     local collector_pid sample_rc bytes truncated upload=not-configured signature previous_signature='' last_upload=$SECONDS first_stall_index=-1
     export E_SI E_QI GH_TOKEN
-    export -f fae_kernel_collect fae_recorder_redact
+    export -f fae_kernel_collect fae_recorder_privilege fae_recorder_redact
     while [ "$index" -lt "$limit" ] && [ "$((SECONDS-started))" -lt 7200 ] && \
         { [ "$index" -eq 0 ] || kill -0 "$owner" 2>/dev/null; } && \
         { [ "$index" -eq 0 ] || [ ! -e "$folder/stop" ]; }; do
@@ -1125,15 +1172,23 @@ fae_recorder_collect() {
     local -A sampled_process=()
     export LC_ALL=C
     local recorder_priv=()
-    if [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then recorder_priv=(sudo -n); fi
     printf 'sampleUtc=%s\nstepInvocationId=%s\nsequenceInvocationId=%s\n' \
         "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" "${E_SI:-}" "${E_QI:-}"
+    fae_recorder_privilege
     guest_evidence_clock
     # Keep timestamped IRQ history even if a later memory or stack read stalls.
     for path in /proc/sys/kernel/random/boot_id /proc/uptime /proc/stat /proc/interrupts /proc/softirqs /proc/loadavg \
         /proc/pressure/{cpu,io,memory} /proc/{meminfo,vmstat,diskstats}; do
         fae_recorder_read "$path" 8192
     done
+    # A wedged journald reads as clients asleep on its socket: sudo and sshd
+    # growing older, a queue on dev-log, a journald its three-minute watchdog
+    # keeps restarting. The UART counters tell a serial stall from other causes.
+    printf '\n--- journal clients (pid, age seconds, state, wait channel, name) ---\n'
+    "${recorder_priv[@]}" ps -eo pid=,etimes=,stat=,wchan:24=,comm= 2>&1 |
+        awk '$NF ~ /^(systemd-journal|journalctl|serial-journal|sudo|sshd|sshd-session|sshd-auth|logger)$/' | head -n 32
+    ss -xaHn src /run/systemd/journal/dev-log 2>&1 | head -n 4
+    fae_recorder_read /proc/tty/driver/serial 1024
     # A guest keeps sampling after it loses its address, route, or link, so
     # the sample must show them. ip prints numeric addresses unless asked to
     # resolve, so nothing here waits on DNS. Minimal service PATHs omit sbin,
@@ -1230,7 +1285,7 @@ fae_recorder_loop() {
     local owner=$1 folder=$2 interval=$3 limit=$4 index=0 sample_rc upload=not-configured before slot path started=$SECONDS bytes truncated collector_pid
     export E_SI E_QI GH_TOKEN FILE_PATH fae_payload_sha256 fae_executed_sha256
     export -f guest_evidence_clock guest_evidence_safe_path guest_evidence_hash guest_evidence_revision guest_evidence_provenance guest_evidence_boot_metadata
-    export -f fae_recorder_read fae_recorder_collect fae_recorder_redact
+    export -f fae_recorder_read fae_recorder_collect fae_recorder_privilege fae_recorder_redact
     if [ -r "$folder/metadata.txt" ]; then :; else
         timeout --signal=TERM --kill-after=1 4 bash -c \
             'set -o pipefail; { guest_evidence_boot_metadata; guest_evidence_provenance; } 2>&1 | FAE_RECORDER_BYTE_CAP=32768 fae_recorder_redact' \
@@ -1333,7 +1388,11 @@ fae_start_recorder() {
 }
 
 fae_stop_recorder() {
-    [ -n "$fae_recorder_folder" ] && : > "$fae_recorder_folder/stop"
+    # The folder can be gone by now, and its absence must not print an error
+    # beside the completion marker the console capture reads.
+    if [ -n "$fae_recorder_folder" ]; then
+        { : > "$fae_recorder_folder/stop"; } 2>/dev/null || true
+    fi
     return 0
 }
 

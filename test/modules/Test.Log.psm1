@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -590,6 +590,21 @@ function Start-LogFile {
             if (Test-Path $logModule) {
                 Import-Module $logModule -Global -Force -Verbose:$false
             }
+        }
+        # See https://yuruna.link/42fa6f45-0030
+        # Events queued while no cycle was open join this cycle's stream ahead
+        # of cycle_start, oldest first: Loki refuses a line over an hour behind
+        # its stream. A runner keeps the code it started with, so the faults no
+        # runner queued join the queue here, ahead of the drain below.
+        try {
+            $null = Add-PendingRunnerAttemptFault -CycleFolder $cycleFolder
+        } catch {
+            Write-Verbose "Start-LogFile: runner attempt faults stay unqueued: $($_.Exception.Message)"
+        }
+        try {
+            $null = Send-PendingCycleEvent
+        } catch {
+            Write-Verbose "Start-LogFile: pending cycle events stay queued: $($_.Exception.Message)"
         }
         # Emit the cycle-boundary opening event. Pairs with the cycle_end
         # emitted by Stop-LogFile. A streaming remediator can now index
@@ -1516,6 +1531,517 @@ function Send-CycleEventSafely {
     }
 }
 
+# --- REGION: Pending cycle events
+# An event raised while no cycle is open -- by the outer runner's boot recovery
+# or a runner fault between cycles -- has no stream to join, and the log-root
+# fallback is a file nothing collects. It waits in the runtime directory and is
+# written into the next cycle's stream, which the pull and push paths deliver.
+$script:PendingCycleEventFileName = 'cycle-events.pending.json'
+# A host that keeps failing before any cycle opens queues one runner fault per
+# attempt; these bounds hold several days of that at the failure-pause cadence.
+$script:PendingCycleEventMaxCount = 200
+$script:PendingCycleEventMaxBytes = 524288
+# ConvertFrom-Json turns ISO-8601-looking strings into [DateTime] unless told
+# not to (-DateKind String, PowerShell 7.5 and later); a queued event must come
+# back with the timestamp strings it was queued with.
+$script:PendingCycleEventJsonOption = @{}
+if ((Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $script:PendingCycleEventJsonOption.DateKind = 'String' }
+
+function Enter-PendingCycleEventLock {
+    <#
+    .SYNOPSIS
+        Take the cross-process lock that serializes every change to the pending queue.
+    .DESCRIPTION
+        The outer runner adds events while a cycle process may be draining them,
+        and each change is a whole-document read and replace. The lock is a
+        held-open file beside the queue, so the system releases it with a
+        process that dies holding it. The lock and atomic-write helpers are
+        loaded here when the caller's module set did not bring them.
+    .OUTPUTS
+        The lock record of Enter-YurunaSingleFlightLock; Held is $false with
+        Reason 'lock-unavailable' when the lock module cannot be loaded.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][int]$WaitMilliseconds
+    )
+    foreach ($helper in @(@('Enter-YurunaSingleFlightLock', 'Test.SingleFlightLock.psm1'), @('Write-YurunaStateFileJson', 'Test.StateFile.psm1'))) {
+        if (Get-Command $helper[0] -ErrorAction SilentlyContinue) { continue }
+        try { Import-Module (Join-Path $PSScriptRoot $helper[1]) -DisableNameChecking -ErrorAction Stop }
+        catch { Write-Verbose "Enter-PendingCycleEventLock: $($helper[1]) unavailable: $($_.Exception.Message)" }
+    }
+    if (-not (Get-Command Enter-YurunaSingleFlightLock -ErrorAction SilentlyContinue)) {
+        return [pscustomobject]@{ Held = $false; Reason = 'lock-unavailable'; Handle = $null }
+    }
+    return (Enter-YurunaSingleFlightLock -Path "$Path.lock" -WaitMilliseconds $WaitMilliseconds -Metadata @{ purpose = 'pending-cycle-events' })
+}
+
+function Test-PendingCycleEventLockUsable {
+    <#
+    .SYNOPSIS
+        Whether a queue change may go ahead under the lock record it got.
+    .DESCRIPTION
+        A holder that outlasted the wait refuses the change rather than racing it.
+        A file system that cannot lock, or a lock that cannot be created, leaves
+        the change unserialized, as every queue write is still an atomic replace.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()]$Lock)
+    if ($null -eq $Lock) { return $false }
+    if ($Lock.Held) { return $true }
+    return ([string]$Lock.Reason -notin @('held-elsewhere', 'held-by-this-process', 'lock-order-violation'))
+}
+
+function Read-PendingCycleEventQueue {
+    <#
+    .SYNOPSIS
+        The pending-event queue document, a new empty one when the file is
+        absent (or unreadable, with -ReplaceUnreadable), or $null when it exists
+        and cannot be read.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([Parameter(Mandatory)][string]$Path, [switch]$ReplaceUnreadable)
+    $queue = [ordered]@{ schemaVersion = 1; droppedCount = 0; lastDroppedEvent = ''; lastDroppedTimestamp = ''; events = @() }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $queue }
+    try {
+        $jsonOption = $script:PendingCycleEventJsonOption
+        $parsed = [IO.File]::ReadAllText($Path) | ConvertFrom-Json -AsHashtable @jsonOption -ErrorAction Stop
+        # An empty file, null or an array parses without error but holds no
+        # queue, so it is as unreadable as text that does not parse.
+        if ($parsed -is [System.Collections.IDictionary]) {
+            $queue.droppedCount = [int]$parsed['droppedCount']
+            $queue.lastDroppedEvent = [string]$parsed['lastDroppedEvent']
+            $queue.lastDroppedTimestamp = [string]$parsed['lastDroppedTimestamp']
+            $queue.events = @(@($parsed['events']) | Where-Object { $_ -is [System.Collections.IDictionary] })
+            return $queue
+        }
+    } catch {
+        Write-Verbose "Read-PendingCycleEventQueue: $Path is unreadable: $($_.Exception.Message)"
+    }
+    if ($ReplaceUnreadable) { return $queue }
+    return $null
+}
+
+function Add-PendingCycleEvent {
+    <#
+    .SYNOPSIS
+        Hold an event raised while no cycle is open until the next cycle's
+        stream can carry it.
+    .DESCRIPTION
+        The event keeps its own timestamp (one is added when it has none) and
+        gains an eventId, so a consumer can discard the copy a flush interrupted
+        between writing the stream and rewriting the queue delivers twice.
+
+        The queue is bounded by event count and by serialized size. Past either
+        bound the oldest events are dropped, and the number dropped is kept so
+        the next cycle reports the loss (pending_cycle_events_dropped). An event
+        larger than the whole size bound is the only one dropped. An unreadable
+        queue file is replaced.
+    .PARAMETER EventRecord
+        The event, as Send-CycleEventSafely takes it. The caller's hashtable is
+        not changed.
+    .PARAMETER RuntimeDir
+        The runtime directory holding the queue. Defaults to $env:YURUNA_RUNTIME_DIR.
+    .PARAMETER InTimeOrder
+        Place the event ahead of the first queued event dated after it rather
+        than last, for an event dated in the past: the queue drains in order,
+        and Loki refuses a line more than an hour behind the newest line of
+        the host's event stream.
+    .OUTPUTS
+        [bool] $true when the event is queued; $false when it is not, including
+        when it alone exceeds the size bound.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Telemetry bookkeeping: one bounded queue file in the runtime directory, like the delivery ledger beside a cycle stream.')]
+    param(
+        [Parameter(Mandatory)][hashtable]$EventRecord,
+        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR,
+        [switch]$InTimeOrder
+    )
+    if (-not $RuntimeDir -or -not (Test-Path -LiteralPath $RuntimeDir -PathType Container)) { return $false }
+    $record = [hashtable]$EventRecord.Clone()
+    if (-not $record.Contains('timestamp')) {
+        $record['timestamp'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    }
+    if (-not $record.Contains('eventId')) { $record['eventId'] = [guid]::NewGuid().ToString() }
+    $path = Join-Path $RuntimeDir $script:PendingCycleEventFileName
+    $lock = Enter-PendingCycleEventLock -Path $path -WaitMilliseconds 5000
+    if (-not (Test-PendingCycleEventLockUsable -Lock $lock)) {
+        Write-Verbose "Add-PendingCycleEvent: '$($record['event'])' not queued; the queue lock is $($lock.Reason)."
+        return $false
+    }
+    try {
+        $queue = Read-PendingCycleEventQueue -Path $path -ReplaceUnreadable
+        $events = [System.Collections.Generic.List[object]]::new()
+        $sizes = [System.Collections.Generic.List[long]]::new()
+        $bytes = [long]0
+        foreach ($queued in @(@($queue.events) + @($record))) {
+            $size = [long][Text.Encoding]::UTF8.GetByteCount(($queued | ConvertTo-Json -Compress -Depth 12))
+            $events.Add($queued); $sizes.Add($size); $bytes += $size
+        }
+        $added = $events.Count - 1
+        if ($InTimeOrder) {
+            # Every producer stamps yyyy-MM-ddTHH:mm:ssZ, which sorts as text.
+            $at = 0
+            while ($at -lt $added -and [string]::CompareOrdinal([string]$events[$at]['timestamp'], [string]$record['timestamp']) -le 0) { $at++ }
+            $size = $sizes[$added]
+            $events.RemoveAt($added); $sizes.RemoveAt($added)
+            $events.Insert($at, $record); $sizes.Insert($at, $size)
+            $added = $at
+        }
+        # An event larger than the whole size bound can never be kept: it alone
+        # is dropped, and the events already queued stay. The loss report goes
+        # into the stream ahead of them, so it is dated by the first event of
+        # the queue (this event when it goes first or none is queued); a later
+        # date would put the stream out of time order.
+        if ($sizes[$added] -gt $script:PendingCycleEventMaxBytes) {
+            $queue.droppedCount = 1 + [int]$queue.droppedCount
+            $queue.lastDroppedEvent = [string]$record['event']
+            $queue.lastDroppedTimestamp = [string]$events[0]['timestamp']
+            $bytes -= $sizes[$added]
+            $events.RemoveAt($added); $sizes.RemoveAt($added)
+        }
+        while ($events.Count -gt 0 -and ($events.Count -gt $script:PendingCycleEventMaxCount -or $bytes -gt $script:PendingCycleEventMaxBytes)) {
+            $queue.droppedCount = 1 + [int]$queue.droppedCount
+            $queue.lastDroppedEvent = [string]$events[0]['event']
+            $queue.lastDroppedTimestamp = [string]$events[0]['timestamp']
+            $bytes -= $sizes[0]
+            $events.RemoveAt(0); $sizes.RemoveAt(0)
+        }
+        $queue.events = @($events)
+        $written = [bool](Write-YurunaStateFileJson -Path $path -InputObject $queue -Depth 16 -Confirm:$false)
+        return ($written -and $events.Contains($record))
+    } catch {
+        Write-Verbose "Add-PendingCycleEvent: '$($record['event'])' not queued: $($_.Exception.Message)"
+        return $false
+    } finally {
+        if ($lock.Held) { Exit-YurunaSingleFlightLock -Lock $lock }
+    }
+}
+
+function Send-PendingCycleEventRecord {
+    <#
+    .SYNOPSIS
+        Write one queued event into the open cycle's stream; $true only when the
+        stream holds it.
+    .DESCRIPTION
+        Goes through Send-CycleEventSafely, so a queued event is validated and
+        stamped with the cycle's identity like every other event. The delivery
+        ledger is what says whether the line landed. A copy is written, so an
+        event left queued is stamped afresh by the cycle that delivers it.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$EventRecord)
+    $delivered = $script:CycleEventDelivery.delivered
+    $dropped = $script:CycleEventDelivery.dropped
+    $copy = @{}
+    foreach ($key in $EventRecord.Keys) { $copy[$key] = $EventRecord[$key] }
+    Send-CycleEventSafely -EventRecord $copy
+    return ($script:CycleEventDelivery.dropped -eq $dropped -and $script:CycleEventDelivery.delivered -gt $delivered)
+}
+
+function Send-PendingCycleEvent {
+    <#
+    .SYNOPSIS
+        Write the events queued while no cycle was open into the open cycle's
+        stream, oldest first.
+    .DESCRIPTION
+        Start-LogFile calls this as a cycle opens. A loss the queue recorded is
+        reported first, as pending_cycle_events_dropped dated by the newest
+        event it dropped. Each event keeps its own timestamp.
+
+        The queue is rewritten only after the stream holds the events it
+        delivered, so a write that fails leaves that event and every later one
+        queued for the next cycle, in order. A process that stops between the
+        two writes delivers those events again, with the same eventId. A queue
+        whose lock another process holds is left for the next cycle.
+    .PARAMETER RuntimeDir
+        The runtime directory holding the queue. Defaults to $env:YURUNA_RUNTIME_DIR.
+    .OUTPUTS
+        [hashtable] Delivered (events written), Remaining (events left queued),
+        Dropped (the loss count reported).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Moves already-recorded telemetry from the runtime queue into the open cycle stream; nothing is destroyed that the stream does not hold.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Reads the cycle-folder anchor set by Start-LogFile in the same module.')]
+    param([string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR)
+    $summary = @{ Delivered = 0; Remaining = 0; Dropped = 0 }
+    if (-not $RuntimeDir -or -not $global:__YurunaCycleFolder) { return $summary }
+    $path = Join-Path $RuntimeDir $script:PendingCycleEventFileName
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $summary }
+    $lock = Enter-PendingCycleEventLock -Path $path -WaitMilliseconds 2000
+    if (-not (Test-PendingCycleEventLockUsable -Lock $lock)) {
+        Write-Verbose "Send-PendingCycleEvent: the queue is left for the next cycle; its lock is $($lock.Reason)."
+        return $summary
+    }
+    try {
+        $queue = Read-PendingCycleEventQueue -Path $path
+        if ($null -eq $queue) { return $summary }
+        $events = [System.Collections.Generic.List[object]]::new()
+        foreach ($queued in @($queue.events)) { $events.Add($queued) }
+        $writable = $true
+        if ([int]$queue.droppedCount -gt 0) {
+            $stamp = if ($queue.lastDroppedTimestamp) { [string]$queue.lastDroppedTimestamp }
+                     else { (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture) }
+            $writable = Send-PendingCycleEventRecord -EventRecord @{
+                timestamp        = $stamp
+                event            = 'pending_cycle_events_dropped'
+                droppedCount     = [int]$queue.droppedCount
+                lastDroppedEvent = [string]$queue.lastDroppedEvent
+            }
+            if ($writable) {
+                $summary.Dropped = [int]$queue.droppedCount
+                $queue.droppedCount = 0; $queue.lastDroppedEvent = ''; $queue.lastDroppedTimestamp = ''
+            }
+        }
+        while ($writable -and $events.Count -gt 0) {
+            if (-not (Send-PendingCycleEventRecord -EventRecord $events[0])) { break }
+            $events.RemoveAt(0)
+            $summary.Delivered++
+        }
+        $summary.Remaining = $events.Count
+        if ($summary.Delivered -eq 0 -and $summary.Dropped -eq 0) { return $summary }
+        if ($events.Count -eq 0 -and [int]$queue.droppedCount -eq 0) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+        } else {
+            $queue.events = @($events)
+            if (-not (Write-YurunaStateFileJson -Path $path -InputObject $queue -Depth 16 -Confirm:$false)) {
+                Write-Verbose "Send-PendingCycleEvent: the queue was not rewritten; its delivered events will be delivered again."
+            }
+        }
+    } catch {
+        Write-Verbose "Send-PendingCycleEvent: $($_.Exception.Message)"
+    } finally {
+        if ($lock.Held) { Exit-YurunaSingleFlightLock -Lock $lock }
+    }
+    return $summary
+}
+
+# Written beside an attempt's record once a runner_fault for it is queued, or
+# found queued by the runner itself or carried by an earlier cycle. A flat
+# file, so it leaves with its attempt folder when the history retires that
+# attempt; nothing serves it.
+$script:RunnerAttemptQueuedMarker = 'runner-fault.queued'
+# A cycle carries what was queued when it opened, so a fault a cycle carried is
+# in the stream of the first cycle opened after the attempt failed. Every cycle
+# opened since then failed in turn, as a pass would bound the fault out, so
+# that stream is among the newest few unless more cycles failed in a row; only
+# those few are read.
+$script:RunnerFaultStreamScanCount = 5
+
+function ConvertFrom-RunnerAttemptTime {
+    # Private: an attempt history timestamp as UTC, or $null. The index is read
+    # with ISO-8601 text kept as text, and an older reader's [datetime] is
+    # taken as it is.
+    param([AllowNull()]$Value)
+    if ($Value -is [datetime]) { return $Value.ToUniversalTime() }
+    $parsed = [datetime]::MinValue
+    if ($Value -and [datetime]::TryParse([string]$Value, [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsed)) { return $parsed.ToUniversalTime() }
+    return $null
+}
+
+function Get-EarlierCycleFolder {
+    # Private: the cycle folders beside CycleFolder in its log directory, newest
+    # first, each with the start its name carries to the second
+    # (Format-CycleFolderBaseName; a suffix follows while the cycle is open and
+    # once it is archived).
+    param([Parameter(Mandatory)][string]$CycleFolder)
+    $current = Split-Path -Leaf $CycleFolder
+    try {
+        $folders = @(Get-ChildItem -LiteralPath (Split-Path -Parent $CycleFolder) -Directory -ErrorAction Stop)
+    } catch {
+        Write-Verbose "Get-EarlierCycleFolder: the log directory is unreadable: $($_.Exception.Message)"
+        return @()
+    }
+    $cycles = foreach ($folder in $folders) {
+        $nameMatch = [regex]::Match($folder.Name, '^\d{6}\.(\d{4}-\d{2}-\d{2}\.\d{2}-\d{2}-\d{2})\.')
+        $startUtc = [datetime]::MinValue
+        if ($folder.Name -ceq $current -or -not $nameMatch.Success -or ($folder.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            -not [datetime]::TryParseExact($nameMatch.Groups[1].Value, 'yyyy-MM-dd.HH-mm-ss', [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$startUtc)) { continue }
+        [pscustomobject]@{ FullName = $folder.FullName; StartUtc = $startUtc }
+    }
+    return @($cycles | Sort-Object -Property StartUtc, FullName -Descending)
+}
+
+function Add-PendingRunnerAttemptFault {
+    <#
+    .SYNOPSIS
+        Queue a runner_fault event for each failed runner attempt the attempt
+        history records and no runner_fault carried yet; returns the number
+        queued.
+    .DESCRIPTION
+        Reads runtime/runner-attempts/index.json. A failure is queued only when
+        it finished after the newest attempt of another generation that passed:
+        a failure before that pass was the stream's to carry when the cycles
+        after it opened, and its line would now be more than an hour behind the
+        host's event stream, which Loki refuses. Only the attempts list is
+        read. The event carries what the history keeps of the fault the runner
+        published, dated when the attempt failed and placed ahead of any queued
+        event dated after it, with an eventId derived from the attempt
+        generation, so a copy delivered twice is one event to a consumer.
+
+        A marker beside the attempt's record says the fault is queued. A fault
+        the runner queued itself gets the marker and no second event, and so
+        does one the stream of a cycle opened after the attempt failed already
+        carries; the newest few earlier streams are read. An add the queue
+        refuses leaves no marker, so the next cycle tries again.
+    .PARAMETER CycleFolder
+        The folder of the cycle that is opening. The cycle folders beside it in
+        the log directory are the cycles before it.
+    .PARAMETER RuntimeDir
+        The runtime directory. Defaults to $env:YURUNA_RUNTIME_DIR.
+    .PARAMETER CurrentAttemptGeneration
+        The attempt this cycle runs under, which is neither a candidate nor the
+        bound. Defaults to $env:YURUNA_CYCLE_GENERATION.
+    .OUTPUTS
+        [int] The number of events queued.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Telemetry bookkeeping: queues already-recorded faults and writes a marker file beside each attempt record.')]
+    param(
+        [Parameter(Mandatory)][string]$CycleFolder,
+        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR,
+        [AllowEmptyString()][string]$CurrentAttemptGeneration = $env:YURUNA_CYCLE_GENERATION
+    )
+    if (-not $RuntimeDir) { return 0 }
+    $attemptRoot = Join-Path $RuntimeDir 'runner-attempts'
+    $indexPath = Join-Path $attemptRoot 'index.json'
+    if (-not (Test-Path -LiteralPath $indexPath -PathType Leaf)) { return 0 }
+    try {
+        $jsonOption = $script:PendingCycleEventJsonOption
+        $index = [IO.File]::ReadAllText($indexPath) | ConvertFrom-Json -AsHashtable @jsonOption -ErrorAction Stop
+        $rootItem = Get-Item -LiteralPath $attemptRoot -Force -ErrorAction Stop
+    } catch {
+        Write-Verbose "Add-PendingRunnerAttemptFault: the attempt history is unreadable: $($_.Exception.Message)"
+        return 0
+    }
+    if ($index -isnot [System.Collections.IDictionary] -or ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return 0 }
+    $attempts = @(@($index['attempts']) | Where-Object { $_ -is [System.Collections.IDictionary] })
+    $bound = [datetime]::MinValue
+    foreach ($attempt in $attempts) {
+        if ($attempt['passed'] -ne $true -or [string]$attempt['attemptGeneration'] -ceq $CurrentAttemptGeneration) { continue }
+        $finishedAt = ConvertFrom-RunnerAttemptTime -Value $attempt['finishedAtUtc']
+        if ($finishedAt -and $finishedAt -gt $bound) { $bound = $finishedAt }
+    }
+    # Candidates come from attempts alone. olderFailures are failures some later
+    # attempt passed after; when that pass is this attempt's own gate, which the
+    # bound leaves out, the oldest failure of a streak longer than the window is
+    # not queued. A pass that left the window leaves nothing to tell it from an
+    # earlier pass whose cycles carried that failure (in move mode even its cycle
+    # folder is gone), and a runner that queues its own faults queued it already.
+    $candidates = @(foreach ($attempt in $attempts) {
+        $generation = [string]$attempt['attemptGeneration']
+        if ($attempt['passed'] -ne $false -or -not $generation -or $generation -ceq $CurrentAttemptGeneration) { continue }
+        $recordMatch = [regex]::Match([string]$attempt['recordPath'], '^runner-attempts/([0-9a-f]{24})/(?:runner-fault|config-gate)\.json$')
+        if (-not $recordMatch.Success) { continue }
+        $finishedAt = ConvertFrom-RunnerAttemptTime -Value $attempt['finishedAtUtc']
+        if (-not $finishedAt -or $finishedAt -le $bound) { continue }
+        [pscustomobject]@{ Entry = $attempt; Generation = $generation; FolderName = $recordMatch.Groups[1].Value; FinishedAtUtc = $finishedAt }
+    })
+    if ($candidates.Count -eq 0) { return 0 }
+    $candidates = @($candidates | Sort-Object -Property FinishedAtUtc)
+    if (-not (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue)) {
+        try { Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -DisableNameChecking -ErrorAction Stop }
+        catch {
+            Write-Verbose "Add-PendingRunnerAttemptFault: Test.StateFile.psm1 unavailable: $($_.Exception.Message)"
+            return 0
+        }
+    }
+    # A runner that queues its faults put each one in the queue already; a
+    # snapshot is enough, since no runner records a fault for an attempt it
+    # is not running.
+    $queue = Read-PendingCycleEventQueue -Path (Join-Path $RuntimeDir $script:PendingCycleEventFileName)
+    [string[]]$runnerQueued = @(if ($queue) {
+        @($queue.events) | Where-Object { [string]$_['event'] -ceq 'runner_fault' } | ForEach-Object { [string]$_['attemptGeneration'] }
+    })
+    # A fault the runner queued and a cycle older than this code carried left
+    # the queue with no marker; the stream of a cycle opened after the attempt
+    # failed holds it. A cycle folder name carries the start to the second.
+    $firstFailure = $candidates[0].FinishedAtUtc
+    $firstFailure = $firstFailure.AddTicks(-($firstFailure.Ticks % [timespan]::TicksPerSecond))
+    $carried = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($cycle in @(Get-EarlierCycleFolder -CycleFolder $CycleFolder | Where-Object { $_.StartUtc -ge $firstFailure } | Select-Object -First $script:RunnerFaultStreamScanCount)) {
+        $stream = Join-Path $cycle.FullName 'cycle.events.ndjson'
+        if (-not (Test-Path -LiteralPath $stream -PathType Leaf)) { continue }
+        try {
+            foreach ($line in [IO.File]::ReadLines($stream)) {
+                if (-not $line.Contains('"runner_fault"')) { continue }
+                try { $streamEvent = $line | ConvertFrom-Json -AsHashtable @jsonOption -ErrorAction Stop }
+                catch {
+                    Write-Verbose "Add-PendingRunnerAttemptFault: a line of '$stream' is unreadable: $($_.Exception.Message)"
+                    continue
+                }
+                if ($streamEvent -is [System.Collections.IDictionary] -and [string]$streamEvent['event'] -ceq 'runner_fault' -and $streamEvent['attemptGeneration']) {
+                    $null = $carried.Add([string]$streamEvent['attemptGeneration'])
+                }
+            }
+        } catch {
+            Write-Verbose "Add-PendingRunnerAttemptFault: '$stream' is unreadable: $($_.Exception.Message)"
+        }
+    }
+    $queued = 0
+    foreach ($candidate in $candidates) {
+        try {
+            # The record lives in the attempt's own folder, named for its
+            # generation, which must be a directory and not a link.
+            $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($candidate.Generation))).ToLowerInvariant()
+            if ($digest.Substring(0, 24) -cne $candidate.FolderName) { continue }
+            $folder = Get-Item -LiteralPath (Join-Path $attemptRoot $candidate.FolderName) -Force -ErrorAction Stop
+            if (-not $folder.PSIsContainer -or ($folder.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+            $marker = Join-Path $folder.FullName $script:RunnerAttemptQueuedMarker
+            if (Test-Path -LiteralPath $marker) { continue }
+            # A fault the runner queued, or an earlier cycle carried, gets only the marker.
+            if ($runnerQueued -cnotcontains $candidate.Generation -and -not $carried.Contains($candidate.Generation)) {
+                $entry = $candidate.Entry
+                $startedAt = ConvertFrom-RunnerAttemptTime -Value $entry['startedAtUtc']
+                $eventIdBytes = [byte[]]@([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes('runner_fault:' + $candidate.Generation))[0..15])
+                $faultEvent = @{
+                    timestamp             = $candidate.FinishedAtUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                    event                 = 'runner_fault'
+                    failureClass          = [string]$entry['failureClass']
+                    stage                 = [string]$entry['stage']
+                    errorMessage          = [string]$entry['description']
+                    attemptGeneration     = $candidate.Generation
+                    attemptStartedAtUtc   = if ($startedAt) { $startedAt.ToString('o') } else { '' }
+                    attemptElapsedSeconds = if ($startedAt) { [math]::Max(0, [math]::Round(($candidate.FinishedAtUtc - $startedAt).TotalSeconds, 3)) } else { $null }
+                    frameworkCommitSha    = [string]$entry['frameworkCommitSha']
+                    recordPath            = [string]$entry['recordPath']
+                    transcriptPath        = [string]$entry['transcriptPath']
+                    recordedAt            = $candidate.FinishedAtUtc.ToString('o')
+                    eventId               = [guid]::new($eventIdBytes).ToString()
+                }
+                if (-not (Add-PendingCycleEvent -EventRecord $faultEvent -RuntimeDir $RuntimeDir -InTimeOrder)) {
+                    Write-Verbose "Add-PendingRunnerAttemptFault: the fault of attempt '$($candidate.Generation)' was not queued; the next cycle tries again."
+                    continue
+                }
+                $queued++
+            }
+            $markerSaved = Write-YurunaStateFileJson -Path $marker -Confirm:$false -InputObject ([ordered]@{
+                attemptGeneration = $candidate.Generation
+                queuedAtUtc       = [DateTime]::UtcNow.ToString('o')
+            })
+            if (-not $markerSaved) { Write-Verbose "Add-PendingRunnerAttemptFault: no marker for attempt '$($candidate.Generation)'; its fault can be queued again." }
+        } catch {
+            Write-Verbose "Add-PendingRunnerAttemptFault: attempt '$($candidate.Generation)' skipped: $($_.Exception.Message)"
+        }
+    }
+    return $queued
+}
+
 function New-YurunaDegradationRecord {
     <#
     .SYNOPSIS
@@ -1647,4 +2173,4 @@ function Add-OcrHistoryFrame {
     }
 }
 
-Export-ModuleMember -Function Add-OcrHistoryFrame, Start-LogFile, Stop-LogFile, Get-CycleTelemetryGap, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Copy-CycleFailureRecord, Write-CycleNdjsonEvent, Get-CycleEventDelivery, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation
+Export-ModuleMember -Function Add-OcrHistoryFrame, Start-LogFile, Stop-LogFile, Get-CycleTelemetryGap, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Copy-CycleFailureRecord, Write-CycleNdjsonEvent, Get-CycleEventDelivery, Write-CycleManifest, Send-CycleEventSafely, Add-PendingCycleEvent, Send-PendingCycleEvent, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation

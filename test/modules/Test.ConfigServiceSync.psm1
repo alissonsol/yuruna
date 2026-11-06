@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -324,21 +324,22 @@ function Test-ConfigSyncProof {
 
 <#
 .SYNOPSIS
-    Mint the wire proof the status service's mutating /control/* routes accept:
-    "<expiryUnixSeconds>.<base64 HMAC>", or with -Audience the bound form
-    "<expiryUnixSeconds>.<audience>.<base64 HMAC>". The pool-aggregator service's
-    /go/host mints the identical value in Go so a Grafana deep-link can carry it to the
-    browser UI.
+    Mint the wire proof the status service's mutating /control/* routes accept: with
+    -Audience the bound form "<expiryUnixSeconds>.<audience>.<base64 HMAC>". The
+    pool-aggregator service's /go/host mints the identical value in Go so a Grafana
+    deep-link can carry it to the browser UI. Without -Audience it mints the retired
+    unbound form "<expiryUnixSeconds>.<base64 HMAC>", which no verifier accepts; it is
+    kept for the shared golden vector.
 .DESCRIPTION
     Unbound proof = base64( HMAC-SHA256(internal-auth-key, "yuruna-control|proof|<expiry>") ).
     Bound proof   = base64( HMAC-SHA256(internal-auth-key, "yuruna-control|proof|v2|<audience>|<expiry>") ).
     Scoped proof  = base64( HMAC-SHA256(internal-auth-key, "yuruna-control|proof|v3|<audience>|<scope>|<expiry>") ).
-    The internal authentication key is pool-wide, so an unbound proof means "authorized
-    within the TTL" on every host; a bound one names the one host (its host id) or
-    service ("svc-<service>") it opens, and a scoped one also names the one class of
-    that target's routes it opens ("pause": the four pause and resume routes). The raw
-    token never leaves the minting host (only the HMAC, the audience, the scope and the
-    plaintext expiry travel).
+    The internal authentication key is pool-wide, so an unbound proof would mean
+    "authorized within the TTL" on every host, which is why it is refused; a bound one
+    names the one host (its host id) or service ("svc-<service>") it opens, and a scoped
+    one also names the one class of that target's routes it opens ("pause": the four
+    pause and resume routes). The raw token never leaves the minting host (only the
+    HMAC, the audience, the scope and the plaintext expiry travel).
 #>
 function Get-YurunaControlProof {
     [CmdletBinding()]
@@ -377,11 +378,14 @@ function Get-YurunaControlProof {
     against a proxy that has since been rebuilt with a new token).
 
     The data string is a FIXED constant whose label segment is "tag", never
-    "proof". Get-YurunaControlProof signs "yuruna-control|proof|<expiry>", so no
-    expiry can ever produce this message and reading the tag does not help forge
-    a proof. The tag is likewise not a hash OF the token -- recovering the token
-    from it means guessing the token itself, and the proxy build mints 24 random
-    bytes (New-VM.ps1 for guest.caching-proxy-service).
+    "proof". Every message Get-YurunaControlProof signs starts
+    "yuruna-control|proof|": the bound "yuruna-control|proof|v2|<audience>|<expiry>"
+    and the scoped "yuruna-control|proof|v3|<audience>|<scope>|<expiry>" that
+    verifiers accept, and without -Audience the retired unbound form. So no
+    expiry, audience or scope can ever produce this message, and reading the tag
+    does not help forge a proof. The tag is likewise not a hash OF the token --
+    recovering the token from it means guessing the token itself, and the proxy
+    build mints 24 random bytes (New-VM.ps1 for guest.caching-proxy-service).
 #>
 function Get-YurunaControlTag {
     [CmdletBinding()]
@@ -400,8 +404,8 @@ function Get-YurunaControlTag {
     Constant-time verify of a control proof from Get-YurunaControlProof (or the
     aggregator's Go mint). Returns $false on any malformed / expired / mismatched input.
 .DESCRIPTION
-    Parses "<expiry>.<base64 HMAC>", the bound "<expiry>.<audience>.<base64 HMAC>" or
-    the scoped "<expiry>.<audience>.<scope>.<base64 HMAC>", requires now <= expiry <=
+    Parses the bound "<expiry>.<audience>.<base64 HMAC>" or the scoped
+    "<expiry>.<audience>.<scope>.<base64 HMAC>", requires now <= expiry <=
     now + MaxTtlSeconds (rejects a far-future proof so a captured token cannot mint an
     eternal pass), recomputes the HMAC, and FixedTimeEquals-compares. A bound or scoped
     proof must name -Audience (ignoring case); the status service passes this host's
@@ -409,9 +413,9 @@ function Get-YurunaControlTag {
     proof is refused, because then nothing says which target this verifier is. A
     scoped proof is accepted only when its scope is one of -AllowedScope: the route
     being called names the scopes that cover it, and a route that names none takes
-    only the bound and unbound forms. An unbound proof is accepted while minters that
-    predate audiences remain in the pool. The same rules as controlproof.VerifyFor
-    and controlproof.VerifyScoped in the Go extension SDK.
+    only the bound form. The unbound "<expiry>.<base64 HMAC>" is refused: it names no
+    target, so it would open every host that shares the key. The same rules as
+    controlproof.VerifyFor and controlproof.VerifyScoped in the Go extension SDK.
 #>
 function Test-YurunaControlProof {
     [CmdletBinding()]
@@ -443,8 +447,6 @@ function Test-YurunaControlProof {
         if ($parts[1] -cnotmatch '^[A-Za-z0-9_-]{1,80}$' -or -not $Audience -or
             -not [string]::Equals($parts[1], $Audience, [StringComparison]::OrdinalIgnoreCase)) { return $false }
         $expiryText = $parts[0]; $macText = $parts[2]; $data = "yuruna-control|proof|v2|$($parts[1])|"
-    } elseif ($parts.Count -eq 2) {
-        $expiryText = $parts[0]; $macText = $parts[1]; $data = 'yuruna-control|proof|'
     } else { return $false }
     if (-not $expiryText -or -not $macText) { return $false }
     [long]$expiry = 0

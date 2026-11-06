@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -225,6 +225,11 @@ function Start-VM {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_5115fc3aa0fb34ef'))) { return @{ success = $false; errorMessage = 'WhatIf' } }
+    # A reader left from the previous boot retries its connection every two
+    # seconds, so it would take the new boot's COM1 pipe the moment the worker
+    # creates it, only to be stopped as the new reader is armed. Ending it first
+    # leaves the guest's UART one client from the start.
+    [void](Stop-VMSerialCapture -VMName $VMName)
     $result = Start-HyperVVM -VMName $VMName -Confirm:$false
     # Arm the DHCP wire capture the moment the guest exists on the switch:
     # its first DISCOVER lands seconds after firmware, before any sequence
@@ -359,15 +364,15 @@ function Rename-VM {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.hyperv_vm_state_unknown' -Arguments @{ operation = 'Rename-VM'; vMName = "$NewName" })
         return $false
     }
-    # The storage move below fails on a file already under the destination
-    # name, and by then the registration carries the new name: the half-renamed
-    # state that Repair-HyperVVMStorageLocation has to finish later. A
-    # destination directory holding a file of a kind the move writes (a disk,
-    # the configuration or a checkpoint), or one that cannot be listed, is
-    # refused while nothing has changed yet. Other files do not collide: the move
-    # leaves the seed ISO in the folder a test guest was built in, so a snapshot
-    # save that renamed the guest and must rename it back finds that file there.
-    $renameRoot = (Hyper-V\Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
+    # See https://yuruna.link/42f52e37-0021
+    # A destination that would fail the storage move, or that cannot be read, is
+    # refused here, while the registration still carries the old name.
+    try {
+        $renameRoot = (Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMHost' -VMName $NewName -ScriptBlock { Hyper-V\Get-VMHost -ErrorAction SilentlyContinue } | Select-Object -First 1).VirtualHardDiskPath
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_08e327b03f39d8c6' -Arguments @{ message = "$($_.Exception.Message)" })
+        return $false
+    }
     if ($renameRoot) {
         $renameDir = Join-Path $renameRoot $NewName
         if (Test-Path -LiteralPath $renameDir) {
@@ -399,7 +404,10 @@ function Rename-VM {
     # See https://yuruna.link/42e5cdfd-002c
     $renameAdapter = $null
     try {
-        $renameAdapter = Hyper-V\Get-VMNetworkAdapter -VMName $NewName -ErrorAction Stop | Select-Object -First 1
+        $renameAdapter = Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMNetworkAdapter' -VMName $NewName -ArgumentList @($NewName) -ScriptBlock {
+            param($Name)
+            Hyper-V\Get-VMNetworkAdapter -VMName $Name -ErrorAction Stop
+        } | Select-Object -First 1
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_9828b6c9013ab31e' -Arguments @{ newName = "$NewName"; message = "$($_.Exception.Message)" })
     }
@@ -408,7 +416,13 @@ function Rename-VM {
         $renameMac = Resolve-YurunaRenameMac -MacAddress $renameMacBefore -VMName $VMName -NewName $NewName
         if ($renameMac) {
             try {
-                $renameAdapter | Hyper-V\Set-VMNetworkAdapter -StaticMacAddress ($renameMac -replace ':', '') -ErrorAction Stop
+                # The adapter read above is a copy; the call reads the first
+                # adapter again to set it.
+                $null = Invoke-HyperVLifecycleCmdlet -Verb 'Set-VMNetworkAdapter' -VMName $NewName -ArgumentList @($NewName, $renameMac) -ScriptBlock {
+                    param($Name, $renameMac)
+                    Hyper-V\Get-VMNetworkAdapter -VMName $Name -ErrorAction Stop | Select-Object -First 1 |
+                        Hyper-V\Set-VMNetworkAdapter -StaticMacAddress ($renameMac -replace ':', '') -ErrorAction Stop
+                }
             } catch {
                 Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_73ba8ba1e410fa99' -Arguments @{ newName = "$NewName"; vMName = "$VMName"; message = "$($_.Exception.Message)" })
                 return $false
@@ -419,7 +433,12 @@ function Rename-VM {
     # Relocate storage so the on-disk dir-name matches the new VM-name.
     # Without this, Remove-OrphanedVMFiles' "dir name with no matching
     # VM" sweep would later wipe the persisted snapshot's files.
-    $vhdRoot = (Hyper-V\Get-VMHost -ErrorAction SilentlyContinue).VirtualHardDiskPath
+    try {
+        $vhdRoot = (Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMHost' -VMName $NewName -ScriptBlock { Hyper-V\Get-VMHost -ErrorAction SilentlyContinue } | Select-Object -First 1).VirtualHardDiskPath
+    } catch {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_e69fb2b8940dab5a' -Arguments @{ newName = "$NewName"; destDir = "<vhdPath>\$NewName"; message = "$($_.Exception.Message)"; vMName = "$VMName" })
+        return $false
+    }
     if ($vhdRoot) {
         $destDir = Join-Path $vhdRoot $NewName
         try {
@@ -522,7 +541,11 @@ function Get-VMName {
     try {
         # Module-qualified: the unqualified Get-VM resolves to this
         # driver's contract surface, which exposes Get-VMState instead.
-        $all = @(Hyper-V\Get-VM -ErrorAction Stop | ForEach-Object { $_.Name })
+        # Under the lifecycle cap: an inventory that does not answer throws
+        # like one that was refused and never reads as an empty host.
+        $all = @(Invoke-HyperVLifecycleCmdlet -Verb 'Get-VM' -VMName '*' -ScriptBlock {
+            Hyper-V\Get-VM -ErrorAction Stop | ForEach-Object { $_.Name }
+        })
     } catch {
         throw (Format-YurunaOperatorMessage -Key 'exceptions.host_de8cc2205b118bfb' -Arguments @{ message = "$($_.Exception.Message)" })
     }
@@ -827,13 +850,21 @@ function Set-VMInstallerMediaFirstBoot {
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, 'Boot the installer DVD first')) { return $false }
     try {
-        $installerDvd = @(Hyper-V\Get-VMDvdDrive -VMName $VMName -ErrorAction Stop |
-            Where-Object { $_.Path -and (Split-Path -Leaf $_.Path) -ne 'seed.iso' })
+        $installerDvd = @(Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMDvdDrive' -VMName $VMName -ArgumentList @($VMName) -ScriptBlock {
+            param($Name)
+            Hyper-V\Get-VMDvdDrive -VMName $Name -ErrorAction Stop
+        } | Where-Object { $_.Path -and (Split-Path -Leaf $_.Path) -ne 'seed.iso' })
         if ($installerDvd.Count -ne 1) {
             Write-Verbose "Set-VMInstallerMediaFirstBoot: '$VMName' has $($installerDvd.Count) installer DVD candidates; expected 1."
             return $false
         }
-        Hyper-V\Set-VMFirmware -VMName $VMName -FirstBootDevice $installerDvd[0] -ErrorAction Stop
+        # The drive read above is a copy, and -FirstBootDevice takes the drive
+        # itself, so the call finds it again by its place on its controller.
+        $null = Invoke-HyperVLifecycleCmdlet -Verb 'Set-VMFirmware' -VMName $VMName -ArgumentList @($VMName, [int]$installerDvd[0].ControllerNumber, [int]$installerDvd[0].ControllerLocation) -ScriptBlock {
+            param($Name, $ControllerNumber, $ControllerLocation)
+            $dvd = Hyper-V\Get-VMDvdDrive -VMName $Name -ControllerNumber $ControllerNumber -ControllerLocation $ControllerLocation -ErrorAction Stop
+            Hyper-V\Set-VMFirmware -VMName $Name -FirstBootDevice $dvd -ErrorAction Stop
+        }
         return $true
     } catch {
         Write-Verbose "Set-VMInstallerMediaFirstBoot: '$VMName' boot order unchanged: $($_.Exception.Message)"
@@ -881,7 +912,7 @@ function Get-ImagePath {
     $fileName = $fileNames[$GuestKey]
     if (-not $fileName) { return $null }
     try {
-        $vhdPath = (Hyper-V\Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
+        $vhdPath = (Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMHost' -VMName $GuestKey -ScriptBlock { Hyper-V\Get-VMHost -ErrorAction Stop } | Select-Object -First 1).VirtualHardDiskPath
         return Join-Path $vhdPath $fileName
     } catch { $null = $_; return $null }
 }
@@ -1121,7 +1152,12 @@ function Get-VMIp {
     # Read KVP first, then the VM's MAC-filtered neighbor entries without probing.
     # See https://yuruna.link/42e220c4-0004
     try {
-        $vmAdapter = Hyper-V\Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop
+        # Under the lifecycle cap: the address poll that calls this ends at its
+        # own deadline only when each read it makes does.
+        $vmAdapter = Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMNetworkAdapter' -VMName $VMName -ArgumentList @($VMName) -ScriptBlock {
+            param($Name)
+            Hyper-V\Get-VMNetworkAdapter -VMName $Name -ErrorAction Stop
+        }
         $addrs = $vmAdapter.IPAddresses
         # See https://yuruna.link/42e220c4-0004
         $ipv4 = Select-YurunaRoutableAddress -Address @($addrs | Where-Object { Test-Ipv4Address $_ })
@@ -1164,9 +1200,20 @@ function Get-VMMac {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$VMName)
-    $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue
-    if (-not $vm) { return $null }
-    $mac = ($vm | Hyper-V\Get-VMNetworkAdapter | Select-Object -First 1).MacAddress
+    # One bounded read for both lookups: a VM that is absent and a management
+    # service that does not answer are both "not available", never a wait.
+    $mac = $null
+    try {
+        $mac = Invoke-HyperVLifecycleCmdlet -Verb 'Get-VMNetworkAdapter' -VMName $VMName -ArgumentList @($VMName) -ScriptBlock {
+            param($Name)
+            $vm = Hyper-V\Get-VM -Name $Name -ErrorAction SilentlyContinue
+            if ($vm) { ($vm | Hyper-V\Get-VMNetworkAdapter | Select-Object -First 1).MacAddress }
+        } | Select-Object -First 1
+    } catch {
+        Write-Verbose "Get-VMMac: '$VMName' unreadable: $($_.Exception.Message)"
+        return $null
+    }
+    if (-not $mac) { return $null }
     # Canonical form for the whole harness, so a MAC read on one host compares
     # equal to the same MAC read on another. Platform-native notations are
     # produced at the point of use, never stored.

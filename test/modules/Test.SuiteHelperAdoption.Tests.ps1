@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 424fcb83-70f8-4a61-899b-5252d0c26fea
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -253,40 +253,35 @@ BeforeAll {
                 }, $true) | Where-Object { -not (& $insidePrivate $_) } | ForEach-Object { $_.Extent.StartLineNumber } | Sort-Object -Unique)
     }
 
-    # A hand-made restore of the process environment: inside a finally,
-    # AfterEach or AfterAll block, an assignment to an $env: entry, or a
-    # Remove-Item, Set-Item or Clear-Item of Env:<entry>, or
-    # [Environment]::SetEnvironmentVariable, whether the entry is named or
-    # computed (a restore loop over saved names). Teardown is where a test puts
-    # the process back; Restore-YurunaTestEnvironment does that from what
-    # Save-YurunaTestEnvironment recorded, including that an entry was absent,
-    # where the hand copies cleared or dropped the outer value. Setting an entry
-    # in setup or in a test is the test's own work and is not counted, and
-    # neither is a block another runspace runs.
-    function Get-LocalEnvironmentRestoreCopy {
+    # A script block handed to a runspace of its own (AddScript, Start-Job,
+    # Start-ThreadJob) changes that runspace's environment, not this process's.
+    function Get-PrivateRunspaceBlock {
         param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Ast)
-        $private = @($Ast.FindAll({
+        @($Ast.FindAll({
                     param($n)
                     $n -is [System.Management.Automation.Language.ScriptBlockExpressionAst] -and (
                         ($n.Parent -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Parent.Member.Value -eq 'AddScript') -or
                         ($n.Parent -is [System.Management.Automation.Language.CommandAst] -and $n.Parent.GetCommandName() -in @('Start-Job', 'Start-ThreadJob')) -or
                         ($n.Parent.Parent -is [System.Management.Automation.Language.CommandAst] -and $n.Parent.Parent.GetCommandName() -in @('Start-Job', 'Start-ThreadJob')))
                 }, $true))
-        $teardown = @($Ast.FindAll({
-                    param($n)
-                    ($n -is [System.Management.Automation.Language.TryStatementAst] -and $n.Finally) -or
-                    ($n -is [System.Management.Automation.Language.ScriptBlockExpressionAst] -and
-                    $n.Parent -is [System.Management.Automation.Language.CommandAst] -and $n.Parent.GetCommandName() -in @('AfterEach', 'AfterAll'))
-                }, $true) | ForEach-Object { if ($_ -is [System.Management.Automation.Language.TryStatementAst]) { $_.Finally } else { $_ } })
-        if ($teardown.Count -eq 0) { return @() }
-        $within = {
-            param($node, $blocks)
-            foreach ($block in $blocks) {
-                if ($node.Extent.StartOffset -ge $block.Extent.StartOffset -and $node.Extent.EndOffset -le $block.Extent.EndOffset) { return $true }
-            }
-            return $false
+    }
+
+    # Whether a node sits inside one of the given blocks, by extent.
+    $script:WithinBlock = {
+        param($node, $blocks)
+        foreach ($block in $blocks) {
+            if ($node.Extent.StartOffset -ge $block.Extent.StartOffset -and $node.Extent.EndOffset -le $block.Extent.EndOffset) { return $true }
         }
-        $found = [System.Collections.Generic.List[int]]::new()
+        return $false
+    }
+
+    # The statements that change the process environment, each with the entry
+    # names it writes when they are literal: an assignment to an $env: entry,
+    # a Remove-Item, Set-Item or Clear-Item of Env:<entry> (one entry, or a
+    # list of them), or [Environment]::SetEnvironmentVariable. A computed name
+    # (a restore loop over saved names) is a write with no name.
+    function Get-EnvironmentWrite {
+        param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Ast)
         $candidates = $Ast.FindAll({
                 param($x)
                 ($x -is [System.Management.Automation.Language.AssignmentStatementAst] -or
@@ -296,21 +291,110 @@ BeforeAll {
             }, $true)
         foreach ($n in $candidates) {
             $hit = $false
+            $names = @()
             if ($n -is [System.Management.Automation.Language.AssignmentStatementAst]) {
-                $hit = $n.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and $n.Left.VariablePath.DriveName -eq 'env'
+                if ($n.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and $n.Left.VariablePath.DriveName -eq 'env') {
+                    $hit = $true
+                    $names = @($n.Left.VariablePath.UserPath -replace '^env:', '')
+                }
             } elseif ($n -is [System.Management.Automation.Language.CommandAst]) {
                 if ($n.GetCommandName() -in @('Remove-Item', 'ri', 'del', 'Set-Item', 'si', 'Clear-Item', 'cli')) {
                     foreach ($element in @($n.CommandElements | Select-Object -Skip 1)) {
-                        if (($element -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
-                                $element -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) -and $element.Value -match '^Env:') { $hit = $true }
+                        foreach ($entry in @($element.FindAll({
+                                        param($s)
+                                        ($s -is [System.Management.Automation.Language.StringConstantExpressionAst] -or
+                                        $s -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) -and $s.Value -match '^Env:'
+                                    }, $true))) {
+                            $hit = $true
+                            if ($entry -is [System.Management.Automation.Language.StringConstantExpressionAst]) { $names += ($entry.Value -replace '^Env:\\?', '') }
+                        }
                     }
                 }
             } elseif ($n.Member.Value -eq 'SetEnvironmentVariable') {
                 $hit = $true
+                if ($n.Arguments.Count -ge 2 -and $n.Arguments[0] -is [System.Management.Automation.Language.StringConstantExpressionAst]) { $names = @($n.Arguments[0].Value) }
             }
-            if ($hit -and (& $within $n $teardown) -and -not (& $within $n $private)) { $found.Add($n.Extent.StartLineNumber) }
+            if ($hit) { [pscustomobject]@{ Node = $n; Name = @($names | Where-Object { $_ }) } }
+        }
+    }
+
+    # A hand-made restore of the process environment: inside a finally,
+    # AfterEach or AfterAll block, or inside a suite-local function such a
+    # block calls, a write to an entry, whether the entry is named or computed.
+    # Teardown is where a test puts the process back; Restore-YurunaTestEnvironment
+    # does that from what Save-YurunaTestEnvironment recorded, including that
+    # an entry was absent, where the hand copies cleared or dropped the outer
+    # value. A restore moved into a function of its own is the same copy, one
+    # call away, so a function a teardown calls (directly or through another)
+    # is read as part of it. Setting an entry in setup or in a test is the
+    # test's own work and is not counted, and neither is a block another
+    # runspace runs.
+    function Get-LocalEnvironmentRestoreCopy {
+        param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Ast)
+        $private = Get-PrivateRunspaceBlock -Ast $Ast
+        $teardown = @($Ast.FindAll({
+                    param($n)
+                    ($n -is [System.Management.Automation.Language.TryStatementAst] -and $n.Finally) -or
+                    ($n -is [System.Management.Automation.Language.ScriptBlockExpressionAst] -and
+                    $n.Parent -is [System.Management.Automation.Language.CommandAst] -and $n.Parent.GetCommandName() -in @('AfterEach', 'AfterAll'))
+                }, $true) | ForEach-Object { if ($_ -is [System.Management.Automation.Language.TryStatementAst]) { $_.Finally } else { $_ } })
+        $definitions = @($Ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true))
+        $grew = $teardown.Count -gt 0
+        while ($grew) {
+            $grew = $false
+            $called = @($teardown | ForEach-Object { $_.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) } |
+                    ForEach-Object { $_.GetCommandName() } | Where-Object { $_ } | Sort-Object -Unique)
+            foreach ($definition in $definitions) {
+                if ($definition.Name -in $called -and -not (& $script:WithinBlock $definition.Body $teardown)) {
+                    $teardown += $definition.Body
+                    $grew = $true
+                }
+            }
+        }
+        if ($teardown.Count -eq 0) { return @() }
+        $found = [System.Collections.Generic.List[int]]::new()
+        foreach ($write in @(Get-EnvironmentWrite -Ast $Ast)) {
+            if ((& $script:WithinBlock $write.Node $teardown) -and -not (& $script:WithinBlock $write.Node $private)) { $found.Add($write.Node.Extent.StartLineNumber) }
         }
         @($found | Sort-Object -Unique)
+    }
+
+    # An entry a suite sets by a literal name that no Save-YurunaTestEnvironment
+    # in the suite names, as '<line> <entry>'. A set with no restore leaks to
+    # whatever runs next in the process, and the shared pair is how a restore
+    # is proven: an entry the save names is put back by the restore. A save
+    # the rule cannot read (-All, a name list held in a variable, or a shared
+    # helper that saves on the suite's behalf) is taken to cover every entry;
+    # a computed name is not judged, and neither is a block another runspace
+    # runs.
+    function Get-LocalEnvironmentUnsavedSet {
+        param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Ast)
+        $saved = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($call in $Ast.FindAll({
+                    param($n)
+                    $n -is [System.Management.Automation.Language.CommandAst] -and
+                    $n.GetCommandName() -in @('Save-YurunaTestEnvironment', 'Enter-TranslationTestEnvironment')
+                }, $true)) {
+            if ($call.GetCommandName() -ne 'Save-YurunaTestEnvironment') { return @() }
+            foreach ($element in @($call.CommandElements | Select-Object -Skip 1)) {
+                if ($element -is [System.Management.Automation.Language.CommandParameterAst]) {
+                    if ($element.ParameterName -eq 'All') { return @() }
+                    continue
+                }
+                $literal = @($element.FindAll({ param($s) $s -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true))
+                if ($literal.Count -eq 0) { return @() }
+                foreach ($s in $literal) { [void]$saved.Add($s.Value) }
+            }
+        }
+        $private = Get-PrivateRunspaceBlock -Ast $Ast
+        $found = [System.Collections.Generic.List[object]]::new()
+        foreach ($write in @(Get-EnvironmentWrite -Ast $Ast)) {
+            if (& $script:WithinBlock $write.Node $private) { continue }
+            foreach ($name in $write.Name) {
+                if (-not $saved.Contains($name)) { $found.Add([pscustomobject]@{ Line = $write.Node.Extent.StartLineNumber; Name = $name }) }
+            }
+        }
+        @($found | Sort-Object Line, Name -Unique | ForEach-Object { '{0} {1}' -f $_.Line, $_.Name })
     }
 
     # A temp path built by hand with a unique name: a temp-folder expression
@@ -398,6 +482,7 @@ BeforeAll {
         'test/modules/Test.PortOwner.Tests.ps1'               = 'the module under test probes a port with an HttpListener prefix bind, so the port it must find held is held by an HttpListener prefix'
         'test/modules/Test.StatusServiceRefreshSafe.Tests.ps1' = 'the test proves the listener that held the port still accepts after a refused start, so it accepts on that listener itself'
         'test/modules/Test.Transport.Tests.ps1'               = 'a fake VNC server speaks the RFB handshake and closes its end the way a stopping VM does, which is not HTTP'
+        'test/modules/Test.UtmSerialConsole.Tests.ps1'        = 'a fake QEMU serial port and HMP monitor accept the connections the reader and the monitor capture open themselves, stream console bytes and prompts, and close the way a stopping VM does, which is not HTTP'
     }
 }
 
@@ -735,25 +820,116 @@ Describe 'every suite restores the process environment through the shared helper
     }
 
     It 'tells a hand-made restore from the shared helpers, a test that sets an entry, and a private runspace' {
+        # The restore wrapped in a suite-local function (line 4 to 10) is the
+        # shape a teardown reaches one call away; Reset-Marker is reached two
+        # calls away, through Clear-Fixture. The list forms on lines 16 and 25
+        # drop every entry they name, not only the first.
         $copy = @'
 BeforeAll {
     $script:Prior = $env:YURUNA_RUNTIME_DIR
     $env:YURUNA_RUNTIME_DIR = 'x'
+    function Restore-FixtureEnvironment {
+        param([hashtable]$Snapshot)
+        foreach ($name in $Snapshot.Keys) {
+            if ($null -eq $Snapshot[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+            else { [Environment]::SetEnvironmentVariable($name, [string]$Snapshot[$name]) }
+        }
+    }
+    function Reset-Marker { Remove-Item Env:FIXTURE_MARKER -ErrorAction SilentlyContinue }
+    function Clear-Fixture { Reset-Marker }
 }
-AfterAll { $env:YURUNA_RUNTIME_DIR = $script:Prior }
+AfterAll { $env:YURUNA_RUNTIME_DIR = $script:Prior; Clear-Fixture }
 Describe 'a block' {
-    AfterEach { Remove-Item Env:GIT_CONFIG_GLOBAL -ErrorAction SilentlyContinue }
+    AfterEach { Remove-Item Env:GIT_CONFIG_GLOBAL, Env:GIT_CONFIG_SYSTEM -ErrorAction SilentlyContinue }
     It 'restores by hand' {
         $saved = @{}
         foreach ($name in @('HOME')) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
-        try { $env:HOME = 'y' }
-        finally { foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) } }
+        try { $env:HOME = 'y' } finally { Restore-FixtureEnvironment -Snapshot $saved }
         try { $env:PATH = 'z' } finally { [Environment]::SetEnvironmentVariable('PATH', $null) }
         try { $env:NO_COLOR = '1' } finally { Remove-Item -LiteralPath "Env:NO_COLOR" }
         try { $env:OMP_THREAD_LIMIT = '1' } finally { Set-Item -LiteralPath Env:OMP_THREAD_LIMIT -Value '4' }
         try { $env:YURUNA_RETRY = '0' } finally { foreach ($name in $saved.Keys) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue } }
+        try { $env:GIT_AUTHOR_DATE = '1' } finally { Remove-Item -Path @('Env:GIT_AUTHOR_DATE', 'Env:GIT_COMMITTER_DATE') -ErrorAction SilentlyContinue }
     }
 }
+'@
+        $shared = @'
+BeforeAll {
+    $script:Saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'GIT_CONFIG_GLOBAL', 'PATH'
+    $env:YURUNA_RUNTIME_DIR = 'x'
+    function Set-Stub { param([hashtable]$Entry) foreach ($name in $Entry.Keys) { Set-Item -LiteralPath "Env:$name" -Value $Entry[$name] } }
+}
+AfterAll { Restore-YurunaTestEnvironment -Saved $script:Saved }
+Describe 'a block' {
+    It 'sets and reads the entries as the test needs' {
+        $env:GIT_CONFIG_GLOBAL = 'y'
+        Remove-Item Env:GIT_CONFIG_GLOBAL, Env:PATH -ErrorAction SilentlyContinue
+        Set-Stub -Entry @{ PATH = 'p' }
+        $dir = $env:YURUNA_RUNTIME_DIR
+        $job = Start-ThreadJob -ScriptBlock { try { $env:PATH = 'j' } finally { $env:PATH = $null } }
+        $saved = Save-YurunaTestEnvironment -Name 'HOME'
+        try { $env:HOME = 'z'; [Environment]::SetEnvironmentVariable('HOME', 'w') } finally { Restore-YurunaTestEnvironment -Saved $saved }
+    }
+}
+'@
+        $copyAst = [System.Management.Automation.Language.Parser]::ParseInput($copy, [ref]$null, [ref]$null)
+        $sharedAst = [System.Management.Automation.Language.Parser]::ParseInput($shared, [ref]$null, [ref]$null)
+        Assert-StringEqual '7,8,11,14,16,21,22,23,24,25' (@(Get-LocalEnvironmentRestoreCopy -Ast $copyAst) -join ',') `
+            'an assignment, Remove-Item (bare, quoted, a list and an array), Set-Item and SetEnvironmentVariable (named and computed) in AfterAll, AfterEach and finally, and in a function a teardown calls directly or through another, are each reported, whatever the entry'
+        Assert-Equal 0 (@(Get-LocalEnvironmentRestoreCopy -Ast $sharedAst).Count) `
+            'the shared helpers, writes a test makes outside teardown (a list included), a function only a test calls, a read and a thread job are not hand-made restores'
+    }
+
+    It 'restores no process environment entry by hand in any suite' {
+        Assert-True ($script:EnvironmentRestoreCopyFound.Count -eq 0) @"
+these suites put a process environment entry back by hand in a teardown, or in
+a function a teardown calls. Save the entries with Save-YurunaTestEnvironment
+before the test changes them and put them back with
+Restore-YurunaTestEnvironment (test/modules/Test.Assert.psm1), which also
+removes an entry that was absent:
+$($script:EnvironmentRestoreCopyFound -join "`n")
+"@
+    }
+}
+
+Describe 'every suite saves the process environment entries it sets' {
+    BeforeAll {
+        $script:EnvironmentUnsavedSetFound = @(foreach ($rel in $script:Suites) {
+                foreach ($item in (Get-LocalEnvironmentUnsavedSet -Ast (Get-SuiteAst -Relative $rel))) { '{0}:{1}' -f $rel, $item }
+            })
+    }
+
+    It 'tells an entry set with no save from one the shared helpers cover' {
+        $copy = @'
+BeforeAll {
+    $script:Saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+    $env:YURUNA_RUNTIME_DIR = 'x'
+    $env:SystemDrive = 'C:'
+}
+AfterAll { Restore-YurunaTestEnvironment -Saved $script:Saved }
+Describe 'a block' {
+    It 'sets entries nothing saved' {
+        Set-Item -LiteralPath "Env:PROCESSOR_ARCHITECTURE" -Value 'ARM64'
+        Remove-Item Env:GIT_AUTHOR_DATE, Env:GIT_COMMITTER_DATE -ErrorAction SilentlyContinue
+        [Environment]::SetEnvironmentVariable('NO_COLOR', '1')
+        $job = Start-ThreadJob -ScriptBlock { $env:PATH = 'j' }
+        foreach ($name in 'TMP', 'TEMP') { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+    }
+}
+'@
+        $all = @'
+BeforeAll {
+    $script:Saved = Save-YurunaTestEnvironment -All
+    $env:SystemDrive = 'C:'
+}
+AfterAll { Restore-YurunaTestEnvironment -Saved $script:Saved -RemoveOthers }
+'@
+        $opaque = @'
+BeforeAll {
+    $script:Saved = Save-YurunaTestEnvironment -Name $script:Names
+    $env:SystemDrive = 'C:'
+}
+AfterAll { Restore-YurunaTestEnvironment -Saved $script:Saved }
 '@
         $shared = @'
 BeforeAll {
@@ -764,29 +940,30 @@ AfterAll { Restore-YurunaTestEnvironment -Saved $script:Saved }
 Describe 'a block' {
     It 'sets and reads the entries as the test needs' {
         $env:GIT_CONFIG_GLOBAL = 'y'
-        Remove-Item Env:GIT_CONFIG_GLOBAL -ErrorAction SilentlyContinue
-        $dir = $env:YURUNA_RUNTIME_DIR
-        $job = Start-ThreadJob -ScriptBlock { try { $env:PATH = 'j' } finally { $env:PATH = $null } }
+        Remove-Item Env:GIT_CONFIG_GLOBAL, Env:PATH -ErrorAction SilentlyContinue
+        $job = Start-ThreadJob -ScriptBlock { $env:HOME = 'j' }
         $saved = Save-YurunaTestEnvironment -Name 'HOME'
         try { $env:HOME = 'z'; [Environment]::SetEnvironmentVariable('HOME', 'w') } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 }
 '@
         $copyAst = [System.Management.Automation.Language.Parser]::ParseInput($copy, [ref]$null, [ref]$null)
-        $sharedAst = [System.Management.Automation.Language.Parser]::ParseInput($shared, [ref]$null, [ref]$null)
-        Assert-StringEqual '5,7,12,13,14,15,16' (@(Get-LocalEnvironmentRestoreCopy -Ast $copyAst) -join ',') `
-            'an assignment, Remove-Item (bare and quoted), Set-Item and SetEnvironmentVariable (named and computed) in AfterAll, AfterEach and finally are each reported, whatever the entry'
-        Assert-Equal 0 (@(Get-LocalEnvironmentRestoreCopy -Ast $sharedAst).Count) `
-            'the shared helpers, writes a test makes outside teardown, a read and a thread job are not hand-made restores'
+        Assert-StringEqual '4 SystemDrive,9 PROCESSOR_ARCHITECTURE,10 GIT_AUTHOR_DATE,10 GIT_COMMITTER_DATE,11 NO_COLOR' (@(Get-LocalEnvironmentUnsavedSet -Ast $copyAst) -join ',') `
+            'an assignment, Set-Item, a Remove-Item list and SetEnvironmentVariable naming an entry no save names are each reported; a thread job and a computed name are not'
+        foreach ($case in @(@{ Name = 'a save of every entry'; Text = $all }, @{ Name = 'a save whose names the rule cannot read'; Text = $opaque }, @{ Name = 'saves naming every entry set'; Text = $shared })) {
+            $ast = [System.Management.Automation.Language.Parser]::ParseInput($case.Text, [ref]$null, [ref]$null)
+            Assert-Equal 0 (@(Get-LocalEnvironmentUnsavedSet -Ast $ast).Count) "$($case.Name) leaves nothing to report"
+        }
     }
 
-    It 'restores no process environment entry by hand in any suite' {
-        Assert-True ($script:EnvironmentRestoreCopyFound.Count -eq 0) @"
-these suites put a process environment entry back by hand in a teardown. Save
-the entries with Save-YurunaTestEnvironment before the test changes them and
-put them back with Restore-YurunaTestEnvironment
-(test/modules/Test.Assert.psm1), which also removes an entry that was absent:
-$($script:EnvironmentRestoreCopyFound -join "`n")
+    It 'saves every process environment entry it sets by name, in any suite' {
+        Assert-True ($script:EnvironmentUnsavedSetFound.Count -eq 0) @"
+these suites set a process environment entry that no Save-YurunaTestEnvironment
+in the suite names, so nothing puts it back for whatever runs next in the
+process. Save it before the first set and put it back with
+Restore-YurunaTestEnvironment (test/modules/Test.Assert.psm1), or save every
+entry with -All and restore with -RemoveOthers:
+$($script:EnvironmentUnsavedSetFound -join "`n")
 "@
     }
 }

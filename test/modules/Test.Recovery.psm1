@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42961225-d68b-4663-995b-dff524fe4af1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,8 @@
 #requires -version 7
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+# Bounded native calls for the evidence a host restart leaves behind.
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking
 # The refresh-preservation mode classifies records with the strict identity
 # rules; imported here so that mode never runs without them.
 Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameChecking
@@ -43,9 +45,12 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameC
 
       1. Orphan `.incomplete` cycle folders -> rename marker to
          `.aborted.<UTC>.json` with augmented payload (recoveredAtUtc,
-         recoveredByPid). The cycle folder itself is preserved as
+         recoveredByPid, and whether the host restarted after the cycle's
+         last write). The cycle folder itself is preserved as
          forensics; the rename makes future sweeps idempotent (already
-         archived markers are not re-archived).
+         archived markers are not re-archived). A cycle the host restarted
+         under also gets the evidence that boot left (host-restart.json,
+         host-restart.txt) and a `host_restart` event.
       2. Stale runner.pid / inner.pid (pid not a live process) -> delete.
          runner.pid takes its runner.start sidecar with it so a future
          Write-RunnerPidFile call sees a clean pair, not a half-state.
@@ -56,7 +61,9 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameC
     Every sweep emits a `boot_recovery_completed` NDJSON event with the
     archived / cleared counts so a streaming consumer / dashboard sees
     that the framework recovered from a crash without grep'ing console
-    output.
+    output. The sweep runs before any cycle is open, so its events wait in
+    the runtime directory's pending queue (Add-PendingCycleEvent in
+    Test.Log) and join the next cycle's stream.
 
     Policy: this is a READ-ONLY recovery -- nothing is deleted that
     has forensics value (cycle folders, .incomplete payloads, paused
@@ -90,6 +97,335 @@ $script:RefreshPreservedControlName = @(
 # See https://yuruna.link/4213a0b3-00d7
 $script:CycleFolderPattern           = '^\d{6}\..+\..+\..+$'
 $script:CycleFolderIncompletePattern = '^\d{6}\..+\..+\..+\.incomplete$'
+
+# ConvertFrom-Json turns ISO-8601-looking strings into [DateTime] unless told
+# not to (-DateKind String, PowerShell 7.5 and later); the archive and the
+# host_restart event carry the marker's times as the text it was written with.
+$script:RecoveryJsonOption = @{}
+if ((Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $script:RecoveryJsonOption.DateKind = 'String' }
+# A host in deep diagnostics mode writes one bundle per boot here, early in that
+# boot and after systemd-pstore; the runner reads it through systemd-journal.
+$script:DeepDiagnosticsDir = '/var/log/yuruna/deep-diagnostics'
+# A boot this many seconds before a cycle's last sign of life still counts as
+# after it: Linux states its boot time in whole seconds, and no runner opens a
+# cycle within seconds of a boot.
+$script:HostRestartToleranceSeconds = 5
+# Current-boot kernel lines that name a fault the firmware or kernel recorded
+# (APEI BERT records, machine checks, EDAC, PCIe AER) or a watchdog that fired.
+$script:HostRestartHardwarePattern = 'BERT|Hardware Error|mce|MCE|EDAC|AER|watchdog'
+# What journalctl says when the account is in neither systemd-journal nor adm
+# and so reads only its own journal, without the kernel or the system.
+$script:JournalNotReadableNotice = 'You are currently not seeing messages from other users and the system'
+
+function Get-YurunaHostBootTimeUtc {
+    <#
+    .SYNOPSIS
+        When this host last booted, in UTC, or $null when that cannot be read.
+    .DESCRIPTION
+        Linux states it as btime in /proc/stat and macOS as sysctl kern.boottime.
+        Windows has neither, so the boot is the current time less the
+        milliseconds-since-boot counter: it restarts with every boot, counts
+        time asleep, and needs no WMI query, which a host just back from a crash
+        can be slow to answer.
+    .PARAMETER Platform
+        linux, macos or windows. Defaults to the current platform.
+    #>
+    [CmdletBinding()]
+    [OutputType([datetime])]
+    param([ValidateSet('linux', 'macos', 'windows')][string]$Platform = (Get-YurunaPlatformName))
+    try {
+        switch ($Platform) {
+            'linux' {
+                foreach ($line in [IO.File]::ReadAllLines('/proc/stat')) {
+                    if ($line -match '^btime\s+(\d+)') { return [DateTimeOffset]::FromUnixTimeSeconds([long]$Matches[1]).UtcDateTime }
+                }
+            }
+            'macos' {
+                $sysctl = Invoke-BoundedNativeCommand -FilePath 'sysctl' -ArgumentList @('-n', 'kern.boottime') -TimeoutSeconds 5
+                if ([string]$sysctl.StdOut -match 'sec\s*=\s*(\d+)') { return [DateTimeOffset]::FromUnixTimeSeconds([long]$Matches[1]).UtcDateTime }
+            }
+            'windows' { return [datetime]::UtcNow.AddMilliseconds(-[double][Environment]::TickCount64) }
+        }
+    } catch {
+        Write-Verbose "Get-YurunaHostBootTimeUtc: the boot time is unreadable: $($_.Exception.Message)"
+    }
+    return $null
+}
+
+function Get-CycleFolderLastWriteUtc {
+    <#
+    .SYNOPSIS
+        The newest write time of any file in a cycle folder, or $null.
+    .DESCRIPTION
+        A host that froze mid-cycle leaves files whose data never reached the
+        disk but whose directory entries did, so the newest write is within
+        seconds of the freeze. Hidden files count -- the .incomplete marker is
+        one -- and the walk is bounded, so a folder that grew without limit
+        cannot stall the sweep.
+    #>
+    [CmdletBinding()]
+    [OutputType([datetime])]
+    param([Parameter(Mandatory)][string]$Path)
+    $newest = $null
+    Get-ChildItem -LiteralPath $Path -File -Recurse -Force -Depth 4 -ErrorAction SilentlyContinue |
+        Select-Object -First 20000 |
+        ForEach-Object { if ($null -eq $newest -or $_.LastWriteTimeUtc -gt $newest) { $newest = $_.LastWriteTimeUtc } }
+    return $newest
+}
+
+function ConvertTo-RecoveryUtcText {
+    <#
+    .SYNOPSIS
+        A marker time as ISO-8601 UTC text: the text itself, or the [datetime] a
+        JSON parse without -DateKind String made of it, formatted back.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()]$Value)
+    if ($Value -is [datetime]) { return ([datetime]$Value).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture) }
+    return [string]$Value
+}
+
+function Get-CycleHostRestart {
+    <#
+    .SYNOPSIS
+        Whether the host booted after a crashed cycle's last sign of life, and
+        how long it was down.
+    .DESCRIPTION
+        The last sign of life is the later of the folder's newest file write and
+        the start its marker recorded. A boot after that, within a few seconds'
+        tolerance, means the host restarted under the cycle. A runner killed and
+        restarted without a reboot finds a boot from before the cycle started,
+        so it never counts. downSeconds runs from the newest write to the boot;
+        it is $null when the host did not restart or no write could be read.
+    .PARAMETER CycleFolder
+        The cycle folder, read before anything writes into it.
+    .PARAMETER StartedAtUtc
+        The marker's startedAtUtc, as text or as a [datetime].
+    .OUTPUTS
+        [ordered] lastWriteUtc and bootUtc (ISO-8601 text, '' when unknown),
+        hostRestarted, downSeconds.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [Parameter(Mandatory)][string]$CycleFolder,
+        [AllowNull()]$StartedAtUtc
+    )
+    $lastWrite = Get-CycleFolderLastWriteUtc -Path $CycleFolder
+    $boot = Get-YurunaHostBootTimeUtc
+    $started = $null
+    $startedText = ConvertTo-RecoveryUtcText -Value $StartedAtUtc
+    $parsed = [datetime]::MinValue
+    $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+    if ($startedText -and [datetime]::TryParse($startedText, [Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$parsed)) { $started = $parsed }
+    $alive = @($lastWrite, $started) | Where-Object { $null -ne $_ } | Sort-Object -Descending | Select-Object -First 1
+    $restarted = ($null -ne $boot) -and ($null -ne $alive) -and ($boot -ge $alive.AddSeconds(-$script:HostRestartToleranceSeconds))
+    return [ordered]@{
+        lastWriteUtc  = if ($null -ne $lastWrite) { $lastWrite.ToString('o') } else { '' }
+        bootUtc       = if ($null -ne $boot) { ([datetime]$boot).ToString('o') } else { '' }
+        hostRestarted = [bool]$restarted
+        downSeconds   = if ($restarted -and $null -ne $lastWrite) { [long][Math]::Max(0, [Math]::Round(($boot - $lastWrite).TotalSeconds)) } else { $null }
+    }
+}
+
+function Save-HostRestartEvidence {
+    <#
+    .SYNOPSIS
+        Write host-restart.json and host-restart.txt into a cycle folder the
+        host restarted under: what the platform recorded about the end of the
+        boot that ran the cycle, and the crash records the new boot holds.
+    .DESCRIPTION
+        Linux: the boot list, the previous boot's journal tail and kernel
+        warnings, the current boot's kernel lines that name a hardware error or
+        a watchdog, the head of last -x, and whether the system journal was
+        readable at all. The deep diagnostics bundles written since the cycle's
+        last write are copied in as host-restart.deep-diagnostics.<name>, or why
+        they could not be is recorded. Windows: the System log's Kernel-Power
+        41, 6008 and BugCheck 1001 events since the last write, and the
+        minidumps written since. macOS: the panic reports written since then and
+        the head of last reboot.
+
+        Every command is bounded and every failure is recorded, never thrown:
+        this runs in the startup sweep of a host that has just come back.
+        host-restart.txt holds the command output; host-restart.json the
+        outcome of each command and what was found.
+    .PARAMETER CycleFolder
+        The aborted cycle folder.
+    .PARAMETER Restart
+        The Get-CycleHostRestart result for that folder.
+    .PARAMETER Platform
+        linux, macos or windows. Defaults to the current platform.
+    .PARAMETER DeepDiagnosticsDir
+        Where a host in deep diagnostics mode keeps its boot bundles.
+    .PARAMETER CrashReportDir
+        The minidump (Windows) or diagnostic report (macOS) folder; the
+        platform's own when omitted.
+    .OUTPUTS
+        [hashtable] evidenceFiles (names written into the folder),
+        deepDiagnosticsBundles (bundles copied).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$CycleFolder,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Restart,
+        [ValidateSet('linux', 'macos', 'windows')][string]$Platform = (Get-YurunaPlatformName),
+        [string]$DeepDiagnosticsDir = $script:DeepDiagnosticsDir,
+        [string]$CrashReportDir = ''
+    )
+    $result = @{ evidenceFiles = @(); deepDiagnosticsBundles = 0 }
+    $since = [datetime]::MinValue
+    if ($Restart['lastWriteUtc']) {
+        $since = [datetime]::Parse([string]$Restart['lastWriteUtc'], [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+    }
+    $sinceText = $since.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    $specs = switch ($Platform) {
+        'linux' {
+            @{ FilePath = 'journalctl'; ArgumentList = @('--list-boots', '--no-pager') }
+            @{ FilePath = 'journalctl'; ArgumentList = @('-b', '-1', '-n', '300', '-o', 'short-iso-precise', '--no-pager') }
+            @{ FilePath = 'journalctl'; ArgumentList = @('-k', '-b', '-1', '-p', 'warning', '-n', '300', '-o', 'short-iso-precise', '--no-pager') }
+            # The whole current boot is read and only the matching lines kept,
+            # so this does not depend on a journalctl built with --grep.
+            @{ FilePath = 'journalctl'; ArgumentList = @('-k', '-b', '0', '-o', 'short-iso-precise', '--no-pager'); Filter = $script:HostRestartHardwarePattern; MaxCapturedChars = 4194304 }
+            @{ FilePath = 'last'; ArgumentList = @('-x', '-F'); Head = 40 }
+        }
+        'windows' {
+            @{ FilePath = 'wevtutil'; ArgumentList = @('qe', 'System', "/q:*[System[(EventID=41 or EventID=6008 or EventID=1001) and TimeCreated[@SystemTime>='$sinceText']]]", '/f:text', '/rd:true', '/c:50') }
+        }
+        'macos' {
+            @{ FilePath = 'last'; ArgumentList = @('reboot'); Head = 20 }
+        }
+    }
+    $commands = @(foreach ($spec in @($specs)) {
+        $max = if ($spec.MaxCapturedChars) { [int]$spec.MaxCapturedChars } else { 262144 }
+        $run = Invoke-BoundedNativeCommand -FilePath $spec.FilePath -ArgumentList $spec.ArgumentList -TimeoutSeconds 20 -MaxCapturedChars $max
+        $lines = @(([string]$run.StdOut) -split "`r?`n" | Where-Object { $_ -ne '' })
+        if ($spec.Filter) { $lines = @($lines | Where-Object { $_ -cmatch $spec.Filter } | Select-Object -First 500) }
+        if ($spec.Head) { $lines = @($lines | Select-Object -First $spec.Head) }
+        [ordered]@{
+            command  = (@($spec.FilePath) + @($spec.ArgumentList)) -join ' '
+            started  = [bool]$run.Started
+            exitCode = [int]$run.ExitCode
+            complete = [bool](Test-BoundedNativeResultComplete -Result $run)
+            lines    = $lines
+            stderr   = ([string]$run.StdErr).Trim()
+            filtered = [bool]$spec.Filter
+        }
+    })
+    $journal = @($commands | Where-Object { $_.started -and $_.command -like 'journalctl *' })
+    $journalReadable = $null
+    if ($journal.Count -gt 0) {
+        $journalReadable = -not @($journal | Where-Object { $_.stderr.Contains($script:JournalNotReadableNotice) }).Count
+    }
+
+    $reportDir = if ($CrashReportDir) { $CrashReportDir }
+                 elseif ($Platform -eq 'windows') { Join-Path ([string]$env:SystemRoot) 'Minidump' }
+                 elseif ($Platform -eq 'macos') { '/Library/Logs/DiagnosticReports' }
+                 else { '' }
+    $crashReports = @()
+    $crashReportReason = ''
+    if ($reportDir -and (Test-Path -LiteralPath $reportDir -PathType Container)) {
+        try {
+            $crashReports = @([IO.DirectoryInfo]::new($reportDir).GetFiles() |
+                Where-Object { $_.LastWriteTimeUtc -gt $since -and ($Platform -ne 'macos' -or $_.Extension -eq '.panic' -or ($_.Extension -eq '.ips' -and $_.Name -match 'panic')) } |
+                Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 10)
+        } catch { $crashReportReason = "unreadable: $($_.Exception.Message)" }
+    }
+
+    $deep = $null
+    if ($Platform -eq 'linux') {
+        $deep = [ordered]@{ directory = $DeepDiagnosticsDir; copied = @(); notCopied = @(); reason = '' }
+        if (-not (Test-Path -LiteralPath $DeepDiagnosticsDir -PathType Container)) {
+            $deep.reason = 'absent'
+        } else {
+            $bundles = @()
+            try {
+                $bundles = @([IO.DirectoryInfo]::new($DeepDiagnosticsDir).GetFiles('boot-*.txt') |
+                    Where-Object { $_.LastWriteTimeUtc -gt $since } | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 4)
+                if ($bundles.Count -eq 0) { $deep.reason = 'none written since the last write' }
+            } catch { $deep.reason = "unreadable: $($_.Exception.Message)" }
+            foreach ($bundle in $bundles) {
+                $name = 'host-restart.deep-diagnostics.' + $bundle.Name
+                if ($bundle.Length -gt 16MB) { $deep.notCopied += [ordered]@{ name = $bundle.Name; reason = 'larger than 16 MiB' }; continue }
+                try {
+                    [IO.File]::Copy($bundle.FullName, (Join-Path $CycleFolder $name), $true)
+                    $deep.copied += $name
+                } catch { $deep.notCopied += [ordered]@{ name = $bundle.Name; reason = $_.Exception.Message } }
+            }
+        }
+        $result.deepDiagnosticsBundles = @($deep.copied).Count
+    }
+
+    $text = [Text.StringBuilder]::new()
+    foreach ($field in @('lastWriteUtc', 'bootUtc', 'downSeconds')) { [void]$text.AppendLine("${field}: $($Restart[$field])") }
+    [void]$text.AppendLine("systemJournalReadable: $journalReadable")
+    foreach ($entry in $commands) {
+        [void]$text.AppendLine()
+        [void]$text.AppendLine("== $($entry.command) (exit $($entry.exitCode)$(if ($entry.filtered) { ", lines matching $($script:HostRestartHardwarePattern)" })) ==")
+        foreach ($line in $entry.lines) { [void]$text.AppendLine($line) }
+        if ($entry.stderr) { [void]$text.AppendLine('-- stderr --'); [void]$text.AppendLine($entry.stderr) }
+    }
+    if ($Platform -eq 'macos') {
+        foreach ($report in @($crashReports | Select-Object -First 2)) {
+            [void]$text.AppendLine()
+            [void]$text.AppendLine("== $($report.FullName) (first 16384 characters) ==")
+            try {
+                $reader = [IO.StreamReader]::new($report.FullName)
+                try { $buffer = [char[]]::new(16384); [void]$text.AppendLine([string]::new($buffer, 0, $reader.ReadBlock($buffer, 0, $buffer.Length))) }
+                finally { $reader.Dispose() }
+            } catch { [void]$text.AppendLine("unreadable: $($_.Exception.Message)") }
+        }
+    }
+
+    $document = [ordered]@{
+        schemaVersion         = 1
+        collectedAtUtc        = (Get-Date).ToUniversalTime().ToString('o')
+        cycleFolder           = Split-Path -Leaf $CycleFolder
+        platform              = $Platform
+        lastWriteUtc          = [string]$Restart['lastWriteUtc']
+        bootUtc               = [string]$Restart['bootUtc']
+        downSeconds           = $Restart['downSeconds']
+        systemJournalReadable = $journalReadable
+        commands              = @($commands | ForEach-Object {
+            [ordered]@{ command = $_.command; started = $_.started; exitCode = $_.exitCode; complete = $_.complete; lineCount = @($_.lines).Count; stderr = $_.stderr }
+        })
+        hardwareErrorLines    = @($commands | Where-Object { $_.filtered } | ForEach-Object { $_.lines })
+        crashReports          = @($crashReports | ForEach-Object { [ordered]@{ path = $_.FullName; lastWriteUtc = $_.LastWriteTimeUtc.ToString('o'); length = [long]$_.Length } })
+        crashReportReason     = $crashReportReason
+    }
+    if ($deep) { $document.deepDiagnostics = $deep }
+    $encoding = [Text.UTF8Encoding]::new($false)
+    foreach ($file in @(@{ Name = 'host-restart.json'; Content = ($document | ConvertTo-Json -Depth 8) }, @{ Name = 'host-restart.txt'; Content = $text.ToString() })) {
+        try {
+            [IO.File]::WriteAllText((Join-Path $CycleFolder $file.Name), $file.Content, $encoding)
+            $result.evidenceFiles += $file.Name
+        } catch { Write-Verbose "Save-HostRestartEvidence: $($file.Name) not written in ${CycleFolder}: $($_.Exception.Message)" }
+    }
+    if ($deep) { $result.evidenceFiles += @($deep.copied) }
+    return $result
+}
+
+function Send-BootRecoveryEvent {
+    <#
+    .SYNOPSIS
+        Queue a boot-recovery event for the next cycle's stream.
+    .DESCRIPTION
+        The sweep runs before any cycle is open, so an event sent the ordinary
+        way falls back to the log root, where nothing collects it. It waits in
+        the runtime directory's pending queue (Add-PendingCycleEvent in
+        Test.Log) instead, and goes to the log root only when it cannot be
+        queued. A process without the cycle-event writer emits nothing.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$EventRecord,
+        [AllowEmptyString()][string]$RuntimeDir
+    )
+    if ((Get-Command Add-PendingCycleEvent -ErrorAction SilentlyContinue) -and
+        (Add-PendingCycleEvent -EventRecord $EventRecord -RuntimeDir $RuntimeDir)) { return }
+    if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) { Send-CycleEventSafely -EventRecord $EventRecord }
+}
 
 function Find-OrphanIncompleteCycle {
     <#
@@ -164,15 +500,28 @@ function Resolve-OrphanIncompleteCycle {
 
         Both cases end with the folder renamed away from the
         `.incomplete` suffix so a second sweep is a no-op.
+
+        Before anything is written into the folder, its newest file write
+        is compared with the host's boot time (Get-CycleHostRestart); the
+        archive carries lastWriteUtc, bootUtc, hostRestarted and
+        downSeconds. When the host restarted under the cycle, the evidence
+        of that boot is saved in the folder (Save-HostRestartEvidence) and
+        a host_restart event is queued for the next cycle's stream.
     .PARAMETER MarkerPath
         Either a `.incomplete` marker file (case a) OR a cycle folder
         with `.incomplete` suffix (case b).
+    .PARAMETER RuntimeDir
+        The runtime directory whose pending queue takes the host_restart
+        event. Defaults to $env:YURUNA_RUNTIME_DIR.
     .OUTPUTS
         Hashtable describing what was archived, or $null on failure.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$MarkerPath)
+    param(
+        [Parameter(Mandatory)][string]$MarkerPath,
+        [AllowEmptyString()][string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
+    )
     if (-not (Test-Path -LiteralPath $MarkerPath)) { return $null }
     if (-not $PSCmdlet.ShouldProcess($MarkerPath, (Format-YurunaOperatorMessage -Key 'runner.operator_d3778fb2e379356a'))) { return $null }
 
@@ -196,7 +545,8 @@ function Resolve-OrphanIncompleteCycle {
         try {
             $raw = Get-Content -Raw -LiteralPath $MarkerPath -ErrorAction Stop
             if ($raw -and $raw.Trim()) {
-                $parsed = $raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                $jsonOption = $script:RecoveryJsonOption
+                $parsed = $raw | ConvertFrom-Json -AsHashtable @jsonOption -ErrorAction Stop
                 if ($parsed -is [System.Collections.IDictionary]) { $markerObj = [hashtable]$parsed }
             }
         } catch {
@@ -206,6 +556,9 @@ function Resolve-OrphanIncompleteCycle {
     $markerObj['recoveredAtUtc'] = $now
     $markerObj['recoveredByPid'] = $PID
     $markerObj['recoverySignal'] = if ($isDir) { 'folder_suffix' } else { 'marker_file' }
+    # Measured before the archive below adds the newest file to the folder.
+    $restart = Get-CycleHostRestart -CycleFolder $cycleDir -StartedAtUtc $markerObj['startedAtUtc']
+    foreach ($key in $restart.Keys) { $markerObj[$key] = $restart[$key] }
 
     # Decide the post-recovery folder name. If the folder is already
     # `<base>.incomplete/`, rename to `<base>.aborted.<UTC>/`. If the
@@ -254,6 +607,32 @@ function Resolve-OrphanIncompleteCycle {
         }
     }
 
+    $evidence = @{ evidenceFiles = @(); deepDiagnosticsBundles = 0 }
+    if ($restart.hostRestarted) {
+        try {
+            $evidence = Save-HostRestartEvidence -CycleFolder $finalCycleDir -Restart $restart
+        } catch {
+            Write-Verbose "Resolve-OrphanIncompleteCycle: host restart evidence not saved for ${finalCycleDir}: $($_.Exception.Message)"
+        }
+        # The cycle-identity fields of this event are the cycle that delivers
+        # it, so the aborted cycle is named under its own field names.
+        $abortedNumber = 0
+        if ($markerObj.Contains('cycleNumber')) { $abortedNumber = [int]$markerObj['cycleNumber'] }
+        elseif ((Split-Path -Leaf $finalCycleDir) -match '^(\d{6})\.') { $abortedNumber = [int]$Matches[1] }
+        Send-BootRecoveryEvent -RuntimeDir $RuntimeDir -EventRecord @{
+            timestamp              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+            event                  = 'host_restart'
+            abortedCycleFolder     = Split-Path -Leaf $finalCycleDir
+            abortedCycleStartUtc   = ConvertTo-RecoveryUtcText -Value $markerObj['cycleStartUtc']
+            abortedCycleNumber     = $abortedNumber
+            lastWriteUtc           = [string]$restart.lastWriteUtc
+            bootUtc                = [string]$restart.bootUtc
+            downSeconds            = $restart.downSeconds
+            evidenceFiles          = @($evidence.evidenceFiles)
+            deepDiagnosticsBundles = [int]$evidence.deepDiagnosticsBundles
+        }
+    }
+
     return @{
         cycleFolder        = Split-Path -Leaf $finalCycleDir
         archivedAs         = if ($archivedPath) { Split-Path -Leaf $archivedPath } else { $null }
@@ -261,6 +640,11 @@ function Resolve-OrphanIncompleteCycle {
         markerCycleStartUtc      = if ($markerObj.Contains('cycleStartUtc'))      { [string]$markerObj['cycleStartUtc'] }      else { $null }
         markerStartedAtUtc = if ($markerObj.Contains('startedAtUtc')) { [string]$markerObj['startedAtUtc'] } else { $null }
         markerPid          = if ($markerObj.Contains('pid'))          { [int]$markerObj['pid'] }            else { 0 }
+        hostRestarted      = [bool]$restart.hostRestarted
+        lastWriteUtc       = [string]$restart.lastWriteUtc
+        bootUtc            = [string]$restart.bootUtc
+        downSeconds        = $restart.downSeconds
+        evidenceFiles      = @($evidence.evidenceFiles)
     }
 }
 
@@ -699,7 +1083,7 @@ function Invoke-YurunaRefreshPreservationSweep {
                 continue
             }
             try {
-                $archived = Resolve-OrphanIncompleteCycle -MarkerPath $marker.FullName -Confirm:$false
+                $archived = Resolve-OrphanIncompleteCycle -MarkerPath $marker.FullName -RuntimeDir $RuntimeDir -Confirm:$false
                 if ($archived) { $Summary.ArchivedCycles += $archived }
             } catch {
                 $Summary.Warnings += "Resolve-OrphanIncompleteCycle failed for $($marker.FullName): $($_.Exception.Message)"
@@ -710,8 +1094,8 @@ function Invoke-YurunaRefreshPreservationSweep {
     $touched = ($Summary.ArchivedCycles.Count -gt 0) -or ($Summary.ClearedPidFiles.Count -gt 0) -or
         ($null -ne $Summary.ArchivedBreakActive) -or ($Summary.Warnings.Count -gt 0) -or
         ($Summary.PreservedControls.Count -gt 0) -or ($Summary.PreservedPidFiles.Count -gt 0) -or ($Summary.PreservedOrphans.Count -gt 0)
-    if ($touched -and (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) {
-        Send-CycleEventSafely -EventRecord @{
+    if ($touched) {
+        Send-BootRecoveryEvent -RuntimeDir $RuntimeDir -EventRecord @{
             timestamp              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event                  = 'boot_recovery_completed'
             mode                   = 'refresh-preservation'
@@ -850,7 +1234,7 @@ function Invoke-YurunaBootRecovery {
     if ($LogDir -and (Test-Path -LiteralPath $LogDir)) {
         foreach ($marker in (Find-OrphanIncompleteCycle -LogDir $LogDir)) {
             try {
-                $archived = Resolve-OrphanIncompleteCycle -MarkerPath $marker.FullName -Confirm:$false
+                $archived = Resolve-OrphanIncompleteCycle -MarkerPath $marker.FullName -RuntimeDir $RuntimeDir -Confirm:$false
                 if ($archived) { $summary.ArchivedCycles += $archived }
             } catch {
                 $summary.Warnings += "Resolve-OrphanIncompleteCycle failed for $($marker.FullName): $($_.Exception.Message)"
@@ -869,8 +1253,8 @@ function Invoke-YurunaBootRecovery {
                ($null -ne $summary.ArchivedBreakActive) -or
                ($summary.ClearedPauseFlags.Count -gt 0) -or
                ($summary.Warnings.Count -gt 0)
-    if ($touched -and (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) {
-        Send-CycleEventSafely -EventRecord @{
+    if ($touched) {
+        Send-BootRecoveryEvent -RuntimeDir $RuntimeDir -EventRecord @{
             timestamp             = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event                 = 'boot_recovery_completed'
             archivedCycleCount    = [int]$summary.ArchivedCycles.Count

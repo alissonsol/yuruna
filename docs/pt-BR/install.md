@@ -597,9 +597,12 @@ O `powershell-yaml` é exigido pelo `Resolve-CyclePlan` e por todo leitor de
 YAML no harness. O pwsh 7 NÃO o distribui, e o preflight do
 `test/Invoke-TestProject.ps1` falha rápido com "powershell-yaml is not
 installed" se o módulo estiver ausente -- o atrito de todo bootstrap em
-hospedeiro novo. Cada instalador instala o `powershell-yaml` (escopo CurrentUser,
-`-Force -AllowClobber` para confiar automaticamente na PSGallery em uma
-máquina nova). O `Install-PowerShellYamlIfMissing` (definido em
+hospedeiro novo. Cada instalador instala o `powershell-yaml` em uma versão
+fixada (escopo CurrentUser): baixa o pacote dessa versão da PowerShell Gallery
+e o recusa se o SHA-512 não corresponder ao hash publicado pela galeria.
+Todos os instaladores e `Test.HostGit.psm1` mantêm a mesma versão e o mesmo
+hash, e `Test.HostGitInstall` verifica a igualdade entre as cópias.
+O `Install-PowerShellYamlIfMissing` (definido em
 [test/modules/Test.HostGit.psm1](../../test/modules/Test.HostGit.psm1)
 e reexportado via `Test.HostContract`) ainda é chamado a partir do
 `Enable-TestAutomation.ps1` como rede de segurança para bootstraps com
@@ -620,8 +623,10 @@ selecionado: `tools/Invoke-TestSuite.ps1` e `tools/_InvokeOneSuite.ps1` importam
 o 6.x mais recente pelo caminho resolvido. Um `Invoke-Pester` sem qualificação carrega a
 cópia instalada mais recente, seja qual for a linha, então execute as suítes pelo executor.
 
-O PSScriptAnalyzer é instalado junto com eles quando está ausente. Uma falha chega ao
-resumo final do instalador, e o instalador segue em frente.
+O PSScriptAnalyzer é instalado junto com eles quando está ausente, na versão
+fixada e após a mesma verificação de SHA-512 com o hash publicado pela galeria;
+uma cópia já instalada mantém sua versão. Uma falha chega ao resumo final
+do instalador, e o instalador segue em frente.
 
 Um commit que prepara um arquivo de teste é recusado em um hospedeiro que tem `pwsh` mas
 não tem Pester 6.x. A recusa nomeia o comando que instala a versão documentada
@@ -1317,6 +1322,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.31
+Última revisão: 2026.11.05
 
 Voltar para [Yuruna](../../README.md)

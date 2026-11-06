@@ -733,6 +733,26 @@ status-service self-heal cannot fire there -- the rule set once at setup is
 what survives. Port from test.config.yml (8080 default), the same source
 Start-StatusService reads. No-op when ufw is inactive/absent.
 
+The config service port (`configService.port`, 8443 by default) is the second
+inbound port a host answers on: service guests fetch their NAS credential from
+`test/service/Start-ConfigService.ps1` over mutual TLS, so a closed port shows
+up later as a guest whose NAS mount fails. Host setup opens it here too,
+through the same helper, on the port the runner starts that service on
+(Resolve-ConfigServiceStart, which also supplies the 8443 default), and
+Disable-TestAutomation removes both rules when they carry the comment below;
+a rule added by hand, or by a version older than that comment, stays. A rule
+already held for the port, an allow or not, is left as it is: ufw would
+replace it with the framework's own. The launcher also tries the rule
+at each launch, without a sudo prompt
+(`sudo -n ufw allow <port>/tcp comment 'Yuruna test automation'`; the comment
+marks the rule as one Disable-TestAutomation removes), which an unprivileged
+runner usually cannot pass, so the elevated rule from setup is the one that
+holds. Because the launcher is a no-op while the service stays
+up, it warns, naming the config service and quoting the helper's message,
+whenever it cannot confirm the port is open: ufw absent (nftables/iptables
+are not managed), ufw unreadable without a cached sudo credential, the allow
+refused, or an error inside the helper.
+
 <a id="42e5cdfd-0022"></a>
 
 ## host/ubuntu.kvm/Enable-TestAutomation.ps1: Host clock

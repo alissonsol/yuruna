@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 420a0423-fafa-7721-4716-d28f53ebb854
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,21 @@
     'auth.detail_unconfigured' = 'nenhum token de autenticação de laboratório e nenhum URL agregador configurado'
     'auth.detail_unreachable' = 'não alcançável'
     'auth.encode_refusal' = 'o portão não poderia codificar sua recusa'
+    'auth.host_not_served' = @(
+        'este serviço não responde pelo nome '
+        @{
+            'arg' = 'host'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; abra-o pelo endereço, ou adicione o nome a '
+        @{
+            'arg' = 'setting'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' no hospedeiro que constrói a VM deste serviço e reconstrua a VM'
+    )
     'auth.login_unavailable' = 'nenhum URL agregador está configurado, então o agregador de pool não pode verificar um token do laboratório; as ações permanecem bloqueadas'
     'auth.malformed_request' = 'organismo de pedido mal formado'
     'auth.proof_check_failed' = @(

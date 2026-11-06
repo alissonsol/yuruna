@@ -16,6 +16,8 @@
 # command not found` in the guest's runcmd. Match on the suffix.
 *.sh            text eol=lf
 *.bash          text eol=lf
+# Guest Python helpers and candidate archives must retain the staged LF bytes.
+*.py            text eol=lf
 *.yml           text eol=lf
 *.yaml          text eol=lf
 *.service       text eol=lf

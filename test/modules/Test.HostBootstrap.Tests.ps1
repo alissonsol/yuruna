@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 424634a3-2e75-44bb-9daf-24331e800d3a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -178,6 +178,31 @@ Describe 'Initialize-YurunaHost' {
 
             Assert-True ($message -match 'host\.freebsd\.bhyve') 'an unsupported host fails at the driver lookup rather than importing some other host driver'
             Assert-True ($message -match 'freebsd\.bhyve') 'the derived folder appears in the message'
+        }
+
+        It 'stops a script that loads a driver which refuses to load' {
+            $repoRoot = Join-Path $script:bootRoot 'repo-refused-driver'
+            $driverPath = New-HostDriverStub -Root $repoRoot -HostType 'host.ubuntu.kvm' -Marker 'driver-refused'
+            Add-Content -LiteralPath $driverPath -Value "throw 'driver refused: 2 contract verb(s) missing'"
+            # The runner's shape, in a process of its own: the inner loop loads
+            # the driver at its top level with no try around the call. A module
+            # that throws while it loads stops its caller only when a try is
+            # somewhere on the call stack, and every Pester test runs inside
+            # one, so the call is made outside Pester.
+            $entry = Join-Path $repoRoot 'load-driver.ps1'
+            Set-Content -LiteralPath $entry -Value @(
+                "Import-Module '$((Join-Path $here 'Test.HostBootstrap.psm1') -replace "'", "''")' -DisableNameChecking"
+                "[void](Initialize-YurunaHost -RepoRoot '$($repoRoot -replace "'", "''")' -HostType 'host.ubuntu.kvm')"
+                "Write-Output 'continued past the driver load'"
+            )
+            $run = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) -TimeoutSeconds 120 `
+                -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $entry)
+
+            Assert-True (Test-BoundedNativeResultComplete -Result $run) "the child must finish inside its cap: $($run | ConvertTo-Json -Compress)"
+            Assert-True ($run.StdOut -notmatch 'continued past the driver load') `
+                "a driver whose import throws, such as one missing contract verbs, must stop the script that loads it, not leave it running without a driver (stdout: $($run.StdOut))"
+            Assert-True ($run.ExitCode -ne 0) 'the stopped script reports a failure'
+            Assert-True ("$($run.StdOut)$($run.StdErr)" -match 'driver refused') 'the error names why the driver refused to load'
         }
     }
 

@@ -2,9 +2,10 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 // GUID: 42cbe10c-4205-4d15-9456-02370bf0fd5a
 
-// Package loki is the collector's Loki client: one push call, the readiness
-// wait the collector runs before it reads Loki back at startup, and the outbox
-// that holds pushed lines until Loki has accepted them.
+// Package loki is the collector's Loki client: one push call, the query
+// endpoints and answer shapes its readers decode, the readiness wait the
+// collector runs before it reads Loki back at startup, and the outbox that
+// holds pushed lines until Loki has accepted them.
 package loki
 
 import (
@@ -98,4 +99,51 @@ func WaitReady(ctx context.Context, client *http.Client, pushURL string, maxWait
 			delay = ceiling
 		}
 	}
+}
+
+// RequestTimeout bounds one push to Loki or one query of it.
+const RequestTimeout = 10 * time.Second
+
+// Stream is one stream of a query_range answer: its labels and its
+// [timestamp, line] value pairs.
+type Stream struct {
+	Stream map[string]string `json:"stream"`
+	Values [][2]string       `json:"values"`
+}
+
+// Streams is the query_range response envelope every Loki reader
+// decodes. Declared once instead of re-inlining the identical anonymous struct in
+// each reader.
+type Streams struct {
+	Data struct {
+		Result []Stream `json:"result"`
+	} `json:"data"`
+}
+
+// QueryRangeURL derives the Loki query_range endpoint from the push endpoint
+// (the readers query the same base the pushes write to), replacing the identical
+// strings.TrimSuffix build inline in each reader.
+func QueryRangeURL(pushURL string) string {
+	return strings.TrimSuffix(pushURL, "push") + "query_range"
+}
+
+// InstantQueryURL derives the Loki INSTANT query endpoint from the push
+// endpoint. Distinct from QueryRangeURL because a metric query like
+// `sum by (hostId) (count_over_time(...))` evaluated once over a window is an
+// instant query returning a VECTOR, not a stream of log lines -- the same shape
+// the Grafana tiles use (their targets carry "instant": true).
+func InstantQueryURL(pushURL string) string {
+	return strings.TrimSuffix(pushURL, "push") + "query"
+}
+
+// Vector is the instant-query response envelope: one entry per label
+// combination, each with a single [unixSeconds, "value"] sample. Only the labels
+// the caller groups by are present in Metric.
+type Vector struct {
+	Data struct {
+		Result []struct {
+			Metric map[string]string `json:"metric"`
+			Value  [2]any            `json:"value"`
+		} `json:"result"`
+	} `json:"data"`
 }

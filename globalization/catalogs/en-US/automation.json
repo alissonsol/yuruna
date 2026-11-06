@@ -321,6 +321,11 @@
       "description": "Whole Write-Output message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
+    "automation.system_diagnostic_networkmanager_dhcp_none": {
+      "message": "(no NetworkManager dhcp4 entries this boot)",
+      "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 (Get-LinuxNetworkManagerDhcpLine, INSTALL & EARLY-BOOT TIMELINE section) when journalctl -b 0 -u NetworkManager --grep dhcp4 printed nothing. Preserve the unit name NetworkManager and the word dhcp4.",
+      "lifecycle": "active"
+    },
     "automation.operator_0708e3afbc3562b5": {
       "message": "Netplan config (/etc/netplan/*.yaml)",
       "description": "Whole Write-Sub message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
@@ -5544,6 +5549,33 @@
         }
       }
     },
+    "automation.memory_commit_outside_processes": {
+      "message": "Commit outside processes : {outside} of the {charged} charged is in no process's private bytes ({private} across {processes} processes). Shared memory sections, paged pool and other kernel allocations are charged there, and no row of the private-bytes table under TOP PROCESSES shows them.",
+      "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 (Get-CommitOutsideProcessLine, Windows MEMORY section) after the Commit line: the commit charge less the private bytes summed over every process. Preserve the numbers and the TOP PROCESSES section name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "outside": {
+          "type": "detail",
+          "trust": "external",
+          "example": "40.30 GB"
+        },
+        "charged": {
+          "type": "detail",
+          "trust": "external",
+          "example": "43.55 GB"
+        },
+        "private": {
+          "type": "detail",
+          "trust": "external",
+          "example": "3.25 GB"
+        },
+        "processes": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 214
+        }
+      }
+    },
     "automation.operator_bf1c637eb978cee4": {
       "message": "(skipped per-platform detail: unknown OS)",
       "description": "Whole Write-Output message in automation/Get-SystemDiagnostic.ps1; preserve command names, paths, codes, and argument boundaries.",
@@ -7578,6 +7610,214 @@
           "type": "integer",
           "trust": "internal",
           "example": "20"
+        }
+      }
+    },
+    "automation.system_diagnostic_journal_access": {
+      "message": "System journal access",
+      "description": "Whole Write-Sub heading in automation/Get-SystemDiagnostic.ps1 (RECENT SYSTEM EVENTS section, Linux), above the line that says whether this report can read the system journal.",
+      "lifecycle": "active"
+    },
+    "automation.system_diagnostic_journal_readable": {
+      "message": "The system journal is readable here: journalctl --system answered.",
+      "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 (Write-LinuxJournalAccess) when journalctl --system exited 0, so the journal sections of the report cover the whole system; preserve the command name.",
+      "lifecycle": "active"
+    },
+    "automation.system_diagnostic_journal_unreadable": {
+      "message": "The system journal is not readable by {user} (journalctl --system: {detail}). journalctl answers from this account's own journal instead, so the kernel log, earlier boots and other units' entries are missing from every journal section of this report.",
+      "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 (Write-LinuxJournalAccess) when journalctl --system exited non-zero; user is the account running the report and detail is journalctl's own first output line, shown verbatim. Preserve the command name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "user": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "runner"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "No journal files were opened due to insufficient permissions."
+        }
+      }
+    },
+    "automation.system_diagnostic_journal_session_stale": {
+      "message": "{user} is in group 'systemd-journal' in the group database, but this process started before that membership took effect: start the test runner again from a new login session.",
+      "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 (Write-LinuxJournalAccess) after the unreadable-journal line, when the group database already lists the account in systemd-journal; preserve the group name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "user": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "runner"
+        }
+      }
+    },
+    "automation.system_diagnostic_journal_grant": {
+      "message": "To make it readable, run 'sudo usermod -aG systemd-journal {user}', then start the test runner again from a new login session. On an Ubuntu KVM host, host/ubuntu.kvm/Enable-TestAutomation.ps1 adds this membership.",
+      "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 (Write-LinuxJournalAccess) after the unreadable-journal line, when the account is not in systemd-journal; preserve the command, the group name and the script path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "user": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "runner"
+        }
+      }
+    },
+    "automation.system_diagnostic_kernel_log_journal": {
+      "message": "(dmesg is not readable here, so the kernel log comes from the system journal instead: journalctl -k -b 0, the current boot's newest {count} entries scanned and the last 100 shown)",
+      "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 (Write-LinuxKernelLog, HOST DETAIL section) before the kernel lines read from the journal when dmesg was refused or is not installed; preserve the command and its options.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 5000
+        }
+      }
+    },
+    "automation.system_diagnostic_kernel_log_unavailable": {
+      "message": "(no kernel log: dmesg is not readable here and journalctl -k -b 0 returned no entries; see System journal access under RECENT SYSTEM EVENTS)",
+      "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 (Write-LinuxKernelLog, HOST DETAIL section) when neither dmesg nor the kernel journal yielded any line; the section names refer to the report's own headings. Preserve the commands.",
+      "lifecycle": "active"
+    },
+    "automation.system_diagnostic_kernel_journal_oom": {
+      "message": "LINUX: the current boot's kernel journal shows {count} OOM-killer event(s) -- memory pressure has killed a process. Review journalctl -k -b 0 for details.",
+      "description": "Whole Add-Problem message in automation/Get-SystemDiagnostic.ps1 (Write-LinuxKernelLog) when the OOM scan of the kernel journal, read because dmesg was refused, finds matches; LINUX is a fixed problem prefix. Preserve the command.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 2
+        }
+      }
+    },
+    "automation.system_diagnostic_kernel_journal_hardware": {
+      "message": "LINUX: the current boot's kernel journal shows {count} hardware/driver error line(s) (I/O error, MCE, EDAC, etc.).",
+      "description": "Whole Add-Problem message in automation/Get-SystemDiagnostic.ps1 (Write-LinuxKernelLog) when the hardware-error scan of the kernel journal, read because dmesg was refused, finds matches; LINUX is a fixed problem prefix. Preserve the kernel terms I/O error, MCE and EDAC.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 1
+        }
+      }
+    },
+    "automation.system_diagnostic_lockup_settings": {
+      "message": "Lockup and crash-evidence settings",
+      "description": "Whole Write-Sub heading in automation/Get-SystemDiagnostic.ps1 (HOST DETAIL section, Linux) above the rows of lockup-detector, panic, console, pstore, watchdog and journal-persistence settings.",
+      "lifecycle": "active"
+    },
+    "automation.system_diagnostic_watchdog_none": {
+      "message": "(no hardware watchdog device under {path})",
+      "description": "Row in automation/Get-SystemDiagnostic.ps1 (Get-LinuxLockupSettingLine) when the watchdog device class lists no device; path is the sysfs class directory.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/sys/class/watchdog"
+        }
+      }
+    },
+    "automation.system_diagnostic_journal_persistent": {
+      "message": "{path} exists: the journal of a boot that freezes survives the restart.",
+      "description": "Row in automation/Get-SystemDiagnostic.ps1 (Get-LinuxLockupSettingLine) when the persistent journal directory exists; preserve the path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/log/journal"
+        }
+      }
+    },
+    "automation.system_diagnostic_journal_volatile": {
+      "message": "{path} does not exist: the journal is kept in memory only, so a freeze loses the journal of the boot that froze.",
+      "description": "Row in automation/Get-SystemDiagnostic.ps1 (Get-LinuxLockupSettingLine) when the persistent journal directory does not exist; preserve the path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/log/journal"
+        }
+      }
+    },
+    "automation.system_diagnostic_deep_mode": {
+      "message": "Deep diagnostics mode",
+      "description": "Whole Write-Sub heading in automation/Get-SystemDiagnostic.ps1 (HOST DETAIL section, Linux) above the deep diagnostics mode state. Keep the mode's name consistent with the scripts that enter and leave it.",
+      "lifecycle": "active"
+    },
+    "automation.system_diagnostic_deep_mode_off": {
+      "message": "Deep diagnostics mode is not enabled ({path} does not exist).",
+      "description": "Line in automation/Get-SystemDiagnostic.ps1 (Get-DeepDiagnosticStateLine) when the deep diagnostics state file is absent; preserve the path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        }
+      }
+    },
+    "automation.system_diagnostic_deep_mode_on": {
+      "message": "Deep diagnostics mode enabled since {enabledAtUtc}.",
+      "description": "Line in automation/Get-SystemDiagnostic.ps1 (Get-DeepDiagnosticStateLine) above the rows of the deep diagnostics state file; enabledAtUtc is the file's enabledAtUtc value as written there, or (not reported).",
+      "lifecycle": "active",
+      "placeholders": {
+        "enabledAtUtc": {
+          "type": "detail",
+          "trust": "external",
+          "example": "2026-11-02T10:00:00Z"
+        }
+      }
+    },
+    "automation.system_diagnostic_deep_mode_unreadable": {
+      "message": "Deep diagnostics mode: {path} is not a regular file of at most 64 KiB, so it was not read.",
+      "description": "Line in automation/Get-SystemDiagnostic.ps1 (Get-DeepDiagnosticStateLine) when the state file exists but is a directory, a link, a device or larger than 64 KiB; preserve the path and the size.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        }
+      }
+    },
+    "automation.system_diagnostic_deep_mode_malformed": {
+      "message": "Deep diagnostics mode: {path} does not hold a JSON object ({message}); nothing in it is shown.",
+      "description": "Line in automation/Get-SystemDiagnostic.ps1 (Get-DeepDiagnosticStateLine) when the state file is not valid JSON or its document is not an object; message is the parser's error or the start of the document found, shown verbatim. Preserve the path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/lib/yuruna/deep-diagnostics/state.json"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Conversion from JSON failed with error: Unexpected end when deserializing object."
+        }
+      }
+    },
+    "automation.system_diagnostic_journal_not_on_disk": {
+      "message": "journald is set to Storage={storage}, which keeps no journal on disk whether or not {path} exists, so a freeze loses the journal of the boot that froze.",
+      "description": "Row in automation/Get-SystemDiagnostic.ps1 (Get-LinuxLockupSettingLine) when journald's effective Storage= setting, read with systemd-analyze cat-config, is volatile or none; storage is that setting's value, one of journald's keywords. Preserve journald, Storage= and the path.",
+      "lifecycle": "active",
+      "placeholders": {
+        "storage": {
+          "type": "token",
+          "trust": "internal",
+          "example": "volatile"
+        },
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/var/log/journal"
         }
       }
     }

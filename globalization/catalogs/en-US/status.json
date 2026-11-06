@@ -2609,6 +2609,28 @@
         }
       }
     },
+    "status.runner_resident": {
+      "message": "Resident runner: commit {commit}, started {startedAt}.",
+      "description": "Host page line in the runner attempt failures section (test/status/yuruna.common.js renderRunnerResident): the framework commit the resident runner loaded and when it started, as status.json reports them. Values are untrusted display data; keep placeholders.",
+      "lifecycle": "active",
+      "placeholders": {
+        "commit": {
+          "type": "detail",
+          "trust": "external",
+          "example": "a507e41ad"
+        },
+        "startedAt": {
+          "type": "detail",
+          "trust": "external",
+          "example": "2026-10-25 03:13"
+        }
+      }
+    },
+    "status.runner_resident_unreported": {
+      "message": "The resident runner has not reported its commit and start time. A runner started before that report existed reports them after its next restart.",
+      "description": "Host page line in the runner attempt failures section (test/status/yuruna.common.js renderRunnerResident) when status.json carries no report from the resident runner.",
+      "lifecycle": "active"
+    },
     "status.save": {
       "message": "Save",
       "description": "Visible text in test/status/config.html; preserve product names, protocol tokens and keyboard shortcuts.",
@@ -3256,8 +3278,8 @@
       "lifecycle": "active"
     },
     "status.runner_attempts_description": {
-      "message": "Failures from the latest 20 runner attempts remain here after recovery. Preflight failures occur before a new test cycle starts.",
-      "description": "Host page explanation of retained attempt failures and preflight lifecycle.",
+      "message": "Failures from the latest 20 runner attempts remain here after recovery, and so do up to 30 older failures that a later attempt passed after. Preflight failures occur before a new test cycle starts.",
+      "description": "Host page explanation of retained attempt failures, including the older failures runner-attempts/index.json keeps past the latest 20 attempts, and preflight lifecycle.",
       "lifecycle": "active"
     },
     "status.runner_attempts_empty": {

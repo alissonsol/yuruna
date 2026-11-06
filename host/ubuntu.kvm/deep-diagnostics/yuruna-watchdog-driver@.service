@@ -1,0 +1,22 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42391282-4207-4b22-9ae9-025a540f1142
+# Installed by host/ubuntu.kvm/Enable-DeepDiagnostics.ps1 and removed by
+# Disable-DeepDiagnostics.ps1; the instance name is the driver module, such as
+# yuruna-watchdog-driver@iTCO_wdt.service. Ubuntu deny-lists the hardware
+# watchdog drivers, and systemd-modules-load honors that list, so a name in
+# /etc/modules-load.d/ would never load at boot. modprobe loads a module it is
+# given by name, and systemd opens the device once it appears.
+[Unit]
+Description=Yuruna deep diagnostics: load the %i hardware watchdog driver
+DefaultDependencies=no
+After=systemd-modules-load.service
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/modprobe %i
+
+[Install]
+WantedBy=sysinit.target

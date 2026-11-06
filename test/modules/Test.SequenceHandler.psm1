@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -293,6 +293,9 @@ function Resolve-WaitForTextStepParam {
         noSegmentMatch  = $null -ne $step.noSegmentMatch ? [bool]$step.noSegmentMatch : [bool]$DefaultNoSegmentMatch
         # See https://yuruna.link/4213a0b3-0158
         sinceStepStart  = $step.sinceStepStart -eq $true
+        # A wait that starts while the guest boots: blank captures are its
+        # expected run-up, so the engine's no-text self-heal stays off for it.
+        expectBlankConsole = $step.expectBlankConsole -eq $true
         # Set only on the copies of its steps that a retry block able to
         # cold-restart the guest hands down (see the retry handler). A splat,
         # so a wait without it binds exactly as it did before the switch.
@@ -808,7 +811,9 @@ function Wait-VmStopped {
 # What a stopped-wait leaves behind when it gives up: the frame and OCR text
 # of the console at that moment, the host sampler's livelock verdict, the
 # observed state and the time waited, all on the failure record, plus the
-# first-silence marker. Called by stopVm and startVm.
+# first-silence marker. Called by stopVm and startVm. A wait for an install's
+# own power-off says so on the record and sets no silence marker: an installer
+# still drawing its own screen has not stopped answering.
 function Save-VmNotStoppedEvidence {
     [CmdletBinding()]
     [OutputType([void])]
@@ -816,7 +821,8 @@ function Save-VmNotStoppedEvidence {
         [Parameter(Mandatory)][hashtable]$Context,
         [Parameter(Mandatory)][hashtable]$Wait,
         [Parameter(Mandatory)][string]$Action,
-        [Parameter(Mandatory)][string]$RequestedAtUtc
+        [Parameter(Mandatory)][string]$RequestedAtUtc,
+        [switch]$InstallPowerOff
     )
     $frame = Save-GuestConsoleFrame -Context $Context -Label "$Action gave up"
     $verdict = if (Get-Command Get-GuestLivelockVerdict -ErrorAction SilentlyContinue) {
@@ -833,8 +839,11 @@ function Save-VmNotStoppedEvidence {
         requestedAtUtc = $RequestedAtUtc
         action         = $Action
     }
+    if ($InstallPowerOff) { $script:Fail.StepVmNotStopped.installPowerOff = $true }
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.m1ff7f8f2d1' -Arguments @{ action = "$Action"; vMName = "$($Context.VMName)"; observedState = "$($Wait.ObservedState)"; waitedSeconds = "$($Wait.WaitedSeconds)" })
-    [void](Set-GuestSilenceMarker -Context $Context -Source "${Action}: shutdown request ignored")
+    if (-not $InstallPowerOff) {
+        [void](Set-GuestSilenceMarker -Context $Context -Source "${Action}: shutdown request ignored")
+    }
 }
 # Request a guest shutdown from the host and observe it, instead of typing a
 # power-off command into a console that may no longer be listening. A guest
@@ -922,15 +931,21 @@ Register-SequenceAction -Name 'startVm' -ReplaySafety 'state-changing' -HostIORe
         }
         if ($timeoutSeconds -lt 1) { return $false }
         $frameInterval = if ($null -ne $c.Step.frameIntervalSeconds) { [int]$c.Step.frameIntervalSeconds } else { 30 }
+        $installPowerOff = ($c.Step.installPowerOff -eq $true)
         $requestedAt = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         # The stopped boundary is observed through the host, never assumed from
         # a typed command. A guest that never gets there leaves its console,
         # OCR text, hypervisor counters, and observed state on the record, and
-        # the class says the wait timed out rather than that a start failed.
+        # is filed vm_not_stopped rather than as a start that failed. A VM the
+        # host reports absent leaves no such evidence and keeps the registry's
+        # provisioning_failure. A wait for an install's own power-off
+        # (installPowerOff) that never sees it leaves the same evidence but also
+        # keeps provisioning_failure: the install did not finish, and an
+        # installer still drawing its own screen is not marked silent.
         $wait = Wait-VmStopped -Context $c -TimeoutSeconds $timeoutSeconds -FrameIntervalSeconds $frameInterval
         if (-not $wait.Stopped) {
             if ($wait.ObservedState -ne 'absent') {
-                Save-VmNotStoppedEvidence -Context $c -Wait $wait -Action 'startVm' -RequestedAtUtc $requestedAt
+                Save-VmNotStoppedEvidence -Context $c -Wait $wait -Action 'startVm' -RequestedAtUtc $requestedAt -InstallPowerOff:$installPowerOff
             }
             return $false
         }
@@ -1556,11 +1571,12 @@ Register-SequenceAction -Name 'waitForText' -ReplaySafety 'observe' -HostIORequi
         $p = Resolve-WaitForTextStepParam -Context $c
         $livelockExit = $p.livelockExit
         $patternDisplay = $p.patterns -join "' | '"
-        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s$(if ($p.fresh) { ', freshMatch' })$(if ($p.sinceStepStart) { ', sinceStepStart' })$(if ($p.failurePatterns.Count) { ", $($p.failurePatterns.Count) failurePatterns" }))"
+        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s$(if ($p.fresh) { ', freshMatch' })$(if ($p.sinceStepStart) { ', sinceStepStart' })$(if ($p.expectBlankConsole) { ', expectBlankConsole' })$(if ($p.failurePatterns.Count) { ", $($p.failurePatterns.Count) failurePatterns" }))"
         return [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
-            -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns @livelockExit)
+            -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns `
+            -ExpectBlankConsole:$p.expectBlankConsole @livelockExit)
     }
 
 # Replay-safe despite sending a key: the nudge is a redraw Enter chosen because
@@ -1584,11 +1600,12 @@ Register-SequenceAction -Name 'waitForTextWithNudge' -ReplaySafety 'observe' -Ho
         }
         $livelockExit = $p.livelockExit
         $patternDisplay = $p.patterns -join "' | '"
-        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s, nudge '$nudgeKey' every ${nudgeInterval}s$(if ($p.fresh) { ', freshMatch' })$(if ($p.sinceStepStart) { ', sinceStepStart' })$(if ($p.failurePatterns.Count) { ", $($p.failurePatterns.Count) failurePatterns" }))"
+        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s, nudge '$nudgeKey' every ${nudgeInterval}s$(if ($p.fresh) { ', freshMatch' })$(if ($p.sinceStepStart) { ', sinceStepStart' })$(if ($p.expectBlankConsole) { ', expectBlankConsole' })$(if ($p.failurePatterns.Count) { ", $($p.failurePatterns.Count) failurePatterns" }))"
         return [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
             -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns `
+            -ExpectBlankConsole:$p.expectBlankConsole `
             -NudgeKey $nudgeKey -NudgeIntervalSeconds $nudgeInterval @livelockExit)
     }
 
@@ -2533,14 +2550,18 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
             return $false
         }
         $script:Fail.StepInputLost = $null
-        # Sustained hypervisor livelock cannot produce a completion marker. End
-        # this wait for diagnostics without replaying the partially run payload.
+        # Sustained hypervisor livelock, or a guest kernel wedged with a
+        # processor or the whole guest silent, cannot produce a completion
+        # marker. End this wait for diagnostics without replaying the partially
+        # run payload. The recorder upload path is empty for a sensitive step,
+        # which keeps the whole-guest rule off there.
         $executionSucceeded = [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern @($waitPattern) `
             -TimeoutSeconds $remaining -PollSeconds $poll -FreshMatch $true `
             -FreshMatchTailLines $tailLines -FailurePattern $failPatterns `
             -NoSegmentMatch:($c.Step.noSegmentMatch -eq $true) `
             -EarlyFailurePattern $script:ShellRejectedCommandPattern `
-            -EarlyFailureSeconds $script:ShellRejectionWindowSeconds -EndOnGuestLivelock)
+            -EarlyFailureSeconds $script:ShellRejectionWindowSeconds -EndOnGuestLivelock `
+            -GuestRecorderPath ([string]$c.RecorderArtifactPath))
         if ($executionSucceeded) { break }
         $rejection = $null
         if ($c.GuiTransfer -and $script:Fail.WaitForTextMatchedFailurePattern) {
@@ -2595,7 +2616,10 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         }
     }
 
-Register-SequenceAction -Name 'sshWaitReady' -ReplaySafety 'observe' -HostIORequirement @() -OcrRequired $false `
+# The ssh verbs run ssh, and ssh-keygen through the harness key check
+# (Initialize-YurunaSshKey) on the first ssh call of each runner process.
+# Both ship with the OpenSSH client on every host type.
+Register-SequenceAction -Name 'sshWaitReady' -ReplaySafety 'observe' -HostIORequirement @() -HostCommandRequirement @('ssh', 'ssh-keygen') -OcrRequired $false `
     -FailureClass 'network_timeout' -Severity 'soft' -SuggestedRecoveries @('retry_with_backoff','restart_from_snapshot') `
     -UsesWaitSignals $true `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_241d50d60bce8e27') `
@@ -2737,7 +2761,7 @@ function Publish-GuestRetryMarker {
     return $count
 }
 
-Register-SequenceAction -Name 'sshExec' -ReplaySafety 'state-changing' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'sshExec' -ReplaySafety 'state-changing' -HostIORequirement @() -HostCommandRequirement @('ssh', 'ssh-keygen') -OcrRequired $false `
     -FailureClass 'script_error' -Severity 'hard' -SuggestedRecoveries @('pause_and_inspect') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_84d963e1b876d615') `
     -FailureLabel { param($c) if ($c.Step.sensitive) { return 'sshExec: "***"' }; "sshExec: `"$(& $c.ExpandVariable $c.Step.command $c.Vars)`"" } `
@@ -2779,7 +2803,7 @@ Register-SequenceAction -Name 'sshExec' -ReplaySafety 'state-changing' -HostIORe
         return $true
     }
 
-Register-SequenceAction -Name 'sshFetchAndExecute' -ReplaySafety 'state-changing' -HostIORequirement @() -OcrRequired $false `
+Register-SequenceAction -Name 'sshFetchAndExecute' -ReplaySafety 'state-changing' -HostIORequirement @() -HostCommandRequirement @('ssh', 'ssh-keygen') -OcrRequired $false `
     -FailureClass 'script_error' -Severity 'hard' -SuggestedRecoveries @('pause_and_inspect') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_6ba8527c12297fee') `
     -FailureLabel { param($c) if ($c.Step.sensitive) { return 'sshFetchAndExecute: "***"' }; "sshFetchAndExecute: `"$(& $c.ExpandVariable $c.Step.command $c.Vars)`"" } `

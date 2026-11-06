@@ -27,6 +27,7 @@
         dhcp-identifier: mac
         # netplan renders this as networkd KeepConfiguration=, which installs the DHCP address with an infinite kernel lifetime so a guest clock anomaly cannot expire it while the lease is valid.
         critical: true
+# === YURUNA_OVERLAY_SHUTDOWN ===
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
   # --- REGION: early-commands
   early-commands:
@@ -38,19 +39,44 @@
     - systemctl stop systemd-tmpfiles-clean.timer 2>/dev/null || true
 # === YURUNA_OVERLAY_LATE_HOST_AGENT ===
     # --- REGION: https://yuruna.link/42dc5bb9-0004
-    # Forward journald to the COM1 UART this architecture has (ttyS0 on x64, ttyAMA0
+    # Copy the journal to the COM1 UART this architecture has (ttyS0 on x64, ttyAMA0
     # on ARM64); the installer kernel already runs the target's architecture.
-    # The heredoc stays unquoted so $tty expands.
+    # The service keeps a UART that stops draining from blocking journald, and sudo
+    # and sshd behind it.
+    # The unit's heredoc stays unquoted so $tty expands.
     - |
       tty=ttyS0; [ "$(uname -m)" = aarch64 ] && tty=ttyAMA0
-      cat > /target/etc/systemd/journald.conf.d/70-yuruna-serial.conf << EOF
-      # --- REGION: [Journal]
-      [Journal]
-      ForwardToConsole=yes
-      TTYPath=/dev/$tty
-      MaxLevelConsole=debug
+      mkdir -p /target/usr/local/lib/yuruna /target/etc/systemd/system/sysinit.target.wants
+      cat > /target/usr/local/lib/yuruna/serial-journal << 'EOF'
+      #!/bin/sh
+      journalctl --boot --lines=all --follow --no-pager --no-hostname --output=short-monotonic \
+          _TRANSPORT=syslog _TRANSPORT=journal _TRANSPORT=stdout |
+      while IFS= read -r line; do
+          printf '%s\n' "$line" > "$1" || { sleep 1; printf '%s\n' "$line" > "$1"; }
+      done
       EOF
-      chmod 0644 /target/etc/systemd/journald.conf.d/70-yuruna-serial.conf
+      chmod 0755 /target/usr/local/lib/yuruna/serial-journal
+      cat > /target/etc/systemd/system/yuruna-serial-journal.service << EOF
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Copy the journal to the serial console apart from journald
+      DefaultDependencies=no
+      After=systemd-journald.service
+      StartLimitIntervalSec=0
+
+      # --- REGION: [Service]
+      [Service]
+      ExecStart=/usr/local/lib/yuruna/serial-journal /dev/$tty
+      StandardOutput=null
+      StandardError=null
+      Restart=always
+      RestartSec=5
+
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=sysinit.target
+      EOF
+      ln -sf /etc/systemd/system/yuruna-serial-journal.service /target/etc/systemd/system/sysinit.target.wants/yuruna-serial-journal.service
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
     # --- REGION: https://yuruna.link/42dc5bb9-0004
     # Name the same UART on the kernel cmdline; tty0 stays last so the framebuffer

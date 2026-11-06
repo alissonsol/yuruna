@@ -317,11 +317,11 @@ func (s *Server) handleHostControlApply(w http.ResponseWriter, r *http.Request) 
 //
 // The aggregator binds each proof to the host it was asked about, so it is
 // asked once per member. An aggregator that predates audiences answers with an
-// unbound proof that opens every host, and that one answer is then used for the
-// whole fan-out. Asking stops once proofAttemptLimit members in a row have been
-// refused with nothing obtained: an aggregator that will not mint for those
-// will not mint for the rest either, and an operator should not wait out one
-// round trip per member to be told so.
+// unbound proof; that one answer is still sent to the whole fan-out, and every
+// member refuses it as proof-invalid. Asking stops once proofAttemptLimit
+// members in a row have been refused with nothing obtained: an aggregator that
+// will not mint for those will not mint for the rest either, and an operator
+// should not wait out one round trip per member to be told so.
 func (s *Server) controlProofs(ctx context.Context, members []string, addr map[string]string, scope string) (map[string]string, error) {
 	proofs := make(map[string]string, len(members))
 	if hostctl.Mint(s.opts.AuthToken, hostctl.ProofTTL) != "" {

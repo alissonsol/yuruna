@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -384,6 +384,41 @@ Describe 'Ubuntu test-sequence parity' {
         ($second | ConvertTo-Json -Depth 100 -Compress) | Should -BeExactly ($first | ConvertTo-Json -Depth 100 -Compress)
     }
 
+    # See https://yuruna.link/42885ada-0014
+    It 'keeps the UTM Ubuntu <Version> start sequence equal to the generic one but for the install power-off wait' -TestCases @(
+        @{ Version = '24' }, @{ Version = '26' }
+    ) {
+        param($Version)
+        $dir = Join-Path $script:RepoRoot 'test/sequences'
+        $utmPath = Join-Path $dir "start.guest.ubuntu.server.$Version.macos.utm.yml"
+        $utmPath | Should -Exist
+        $generic = Get-NormalizedUbuntuSequence -Path (Join-Path $dir "start.guest.ubuntu.server.$Version.yml") -AsObject
+        $utm = Get-NormalizedUbuntuSequence -Path $utmPath -AsObject
+        # The autoinstall answer stays first; the wait for the install's own
+        # power-off and the cold start's settle follow it, outside any retry.
+        ($utm.component[1] | ConvertTo-Json -Compress) | Should -BeExactly (
+            [ordered]@{ action = 'startVm'; timeoutSeconds = 2400; frameIntervalSeconds = 30; installPowerOff = $true } | ConvertTo-Json -Compress)
+        ($utm.component[2] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'waitForSeconds'; seconds = 15 } | ConvertTo-Json -Compress)
+        $utm['component'] = @($utm.component[0]) + @($utm.component[3..($utm.component.Count - 1)])
+        ($utm | ConvertTo-Json -Depth 100 -Compress) | Should -BeExactly ($generic | ConvertTo-Json -Depth 100 -Compress) `
+            -Because "start.guest.ubuntu.server.$Version.macos.utm.yml is start.guest.ubuntu.server.$Version.yml plus the power-off wait; port every edit of the generic file into it"
+    }
+
+    It 'resolves the UTM Ubuntu <Version> start sequence only on macOS UTM: <HostType>' -TestCases @(
+        @{ Version = '24'; HostType = 'host.macos.utm'; Leaf = 'start.guest.ubuntu.server.24.macos.utm.yml' },
+        @{ Version = '24'; HostType = 'host.ubuntu.kvm'; Leaf = 'start.guest.ubuntu.server.24.yml' },
+        @{ Version = '24'; HostType = 'host.windows.hyper-v'; Leaf = 'start.guest.ubuntu.server.24.yml' },
+        @{ Version = '26'; HostType = 'host.macos.utm'; Leaf = 'start.guest.ubuntu.server.26.macos.utm.yml' },
+        @{ Version = '26'; HostType = 'host.ubuntu.kvm'; Leaf = 'start.guest.ubuntu.server.26.yml' },
+        @{ Version = '26'; HostType = 'host.windows.hyper-v'; Leaf = 'start.guest.ubuntu.server.26.yml' }
+    ) {
+        param($Version, $HostType, $Leaf)
+        Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.SequenceResolve.psm1') -Force -DisableNameChecking
+        $path = Resolve-SequencePath -SequencesDir (Join-Path $script:RepoRoot 'test/sequences') `
+            -Name "start.guest.ubuntu.server.$Version" -HostType $HostType -RepoRoot $TestDrive
+        Split-Path -Leaf $path | Should -BeExactly $Leaf -Because "the KVM and Hyper-V seeds keep the installer's reboot, so only UTM waits for a power-off"
+    }
+
     It 'ignores presentation changes while retaining action and argument drift' {
         $firstPath = Join-Path $TestDrive 'first.yml'
         $secondPath = Join-Path $TestDrive 'second.yml'
@@ -501,6 +536,37 @@ Describe 'VM seed overlay contracts' {
                             -CachingProxyServiceUrl 'http://192.0.2.1:3128'))
                 { ConvertFrom-Yaml $merged -ErrorAction Stop } | Should -Not -Throw
             }
+        }
+    }
+
+    # See https://yuruna.link/42885ada-0014
+    It 'ends only the UTM Ubuntu install with a power-off and keeps the KVM and Hyper-V templates byte-identical' {
+        $basePath = Join-Path $script:SeedRoot 'ubuntu.server.base.user-data'
+        $baseLines = @(Get-Content -LiteralPath $basePath)
+        $anchor = '# === YURUNA_OVERLAY_SHUTDOWN ==='
+        $at = @(0..($baseLines.Count - 1) | Where-Object { $baseLines[$_] -ceq $anchor })
+        $at.Count | Should -Be 1 -Because 'the base names what the install does when it ends, once'
+        $baseLines[$at[0] - 1] | Should -BeExactly '  interactive-sections: []' -Because 'the shutdown key is an autoinstall key like its neighbors'
+        $baseLines[$at[0] + 1] | Should -BeExactly '# === YURUNA_OVERLAY_EARLY_COMMANDS ==='
+        $aptBlock = New-AptProxyBlock -PrimaryUri 'http://archive.ubuntu.com/ubuntu' -CachingProxyServiceUrl 'http://192.0.2.1:3128'
+        $utm = Merge-CloudInitUserData -BasePath $basePath -OverlayPath (Join-Path $script:SeedRoot 'ubuntu.server.utm.overlay.yml')
+        (ConvertFrom-Yaml $utm.Replace('APT_PROXY_BLOCK_PLACEHOLDER', $aptBlock)).autoinstall.shutdown |
+            Should -BeExactly 'poweroff' -Because 'the runner cold-starts the installed system instead of letting the installer warm-reset UTM''s QEMU'
+        # Rendering again without the anchor and the empty section proves the
+        # section adds no byte to the other providers' seeds.
+        $baseWithout = Join-Path $TestDrive 'base-without-shutdown.user-data'
+        [IO.File]::WriteAllLines($baseWithout, [string[]]@($baseLines | Where-Object { $_ -cne $anchor }))
+        foreach ($platform in 'kvm', 'hyperv') {
+            $overlayPath = Join-Path $script:SeedRoot "ubuntu.server.$platform.overlay.yml"
+            $sections = Read-OverlaySection -OverlayPath $overlayPath
+            $sections.Contains('SHUTDOWN') | Should -BeTrue
+            @($sections['SHUTDOWN']).Count | Should -Be 0 -Because "$platform keeps the installer's reboot, and any line of the section, a comment included, would be emitted into its seed"
+            $overlayWithout = Join-Path $TestDrive "$platform-without-shutdown.overlay.yml"
+            [IO.File]::WriteAllLines($overlayWithout, [string[]]@(Get-Content -LiteralPath $overlayPath | Where-Object { $_ -cne $anchor }))
+            $merged = Merge-CloudInitUserData -BasePath $basePath -OverlayPath $overlayPath
+            $merged | Should -BeExactly (Merge-CloudInitUserData -BasePath $baseWithout -OverlayPath $overlayWithout) `
+                -Because "the $platform seed stays byte-identical to the one rendered without the anchor"
+            (ConvertFrom-Yaml $merged.Replace('APT_PROXY_BLOCK_PLACEHOLDER', $aptBlock)).autoinstall.Contains('shutdown') | Should -BeFalse
         }
     }
 
@@ -643,6 +709,23 @@ Describe 'Project workload parity' {
             }
         }
     }
+
+    It 'warms the exact registry release the example workload helper runs' {
+        # A guest pulls the release the helper names, and the caching proxy
+        # keeps a tag warm only by name, so both have to name the same one.
+        Confirm-SiblingCheckout -Path $script:ProjectRoot
+        $helper = Get-Content -LiteralPath (Join-Path $script:ProjectRoot 'tools/example-workload.sh') -Raw
+        $tags = [regex]::Matches($helper, '(?m)^REGISTRY_TAG="(?<tag>[^"]*)"\r?$')
+        $tags.Count | Should -Be 1 -Because 'the helper writes its registry release once, as REGISTRY_TAG'
+        $tag = $tags[0].Groups['tag'].Value
+        $tag | Should -Match '^\d+\.\d+\.\d+$' -Because 'the registry runs one exact release, not a floating line'
+        $seed = Get-Content -LiteralPath (Join-Path $script:SeedRoot 'caching-proxy-service.base.user-data') -Raw
+        $refs = [regex]::Matches($seed, "(?m)^[ \t]*WORKLOAD_REFS='(?<refs>[^']*)'\r?$")
+        $refs.Count | Should -Be 1
+        $refs[0].Groups['refs'].Value | Should -BeExactly "mirror.gcr.io/library/registry:$tag"
+        Get-Content -LiteralPath (Join-Path $script:RepoRoot 'global/resources/localhost/registry/localhost-registry-check.sh') -Raw |
+            Should -Match ('--name registry registry:' + [regex]::Escape($tag) + '(?![\w.])')
+    }
 }
 
 Describe 'Shared source regions' {
@@ -751,6 +834,10 @@ Describe 'Shared source regions' {
                 $runtime | Should -BeGreaterThan $confirm
             }
         }
+        $configStop = Get-ConsistencyWorkflowSource -Path (Join-Path $script:RepoRoot 'test/service/Stop-ConfigService.ps1')
+        $confirm = $configStop.IndexOf('# --- REGION: Confirm the service operation', [StringComparison]::Ordinal)
+        $confirm | Should -BeGreaterOrEqual 0 -Because 'Stop-ConfigService.ps1 follows the same lifecycle opening'
+        $configStop.IndexOf('# --- REGION: Initialize service runtime', [StringComparison]::Ordinal) | Should -BeGreaterThan $confirm
         $statusStop = Get-ConsistencyWorkflowSource -Path (Join-Path $script:RepoRoot 'test/service/Stop-StatusService.ps1')
         $confirm = $statusStop.IndexOf('# --- REGION: Confirm the service operation', [StringComparison]::Ordinal)
         $confirm | Should -BeGreaterOrEqual 0 -Because 'Stop-StatusService.ps1 follows the same lifecycle opening'

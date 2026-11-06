@@ -307,6 +307,28 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   `PSUseBOMForUnicodeEncodedFile`. Resolve a genuine false positive with a
   scoped `[Diagnostics.CodeAnalysis.SuppressMessageAttribute(... ,
   Justification = '...')]` carrying a one-line reason, not a blanket exclusion.
+- **Catch blocks that discard the error** -- `PSScriptAnalyzerSettings.psd1`
+  also loads one rule of this repository through `CustomRulePath`:
+  `Measure-SilentCatch`, in
+  [tools/Analyzer.SilentCatch.psm1](tools/Analyzer.SilentCatch.psm1), flags a
+  `catch` block whose whole body is empty or `$null = $_` in any PowerShell
+  file except a `*.Tests.ps1` suite. Write the reason (`Write-Verbose` or
+  `Write-Warning`), keep the error for a later decision, or rethrow it. The
+  rule reads the parsed script, so a `catch` inside a string (C# for
+  `Add-Type`, JavaScript) never counts. The files that still hold such blocks
+  are listed with their count in
+  [tools/silent-catch.allowance.json](tools/silent-catch.allowance.json), and
+  those under `dev-only/` in `dev-only/tools/silent-catch.allowance.json`,
+  which the release strips with them: a listed file may hold at most its number
+  and an unlisted file none. The lists only shrink. Never add an entry or raise
+  one; a change that fixes such a block lowers its file's number, and removes
+  the entry at zero, in the same change, because `Test.SilentCatchRule` fails
+  while an entry differs from what its file holds. PSScriptAnalyzer resolves
+  `CustomRulePath` against the current directory, not against the settings
+  file, so run a direct `Invoke-ScriptAnalyzer` with these settings from the
+  repository root: from anywhere else it stops with "Cannot find path" rather
+  than lint without the rule. `tools/Invoke-Lint.ps1` runs from the root
+  wherever it is started.
 - **Pester** -- the suites run on the 6.x line that the runner selects, and a
   commit that stages a test file needs Pester 6.x on the host. `pwsh -NoProfile
   -File tools/Install-TestModule.ps1` installs the newest 6.x; see
@@ -425,7 +447,14 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   another file declares always blocks. `pwsh tools/Test-SourceMetadata.ps1 -All`
   reports the whole tree (`-Root` takes several repositories, whose GUIDs must
   then be unique across all of them, and `-FailOnDebt` turns any finding into a
-  failure for a release gate). The yuruna-project, yuruna.link and amisad.dev
+  failure). The cross-repository gate (`tools/Invoke-CrossRepoGate.ps1`) runs it
+  with `-All -FailOnDebt` over the framework, yuruna-project, yuruna.link and
+  amisad.dev as its `source-metadata` row in every mode, so the release
+  publisher fails on any finding in the four repositories; when one of those
+  checkouts is not in the workspace the row is not applicable rather than a
+  comparison of fewer. The project the gate was given counts only when it is
+  a yuruna-project checkout: a lab's own project is never held to these
+  headers. The yuruna-project, yuruna.link and amisad.dev
   hooks run the same script with `-Staged -Root <that repository>` from the
   framework checkout beside them (or where `YURUNA_FRAMEWORK_ROOT` points), and
   only warn when there is none.
@@ -501,6 +530,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](README.md)

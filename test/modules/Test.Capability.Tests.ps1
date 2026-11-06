@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b063c4-f3bc-4a1f-885e-8a2c257e7130
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,8 @@
 .SYNOPSIS
     Pester coverage for Write-HostRegistrationRecord (Test.Capability.psm1): the
     runtime/host.registration.json the pool-aggregator service reads (Phase 0 of the
-    multi-host pool harness, docs/opportunities.md).
+    multi-host pool harness, docs/opportunities.md); and for the host commands
+    Test-CyclePlanCapability requires of a cycle plan.
 .DESCRIPTION
     Throw-based assertions (Pester 5+). The fixture points
     $env:YURUNA_RUNTIME_DIR at a temp dir and seeds the $global:__Yuruna* identity
@@ -238,5 +239,128 @@ Describe 'Write-HostRegistrationRecord' {
             $rec = Get-Content -Raw (Join-Path $fx.Tmp 'host.registration.json') | ConvertFrom-Json
             Assert-True (-not ($rec.activeExtensions -contains 'download-agent-service')) 'active:false marker is not advertised'
         } finally { Remove-RegFixture -Fixture $fx }
+    }
+}
+
+# A plan whose steps run a host command this host does not have would build its
+# guests and fail at the first such step, long after the plan could have said so.
+Describe 'Test-CyclePlanCapability host command requirements' {
+    BeforeAll {
+        # Loading the handler module registers every built-in verb; the resolver
+        # gives the walk the flat step list the engine numbers.
+        Import-Module (Join-Path $here 'Test.SequenceHandler.psm1') -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
+        Import-Module (Join-Path $here 'Test.SequenceResolve.psm1') -Force -DisableNameChecking -Global
+        Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent $here)) 'host/Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
+        $script:PlanRoot = New-YurunaTestTempDir -Prefix 'yrn-cap-plan'
+        $script:EmptyBin = Join-Path $script:PlanRoot 'empty-bin'
+        $null = New-Item -ItemType Directory -Path $script:EmptyBin -Force
+
+        $script:GuiPlan = Join-Path $script:PlanRoot 'workload.fixture.yml'
+        [IO.File]::WriteAllText($script:GuiPlan, @'
+resource:
+  ubuntu.server.24: []
+component:
+  - action: waitForSeconds
+    seconds: 1
+workload:
+  - action: stopVm
+  - action: startVm
+'@)
+        # Step 3 holds its ssh verb inside a retry block, so the record names
+        # step 3, the number a failure record would carry for it.
+        $script:SshPlan = Join-Path $script:PlanRoot 'workload.fixture.ssh.yml'
+        [IO.File]::WriteAllText($script:SshPlan, @'
+resource:
+  ubuntu.server.24: []
+component:
+  - action: waitForSeconds
+    seconds: 1
+  - action: sshWaitReady
+workload:
+  - action: retry
+    steps:
+      - action: sshExec
+        command: "true"
+  - action: sshFetchAndExecute
+    command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/fixture.sh"
+'@)
+
+        function New-FakeHostCommand {
+            <#
+            .SYNOPSIS
+                A stand-in for a host command in a fresh PATH folder, which leaves
+                a marker when anything runs it. Returns the folder and the marker.
+            #>
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes throwaway files under the suite temp folder.')]
+            [OutputType([hashtable])]
+            param([string[]]$Name)
+            $bin = Join-Path $script:PlanRoot ('bin-' + [guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Path $bin -Force
+            $marker = Join-Path $bin 'ran'
+            foreach ($commandName in $Name) {
+                if ($IsWindows) {
+                    [IO.File]::WriteAllText((Join-Path $bin "$commandName.cmd"), "@echo ran> `"$marker`"`r`n")
+                } else {
+                    $path = Join-Path $bin $commandName
+                    [IO.File]::WriteAllText($path, "#!/bin/sh`necho ran > '$marker'`n")
+                    [IO.File]::SetUnixFileMode($path, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+                }
+            }
+            return @{ Bin = $bin; Marker = $marker }
+        }
+    }
+    AfterAll { Remove-YurunaTestTempDir $script:PlanRoot }
+    BeforeEach { $script:SavedPath = Save-YurunaTestEnvironment -Name 'PATH' }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedPath }
+
+    It 'registers the host commands each ssh verb runs, and none for the other verbs' {
+        $declaring = @(Get-SequenceActionName | Where-Object { @((Get-SequenceAction -Name $_).HostCommandRequirement).Count -gt 0 } | Sort-Object)
+        $declaring | Should -Be @('sshExec', 'sshFetchAndExecute', 'sshWaitReady')
+        $requirements = Get-SequenceActionRequirementMap
+        foreach ($verb in $declaring) {
+            @((Get-SequenceAction -Name $verb).HostCommandRequirement) | Should -Be @('ssh', 'ssh-keygen') -Because "$verb runs ssh, and the key check behind it runs ssh-keygen"
+            @($requirements[$verb].HostCommand) | Should -Be @('ssh', 'ssh-keygen') -Because 'the plan check reads the requirement map'
+        }
+    }
+
+    It 'refuses a plan whose steps run a command this host lacks, naming it and the steps, before any host verb runs' {
+        $fake = New-FakeHostCommand -Name 'ssh-keygen'
+        $env:PATH = $fake.Bin
+        $hostVerb = Get-YurunaHostContractVerb
+        foreach ($verb in $hostVerb) {
+            Set-Item -LiteralPath "Function:\global:$verb" -Value ([scriptblock]::Create("throw 'the plan check ran the host verb $verb'"))
+        }
+        try {
+            $cap = Test-CyclePlanCapability -SequencePath @($script:GuiPlan, $script:SshPlan) -HostType 'host.ubuntu.kvm'
+        } finally {
+            foreach ($verb in $hostVerb) { Remove-Item -LiteralPath "Function:\global:$verb" -ErrorAction SilentlyContinue }
+        }
+        $cap.supported | Should -BeFalse
+        @($cap.missingHostIO).Count | Should -Be 0
+        @($cap.missingHostCommand).Count | Should -Be 1
+        $cap.missingHostCommand[0].command | Should -Be 'ssh'
+        @($cap.missingHostCommand[0].steps | ForEach-Object { "$($_.sequence) $($_.step) $($_.action)" }) | Should -Be @(
+            'workload.fixture.ssh 2 sshWaitReady'
+            'workload.fixture.ssh 3 sshExec'
+            'workload.fixture.ssh 4 sshFetchAndExecute'
+        )
+        Test-Path -LiteralPath $fake.Marker | Should -BeFalse -Because 'the check resolves a command and never runs it'
+    }
+
+    It 'leaves a plan whose steps run no host command unaffected' {
+        $env:PATH = $script:EmptyBin
+        $cap = Test-CyclePlanCapability -SequencePath @($script:GuiPlan) -HostType 'host.ubuntu.kvm'
+        $cap.supported | Should -BeTrue
+        @($cap.missingHostCommand).Count | Should -Be 0
+    }
+
+    It 'passes a host that has the commands, without running them' {
+        $fake = New-FakeHostCommand -Name 'ssh', 'ssh-keygen'
+        $env:PATH = $fake.Bin
+        $cap = Test-CyclePlanCapability -SequencePath @($script:GuiPlan, $script:SshPlan) -HostType 'host.ubuntu.kvm'
+        $cap.supported | Should -BeTrue
+        @($cap.missingHostCommand).Count | Should -Be 0
+        Test-Path -LiteralPath $fake.Marker | Should -BeFalse -Because 'the check resolves a command and never runs it'
     }
 }

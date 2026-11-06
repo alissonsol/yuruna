@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42f9c779-1132-4dfb-9658-60cfc646620d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,9 +94,10 @@ function Get-ActiveExtensionName {
 <#
 .SYNOPSIS
     Asserts that the supplied function list covers the contract verbs
-    declared in <Area>/<Area>.contract.yml. Mirrors the shape of
-    host/Yuruna.Host.Contract.psm1's Assert-YurunaHostContractCoverage:
-    one warning naming every gap, returns boolean.
+    declared in <Area>/<Area>.contract.yml: one warning naming every gap,
+    returns boolean. host/Yuruna.Host.Contract.psm1's
+    Assert-YurunaHostContractCoverage names its gaps the same way but
+    refuses the driver load instead.
 .DESCRIPTION
     Called by Import-Extension once per loaded module. If the area has
     no .contract.yml the function returns $true (no contract declared

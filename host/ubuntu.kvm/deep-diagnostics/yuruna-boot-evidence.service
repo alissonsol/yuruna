@@ -1,0 +1,18 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42644866-6f25-4c55-861a-7361a29ce301
+# Installed by host/ubuntu.kvm/Enable-DeepDiagnostics.ps1 and removed by
+# Disable-DeepDiagnostics.ps1. Ordered after systemd-pstore, which moves the
+# crash records into /var/lib/systemd/pstore, and after the journal flush,
+# which makes the previous boot's journal readable from /var/log/journal.
+[Unit]
+Description=Yuruna deep diagnostics: evidence about how the previous boot ended
+After=systemd-pstore.service systemd-journal-flush.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/yuruna/deep-diagnostics/yuruna-boot-evidence.sh
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

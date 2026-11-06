@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 420bd99b-9a43-48a6-9d05-9d19abdacd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,6 +48,7 @@ $here = Split-Path -Parent $PSCommandPath
 $sss  = Join-Path (Split-Path -Parent $here) 'service/Invoke-StatusServiceRuntime.ps1'
 $script:txt  = Get-Content -Raw -LiteralPath $sss
 $script:startCycleWorker = Get-Content -Raw -LiteralPath (Join-Path $here 'Invoke-StartCycleWorker.ps1')
+$script:startService = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $here) 'service/Start-StatusService.ps1')
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
@@ -104,6 +105,85 @@ Describe 'status-service shared-state writes are atomic and collision-free' {
             Assert-True (-not (Test-Path -LiteralPath $tmp)) 'the temp is consumed by the move'
         } finally {
             Remove-YurunaTestTempDir $dir
+        }
+    }
+}
+
+Describe 'status.json writers outside the listener hold the shared status-file lock' {
+    # The outer runner's fault stamp and the configuration gate's fault clear
+    # replace the whole document, as the pause routes and the start-cycle
+    # worker do. Every such writer has to hold the same status-file lock, or
+    # a stamp one side makes between another side's read and write is lost.
+    # The fixture plays a pause route with its read-modify-write held open:
+    # the lock taken, the document read, and the pause fields written only
+    # after the writer under test has had its turn.
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.Status.psm1')          -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.RunnerOuterLoop.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
+        Import-Module (Join-Path $here 'Test.ConfigPreflight.psm1') -Force -DisableNameChecking
+        function Start-HeldPauseStamp {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: a thread job that stamps the pause fields under a lock it holds open for a while.')]
+            param([string]$StatusPath, [int]$HoldMilliseconds)
+            $module = Join-Path $here 'Test.Status.psm1'
+            $null = $HoldMilliseconds # Read by the thread job through $using:.
+            $job = Start-ThreadJob -ScriptBlock {
+                Import-Module $using:module -DisableNameChecking
+                $lock = Enter-StatusLock -Path $using:StatusPath -TimeoutMs 2000
+                try {
+                    $doc = Read-StatusDocFromDisk -StatusPath $using:StatusPath
+                    Start-Sleep -Milliseconds $using:HoldMilliseconds
+                    $doc['stepPaused'] = $true
+                    $doc['stepPausedSinceUtc'] = 'since-fixture'
+                    $null = Write-YurunaStateFileJson -Path $using:StatusPath -InputObject $doc -Depth 20 -Compress:$false -Confirm:$false
+                } finally { Exit-StatusLock -Lock $lock }
+            }
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            while (-not (Test-Path -LiteralPath "$StatusPath.lock") -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+            return $job
+        }
+    }
+    BeforeEach { $script:lockDir = New-YurunaTestTempDir -Prefix 'status-lock' }
+    AfterEach  { Remove-YurunaTestTempDir $script:lockDir }
+
+    It 'keeps both the pause stamp and the runner fault stamp when they interleave' {
+        $sf = Join-Path $script:lockDir 'status.json'
+        [IO.File]::WriteAllText($sf, (@{ schemaVersion = 1; overallStatus = 'pass'; stepPaused = $false; guests = @(); history = @() } | ConvertTo-Json))
+        $job = Start-HeldPauseStamp -StatusPath $sf -HoldMilliseconds 1200
+        try {
+            $written = Update-RunnerFaultStatus -RuntimeDir $script:lockDir -RunnerState 'fault' -Reason 'inner exited 3' -Confirm:$false
+        } finally { $null = Wait-Job -Job $job -Timeout 15; Remove-Job -Job $job -Force }
+        Assert-True $written 'the fault stamp is written'
+        $doc = Get-Content -Raw -LiteralPath $sf | ConvertFrom-Json
+        Assert-Equal -Expected 'fault' -Actual $doc.runnerState -Because 'the fault stamp survives the pause route writing after it'
+        Assert-True ($null -ne $doc.runnerFault) 'the fault record survives the pause route writing after it'
+        Assert-True $doc.stepPaused 'the pause route''s stamp survives the fault writer'
+        Assert-Equal -Expected 'since-fixture' -Actual $doc.stepPausedSinceUtc
+        Assert-False (Test-Path -LiteralPath "$sf.lock") 'the lock is released'
+    }
+
+    It 'keeps the pause stamp when the configuration gate clears a prior fault under it' {
+        $sf = Join-Path $script:lockDir 'status.json'
+        [IO.File]::WriteAllText($sf, (@{ overallStatus = 'pass'; cycle = 7; stepPaused = $false; runnerFault = @{ failureClass = 'config_gate_failed' }; runnerState = 'paused' } | ConvertTo-Json))
+        $gate = @{ passed = $true; skipped = $false; exitCode = 0; startedAtUtc = [DateTime]::UtcNow.ToString('o'); lines = @('ok'); failureLines = @(); structuredResult = $null }
+        $job = Start-HeldPauseStamp -StatusPath $sf -HoldMilliseconds 1200
+        try {
+            $null = Write-ConfigGateArtifact -RuntimeDir $script:lockDir -Gate $gate -AttemptGeneration 'runner:1' -Confirm:$false
+        } finally { $null = Wait-Job -Job $job -Timeout 15; Remove-Job -Job $job -Force }
+        $doc = Get-Content -Raw -LiteralPath $sf | ConvertFrom-Json
+        Assert-True ($null -eq $doc.runnerFault) 'the gate''s fault clear survives the pause route writing after it'
+        Assert-Equal -Expected 'in-cycle' -Actual $doc.runnerState
+        Assert-True $doc.stepPaused 'the pause route''s stamp survives the gate'
+        Assert-Equal -Expected 7 -Actual $doc.cycle
+        Assert-False (Test-Path -LiteralPath "$sf.lock") 'the lock is released'
+    }
+
+    It 'publishes the start''s repoUrl rewrite through the locked field update, never a bare write' {
+        $region = [regex]::Match($script:startService, '(?s)REGION: Ensure repoUrl is set in status\.json(.*?)# --- REGION:').Groups[1].Value
+        Assert-True ($region.Length -gt 0) 'the repoUrl region is locatable in Start-StatusService.ps1'
+        Assert-True ($region -match 'Update-StatusDocumentField -StatusPath \$StatusFile') 'the start must rewrite repoUrl through the locked Update-StatusDocumentField'
+        foreach ($pattern in @('WriteAllText\(\$StatusFile', 'Set-Content', 'Out-File', 'Move-Item')) {
+            Assert-True ($region -notmatch $pattern) "the start must not write status.json with $pattern"
         }
     }
 }

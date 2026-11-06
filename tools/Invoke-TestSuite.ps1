@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,8 +67,11 @@
     (up to ten suites, never under -FailFast or a throttle of 1). Its row and
     problem line say whether it then passed (`alone: passed`, listed in
     `loadSensitive`: its timing margins do not hold under load) or failed
-    again. The verdict is the first run's either way; the alone run's result
-    is nunit-<suite>.alone.xml.
+    again. A suite whose process the host ended before it wrote a result (a
+    signal death on Linux and macOS, an exception status on Windows; see
+    Test-SuiteCrashExit) is run alone the same way and labeled `alone:
+    load-crash` when it then passes. The verdict is the first run's either
+    way; the alone run's result is nunit-<suite>.alone.xml.
 
     A process a suite leaves running after its own process exits is stopped
     and listed as a warning and in suite-results.json `leftovers`; it does not
@@ -305,6 +308,23 @@ function Get-SkippedCaseName {
     } catch {
         return @()
     }
+}
+
+# --- REGION: Test-SuiteCrashExit
+# A suite process the host ended rather than one that exited on its own
+# account. No participant assigns a code in these ranges: the shim exits 0 or
+# 2, pwsh 1 for a script error and the runner 124 to 126. On Linux and macOS
+# .NET reports a process a signal ended as 128 plus the signal, so a host under
+# load shows 134 (SIGABRT, the runtime's own abort on a stack overflow or an
+# unhandled fault), 137 (SIGKILL, the OOM killer) and 139 (SIGSEGV). On Windows
+# the exit code is the exception status that ended the process, an NTSTATUS
+# with both severity bits set: 0xC0000005 (access violation), 0xC00000FD
+# (stack overflow) or 0xE0434352 (an unhandled runtime exception).
+function Test-SuiteCrashExit {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][int]$Rc)
+    return ($Rc -ge 129 -and $Rc -le 159) -or ($Rc -lt 0 -and ($Rc -band 0xC0000000) -eq 0xC0000000)
 }
 
 # --- REGION: Assert-RefreshBaseline
@@ -1174,11 +1194,20 @@ try {
     # A suite that failed among parallel siblings runs once more, alone, after
     # them. Timing margins that hold on an idle host can fail under the load of
     # a parallel run, so the second run labels the failure load-sensitive or
-    # not. It never changes the verdict: the first result stays the evidence,
-    # and the alone run writes beside it (.alone.xml). Not traced, and not
-    # under -FailFast, whose point is to stop early.
+    # not. A process the host ended before it wrote a result is the same
+    # question asked of memory and stack rather than time, so a crashed row is
+    # run alone too; a process that ended on its own account (a script error)
+    # is deterministic and is not. It never changes the verdict: the first
+    # result stays the evidence, and the alone run writes beside it
+    # (.alone.xml). Not traced, and not under -FailFast, whose point is to
+    # stop early.
     $aloneLimit = 10
-    $failedRows = @($results | Where-Object { $_.rc -notin @(125, 126) -and ($_.rc -eq 124 -or ($_.haveXml -and ($_.failed -gt 0 -or $_.errors -gt 0))) } | Sort-Object path)
+    $failedRows = @($results | Where-Object {
+            $_.rc -notin @(125, 126) -and (
+                $_.rc -eq 124 -or
+                ($_.haveXml -and ($_.failed -gt 0 -or $_.errors -gt 0)) -or
+                (-not $_.haveXml -and (Test-SuiteCrashExit -Rc $_.rc)))
+        } | Sort-Object path)
     $aloneRuns = @{}
     if ($failedRows.Count -and -not $FailFast -and $ThrottleLimit -gt 1) {
         $workerRecording = $null
@@ -1192,7 +1221,9 @@ try {
     foreach ($row in $failedRows) {
         $alone = $aloneRuns[$row.path]
         $label = if (-not $alone) { 'not-rerun' }
-            elseif ($alone.rc -eq 0 -and $alone.haveXml -and $alone.total -gt 0 -and $alone.failed -eq 0 -and $alone.errors -eq 0) { 'passed' }
+            elseif ($alone.rc -eq 0 -and $alone.haveXml -and $alone.total -gt 0 -and $alone.failed -eq 0 -and $alone.errors -eq 0) {
+                if (-not $row.haveXml -and (Test-SuiteCrashExit -Rc $row.rc)) { 'load-crash' } else { 'passed' }
+            }
             else { 'failed' }
         $row | Add-Member -NotePropertyName alone -NotePropertyValue $label -Force
     }
@@ -1211,11 +1242,12 @@ try {
         $aloneNote = if (-not $r.PSObject.Properties['alone']) { '' } else {
             switch ($r.alone) {
                 'passed' { ' -- passed when run alone after the parallel run: load-sensitive' }
+                'load-crash' { ' -- passed when run alone after the parallel run: load-crash' }
                 'failed' { ' -- failed again when run alone' }
                 default { '' }
             }
         }
-        if ($r.rc -ne 0) { $problems.Add("$($r.path): suite process exited with rc=$($r.rc)$(if ($r.rc -eq 124) { $aloneNote })") }
+        if ($r.rc -ne 0) { $problems.Add("$($r.path): suite process exited with rc=$($r.rc)$(if ($r.rc -eq 124 -or (Test-SuiteCrashExit -Rc $r.rc)) { $aloneNote })") }
         if (-not $r.haveXml) {
             $problems.Add("$($r.path): produced no result file (rc=$($r.rc))$(if ($r.message) { " -- $($r.message)" })")
             continue
@@ -1322,7 +1354,7 @@ try {
         skipGrowth    = @($skipGrowth)
         slowdowns     = @($slowdowns)
         leftovers     = @($leftoverRows)
-        loadSensitive = @($results | Where-Object { $_.PSObject.Properties['alone'] -and $_.alone -eq 'passed' } | ForEach-Object path)
+        loadSensitive = @($results | Where-Object { $_.PSObject.Properties['alone'] -and $_.alone -in @('passed', 'load-crash') } | ForEach-Object path)
         suites        = $results
     }
     $run | ConvertTo-Json -Depth 6 |

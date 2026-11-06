@@ -273,6 +273,12 @@ performance page are also measured populated, from fixture data the exporter
 writes beside them. The default run measures about 1,500 page-views and takes
 about five minutes; `-Browser`, `-Width`, `-Phone` and `-State` narrow it.
 
+The gate flags a target only under 24 by 24 CSS px, so a control a stylesheet
+sizes at 24 px passes it. `test/modules/Test.MobileSourceRules.Tests.ps1` holds
+every control a stylesheet sizes under `--touch-min` to a rule under the 600 px
+width and one under a coarse pointer that lift it, so the floor is kept in the
+source.
+
 It exits `2` when it cannot run at all, which is never a pass. Chrome is
 required; Firefox is measured where it is installed and reported `SKIPPED`
 where it is not. Headless Chrome clamps its viewport to a 500 CSS px floor, so
@@ -320,6 +326,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

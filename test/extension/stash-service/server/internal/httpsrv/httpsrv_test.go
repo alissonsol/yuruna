@@ -36,7 +36,7 @@ const testHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 hex, hostId-shaped
 // testVersion stands in for the framework version the guest build stamps in
 // through -ldflags. A daemon that loses that wiring reports the zero value and
 // the UI footer shows nothing, which no other assertion here would notice.
-const testVersion = "2026.10.31"
+const testVersion = "2026.11.05"
 
 func newTestUI(t *testing.T) (*httptest.Server, *Server, string) {
 	return newTestUIHost(t, testHostID)
@@ -54,6 +54,13 @@ func newTestUIHost(t *testing.T, hostID string) (*httptest.Server, *Server, stri
 // shape of a daemon launched without --aggregator-url, which can check no
 // credential at all -- the gate must then refuse rather than open.
 func newTestUIWith(t *testing.T, hostID, aggregatorURL string) (*httptest.Server, *Server, string) {
+	t.Helper()
+	return newTestUIOptions(t, hostID, Options{AggregatorURL: aggregatorURL})
+}
+
+// newTestUIOptions builds the UI with the caller's options; the listen
+// address, version and pool window are always the test's own.
+func newTestUIOptions(t *testing.T, hostID string, opts Options) (*httptest.Server, *Server, string) {
 	t.Helper()
 	tmp := t.TempDir()
 	stashRoot := filepath.Join(tmp, "stash")
@@ -77,7 +84,8 @@ func newTestUIWith(t *testing.T, hostID, aggregatorURL string) (*httptest.Server
 		t.Fatalf("sshsrv.New: %v", err)
 	}
 	ssh.ShareOnline = func() bool { return true } // force the share path in tests
-	ui := New(ssh, Options{Addr: "127.0.0.1:0", Version: testVersion, PoolWindowDays: 30, AggregatorURL: aggregatorURL})
+	opts.Addr, opts.Version, opts.PoolWindowDays = "127.0.0.1:0", testVersion, 30
+	ui := New(ssh, opts)
 	ts := httptest.NewServer(ui.routes())
 	t.Cleanup(ts.Close)
 	return ts, ui, stashRoot
@@ -138,7 +146,8 @@ func tail(permalink string) string { return strings.TrimPrefix(permalink, "/s/")
 func TestCreateListGetRawDeleteText(t *testing.T) {
 	ts, _, _ := newTestUI(t)
 
-	// Create via form text (section 5.1).
+	// Create via form text, the browser's paste path (see
+	// https://yuruna.link/429e934f-0015).
 	form := "title=notes.txt&author=alice&text=" + "hello+stash+world"
 	resp, err := http.Post(ts.URL+"/api/stashes", "application/x-www-form-urlencoded", strings.NewReader(form))
 	if err != nil {
@@ -155,7 +164,7 @@ func TestCreateListGetRawDeleteText(t *testing.T) {
 		t.Fatalf("create: %+v", created)
 	}
 
-	// List (section 4) -- should contain it, marked local.
+	// The listing includes the created item, marked local.
 	var list struct {
 		Stashes []StashView `json:"stashes"`
 		Total   int         `json:"total"`
@@ -172,7 +181,7 @@ func TestCreateListGetRawDeleteText(t *testing.T) {
 		t.Fatalf("metadata not captured: %+v", v)
 	}
 
-	// Get metadata (section 6).
+	// Metadata describes the created item.
 	var meta1 struct {
 		Stash StashView `json:"stash"`
 	}
@@ -181,7 +190,7 @@ func TestCreateListGetRawDeleteText(t *testing.T) {
 		t.Fatalf("meta id mismatch: %+v", meta1.Stash)
 	}
 
-	// Raw inline (section 7): bytes + safety headers + text content type.
+	// Raw inline reads preserve the bytes, safety headers and text content type.
 	rraw, err := http.Get(ts.URL + "/raw/" + tail(created.Permalink))
 	if err != nil {
 		t.Fatal(err)
@@ -201,7 +210,8 @@ func TestCreateListGetRawDeleteText(t *testing.T) {
 		t.Fatalf("raw text content-type = %q", ct)
 	}
 
-	// Download is an attachment (section 7.5).
+	// Download is always available and is served as an attachment, never
+	// inline (see https://yuruna.link/429e934f-0017).
 	rdl, err := http.Get(ts.URL + "/download/" + tail(created.Permalink))
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +221,7 @@ func TestCreateListGetRawDeleteText(t *testing.T) {
 		t.Fatalf("download disposition = %q", cd)
 	}
 
-	// Delete local (section 8), through an unlocked session -> then 404.
+	// Deleting a local item through an unlocked session makes later reads return 404.
 	dresp := deleteStash(t, unlocked(t, ts), ts.URL+"/api/stashes/"+tail(created.Permalink))
 	dresp.Body.Close()
 	if dresp.StatusCode != http.StatusOK {
@@ -546,7 +556,7 @@ func TestCreateHTMLServedAsText(t *testing.T) {
 	}
 	getJSON(t, ts.URL+"/api/stashes/"+tail(permalink), &got)
 	if got.Stash.ContentClass != config.ClassOther {
-		t.Fatalf("html class = %q, want other (download-only section 7.4)", got.Stash.ContentClass)
+		t.Fatalf("html class = %q, want other (an HTML stash is download-only, never rendered)", got.Stash.ContentClass)
 	}
 	// Raw must NOT serve text/html (would execute) -- served as text/plain.
 	r, err := http.Get(ts.URL + "/raw/" + tail(permalink))
@@ -613,7 +623,8 @@ func TestShortAliasAndDateScoping(t *testing.T) {
 	full := tail(created.Permalink)            // <host>/<y>/<m>/<d>/<id>
 	short := full[strings.Index(full, "/")+1:] // <y>/<m>/<d>/<id>
 
-	// Short alias resolves to the same local stash (section 4.4).
+	// The short alias without the hostId resolves to the same local stash
+	// (see https://yuruna.link/429e934f-0014).
 	var got struct {
 		Stash StashView `json:"stash"`
 	}
@@ -933,17 +944,94 @@ func TestACrossSiteCreateIsRefused(t *testing.T) {
 	}
 }
 
+// requestNaming sends one request to ts that names host in its Host header,
+// the way a browser does once a page's own name resolves to this service.
+func requestNaming(t *testing.T, ts *httptest.Server, method, path, host, body string, header map[string]string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(method, ts.URL+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = host
+	for k, v := range header {
+		req.Header.Set(k, v)
+	}
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("%s %s naming %s: %v", method, path, host, err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
+}
+
+// A page whose own name was made to resolve to this service (DNS rebinding) is
+// same-origin with it, so the cross-origin check passes its requests; the name
+// it carries is what refuses them, before any handler reads or stores a thing.
+func TestARequestNamingAnotherHostIsRefused(t *testing.T) {
+	ts, _, _ := newTestUI(t)
+	if r := requestNaming(t, ts, http.MethodGet, "/api/stashes", "rebind.example", "", nil); r.StatusCode != http.StatusMisdirectedRequest {
+		t.Errorf("GET /api/stashes naming rebind.example = %d, want 421", r.StatusCode)
+	}
+	rebound := map[string]string{"Content-Type": "application/json", "Origin": "http://rebind.example", "Sec-Fetch-Site": "same-origin"}
+	r := requestNaming(t, ts, http.MethodPost, "/api/stashes", "rebind.example", `{"text":"planted"}`, rebound)
+	if r.StatusCode != http.StatusMisdirectedRequest {
+		t.Errorf("a create from a rebound page = %d, want 421", r.StatusCode)
+	}
+	var refusal map[string]any
+	decode(t, r, &refusal)
+	if refusal["code"] != "auth.host_not_served" {
+		t.Errorf("refusal = %v, want code auth.host_not_served", refusal)
+	}
+	var list struct {
+		Total int `json:"total"`
+	}
+	getJSON(t, ts.URL+"/api/stashes", &list)
+	if list.Total != 0 {
+		t.Fatalf("the refused create stored %d stash(es)", list.Total)
+	}
+	local := "localhost:" + ts.URL[strings.LastIndex(ts.URL, ":")+1:]
+	if r := requestNaming(t, ts, http.MethodGet, "/api/stashes", local, "", nil); r.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/stashes naming %s = %d, want 200", local, r.StatusCode)
+	}
+}
+
+// A name an operator configured for this VM is served; a name nobody
+// configured still is not.
+func TestConfiguredNamesAreServed(t *testing.T) {
+	ts, _, _ := newTestUIOptions(t, testHostID, Options{AggregatorURL: fakeAggregator(t), AllowedHostNames: []string{"stash.lab"}})
+	if r := requestNaming(t, ts, http.MethodGet, "/api/stashes", "stash.lab", "", nil); r.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/stashes naming the configured stash.lab = %d, want 200", r.StatusCode)
+	}
+	if r := requestNaming(t, ts, http.MethodGet, "/api/stashes", "other.lab", "", nil); r.StatusCode != http.StatusMisdirectedRequest {
+		t.Fatalf("GET /api/stashes naming other.lab = %d, want 421", r.StatusCode)
+	}
+}
+
 // Only one large text body is read at a time: while one is arriving, a second
 // is refused with a retry hint, a small paste is not held up, and a body that
 // stalls is cut off so the next one can be read.
 func TestLargeTextBodiesAreReadOneAtATime(t *testing.T) {
 	// The refusal can only be observed while the server still holds the
-	// stalled body, so the read timeout is the whole window the probes below
-	// have: it must outlast the scheduling delays of a loaded host (a gate run
+	// stalled body, so the read timeout is the whole window the probe below
+	// has: it must outlast the scheduling delays of a loaded host (a gate run
 	// with browsers and suites beside it), where half a second was missed.
 	saved := textBodyReadTimeout
 	textBodyReadTimeout = 4 * time.Second
 	t.Cleanup(func() { textBodyReadTimeout = saved })
+	// The probe is a large text too and takes the slot whenever it is free,
+	// so one holding it when the stalled body's handler starts would get the
+	// stalled body refused instead. The probe is sent only once the stalled
+	// body holds the slot. Cleanups run last in, first out: registered before
+	// the server exists, this reset runs after the server has closed, when no
+	// handler can still read the hook.
+	held := make(chan struct{}, 1)
+	largeTextHeld = func() {
+		select {
+		case held <- struct{}{}:
+		default:
+		}
+	}
+	t.Cleanup(func() { largeTextHeld = nil })
 	ts, _, _ := newTestUI(t)
 	form := "application/x-www-form-urlencoded"
 	stalled, err := net.Dial("tcp", ts.Listener.Addr().String())
@@ -953,19 +1041,17 @@ func TestLargeTextBodiesAreReadOneAtATime(t *testing.T) {
 	t.Cleanup(func() { stalled.Close() })
 	fmt.Fprintf(stalled, "POST /api/stashes HTTP/1.1\r\nHost: %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\ntext=",
 		ts.Listener.Addr(), form, config.InlineTextPreviewCap+1)
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		r := postCreate(t, ts, form, "text=waiting", -1, nil)
-		if r.StatusCode == http.StatusServiceUnavailable {
-			if r.Header.Get("Retry-After") == "" {
-				t.Error("a refused large text carries no Retry-After")
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("a second large text body was never refused while the first stalled (last %d)", r.StatusCode)
-		}
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-held:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stalled large text body never took the slot")
+	}
+	busy := postCreate(t, ts, form, "text=waiting", -1, nil)
+	if busy.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("a second large text body while the first stalled = %d, want 503", busy.StatusCode)
+	}
+	if busy.Header.Get("Retry-After") == "" {
+		t.Error("a refused large text carries no Retry-After")
 	}
 	if r := postCreate(t, ts, form, "text=small", int64(len("text=small")), nil); r.StatusCode != http.StatusOK {
 		t.Fatalf("a small paste behind a large one = %d, want 200", r.StatusCode)
@@ -979,7 +1065,7 @@ func TestLargeTextBodiesAreReadOneAtATime(t *testing.T) {
 	// The cut-off answer is written before the handler returns and releases
 	// the slot, so the next large text can still meet the refusal for a
 	// moment; it must be accepted once the slot is free, never stay refused.
-	deadline = time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for {
 		r := postCreate(t, ts, form, "text=after", -1, nil)
 		if r.StatusCode == http.StatusOK {
@@ -987,6 +1073,91 @@ func TestLargeTextBodiesAreReadOneAtATime(t *testing.T) {
 		}
 		if r.StatusCode != http.StatusServiceUnavailable || time.Now().After(deadline) {
 			t.Fatalf("a large text after the stalled one was cut off = %d, want 200", r.StatusCode)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// multipartPaste is the body the web UI posts for a paste: a multipart form
+// whose text field holds what was pasted (web/assets/new.js).
+func multipartPaste(t *testing.T, text string) (contentType, body string) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	if err := mw.WriteField("text", text); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return mw.FormDataContentType(), buf.String()
+}
+
+// Every multipart create can hold its parsed parts in memory until it returns,
+// so only a few are received at once: past the budget a create, a web UI
+// paste included, is refused with a retry hint; a text body is not counted
+// against it; and a slot is free again once its upload ends.
+func TestMultipartCreatesAreCapped(t *testing.T) {
+	// Each stalled upload signals once it holds a slot, so the refused create
+	// is sent only when every slot is taken. Cleanups run last in, first out:
+	// registered before the server exists, this reset runs after the server
+	// has closed, when no handler can still read the hook.
+	held := make(chan struct{}, config.MaxConcurrentMultipartCreates)
+	multipartHeld = func() {
+		select {
+		case held <- struct{}{}:
+		default:
+		}
+	}
+	t.Cleanup(func() { multipartHeld = nil })
+	ts, _, _ := newTestUI(t)
+	var stalled []net.Conn
+	for i := 0; i < config.MaxConcurrentMultipartCreates; i++ {
+		conn, err := net.Dial("tcp", ts.Listener.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { conn.Close() })
+		fmt.Fprintf(conn, "POST /api/stashes HTTP/1.1\r\nHost: %s\r\nContent-Type: multipart/form-data; boundary=stalled\r\nContent-Length: %d\r\n\r\n"+
+			"--stalled\r\nContent-Disposition: form-data; name=\"text\"\r\n\r\npartial", ts.Listener.Addr(), 1<<20)
+		stalled = append(stalled, conn)
+	}
+	for i := 0; i < config.MaxConcurrentMultipartCreates; i++ {
+		select {
+		case <-held:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("only %d of %d stalled uploads took a slot", i, config.MaxConcurrentMultipartCreates)
+		}
+	}
+	contentType, paste := multipartPaste(t, "waiting")
+	busy := postCreate(t, ts, contentType, paste, int64(len(paste)), nil)
+	if busy.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("a web UI paste while every upload slot is taken = %d, want 503", busy.StatusCode)
+	}
+	if busy.Header.Get("Retry-After") == "" {
+		t.Error("a refused upload carries no Retry-After")
+	}
+	var refusal map[string]any
+	decode(t, busy, &refusal)
+	if refusal["code"] != "stash.api_uploads_busy" {
+		t.Errorf("refusal = %v, want code stash.api_uploads_busy", refusal)
+	}
+	if r := postCreate(t, ts, "application/json", `{"text":"small"}`, int64(len(`{"text":"small"}`)), nil); r.StatusCode != http.StatusOK {
+		t.Fatalf("a JSON paste while the upload slots are taken = %d, want 200", r.StatusCode)
+	}
+	// The slot is released when the handler returns, a moment after the
+	// closed upload's connection is gone, so the next create can still meet
+	// the refusal briefly; it must be accepted once the slot is free.
+	stalled[0].Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		contentType, paste := multipartPaste(t, "after")
+		r := postCreate(t, ts, contentType, paste, int64(len(paste)), nil)
+		if r.StatusCode == http.StatusOK {
+			break
+		}
+		if r.StatusCode != http.StatusServiceUnavailable || time.Now().After(deadline) {
+			t.Fatalf("a paste after one upload ended = %d, want 200", r.StatusCode)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

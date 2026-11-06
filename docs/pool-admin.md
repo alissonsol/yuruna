@@ -432,7 +432,9 @@ so the UI and the command line cannot diverge.
   `ubuntu.kvm`), **Memory**, **Cores**, **Total Storage** and **Free Storage**
   (each host's own report of its hardware, read from its status service),
   **Control** (the wire value: `ready` / `none` / `mismatch` /
-  `skew`), **Framework** and **Project** (below), and the
+  `skew`), **Framework** and **Project** (below), **Runner** (the commit the
+  host's resident runner loaded and since when, which only a runner restart
+  changes; `--` until a runner started with that report), and the
   **Pool** picker, which *moves* the host.
   Storage is what the machine keeps: each space pool counts once &mdash; the
   volumes of one APFS container are a single 2 TB pool, not five &mdash; and
@@ -1251,6 +1253,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4235cf39-20c0-270a-724d-9125095a5d8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,509 @@
         ' No sentinel or origin record was written for it.'
     )
     'host.clock_service_description' = 'Windows Time service (W32Time)'
+    'host.deep_diagnostics_applying' = @(
+        'Applying '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ')...'
+    )
+    'host.deep_diagnostics_change' = @(
+        '    '
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'previous'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -> '
+        @{
+            'arg' = 'new'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_component_failed' = @(
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' was not applied: '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_dependencies_kept' = @(
+        'the packages the install of '
+        @{
+            'arg' = 'package'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' pulled in, which apt marked as automatically installed, stay because other software may use them; /var/log/apt/history.log lists them under that install. To remove them as well: sudo apt-get purge <those packages>. apt-get autoremove would also remove every other package apt no longer needs, old kernels among them'
+    )
+    'host.deep_diagnostics_enable_incomplete' = @(
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' component(s) failed and the others are in place; fix the cause and run Enable-DeepDiagnostics.ps1 again.'
+    )
+    'host.deep_diagnostics_evidence_kept' = @(
+        'the evidence bundles stay in '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '; -RemoveEvidence deletes them'
+    )
+    'host.deep_diagnostics_existing_unreadable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' exists but cannot be read, so it could not be put back later; it was left as it is'
+    )
+    'host.deep_diagnostics_journal_directory_created' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' was created while deep diagnostics mode was on, and journald keeps a persistent journal while it exists. To return to a volatile journal: sudo rm -rf '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' && sudo systemctl restart systemd-journald'
+    )
+    'host.deep_diagnostics_key_netconsole' = 'netconsole target'
+    'host.deep_diagnostics_key_pstore_backend' = 'pstore backend'
+    'host.deep_diagnostics_module_in_use' = @(
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' stays loaded because something still uses it'
+    )
+    'host.deep_diagnostics_netconsole_how_to' = 'To send the kernel log to another machine as it happens, run pwsh test/lab/Receive-Netconsole.ps1 there, then run this again with -NetconsoleTarget <IPv4 of that machine>[:port].'
+    'host.deep_diagnostics_netconsole_no_dispatcher' = 'NetworkManager is not installed, so the target is set at boot only and not again when this host''s address changes'
+    'host.deep_diagnostics_netconsole_no_target' = 'no -NetconsoleTarget was given'
+    'host.deep_diagnostics_netconsole_not_enabled' = 'the netconsole target did not come up; see: journalctl -t yuruna-netconsole'
+    'host.deep_diagnostics_not_enabled' = @(
+        'Deep diagnostics mode is not enabled on this host: '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' does not exist.'
+    )
+    'host.deep_diagnostics_nothing_to_change' = 'Deep diagnostics mode is already in place on this host; nothing changed.'
+    'host.deep_diagnostics_plan_apply' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): will be applied'
+    )
+    'host.deep_diagnostics_plan_current' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): already in place'
+    )
+    'host.deep_diagnostics_plan_header' = @(
+        'Deep diagnostics mode on '
+        @{
+            'arg' = 'hostName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': planned changes'
+    )
+    'host.deep_diagnostics_plan_note' = @(
+        '    note: '
+        @{
+            'arg' = 'note'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_plan_skip' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): skipped -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_pstore_backend' = @(
+        'pstore already uses the '
+        @{
+            'arg' = 'backend'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' backend'
+    )
+    'host.deep_diagnostics_pstore_legacy_bios' = 'this host booted with legacy BIOS, and efi-pstore needs UEFI'
+    'host.deep_diagnostics_pstore_no_backend' = @(
+        'efi_pstore loaded, but pstore still reports no backend ('
+        @{
+            'arg' = 'backend'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.deep_diagnostics_pstore_unit_masked' = 'systemd-pstore.service is masked; unmask it to archive crash records at boot'
+    'host.deep_diagnostics_pstore_unsupported' = 'this kernel has no pstore support'
+    'host.deep_diagnostics_reason_declined' = 'not confirmed'
+    'host.deep_diagnostics_reason_interrupted' = 'Enable-DeepDiagnostics.ps1 stopped before this component was in place'
+    'host.deep_diagnostics_receiver_command' = @(
+        'Keep the receiver running on the target machine: pwsh test/lab/Receive-Netconsole.ps1 -Port '
+        @{
+            'arg' = 'port'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_requires_linux' = 'Deep diagnostics mode is for an Ubuntu KVM host, and this host is not running Linux. Nothing was changed.'
+    'host.deep_diagnostics_requires_systemd' = 'Deep diagnostics mode needs systemd as the running init system, and /run/systemd/system does not exist on this host. Nothing was changed.'
+    'host.deep_diagnostics_restore_done' = @(
+        'Deep diagnostics mode is off; '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' change(s) reverted.'
+    )
+    'host.deep_diagnostics_restore_failed' = @(
+        @{
+            'arg' = 'item'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' was not restored: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_restore_header' = @(
+        'Deep diagnostics mode, enabled '
+        @{
+            'arg' = 'enabledAtUtc'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' by '
+        @{
+            'arg' = 'enabledBy'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': planned restore'
+    )
+    'host.deep_diagnostics_restore_incomplete' = @(
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' change(s) could not be reverted; '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' is kept, so running Disable-DeepDiagnostics.ps1 again finishes the restore.'
+    )
+    'host.deep_diagnostics_setting_overridden' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' sets '
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '='
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' and is read after the deep diagnostics drop-in, so its value wins at boot.'
+    )
+    'host.deep_diagnostics_should_apply' = 'Apply'
+    'host.deep_diagnostics_should_record' = 'Record the current values and apply deep diagnostics mode'
+    'host.deep_diagnostics_should_restore' = 'Restore the values recorded before deep diagnostics mode'
+    'host.deep_diagnostics_state_record' = @(
+        'Every value above is recorded in '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' before the first change; Disable-DeepDiagnostics.ps1 restores the host from that record.'
+    )
+    'host.deep_diagnostics_state_unreadable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' exists but is not a deep diagnostics state file ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Nothing was changed; restore the file or move it aside before running again.'
+    )
+    'host.deep_diagnostics_step_failed' = @(
+        @{
+            'arg' = 'command'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' failed (exit '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '): '
+        @{
+            'arg' = 'output'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_sudo_unavailable' = 'Deep diagnostics mode changes root-owned settings, and sudo did not run a command without asking for a password. Nothing was changed. Run the script again from a terminal where you can enter the sudo password, or as root.'
+    'host.deep_diagnostics_summary_applied' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': applied'
+    )
+    'host.deep_diagnostics_summary_failed' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': failed -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_summary_header' = 'Deep diagnostics mode:'
+    'host.deep_diagnostics_summary_skipped' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': skipped -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_sysctl_not_exposed' = @(
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' is not exposed by this kernel, so it is left out.'
+    )
+    'host.deep_diagnostics_target_invalid' = @(
+        '-NetconsoleTarget '''
+        @{
+            'arg' = 'target'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' is not an IPv4 address with an optional port, such as 192.168.1.20 or 192.168.1.20:6666. Nothing was changed.'
+    )
+    'host.deep_diagnostics_title_boot_evidence' = 'evidence bundle at every boot'
+    'host.deep_diagnostics_title_journald' = 'persistent journal synced every 10 seconds'
+    'host.deep_diagnostics_title_netconsole' = 'kernel log sent to another machine'
+    'host.deep_diagnostics_title_pstore' = 'crash records in UEFI storage'
+    'host.deep_diagnostics_title_rasdaemon' = 'hardware error log'
+    'host.deep_diagnostics_title_sysctl' = 'panic and reboot on lockups and oopses'
+    'host.deep_diagnostics_title_vitals' = 'host vitals in the kernel log every 10 seconds'
+    'host.deep_diagnostics_title_watchdog' = 'hardware watchdog reset'
+    'host.deep_diagnostics_value_absent' = 'absent'
+    'host.deep_diagnostics_value_evidence' = 'the evidence bundles'
+    'host.deep_diagnostics_value_installed' = 'installed'
+    'host.deep_diagnostics_value_loaded' = 'loaded'
+    'host.deep_diagnostics_value_none' = 'none'
+    'host.deep_diagnostics_value_not_installed' = 'not installed'
+    'host.deep_diagnostics_value_not_loaded' = 'not loaded'
+    'host.deep_diagnostics_value_removed' = 'removed'
+    'host.deep_diagnostics_value_restored_content' = @(
+        'the earlier content kept in '
+        @{
+            'arg' = 'statePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_value_saved_content' = @(
+        'other content, kept in '
+        @{
+            'arg' = 'statePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_value_yuruna_file' = 'the deep diagnostics version'
+    'host.deep_diagnostics_verify' = 'To check the path end to end, run: echo ''<5>yuruna-deep-diagnostics: check'' | sudo tee /dev/kmsg -- the line appears in ''journalctl -k -n 5'' here and, with netconsole, in the receiver''s log.'
+    'host.deep_diagnostics_watchdog_daemon' = @(
+        @{
+            'arg' = 'unit'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' is running and holds the watchdog device; stop and disable it to let systemd use the device'
+    )
+    'host.deep_diagnostics_watchdog_held' = @(
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' is open by another process, and a watchdog device takes one user at a time; stop that process to let systemd use it'
+    )
+    'host.deep_diagnostics_watchdog_no_device' = @(
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' loaded but registered no hardware watchdog, which usually means the firmware disabled it (see: sudo dmesg | grep -i '
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.deep_diagnostics_watchdog_no_driver' = @(
+        'no hardware watchdog is registered and no driver is known for CPU vendor '''
+        @{
+            'arg' = 'vendor'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''; softdog is not used because it cannot fire on a hard freeze'
+    )
+    'host.deep_diagnostics_watchdog_nowayout' = @(
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' has nowayout set: once armed it cannot be stopped without a reboot, so Disable-DeepDiagnostics.ps1 could not restore this host'
+    )
+    'host.deep_diagnostics_watchdog_provider_unknown' = @(
+        'the kernel module that provides '
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ('''
+        @{
+            'arg' = 'identity'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''') could not be identified (loaded watchdog drivers: '
+        @{
+            'arg' = 'drivers'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), so nothing would load it at the next boot and the watchdog would be gone after a reboot; with exactly one hardware watchdog driver loaded, run this again'
+    )
+    'host.deep_diagnostics_watchdog_softdog' = @(
+        'only softdog is registered ('
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). softdog runs on the processors that freeze, so it cannot fire on a hard freeze, and a hardware driver would not register as watchdog0 while it is loaded; unload it (sudo modprobe -r softdog) and run again'
+    )
     'host.download_incomplete' = @(
         'The download of '
         @{
@@ -83,10 +586,10 @@
         ' could not be read within the time limit; the pidfile was kept and nothing was signaled.'
     )
     'host.hyperv_bounded_call_no_answer' = @(
-        'The Hyper-V call ended without returning an answer (job state: '
+        'The Hyper-V call ended without returning an answer (child process exit code: '
         @{
-            'arg' = 'state'
-            'type' = 'token'
+            'arg' = 'exitCode'
+            'type' = 'detail'
             'trust' = 'internal'
         }
         '; reason: '
@@ -262,6 +765,44 @@
         }
         ''' exists; nothing was changed.'
     )
+    'host.hyperv_worker_lookup_failed' = @(
+        '  The vmwp.exe worker lookup for VM '
+        @{
+            'arg' = 'vmId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' failed; will retry Stop-VM. Error: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.hyperv_worker_lookup_unanswered' = @(
+        '  The vmwp.exe worker lookup for VM '
+        @{
+            'arg' = 'vmId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' did not answer within '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds; will retry Stop-VM.'
+    )
+    'host.kvm_config_port_firewall' = @(
+        '  config service firewall: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.kvm_config_port_rule_delete' = 'Delete the config-service rule Yuruna added'
     'host.kvm_force_stop_pid_unverified' = @(
         'Stop-VMForce: process '
         @{
@@ -307,6 +848,8 @@
         }
         '''; install a sudoers rule for /bin/kill or stop the domain by hand.'
     )
+    'host.kvm_journal_group_missing' = 'group ''systemd-journal'' does not exist, so the test runner''s diagnostics cannot read the system journal or the previous boot''s kernel log. systemd creates it from sysusers.d; ''sudo systemd-sysusers'' restores it, then re-run this script.'
+    'host.kvm_journal_group_session_stale' = '  ''systemd-journal'' membership is in /etc/group; this shell''s group set is stale. Log out and back in, then start the test runner from that new session so its diagnostics can read the system journal.'
     'host.kvm_rename_destination_dir_exists' = @(
         'Cannot rename to '''
         @{
@@ -5681,7 +6224,7 @@
         }
         '  (harness key authorized)'
     )
-    'host.operator_a0e97dcbb626019f' = 'Only the ufw status-port rule will be removed -- it is provably ours. Group membership, the $HOME ACL, libvirtd/virtlogd and the GNOME keys are left exactly as they are, and reported.'
+    'host.operator_a0e97dcbb626019f' = 'Only the ufw rules Yuruna marked as its own will be removed. Group membership, the $HOME ACL, libvirtd/virtlogd and the GNOME keys are left exactly as they are, and reported.'
     'host.operator_a127790ebde6e4ff' = 'cache VM on it), or define it by hand -- see'
     'host.operator_a19074ac4867746e' = '  Console/SSH login:'
     'host.operator_a1a6059aaacffcb8' = @(

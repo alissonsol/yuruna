@@ -135,6 +135,11 @@
       "sourceHash": "0bd345f477db7aaf637c61bce2e5ff32897a10530db0b206b8f27d0eb97bf539",
       "message": "(sem entradas em rede systemd)"
     },
+    "automation.system_diagnostic_networkmanager_dhcp_none": {
+      "sourceHash": "2489ade7e3501fa6862563e2be10a971d31c1924197af26cb9749220de1ee1c3",
+      "origin": "machine",
+      "message": "(nenhuma entrada dhcp4 do NetworkManager nesta inicialização)"
+    },
     "automation.operator_0708e3afbc3562b5": {
       "sourceHash": "90a545e9083f6e77cebcb3bf905c849bc9febb22b60b697b82797f24894b201f",
       "message": "Configuração do Netplan (/etc/netplan/*.yaml)"
@@ -2162,6 +2167,11 @@
       "origin": "machine",
       "message": "Commit : {charged} de {limit} cobrados, {uncharged} livres (o início de uma VM é cobrado contra este limite, não contra a memória física livre)"
     },
+    "automation.memory_commit_outside_processes": {
+      "sourceHash": "a9010810421a77adb6c62ee1e48a3e15c8ed8c2a4089ab6af7f40a4ef909e788",
+      "origin": "machine",
+      "message": "Commit fora de processos : {outside} dos {charged} cobrados não estão nos bytes privados de nenhum processo ({private} somados em {processes} processos). Seções de memória compartilhada, pool paginado e outras alocações do kernel são cobradas ali, e nenhuma linha da tabela de bytes privados em TOP PROCESSES as mostra."
+    },
     "automation.operator_bf1c637eb978cee4": {
       "sourceHash": "c315ded28236f22804403f1bf0c378f55336cedf6364453291259b5305689e50",
       "message": "(detalhes por plataforma: SO desconhecido)"
@@ -2935,6 +2945,101 @@
       "sourceHash": "5021d832dd7c0b0e3371c426f543c23e9e64938b5ffacba06105c9ea5a68b7dd",
       "origin": "machine",
       "message": "Remover a entrada temporária obsoleta do Yuruna"
+    },
+    "automation.system_diagnostic_journal_access": {
+      "sourceHash": "2af20fbdc405e4a827768c3d83e15847853584b8739e614f592fd6b7423a2687",
+      "origin": "machine",
+      "message": "Acesso ao diário do sistema"
+    },
+    "automation.system_diagnostic_journal_readable": {
+      "sourceHash": "c84207e57df83907f613fc95f14d3b870d704195973cc96da69e0327022457a3",
+      "origin": "machine",
+      "message": "O diário do sistema pode ser lido aqui: journalctl --system respondeu."
+    },
+    "automation.system_diagnostic_journal_unreadable": {
+      "sourceHash": "caa63cf3d5125c1790f149c3a64c7ad9bb98e001ac89b9ae2b6f18ae79c62d9c",
+      "origin": "machine",
+      "message": "O diário do sistema não pode ser lido por {user} (journalctl --system: {detail}). Em vez disso, o journalctl responde a partir do diário da própria conta, então o log do kernel, as inicializações anteriores e as entradas de outras unidades faltam em todas as seções de diário deste relatório."
+    },
+    "automation.system_diagnostic_journal_session_stale": {
+      "sourceHash": "aa4b7ea9d4502ea534297db44a059376457f292eece76ef89f7c464e46273205",
+      "origin": "machine",
+      "message": "{user} está no grupo 'systemd-journal' no banco de dados de grupos, mas este processo foi iniciado antes de essa associação entrar em vigor: inicie o executor de testes novamente a partir de uma nova sessão de login."
+    },
+    "automation.system_diagnostic_journal_grant": {
+      "sourceHash": "974528f12a3d87173c1be787660f09bfb79d02d8d62ec20e2d8892459b4fe08a",
+      "origin": "machine",
+      "message": "Para torná-lo legível, execute 'sudo usermod -aG systemd-journal {user}' e, depois, inicie o executor de testes novamente a partir de uma nova sessão de login. Em um hospedeiro Ubuntu KVM, host/ubuntu.kvm/Enable-TestAutomation.ps1 adiciona essa associação."
+    },
+    "automation.system_diagnostic_kernel_log_journal": {
+      "sourceHash": "bae51871c217056155b00cbac65f85c3b5294fc729683d0f2f21a12b9c796797",
+      "origin": "machine",
+      "message": "(não é possível ler o dmesg aqui, então o log do kernel vem do diário do sistema: journalctl -k -b 0, com as {count} entradas mais recentes da inicialização atual analisadas e as últimas 100 exibidas)"
+    },
+    "automation.system_diagnostic_kernel_log_unavailable": {
+      "sourceHash": "e5b7dae3f0071b8ff4c197c7d9d72af2b1256caadf15bfe8d4d969fa2f57de18",
+      "origin": "machine",
+      "message": "(sem log do kernel: não é possível ler o dmesg aqui e journalctl -k -b 0 não retornou entradas; veja Acesso ao diário do sistema em RECENT SYSTEM EVENTS)"
+    },
+    "automation.system_diagnostic_kernel_journal_oom": {
+      "sourceHash": "82fae68d07b0518e458cee4e10158dec2388ee469040d00fb70bd3ceb4cb5e90",
+      "origin": "machine",
+      "message": "LINUX: o diário do kernel da inicialização atual mostra {count} evento(s) do OOM-killer -- a pressão de memória encerrou um processo. Consulte journalctl -k -b 0 para ver os detalhes."
+    },
+    "automation.system_diagnostic_kernel_journal_hardware": {
+      "sourceHash": "9a44b36bfa6b2e06b4505576212bd54bc89415a4287c90a462ecf75b7ee1d4d3",
+      "origin": "machine",
+      "message": "LINUX: o diário do kernel da inicialização atual mostra {count} linha(s) de erro de hardware/driver (I/O error, MCE, EDAC, etc.)."
+    },
+    "automation.system_diagnostic_lockup_settings": {
+      "sourceHash": "b73bff03996f8d47d5aae25fc58fe6f180c9a98540d69b6b2fdebae9c2858ba8",
+      "origin": "machine",
+      "message": "Configurações de travamento e de evidências de falha"
+    },
+    "automation.system_diagnostic_watchdog_none": {
+      "sourceHash": "f8337fe79cb07a161c3592d3945ba64f55f19efce4992d90f0e26b2b5b296805",
+      "origin": "machine",
+      "message": "(nenhum dispositivo watchdog de hardware em {path})"
+    },
+    "automation.system_diagnostic_journal_persistent": {
+      "sourceHash": "26288420c867aa017607c00dd49efbe30c7ab0dcf6d3ecd64666b1ad9f9c56e7",
+      "origin": "machine",
+      "message": "{path} existe: o diário de uma inicialização que congelar sobrevive ao reinício."
+    },
+    "automation.system_diagnostic_journal_volatile": {
+      "sourceHash": "847e31c3197248e689852e3ef86c4cb649a2feef5f2e510c70a9547e97b9c7e3",
+      "origin": "machine",
+      "message": "{path} não existe: o diário fica apenas na memória, então um congelamento perde o diário da inicialização que congelou."
+    },
+    "automation.system_diagnostic_deep_mode": {
+      "sourceHash": "b59546183c66ffa62e68d0f04d7104ac5955b7860592f808d4fb4e528ab34687",
+      "origin": "machine",
+      "message": "Modo de diagnóstico aprofundado"
+    },
+    "automation.system_diagnostic_deep_mode_off": {
+      "sourceHash": "009c146ee632a03048830739904db75c40dcf808df93613d1ece98982686a725",
+      "origin": "machine",
+      "message": "O modo de diagnóstico aprofundado não está ativado ({path} não existe)."
+    },
+    "automation.system_diagnostic_deep_mode_on": {
+      "sourceHash": "853f1fe8553db5e5189d6477f70050e1d7417d66fcb209688da8b89c87a04e10",
+      "origin": "machine",
+      "message": "Modo de diagnóstico aprofundado ativado desde {enabledAtUtc}."
+    },
+    "automation.system_diagnostic_deep_mode_unreadable": {
+      "sourceHash": "7a163d807f8dc70dfec9f41d8de67d0b10ab95b394a6943a0c26947002a8b2a4",
+      "origin": "machine",
+      "message": "Modo de diagnóstico aprofundado: {path} não é um arquivo regular de no máximo 64 KiB, por isso não foi lido."
+    },
+    "automation.system_diagnostic_deep_mode_malformed": {
+      "sourceHash": "19d8bd63da2f9ecaee28435b4dd39a84260fbefcc226e390276e02d557599601",
+      "origin": "machine",
+      "message": "Modo de diagnóstico aprofundado: {path} não contém um objeto JSON ({message}); nada do conteúdo dele é exibido."
+    },
+    "automation.system_diagnostic_journal_not_on_disk": {
+      "sourceHash": "2575ba4799431c3407c90c2367fe23bb0d7e3be33e04a2826f4c8788c9103fa3",
+      "origin": "machine",
+      "message": "O journald está configurado com Storage={storage}, que não mantém nenhum diário em disco, exista ou não {path}; então um congelamento perde o diário da inicialização que congelou."
     }
   }
 }

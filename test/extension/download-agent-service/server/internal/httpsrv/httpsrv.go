@@ -18,6 +18,7 @@ import (
 
 	"download-agent-service/internal/imagestore"
 	"download-agent-service/internal/state"
+	"yuruna.com/test/extension/extension-sdk/hostcheck"
 	"yuruna.com/test/extension/extension-sdk/labgate"
 	"yuruna.com/test/extension/extension-sdk/webui"
 )
@@ -61,6 +62,10 @@ type Options struct {
 	// status route). Empty leaves the bearer as the only way through the gate.
 	AggregatorURL string
 
+	// AllowedHostNames are the names, besides its addresses, host name and
+	// localhost, that requests may carry in Host to reach this service.
+	AllowedHostNames []string
+
 	// Carried for the status report only; the engine holds its own copies.
 	HostID   string
 	PoolDir  string
@@ -69,19 +74,24 @@ type Options struct {
 
 // Server is the download-agent-service UI/API HTTP server.
 type Server struct {
-	pages   *webui.Pages
-	opts    Options
-	state   *state.Store
-	images  ImageAPI
-	gate    *labgate.Gate
-	httpSrv *http.Server
-	started time.Time
+	pages     *webui.Pages
+	opts      Options
+	state     *state.Store
+	images    ImageAPI
+	gate      *labgate.Gate
+	hostCheck *hostcheck.Check
+	httpSrv   *http.Server
+	started   time.Time
 }
 
 // New builds a Server.
 func New(opts Options) *Server {
 	s := &Server{opts: opts, state: opts.Store, images: opts.Images, started: time.Now()}
 	s.pages = prepareLocalizedPages(opts.Language, opts.AllowPseudoLocale)
+	s.hostCheck = hostcheck.New(hostcheck.Options{
+		Language: opts.Language, AllowPseudoLocale: opts.AllowPseudoLocale,
+		Names: opts.AllowedHostNames,
+	})
 	s.gate = labgate.New(labgate.Options{
 		Language: opts.Language, AllowPseudoLocale: opts.AllowPseudoLocale,
 		AggregatorURL: opts.AggregatorURL,

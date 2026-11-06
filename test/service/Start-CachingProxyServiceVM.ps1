@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -768,6 +768,7 @@ if ($IsMacOS) {
     # VM is bridged (LAN-direct) and discovered by ARP (the else-branch).
     if (Test-MacUplinkNotBridgeable) {
         # --- REGION: Configure Shared NAT forwarding
+        # See https://yuruna.link/42e220c4-0008
         Write-Verbose ""
         Write-Verbose "== Step 5: discover Shared-NAT cache VM + expose to LAN (Wi-Fi host) =="
         $httpPort  = Get-CachingProxyServicePort -Scheme http

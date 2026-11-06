@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,6 +96,7 @@ $script:AutoRemediationReason = @{
     'input_lost'              = (Format-YurunaOperatorMessage -Key 'remediation.operator_52e8af97f6901f58')
     'instrumentation_failure' = (Format-YurunaOperatorMessage -Key 'remediation.operator_36573af397a13ade')
     'host_io_blocked'         = (Format-YurunaOperatorMessage -Key 'remediation.operator_70fab6da39ee36e1')
+    'guest_kernel_stalled'    = (Format-YurunaOperatorMessage -Key 'remediation.guest_kernel_stalled_retry_reason')
 }
 $script:AutoRemediationAllowList = [ordered]@{}
 foreach ($routedClass in (Get-FailureClassByRoute -Route UnattendedRetry)) {
@@ -358,6 +359,9 @@ function Invoke-Remediation {
     $livelockCause = & $causeField 'guestLivelock'
     $processorWindow = if ($livelockCause -is [System.Collections.IDictionary]) { $livelockCause['processorWindow'] } else { $null }
     $silentProcessors = if ($processorWindow) { [string[]]@($processorWindow.NoInterruptsServicedProcessors | Where-Object { $null -ne $_ -and "$_" -ne '' }) } else { [string[]]@() }
+    # How long every virtual processor sat held in the hypervisor; 0 when the
+    # record carries no verdict or a verdict that found none held.
+    $livelockedSeconds = if ($livelockCause -is [System.Collections.IDictionary]) { [int]$livelockCause['livelockedSeconds'] } else { 0 }
 
     $reproField   = & $recField 'repro'
     $reproCommand = if ($reproField -is [System.Collections.IDictionary] -and $reproField.Contains('command')) {
@@ -404,6 +408,7 @@ function Invoke-Remediation {
             pauseBeforeStepSeconds = [int](& $causeField 'pauseBeforeStepSeconds')
             guestKernelFaultKinds  = $kernelFaultKinds
             silentProcessors       = $silentProcessors
+            guestLivelockedSeconds = $livelockedSeconds
         }
     }
     $handler = Get-RecoveryHandler -FailureClass $failureClass
@@ -827,6 +832,25 @@ function Register-BuiltinRecoveryHandler {
             Actions        = @(
                 (Format-YurunaOperatorMessage -Key 'remediation.guest_run_lost_action_restore'),
                 (Format-YurunaOperatorMessage -Key 'remediation.guest_run_lost_action_inspect')
+            )
+        }
+    }
+
+    # Filed from the wait's own evidence whichever verb was waiting, so the
+    # advice does not branch on the verb the way wait_timeout's does.
+    Register-RecoveryHandler -FailureClass 'guest_kernel_stalled' -Handler {
+        param([hashtable]$c)
+        $kinds = @($c.Context.guestKernelFaultKinds)
+        $silent = @($c.Context.silentProcessors)
+        return @{
+            Recommendation = 'retry_with_backoff'
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.guest_kernel_stalled_rationale' -Arguments @{ vmName = "$($c.Context.vmName)"
+                kinds = $(if ($kinds.Count) { $kinds -join ', ' } else { '-' }); processors = $(if ($silent.Count) { $silent -join ', ' } else { '-' })
+                heldSeconds = [int]$c.Context.guestLivelockedSeconds })
+            Actions        = @(
+                (Format-YurunaOperatorMessage -Key 'remediation.guest_kernel_stalled_action_evidence'),
+                (Format-YurunaOperatorMessage -Key 'remediation.kernel_stall_action_rerun'),
+                (Format-YurunaOperatorMessage -Key 'remediation.kernel_stall_action_family')
             )
         }
     }

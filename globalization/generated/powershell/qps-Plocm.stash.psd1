@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a2db73-80b7-aad5-c656-d9177137bac3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,7 @@
     'stash.api_stat_artifact' = '[!‮šţáţ ářţíƒáçţ‬ ~~~~~~]'
     'stash.api_too_many_files_in_one_upload' = '[!‮ţóó ɱáñý ƒíļéš íñ óñé úƥļóáď‬ ~~~~~~~~~~~~]'
     'stash.api_too_many_stashes_in_one_request' = '[!‮ţóó ɱáñý šţášħéš íñ óñé řéʠúéšţ‬ ~~~~~~~~~~~~~]'
+    'stash.api_uploads_busy' = '[!‮ţóó ɱáñý úƥļóáďš ářé ƀéíñğ řéçéíṽéď áţ óñçé; ţřý áğáíñ šħóřţļý‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'stash.archive' = '[!‮Ářçħíṽé‬ ~~~]'
     'stash.archive_contents' = '[!‮Ářçħíṽé çóñţéñţš‬ ~~~~~~~]'
     'stash.archive_value1_contents' = @(

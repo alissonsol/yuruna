@@ -26,9 +26,14 @@ type State struct {
 
 // View is the pool view. A View is valid only inside the State.Do call that
 // handed it out; a caller that kept it past that call would read and write it
-// without the lock.
+// without the lock. The exported maps are read in place. Grouped changes use
+// the View's methods, which keep each group's invariants (a retired identity
+// never regains a row, a fail window stays in time order, an announce is
+// removed only by its own source, the ring facts stay within their bounds).
+// Callers still update individual host-record fields and the extension-health
+// logging latch inside Do.
 type View struct {
-	Hosts map[string]*HostView // keyed by hostId
+	Hosts map[string]*HostView // keyed by hostId; changed through the host methods in hosts.go
 	// cycles is the per-cycle dedup set and the terminal cycle counters, read
 	// and changed through the View's cycle methods.
 	cycles cycleLedger

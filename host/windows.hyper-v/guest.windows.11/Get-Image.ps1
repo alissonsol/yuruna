@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a337f9-dcb7-4dfa-9c51-9ddba462035e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -295,37 +295,18 @@ try {
     Write-Output "  Destination: $downloadFile"
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_26d58e13fc858352')
 
-    # Use BITS for progress, fall back to Invoke-WebRequest
-    try {
-        Import-Module BitsTransfer -ErrorAction Stop
-        $bitsJob = Start-BitsTransfer -Source $downloadUrl -Destination $downloadFile -Asynchronous -DisplayName "Windows 11 ISO"
-        $bitsClock = [Diagnostics.Stopwatch]::StartNew()
-        while ($bitsJob.JobState -in @('Queued', 'Connecting', 'Transferring', 'TransientError')) {
-            if ($bitsClock.Elapsed.TotalMinutes -ge 120) {
-                Remove-BitsTransfer -BitsJob $bitsJob -ErrorAction SilentlyContinue
-                throw 'BITS transfer exceeded its two-hour deadline.'
-            }
-            if ($bitsJob.BytesTotal -gt 0) {
-                $pct = [math]::Round(($bitsJob.BytesTransferred / $bitsJob.BytesTotal) * 100, 1)
-                $transferredGB = [math]::Round($bitsJob.BytesTransferred / 1GB, 2)
-                $totalGB = [math]::Round($bitsJob.BytesTotal / 1GB, 2)
-                Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_22ca18573ae3e913') -Status (Format-YurunaOperatorMessage -Key 'host.operator_13835229449d2daa' -Arguments @{ transferredGB = "$transferredGB"; totalGB = "$totalGB"; pct = "$pct" }) -PercentComplete $pct
-            } else {
-                Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_22ca18573ae3e913') -Status "Connecting..."
-            }
-            Start-Sleep -Seconds 2
-        }
-        Write-Progress -Activity (Format-YurunaOperatorMessage -Key 'host.operator_22ca18573ae3e913') -Completed
-        if ($bitsJob.JobState -eq "Transferred") {
-            Complete-BitsTransfer -BitsJob $bitsJob
-        } else {
-            Remove-BitsTransfer -BitsJob $bitsJob -ErrorAction SilentlyContinue
-            throw "BITS ended in state: $($bitsJob.JobState)"
-        }
-    } catch {
-        Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_66c7eec66542e844')
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadFile -ErrorAction Stop
+    # The resumable engine behind every other image fetch: a transfer the step
+    # watchdog or the network cuts short keeps its .partial for the next attempt,
+    # and the host driver's wrapper routes it through the caching proxy when one
+    # answers. A host whose driver did not load still gets the engine, direct to
+    # the origin. Microsoft signs each URL for a short time, so a resume spans the
+    # attempts of one run, not a later run's new URL.
+    $saveCmd = Get-Command -Name Save-CachedHttpUri -ErrorAction SilentlyContinue
+    if (-not $saveCmd) {
+        Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.HostDownload.psm1') -DisableNameChecking -ErrorAction Stop
+        $saveCmd = Get-Command -Name Save-CachedHttpUri -ErrorAction Stop
     }
+    & $saveCmd -Uri $downloadUrl -OutFile $downloadFile
 
     if (-not (Test-Path $downloadFile)) {
         throw (Format-YurunaOperatorMessage -Key 'exceptions.host_870df3a8573355af')

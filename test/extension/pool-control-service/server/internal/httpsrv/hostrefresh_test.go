@@ -237,25 +237,37 @@ func TestTheLabKeyCannotRefresh(t *testing.T) {
 	}
 }
 
-// The chain from a public legacy proof through /api/unlock-proof to a lab
-// session also ends at the refresh gate: the session opens ordinary writes
-// but never a refresh, on HTTP or MCP.
-func TestALegacyProofSessionCannotRefresh(t *testing.T) {
+// A public legacy proof opens no session at all, and the chain from a control
+// proof through /api/unlock-proof to a lab session ends at the refresh gate:
+// the session opens ordinary writes but never a refresh, on HTTP or MCP.
+func TestALegacyProofOpensNoSessionAndAProofSessionCannotRefresh(t *testing.T) {
 	target := newRFTarget(t)
 	s, srv := rfServer(t, target, configured(rfUsable))
-	expiry := strconv.FormatInt(time.Now().Add(15*time.Minute).Unix(), 10)
-	mac := hmac.New(sha256.New, []byte(testBearer))
-	mac.Write([]byte("yuruna-control|proof|" + expiry))
-	proof := expiry + "." + base64.StdEncoding.EncodeToString(mac.Sum(nil))
-	resp, _, _ := rfPost(t, srv.URL+"/api/unlock-proof", `{"proof":"`+proof+`"}`, nil)
-	var cookie *http.Cookie
-	for _, c := range resp.Cookies() {
-		if c.Name == sessionCookie {
-			cookie = c
-		}
+	sign := func(data string) string {
+		mac := hmac.New(sha256.New, []byte(testBearer))
+		mac.Write([]byte(data))
+		return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 	}
+	sessionFrom := func(resp *http.Response) *http.Cookie {
+		for _, c := range resp.Cookies() {
+			if c.Name == sessionCookie {
+				return c
+			}
+		}
+		return nil
+	}
+	expiry := strconv.FormatInt(time.Now().Add(15*time.Minute).Unix(), 10)
+	legacy := expiry + "." + sign("yuruna-control|proof|"+expiry)
+	resp, _, _ := rfPost(t, srv.URL+"/api/unlock-proof", `{"proof":"`+legacy+`"}`, nil)
+	if resp.StatusCode != http.StatusBadRequest || sessionFrom(resp) != nil {
+		t.Errorf("the legacy proof answered %d and unlocked a session: %v", resp.StatusCode, sessionFrom(resp) != nil)
+	}
+	const audience = "svc-pool-control-service"
+	proof := expiry + "." + audience + "." + sign("yuruna-control|proof|v2|"+audience+"|"+expiry)
+	resp, _, _ = rfPost(t, srv.URL+"/api/unlock-proof", `{"proof":"`+proof+`"}`, nil)
+	cookie := sessionFrom(resp)
 	if resp.StatusCode != http.StatusOK || cookie == nil {
-		t.Fatalf("the legacy proof did not unlock a session: %d", resp.StatusCode)
+		t.Fatalf("the proof bound to this service did not unlock a session: %d", resp.StatusCode)
 	}
 	resp, m, _ := rfPost(t, srv.URL+"/api/host/refresh", rfBody(""), nil, cookie)
 	if resp.StatusCode != http.StatusUnauthorized || m["reason"] != hostrefresh.ReasonCredentialRequired {
@@ -266,7 +278,7 @@ func TestALegacyProofSessionCannotRefresh(t *testing.T) {
 		t.Fatalf("session on MCP: %v", res)
 	}
 	if target.count() != 0 {
-		t.Fatalf("a legacy session reached the host %d times", target.count())
+		t.Fatalf("a proof session reached the host %d times", target.count())
 	}
 }
 

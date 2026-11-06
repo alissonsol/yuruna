@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42ad5782-14c1-45bd-8f19-ea58d1b6d0f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -160,6 +160,32 @@ Describe 'Source configuration snapshot and cycle handoff' {
         $record.framework.proof.receipt | Should -BeExactly 'retained-receipt'
     }
 
+    It 'hands the gate a signed mirror timestamp back as the text it was written with' {
+        # The production signing vector's originCheckedAt has no fraction
+        # digits, a form ConvertFrom-Json would otherwise turn into [DateTime].
+        $fixture = Get-Content -Raw (Join-Path $PSScriptRoot '../extension/caching-proxy-service/testdata/git-mirror/receipts/vectors.json') | ConvertFrom-Json -AsHashtable
+        $envelope = ($fixture.vectors | Where-Object name -EQ valid).envelope
+        $selection = @{
+            success=$true; repository='example/repo'; ref='refs/heads/main'; selectedSha=('a'*40); fetchRef=('refs/yuruna/pins/'+('a'*40))
+            fetchUrl='http://192.168.50.4/git/example/repo.git'; source='mirror'; verification='mirror-confirmed'
+            originCheckedAt='2026-10-20T12:00:00Z'; keyId=$fixture.keyId; resolvedDefaultBranch=''; fallbackReason=''; failureClass=''
+            proof=@{nonce=$fixture.request.nonce;receipt=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $envelope -Depth 6 -Compress)))}
+            acceptedAt='2026-10-20T12:00:30Z'
+        }
+        $installed = Get-InstalledGitSourceSelection -RepoRoot $script:repo
+        Write-GitSourceHandoff -CycleGeneration $script:generation -RepoRoot $script:repo -ConfigPath $script:configPath -Framework $installed -Project $selection -Confirm:$false | Should -BeTrue
+        $record = Read-GitSourceHandoff -CycleGeneration $script:generation -RepoRoot $script:repo -ConfigPath $script:configPath
+        $context = @{mode='prefer';url='http://192.168.50.4';verificationPublicKeys=@($fixture.publicKey);mirrorOnlyMaxAgeSeconds=604800}
+        $valid = & (Get-Module Test.SourceSelection) {
+            param($Selection, $Context, $AcceptedAt)
+            Test-GitSourceSelection -Selection $Selection -RepositoryUrl 'https://github.com/example/repo' -Ref 'refs/heads/main' -SourceContext $Context -AcceptedAt $AcceptedAt
+        } $record.project $context ([DateTimeOffset]$record.projectAcceptedAt)
+        $valid.reason | Should -BeNullOrEmpty
+        $valid.success | Should -BeTrue
+        $record.project.originCheckedAt | Should -BeOfType [string]
+        $record.project.originCheckedAt | Should -BeExactly '2026-10-20T12:00:00Z'
+    }
+
     It 'refuses to overwrite installed provenance with evidence for another commit' {
         $installed = Get-InstalledGitSourceSelection -RepoRoot $script:repo
         Write-InstalledGitSource -RepoRoot $script:repo -Kind framework -Selection $installed -Confirm:$false | Should -BeTrue
@@ -167,6 +193,18 @@ Describe 'Source configuration snapshot and cycle handoff' {
         $installed.selectedSha = 'f' * 40
         { Write-InstalledGitSource -RepoRoot $script:repo -Kind framework -Selection $installed -Confirm:$false } | Should -Throw '*source-provenance-head-mismatch*'
         [IO.File]::ReadAllBytes($script:installedPath) | Should -BeExactly $before
+    }
+
+    It 'hands back retained provenance times as the text they were written with' {
+        # The stale-replacement check parses this text; a [DateTime] would be
+        # formatted without its zone and read back in the host's local time.
+        $installed = Get-InstalledGitSourceSelection -RepoRoot $script:repo
+        $installed.verification = 'mirror-confirmed'
+        $installed.originCheckedAt = '2026-11-03T18:54:37.1480736Z'
+        Write-InstalledGitSource -RepoRoot $script:repo -Kind framework -Selection $installed -Confirm:$false | Should -BeTrue
+        $prior = Read-InstalledGitSource -RepoRoot $script:repo
+        $prior.framework.originCheckedAt | Should -BeOfType [string]
+        $prior.framework.originCheckedAt | Should -BeExactly '2026-11-03T18:54:37.1480736Z'
     }
 
     It 'uses actual upstream eligibility for legacy freshness (<Case>)' -ForEach @(

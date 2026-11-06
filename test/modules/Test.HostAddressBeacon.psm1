@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42d5663b-af64-472f-8342-ab50456c2fc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -538,22 +538,28 @@ function Get-HostAddressChurnVerdict {
 <#
 .SYNOPSIS
     Read the recorded address changes and say WHY the host is moving: not at
-    all, once, or once per lease renewal.
+    all, once, or on a DHCP clock -- at each renewal or at each lease expiry.
 .DESCRIPTION
     The distinction that matters is not how often the address changed but
     whether the changes are PERIODIC. A host that renumbers on reboots and
     cable events produces changes at irregular intervals -- ordinary lab life,
     and what the discovery path exists to absorb. A host that takes a new
-    address on every renewal produces them at one interval, repeated, because
-    the interval IS the renewal timer: its DHCP identity is not being honored,
-    so every renewal is a fresh allocation rather than an extension.
+    address on a DHCP clock produces them at one interval, repeated. When the
+    interval is the renewal timer, its DHCP identity is not being honored, so
+    every renewal is a fresh allocation rather than an extension. When it is
+    one lease length, its renewals are not taking effect, so each lease runs
+    out and the next one is a fresh allocation. The address log carries no
+    lease length, so both read as 'renewal-churn' here;
+    Get-HostAddressStabilityReport tells them apart for a pinned bridge whose
+    lease length NetworkManager reports.
 
     Reading periodicity instead of frequency is what makes this verdict
-    independent of the lease time. The same fault shows as changes every ten
-    minutes on a twenty-minute lease and every three days on a week-long one;
-    a threshold on "changes per hour" would call the first a fault and the
-    second healthy, while the pool drains faster in the second case, because
-    each abandoned address is parked for a week instead of twenty minutes.
+    independent of the lease time. The renewal-timer fault shows as changes
+    every ten minutes on a twenty-minute lease and every three days on a
+    week-long one; a threshold on "changes per hour" would call the first a
+    fault and the second healthy, while the pool drains faster in the second
+    case, because each abandoned address is parked for a week instead of
+    twenty minutes.
 
     Regularity is judged against the MEDIAN interval rather than the mean so a
     single reboot in the middle of an otherwise periodic series does not mask
@@ -562,8 +568,9 @@ function Get-HostAddressChurnVerdict {
 .PARAMETER RuntimeDir
     The runtime directory holding hostaddress.changes.ndjson.
 .PARAMETER LookbackHours
-    How far back to read. The window has to span several renewals to see a
-    period at all, so it is generous by default.
+    How far back to read. The window has to span several periods (renewals,
+    or lease lengths when each lease runs out) to see one at all, so it is
+    generous by default.
 .PARAMETER NowUtc
     Window end. Injectable so the verdict is testable against fixed records.
 .OUTPUTS
@@ -697,6 +704,34 @@ function Get-HostBridgeDhcpIdentity {
     return $result
 }
 
+function Get-HostBridgeDhcpLeaseTime {
+<#
+.SYNOPSIS
+    The lease length, in seconds, the DHCP server granted the bridge.
+.DESCRIPTION
+    Dates the observed address changes: a host whose renewals take effect
+    keeps its address past one lease length, so moves one lease length apart
+    are leases running out. NetworkManager reports the options of the lease
+    it holds, dhcp_lease_time among them. No nmcli, a device NetworkManager
+    does not know, or a lease without that option all return $null: not
+    knowable here, never a length.
+.PARAMETER BridgeName
+    Defaults to the framework bridge, whose device and connection share the name.
+.OUTPUTS
+    [long] seconds, or $null.
+#>
+    [CmdletBinding()]
+    [OutputType([long])]
+    param([string]$BridgeName = 'yuruna-br0')
+    if (-not (Get-Command nmcli -ErrorAction SilentlyContinue)) { return $null }
+    $shown = @(& nmcli -t -f DHCP4 device show $BridgeName 2>$null)
+    if ($LASTEXITCODE -ne 0) { return $null }
+    foreach ($line in $shown) {
+        if ("$line" -match '^DHCP4\.OPTION\[\d+\]:\s*dhcp_lease_time\s*=\s*(\d+)\s*$') { return [long]$Matches[1] }
+    }
+    return $null
+}
+
 function Set-HostBridgeDhcpIdentity {
 <#
 .SYNOPSIS
@@ -808,6 +843,10 @@ function Get-HostAddressStabilityReport {
       * pinned, and STILL renumbering every renewal -- the server does not key
         leases on client-id. No pin will fix that; the address has to come
         from a reservation or be set statically.
+      * pinned, and renumbering once per lease length -- the renewals are not
+        taking effect, so each lease runs out. The lease length comes from
+        NetworkManager, whose dhcp4 journal lines show what became of each
+        lease; without a length this reads as the case above.
 
     And it separates both from the case that reads like a fault and is not: a
     host the lab renumbers deliberately to prove the discovery path works.
@@ -862,8 +901,21 @@ function Get-HostAddressStabilityReport {
                 $report.message = (Format-YurunaOperatorMessage -Key 'runner.operator_446ea43d3a126c3d' -Arguments @{ base = "$base" })
                 $report.remedy  = $identity.remedy
             } elseif ($identity.pinned -eq $true) {
-                $report.message = (Format-YurunaOperatorMessage -Key 'runner.operator_be1897d75025587a' -Arguments @{ base = "$base" })
-                $report.remedy  = (Format-YurunaOperatorMessage -Key 'runner.operator_9535dff9173f8582')
+                # Moves one lease length apart are leases running out: the
+                # renewal at half the lease and the rebind before expiry did not
+                # take effect, whichever side dropped them. The beacon sees a
+                # move within minutes, so a tenth of the lease keeps an expiry
+                # apart from a rebind at seven eighths of it and a renewal at
+                # half. A lease length that cannot be read keeps the reading
+                # below, which needs none.
+                $leaseSeconds = if ($identity.backend -eq 'networkmanager') { Get-HostBridgeDhcpLeaseTime -BridgeName $BridgeName } else { $null }
+                if ($leaseSeconds -gt 0 -and [math]::Abs($churn.medianIntervalMinutes * 60 - $leaseSeconds) -le $leaseSeconds / 10) {
+                    $report.message = (Format-YurunaOperatorMessage -Key 'runner.host_address_lease_expiry_churn' -Arguments @{ changes = "$($churn.changes)"; lookbackHours = "$($churn.lookbackHours)"; distinctAddresses = "$($churn.distinctAddresses)"; medianIntervalMinutes = "$($churn.medianIntervalMinutes)"; leaseSeconds = "$leaseSeconds" })
+                    $report.remedy  = (Format-YurunaOperatorMessage -Key 'runner.host_address_lease_expiry_remedy')
+                } else {
+                    $report.message = (Format-YurunaOperatorMessage -Key 'runner.operator_be1897d75025587a' -Arguments @{ base = "$base" })
+                    $report.remedy  = (Format-YurunaOperatorMessage -Key 'runner.operator_9535dff9173f8582')
+                }
             } else {
                 $report.message = (Format-YurunaOperatorMessage -Key 'runner.operator_742e7474bc090258' -Arguments @{ base = "$base"; detail = "$($identity.detail)" })
                 $report.remedy  = (Format-YurunaOperatorMessage -Key 'runner.operator_76a1965f795c7fff')

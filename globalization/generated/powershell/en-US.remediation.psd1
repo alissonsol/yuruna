@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42566df9-1f3e-a604-b789-3ec5dfc0e347
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,35 @@
 # locale: en-US  domain: remediation
 
 @{
+    'remediation.guest_kernel_stalled_action_evidence' = 'Read causeDetail.guestKernelStallEnd and causeDetail.guestLivelock in last_failure.json, and the kernel''s reports in the guest folder''s serial-console.log'
+    'remediation.guest_kernel_stalled_rationale' = @(
+        'guest_kernel_stalled on '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': the guest kernel stopped making progress, so the step could not finish (kernel reports: '
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; virtual processors that serviced no interrupt: '
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; seconds every virtual processor was held in the hypervisor: '
+        @{
+            'arg' = 'heldSeconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '). This is not a slow mirror or a payload fault, and the same boot does not recover; the next attempt boots the guest again.'
+    )
+    'remediation.guest_kernel_stalled_retry_reason' = 'a guest kernel that stopped making progress recovers only on a new boot, which the next attempt starts; these retries spend a daily budget of their own'
     'remediation.guest_run_lost_action_inspect' = 'Read the guest''s execution log for what ended the process.'
     'remediation.guest_run_lost_action_restore' = 'Restore the last good snapshot and run the sequence again.'
     'remediation.guest_run_lost_rationale' = @(
@@ -764,13 +793,13 @@
         }
     )
     'remediation.vm_not_stopped_action_inspect' = 'If it happens again, look at the guest console for what is holding the shutdown.'
-    'remediation.vm_not_stopped_action_power' = 'Power the VM off from the host -- a retry with restartVmBeforeRetry: coldPowerCycle does this -- and run the step again.'
+    'remediation.vm_not_stopped_action_power' = 'Power the VM off from the host -- a stopVm step with forceOnTimeout: true does this in the sequence, or turn it off from the hypervisor -- and run the step again.'
     'remediation.vm_not_stopped_rationale' = @(
         @{
             'arg' = 'vmName'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' never reached the stopped state the step waited for: the guest ignored the shutdown request, and waiting again cannot change that. A cold power cycle can.'
+        ' never reached the stopped state the step waited for: the guest ignored the shutdown request, and waiting again cannot change that. Powering it off from the host can.'
     )
 }

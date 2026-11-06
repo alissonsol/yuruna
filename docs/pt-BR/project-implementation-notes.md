@@ -4247,8 +4247,10 @@ Uma divergência exclui o download, para que a unidade repetida o baixe novament
 `amisad.dev/poc/test/ubuntu.server.24/ubuntu.server.24.amisad-core.db.sh`
 
 POC AmisAd — crie o banco amisad, carregue o esquema e abra a instância para pods
-do cluster: papel 'amisad' (senha fixa do laboratório, passada em DATABASE_URL
-— veja poc/test.md), listen_addresses '*', pg_hba para as redes de pods e nós.
+do cluster: papel 'amisad', criado sem senha (a etapa de implantação define uma
+nova a cada build e a publica somente como o Secret do Kubernetes do qual os pods
+montam DATABASE_URL — veja poc/test.md), listen_addresses '*', pg_hba para as
+redes de pods e nós.
 O papel NÃO recebe UPDATE/DELETE nas tabelas de ledger — o próprio banco impõe
 apenas acréscimos. O esquema é obtido do status service do hospedeiro em um
 diretório privado e entregue a psql por stdin, pois o usuário postgres não lê

@@ -6999,31 +6999,6 @@
     },
     {
       "path": "host/macos.utm/guest.windows.11/Get-Image.ps1",
-      "line": 229,
-      "sink": "Write-Progress",
-      "key": "host.operator_13835229449d2daa",
-      "arguments": [
-        "transferredGB",
-        "totalGB",
-        "pct"
-      ]
-    },
-    {
-      "path": "host/macos.utm/guest.windows.11/Get-Image.ps1",
-      "line": 229,
-      "sink": "Write-Progress",
-      "key": "host.operator_357cbe83efce827f",
-      "arguments": []
-    },
-    {
-      "path": "host/macos.utm/guest.windows.11/Get-Image.ps1",
-      "line": 243,
-      "sink": "Write-Output",
-      "key": "host.operator_66c7eec66542e844",
-      "arguments": []
-    },
-    {
-      "path": "host/macos.utm/guest.windows.11/Get-Image.ps1",
       "line": 248,
       "sink": "throw",
       "key": "exceptions.host_870df3a8573355af",
@@ -16325,31 +16300,6 @@
       "line": 273,
       "sink": "Write-Output",
       "key": "host.operator_26d58e13fc858352",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.windows.11/Get-Image.ps1",
-      "line": 289,
-      "sink": "Write-Progress",
-      "key": "host.operator_13835229449d2daa",
-      "arguments": [
-        "transferredGB",
-        "totalGB",
-        "pct"
-      ]
-    },
-    {
-      "path": "host/windows.hyper-v/guest.windows.11/Get-Image.ps1",
-      "line": 289,
-      "sink": "Write-Progress",
-      "key": "host.operator_22ca18573ae3e913",
-      "arguments": []
-    },
-    {
-      "path": "host/windows.hyper-v/guest.windows.11/Get-Image.ps1",
-      "line": 303,
-      "sink": "Write-Output",
-      "key": "host.operator_66c7eec66542e844",
       "arguments": []
     },
     {

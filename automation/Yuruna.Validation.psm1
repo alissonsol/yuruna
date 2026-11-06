@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42424ce3-9435-4785-bfcc-3963c111d3a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,6 +35,11 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.DeploymentKind.psm1') -Global -Fo
 # reaching only Write-Information (silenced at Error/Warning). -Global -Force
 # so the import does not evict an instance another module loaded.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
+# Invoke-YurunaToolWithDeadline and Get-YurunaCommandTimeout: the context
+# probe runs under the deploy tools' deadline, from the same configured
+# bound as the publisher's kubectl calls. -Global -Force so the import does
+# not evict an instance another module loaded.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Global -Force
 
 function Confirm-FolderList {
     param (
@@ -257,6 +262,7 @@ function Confirm-WorkloadList {
     $seenContexts = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $seenContextsExpanded = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $seenWorkloadReleases = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $contextSeconds = (Get-YurunaCommandTimeout -Call 'deployment' -GlobalVariables $yaml.globalVariables).Seconds
     foreach ($workload in $yaml.workloads) {
         $contextRaw = $workload['context']
         $contextName = $ExecutionContext.InvokeCommand.ExpandString($contextRaw)
@@ -266,8 +272,10 @@ function Confirm-WorkloadList {
         # Non-mutating existence probe: `kubectl config get-contexts <name>` exits non-zero when
         # the context is absent WITHOUT switching the operator's current context. Probing with
         # use-context instead would mutate live state and leave the shell on the wrong context
-        # if anything threw between the switch and the restore.
-        $null = kubectl config get-contexts $contextName *>&1
+        # if anything threw between the switch and the restore. Bounded like the
+        # publisher's kubectl calls; the probe is not a verdict (the publisher
+        # fails an unusable context), so a stopped one reads like an absent one.
+        $null = Invoke-YurunaToolWithDeadline -Label "kubectl config get-contexts $contextName" -TimeoutSeconds $contextSeconds -ScriptBlock { kubectl config get-contexts $contextName *>&1 }
         if ($LASTEXITCODE -ne 0) { Write-Debug "K8S context not found: $contextName`nFile: $workloadsFile"; }
         foreach ($deployment in $workload.deployments) {
             # Effective deployment kind + the kinds phrase come from the

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42c40d2c-52f3-f14f-800e-6b343505b865
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,509 @@
         ' Nenhum sentinela ou registro de origem foi gravado para ele.'
     )
     'host.clock_service_description' = 'Serviço de tempo do Windows (W32Time)'
+    'host.deep_diagnostics_applying' = @(
+        'Aplicando '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ')...'
+    )
+    'host.deep_diagnostics_change' = @(
+        '    '
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'previous'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -> '
+        @{
+            'arg' = 'new'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_component_failed' = @(
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' não foi aplicado: '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_dependencies_kept' = @(
+        'os pacotes que a instalação de '
+        @{
+            'arg' = 'package'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' trouxe, que o apt marcou como instalados automaticamente, permanecem porque outro software pode usá-los; /var/log/apt/history.log os lista sob essa instalação. Para removê-los também: sudo apt-get purge <esses pacotes>. apt-get autoremove também removeria todos os outros pacotes de que o apt não precisa mais, entre eles kernels antigos'
+    )
+    'host.deep_diagnostics_enable_incomplete' = @(
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' componente(s) com falha, e os demais estão em vigor; corrija a causa e execute Enable-DeepDiagnostics.ps1 novamente.'
+    )
+    'host.deep_diagnostics_evidence_kept' = @(
+        'os pacotes de evidências permanecem em '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '; -RemoveEvidence os exclui'
+    )
+    'host.deep_diagnostics_existing_unreadable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' existe, mas não pode ser lido, então não poderia ser restaurado depois; ele foi deixado como está'
+    )
+    'host.deep_diagnostics_journal_directory_created' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' foi criado enquanto o modo de diagnóstico aprofundado estava ativado, e o journald mantém um diário persistente enquanto esse diretório existir. Para voltar a um diário volátil: sudo rm -rf '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' && sudo systemctl restart systemd-journald'
+    )
+    'host.deep_diagnostics_key_netconsole' = 'destino do netconsole'
+    'host.deep_diagnostics_key_pstore_backend' = 'backend do pstore'
+    'host.deep_diagnostics_module_in_use' = @(
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' continua carregado porque algo ainda o usa'
+    )
+    'host.deep_diagnostics_netconsole_how_to' = 'Para enviar o log do kernel para outra máquina em tempo real, execute pwsh test/lab/Receive-Netconsole.ps1 nela e, depois, execute este script novamente com -NetconsoleTarget <IPv4 dessa máquina>[:porta].'
+    'host.deep_diagnostics_netconsole_no_dispatcher' = 'o NetworkManager não está instalado, então o destino é definido apenas na inicialização, e não novamente quando o endereço deste hospedeiro muda'
+    'host.deep_diagnostics_netconsole_no_target' = 'nenhum -NetconsoleTarget foi informado'
+    'host.deep_diagnostics_netconsole_not_enabled' = 'o destino do netconsole não ficou ativo; veja: journalctl -t yuruna-netconsole'
+    'host.deep_diagnostics_not_enabled' = @(
+        'O modo de diagnóstico aprofundado não está ativado neste hospedeiro: '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' não existe.'
+    )
+    'host.deep_diagnostics_nothing_to_change' = 'O modo de diagnóstico aprofundado já está em vigor neste hospedeiro; nada foi alterado.'
+    'host.deep_diagnostics_plan_apply' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): será aplicado'
+    )
+    'host.deep_diagnostics_plan_current' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): já está em vigor'
+    )
+    'host.deep_diagnostics_plan_header' = @(
+        'Modo de diagnóstico aprofundado em '
+        @{
+            'arg' = 'hostName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': alterações planejadas'
+    )
+    'host.deep_diagnostics_plan_note' = @(
+        '    nota: '
+        @{
+            'arg' = 'note'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_plan_skip' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): ignorado -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_pstore_backend' = @(
+        'o pstore já usa o backend '
+        @{
+            'arg' = 'backend'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_pstore_legacy_bios' = 'este hospedeiro foi inicializado com BIOS legado, e o efi-pstore precisa de UEFI'
+    'host.deep_diagnostics_pstore_no_backend' = @(
+        'efi_pstore foi carregado, mas o pstore ainda não informa nenhum backend ('
+        @{
+            'arg' = 'backend'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.deep_diagnostics_pstore_unit_masked' = 'systemd-pstore.service está mascarado; desmascare-o para arquivar os registros de falhas na inicialização'
+    'host.deep_diagnostics_pstore_unsupported' = 'este kernel não tem suporte a pstore'
+    'host.deep_diagnostics_reason_declined' = 'não confirmado'
+    'host.deep_diagnostics_reason_interrupted' = 'Enable-DeepDiagnostics.ps1 parou antes de este componente entrar em vigor'
+    'host.deep_diagnostics_receiver_command' = @(
+        'Mantenha o receptor em execução na máquina de destino: pwsh test/lab/Receive-Netconsole.ps1 -Port '
+        @{
+            'arg' = 'port'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_requires_linux' = 'O modo de diagnóstico aprofundado é para um hospedeiro Ubuntu KVM, e este hospedeiro não executa Linux. Nada foi alterado.'
+    'host.deep_diagnostics_requires_systemd' = 'O modo de diagnóstico aprofundado precisa do systemd como sistema init em execução, e /run/systemd/system não existe neste hospedeiro. Nada foi alterado.'
+    'host.deep_diagnostics_restore_done' = @(
+        'O modo de diagnóstico aprofundado está desativado; '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' alteração(ões) revertida(s).'
+    )
+    'host.deep_diagnostics_restore_failed' = @(
+        @{
+            'arg' = 'item'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' não foi restaurado: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_restore_header' = @(
+        'Modo de diagnóstico aprofundado, ativado em '
+        @{
+            'arg' = 'enabledAtUtc'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' por '
+        @{
+            'arg' = 'enabledBy'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': restauração planejada'
+    )
+    'host.deep_diagnostics_restore_incomplete' = @(
+        'Não foi possível reverter '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' alteração(ões); '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' foi mantido, então executar Disable-DeepDiagnostics.ps1 novamente conclui a restauração.'
+    )
+    'host.deep_diagnostics_setting_overridden' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' define '
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '='
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' e é lido depois do drop-in do diagnóstico aprofundado, por isso o valor dele prevalece na inicialização.'
+    )
+    'host.deep_diagnostics_should_apply' = 'Aplicar'
+    'host.deep_diagnostics_should_record' = 'Registrar os valores atuais e aplicar o modo de diagnóstico aprofundado'
+    'host.deep_diagnostics_should_restore' = 'Restaurar os valores registrados antes do modo de diagnóstico aprofundado'
+    'host.deep_diagnostics_state_record' = @(
+        'Todos os valores acima são registrados em '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' antes da primeira alteração; Disable-DeepDiagnostics.ps1 restaura o hospedeiro a partir desse registro.'
+    )
+    'host.deep_diagnostics_state_unreadable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' existe, mas não é um arquivo de estado do diagnóstico aprofundado ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Nada foi alterado; restaure o arquivo ou mova-o para outro lugar antes de executar novamente.'
+    )
+    'host.deep_diagnostics_step_failed' = @(
+        @{
+            'arg' = 'command'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' falhou (código de saída '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '): '
+        @{
+            'arg' = 'output'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_sudo_unavailable' = 'O modo de diagnóstico aprofundado altera configurações que pertencem ao root, e o sudo não executou um comando sem pedir senha. Nada foi alterado. Execute o script novamente em um terminal onde você possa digitar a senha do sudo, ou como root.'
+    'host.deep_diagnostics_summary_applied' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': aplicado'
+    )
+    'host.deep_diagnostics_summary_failed' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': falhou -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_summary_header' = 'Modo de diagnóstico aprofundado:'
+    'host.deep_diagnostics_summary_skipped' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': ignorado -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_sysctl_not_exposed' = @(
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' não é exposto por este kernel, por isso fica de fora.'
+    )
+    'host.deep_diagnostics_target_invalid' = @(
+        '-NetconsoleTarget '''
+        @{
+            'arg' = 'target'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' não é um endereço IPv4 com porta opcional, como 192.168.1.20 ou 192.168.1.20:6666. Nada foi alterado.'
+    )
+    'host.deep_diagnostics_title_boot_evidence' = 'pacote de evidências a cada inicialização'
+    'host.deep_diagnostics_title_journald' = 'diário persistente sincronizado a cada 10 segundos'
+    'host.deep_diagnostics_title_netconsole' = 'log do kernel enviado para outra máquina'
+    'host.deep_diagnostics_title_pstore' = 'registros de falhas no armazenamento UEFI'
+    'host.deep_diagnostics_title_rasdaemon' = 'log de erros de hardware'
+    'host.deep_diagnostics_title_sysctl' = 'pânico e reinicialização em caso de travamentos e oopses'
+    'host.deep_diagnostics_title_vitals' = 'sinais vitais do hospedeiro no log do kernel a cada 10 segundos'
+    'host.deep_diagnostics_title_watchdog' = 'reinicialização por watchdog de hardware'
+    'host.deep_diagnostics_value_absent' = 'ausente'
+    'host.deep_diagnostics_value_evidence' = 'os pacotes de evidências'
+    'host.deep_diagnostics_value_installed' = 'instalado'
+    'host.deep_diagnostics_value_loaded' = 'carregado'
+    'host.deep_diagnostics_value_none' = 'nenhum'
+    'host.deep_diagnostics_value_not_installed' = 'não instalado'
+    'host.deep_diagnostics_value_not_loaded' = 'não carregado'
+    'host.deep_diagnostics_value_removed' = 'removido'
+    'host.deep_diagnostics_value_restored_content' = @(
+        'o conteúdo anterior guardado em '
+        @{
+            'arg' = 'statePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_value_saved_content' = @(
+        'outro conteúdo, guardado em '
+        @{
+            'arg' = 'statePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_value_yuruna_file' = 'a versão do diagnóstico aprofundado'
+    'host.deep_diagnostics_verify' = 'Para verificar o caminho de ponta a ponta, execute: echo ''<5>yuruna-deep-diagnostics: check'' | sudo tee /dev/kmsg -- a linha aparece em ''journalctl -k -n 5'' aqui e, com o netconsole, no log do receptor.'
+    'host.deep_diagnostics_watchdog_daemon' = @(
+        @{
+            'arg' = 'unit'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' está em execução e retém o dispositivo watchdog; pare-o e desative-o para que o systemd possa usar o dispositivo'
+    )
+    'host.deep_diagnostics_watchdog_held' = @(
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' está aberto por outro processo, e um dispositivo watchdog aceita um usuário por vez; pare esse processo para que o systemd possa usá-lo'
+    )
+    'host.deep_diagnostics_watchdog_no_device' = @(
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' foi carregado, mas não registrou nenhum watchdog de hardware, o que geralmente significa que o firmware o desativou (veja: sudo dmesg | grep -i '
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.deep_diagnostics_watchdog_no_driver' = @(
+        'nenhum watchdog de hardware está registrado e nenhum driver é conhecido para o fabricante de CPU '''
+        @{
+            'arg' = 'vendor'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''; o softdog não é usado porque não consegue disparar em um congelamento total'
+    )
+    'host.deep_diagnostics_watchdog_nowayout' = @(
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' tem nowayout definido: depois de armado, ele não pode ser parado sem uma reinicialização, então Disable-DeepDiagnostics.ps1 não conseguiria restaurar este hospedeiro'
+    )
+    'host.deep_diagnostics_watchdog_provider_unknown' = @(
+        'não foi possível identificar o módulo do kernel que fornece '
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ('''
+        @{
+            'arg' = 'identity'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''') (drivers de watchdog carregados: '
+        @{
+            'arg' = 'drivers'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), então nada o carregaria na próxima inicialização e o watchdog sumiria após uma reinicialização; com exatamente um driver de watchdog de hardware carregado, execute isto novamente'
+    )
+    'host.deep_diagnostics_watchdog_softdog' = @(
+        'apenas o softdog está registrado ('
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). O softdog é executado nos processadores que congelam, então não consegue disparar em um congelamento total, e um driver de hardware não se registraria como watchdog0 enquanto o softdog estiver carregado; descarregue-o (sudo modprobe -r softdog) e execute novamente'
+    )
     'host.download_incomplete' = @(
         'O download de '
         @{
@@ -83,10 +586,10 @@
         ' dentro do tempo limite; o arquivo de PID foi mantido e nada foi sinalizado.'
     )
     'host.hyperv_bounded_call_no_answer' = @(
-        'A chamada ao Hyper-V terminou sem retornar resposta (estado do job: '
+        'A chamada ao Hyper-V terminou sem retornar resposta (código de saída do processo filho: '
         @{
-            'arg' = 'state'
-            'type' = 'token'
+            'arg' = 'exitCode'
+            'type' = 'detail'
             'trust' = 'internal'
         }
         '; motivo: '
@@ -262,6 +765,44 @@
         }
         ''' existe; nada foi alterado.'
     )
+    'host.hyperv_worker_lookup_failed' = @(
+        '  A busca pelo trabalhador vmwp.exe da VM '
+        @{
+            'arg' = 'vmId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' falhou; irá tentar novamente Stop-VM. Erro: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.hyperv_worker_lookup_unanswered' = @(
+        '  A busca pelo trabalhador vmwp.exe da VM '
+        @{
+            'arg' = 'vmId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' não respondeu em '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' segundos; irá tentar novamente Stop-VM.'
+    )
+    'host.kvm_config_port_firewall' = @(
+        '  firewall do serviço de configuração: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.kvm_config_port_rule_delete' = 'Excluir a regra do serviço de configuração que o Yuruna adicionou'
     'host.kvm_force_stop_pid_unverified' = @(
         'Stop-VMForce: o processo '
         @{
@@ -307,6 +848,8 @@
         }
         '''; instale uma regra do sudoers para /bin/kill ou pare o domínio manualmente.'
     )
+    'host.kvm_journal_group_missing' = 'o grupo ''systemd-journal'' não existe, então os diagnósticos do executor de testes não podem ler o diário do sistema nem o log do kernel da inicialização anterior. O systemd o cria a partir de sysusers.d; ''sudo systemd-sysusers'' o restaura; depois, execute este script novamente.'
+    'host.kvm_journal_group_session_stale' = '  A associação a ''systemd-journal'' está em /etc/group; o conjunto de grupos deste shell está desatualizado. Saia da sessão e entre novamente; depois, inicie o executor de testes a partir dessa nova sessão para que os diagnósticos dele possam ler o diário do sistema.'
     'host.kvm_rename_destination_dir_exists' = @(
         'Não é possível renomear para '''
         @{
@@ -5679,7 +6222,7 @@
         }
         ' (chave harness autorizada)'
     )
-    'host.operator_a0e97dcbb626019f' = 'Somente a regra de porta de status da ufw será removida -- ela é provavelmente nossa. Membros do grupo, o $HOME ACL, libvirtd/virtlogd e as teclas GNOME são deixadas exatamente como são, e relatadas.'
+    'host.operator_a0e97dcbb626019f' = 'Somente as regras do ufw que o Yuruna marcou como suas serão removidas. Membros do grupo, o $HOME ACL, libvirtd/virtlogd e as teclas GNOME são deixadas exatamente como são, e relatadas.'
     'host.operator_a127790ebde6e4ff' = 'cache VM nele), ou defini-lo à mão -- veja'
     'host.operator_a19074ac4867746e' = 'Usuário da consola/SSH:'
     'host.operator_a1a6059aaacffcb8' = @(

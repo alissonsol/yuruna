@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42fa8d36-e7cb-4b28-93b8-d483c23cdcb4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,11 +185,12 @@ Describe 'every declared beacon cadence' {
         # against: whatever it declares has to be shorter than the grace, or a
         # renumbered service is unresolvable between the refusal of its old
         # address and its next announce.
-        $mainGo = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', 'pool-aggregator-service', 'main.go')
-        $source = Get-Content -Raw -LiteralPath $mainGo
+        $extensionsGo = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', 'pool-aggregator-service',
+            'internal', 'extensions', 'extensions.go')
+        $source = Get-Content -Raw -LiteralPath $extensionsGo
         # Matched here rather than through Assert-Match: $Matches from a call
         # inside the assertion helper never reaches this scope.
-        Assert-True ($source -match 'extensionHealthGrace\s*=\s*([0-9]+)\s*\*\s*time\.Minute') `
+        Assert-True ($source -match 'HealthGrace\s*=\s*([0-9]+)\s*\*\s*time\.Minute') `
             'the aggregator declares a health grace in minutes'
         $graceSeconds = [double]$Matches[1] * 60
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42eeeb9d-fb5a-4c19-9424-9b112f3e3721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -713,8 +713,90 @@ function Get-ExtensionServiceReadyTimeoutSeconds {
     return $DefaultSeconds
 }
 
+function Get-ExtensionServiceHostNameSeed {
+    <#
+    .SYNOPSIS
+        The names the stash, download-agent and caching-proxy VMs answer to
+        besides their addresses, host name and localhost, as the comma list
+        their seeds carry.
+    .DESCRIPTION
+        Each daemon refuses a request whose Host header names any other host,
+        which is what keeps a page whose own name was made to resolve to a
+        service (DNS rebinding) from using it. The list is every
+        vmStart.serviceHostNames entry plus the host, when it is a name, of
+        vmStart.cachingProxyIp, repositories.mirror.url and
+        pool.configurationGitUrl: the names this host's configuration reaches
+        the proxy by. Addresses are left out, because every address is served.
+        Names are lower-cased, stripped of one trailing dot, sorted and unique.
+
+        A blank entry is ignored. Any other entry of vmStart.serviceHostNames
+        that is neither a DNS name nor an IP address throws
+        'service-host-name-invalid: vmStart.serviceHostNames',
+        so a seed never carries a name no request can match. The other keys are
+        read, never judged: a value that is not a name adds nothing.
+    .PARAMETER Config
+        A parsed test configuration; $null yields an empty list.
+    .PARAMETER RepoRoot
+        Framework checkout whose test/test.config.yml is read; a missing or
+        unparseable file yields an empty list.
+    .OUTPUTS
+        [string] comma-separated names, or ''.
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'Config')]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'Config')][AllowNull()][System.Collections.IDictionary]$Config,
+        [Parameter(Mandatory, ParameterSetName = 'RepoRoot')][string]$RepoRoot
+    )
+    if ($PSCmdlet.ParameterSetName -eq 'RepoRoot') {
+        if (-not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot 'Test.Config.psm1') -DisableNameChecking -Verbose:$false
+        }
+        $Config = Read-TestConfig -Path (Join-Path $RepoRoot 'test/test.config.yml')
+    }
+    if ($null -eq $Config) { return '' }
+    $dnsName = '^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$'
+    $names = [System.Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)
+    $add = {
+        param([string]$Value, [bool]$Judge)
+        $name = $Value.Trim().ToLowerInvariant()
+        if ($name.EndsWith('.')) { $name = $name.Substring(0, $name.Length - 1) }
+        # A blank entry, such as an editor's empty list item, names nothing.
+        if (-not $name) { return }
+        # An address in the form the daemons parse as one: a dotted quad or an
+        # IPv6 literal. A bare number such as '10' is a name to them.
+        $literal = $name.Trim('[', ']')
+        $address = $null
+        if (($literal.Contains(':') -or $literal -match '^\d{1,3}(\.\d{1,3}){3}$') -and
+            [System.Net.IPAddress]::TryParse($literal, [ref]$address)) { return }
+        if ($name -cmatch $dnsName) { [void]$names.Add($name) }
+        elseif ($Judge) { throw 'service-host-name-invalid: vmStart.serviceHostNames' }
+    }
+    $vmStart = $Config['vmStart']
+    if ($vmStart -is [System.Collections.IDictionary]) {
+        if ($vmStart.Contains('serviceHostNames') -and $null -ne $vmStart['serviceHostNames']) {
+            foreach ($entry in @($vmStart['serviceHostNames'])) { & $add ([string]$entry) $true }
+        }
+        if ($vmStart.Contains('cachingProxyIp') -and $vmStart['cachingProxyIp']) { & $add ([string]$vmStart['cachingProxyIp']) $false }
+    }
+    $urls = @()
+    $repositories = $Config['repositories']
+    if ($repositories -is [System.Collections.IDictionary] -and $repositories['mirror'] -is [System.Collections.IDictionary]) {
+        $urls += [string]$repositories['mirror']['url']
+    }
+    $pool = $Config['pool']
+    if ($pool -is [System.Collections.IDictionary]) { $urls += [string]$pool['configurationGitUrl'] }
+    foreach ($url in $urls) {
+        $uri = $null
+        if ($url -and [uri]::TryCreate($url, [UriKind]::Absolute, [ref]$uri) -and $uri.HostNameType -eq [UriHostNameType]::Dns) {
+            & $add $uri.Host $false
+        }
+    }
+    return ($names -join ',')
+}
+
 Export-ModuleMember -Function Get-ExtensionServiceManifest, Get-ExtensionServiceManifestAll, `
     Get-ExtensionServiceVmRoster, Get-ExtensionServiceMarkerPath, Write-ExtensionServiceMarker, `
     Read-ExtensionServiceMarker, Get-ExtensionServiceMarkerBaseUrl, Remove-ExtensionServiceMarker, Stop-ExtensionServiceHostProcess, `
     Get-ActiveExtensionService, Get-ExtensionServiceReadyTimeoutSeconds, `
-    Get-ExtensionServiceDeploymentIdentity, Get-ExtensionServiceHostProcessState
+    Get-ExtensionServiceDeploymentIdentity, Get-ExtensionServiceHostProcessState, Get-ExtensionServiceHostNameSeed

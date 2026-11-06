@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 421020da-84c1-40cb-8831-6d1e4c24a63f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,8 +17,13 @@ BeforeAll {
         $null = New-Item -ItemType Directory -Path $root
         & git -C $root init --quiet --initial-branch=main
         if ($LASTEXITCODE) { throw 'Could not create candidate fixture.' }
+        # Git archive applies checkout line endings. Exercise the Windows
+        # setting explicitly rather than inheriting the machine's Git config.
+        & git -C $root config core.autocrlf true
+        if ($LASTEXITCODE) { throw 'Could not configure candidate fixture line endings.' }
     }
     foreach ($relative in @(
+            '.gitattributes',
             'test/fixtures/git-mirror/qualification-contract.json',
             'test/fixtures/git-mirror/public-2026.10.18.2.json',
             'test/fixtures/git-mirror/native-service-recipes.json',

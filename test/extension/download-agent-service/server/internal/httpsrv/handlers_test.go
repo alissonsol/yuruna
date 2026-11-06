@@ -835,3 +835,34 @@ func TestACrossSiteEnsureIsRefused(t *testing.T) {
 		t.Fatalf("a host's ensure = %d, want 200", r.StatusCode)
 	}
 }
+
+// A page whose own name was made to resolve to this agent (DNS rebinding) is
+// same-origin with it, so the cross-origin check passes it; the name it
+// carries is what refuses it, before ensure can start a download.
+func TestARequestNamingAnotherHostIsRefused(t *testing.T) {
+	srv, f := newServer(t, Options{})
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/status"},
+		{http.MethodPost, imgPath + "/ensure" + imgQuery},
+	} {
+		req, err := http.NewRequest(tc.method, srv.URL+tc.path, strings.NewReader(""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = "rebind.example"
+		req.Header.Set("Origin", "http://rebind.example")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := decodeBody(t, resp)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMisdirectedRequest || body["code"] != "auth.host_not_served" {
+			t.Errorf("%s %s naming rebind.example = %d %v, want 421 auth.host_not_served", tc.method, tc.path, resp.StatusCode, body)
+		}
+	}
+	if len(f.ensured) != 0 {
+		t.Fatalf("a rebound page's ensure reached the store: %+v", f.ensured)
+	}
+}

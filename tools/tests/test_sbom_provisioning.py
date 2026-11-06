@@ -385,6 +385,41 @@ Install-Module -Name PSScriptAnalyzer -Repository PSGallery -Scope CurrentUser -
         self.assertFalse(result["guests"])
         self.assertTrue(any("unresolved image reference $IMAGE" in note["detail"] for note in result["coverage"]))
 
+    def test_powershell_argument_array_install_is_a_provisioning_input(self):
+        # A native call built as an argument array keeps the manager and its
+        # action in separate quoted elements, which the shell-form pattern does
+        # not see. A sentence held in one element, a removal, a dynamic verb and
+        # printed advice stay out.
+        result = self.collect(**{"host/ubuntu.kvm/modules/Yuruna.Host.Example.psm1": """Add-Step -Argument @('apt-get', 'update', '-q') -Optional
+Add-Step -Argument @('env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '-q', 'rasdaemon') -After {
+    param($Component)
+}
+Add-Step -Step @(@{ Kind = 'sudo'; Argument = @('env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', $verb, '-y', '-q', $package) })
+Add-Step -Argument @('apt-get', 'purge', '-y', 'rasdaemon')
+$reasons = @('apt-get install advice-only when it is missing', 'brew install other-advice')
+Write-Warning 'Run: apt-get install warning-only'
+"""})
+        self.assertEqual(self.names(result, "hosts"), {"rasdaemon"})
+        row = result["hosts"][0]
+        self.assertEqual((row["ecosystem"], row["group"]), ("apt", "example:hosts:ubuntu-kvm"))
+        self.assertEqual([item["line"] for item in row["evidence"]], [2])
+        self.assertIn("action=apt-get install; requested=rasdaemon", row["evidence"][0]["detail"])
+        self.assertNotIn("version", row)
+        self.assertFalse(result["guests"])
+        self.assertFalse(result["coverage"])
+
+    def test_deep_diagnostics_rasdaemon_install_is_inventoried(self):
+        # Deep diagnostics mode installs rasdaemon on a KVM host that lacks it.
+        # Reading the shipped module keeps a rewrite of that install step the
+        # collector cannot follow from silently dropping the package.
+        path = "host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1"
+        source = (MODULE_PATH.parents[1] / path).read_bytes()
+        result = MODULE.collect_provisioning({path: source}, "yuruna")
+        rows = [row for row in result["hosts"] if row["name"] == "rasdaemon"]
+        self.assertEqual(len(rows), 1, result["hosts"])
+        self.assertEqual((rows[0]["ecosystem"], rows[0]["group"]), ("apt", "yuruna:hosts:ubuntu-kvm"))
+        self.assertEqual({item["path"] for item in rows[0]["evidence"]}, {path})
+
 
 # --- REGION: SBOM
 class SbomHookTests(unittest.TestCase):

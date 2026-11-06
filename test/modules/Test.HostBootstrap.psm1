@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b7a403-f88e-4a99-bea6-e01180846f3b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,7 +62,8 @@ function Initialize-YurunaHost {
     Used by tests that simulate other hosts.
     .OUTPUTS
     [string] -- absolute path to the imported Yuruna.Host.psm1, or
-    throws if the file is missing for the current host.
+    throws if the file is missing for the current host or the driver
+    refuses to load.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -76,7 +77,13 @@ function Initialize-YurunaHost {
     if (-not (Test-Path $modulePath)) {
         throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_62eaa799b46f377c' -Arguments @{ hostType = "$HostType"; modulePath = "$modulePath" })
     }
-    Import-Module $modulePath -Force -DisableNameChecking -Global
+    # A driver that throws while it loads, such as one missing a contract
+    # verb, fails Import-Module with an error that ends only the statement:
+    # a caller with no try on its call stack, such as the inner loop, would
+    # print it and carry on with no driver at all. Thrown again from here, it
+    # stops that caller too.
+    try { Import-Module $modulePath -Force -DisableNameChecking -Global -ErrorAction Stop }
+    catch { throw }
     # Test.VMUtility.psm1 holds host-agnostic test helpers (Wait-VMRunning,
     # ...) that build on the host driver's contract. Imported alongside
     # the driver so callers can rely on either set without a separate

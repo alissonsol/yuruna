@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42797929-4086-43ea-846a-16a46da5c267
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -257,7 +257,7 @@ Describe 'Hyper-V storage is deleted only when no registered VM uses it' {
         $script:HyperVHelpers = (@('Get-HyperVDirectoryDiskOwner', 'Repair-HyperVVMStorageLocation', 'Test-HyperVDirectoryFreeToDelete',
                 'Repair-VMStorageLocation', 'Remove-HyperVGuestDefinition', 'Rename-VM', 'Invoke-HyperVLifecycleCmdlet') |
             ForEach-Object { (Get-YurunaTestFunctionAst -Ast $ast -Name $_).Extent.Text }) -join "`n"
-        # A lifecycle cmdlet runs in a thread job on a host; here it runs in
+        # A lifecycle cmdlet runs in a child pwsh on a host; here it runs in
         # this runspace, where the stand-in Hyper-V module answers it.
         $script:HyperVHelpers += @'
 
@@ -279,11 +279,21 @@ function Invoke-HyperVBoundedCall {
             Renames = [System.Collections.Generic.List[string]]::new()
             Removed = [System.Collections.Generic.List[string]]::new()
             Dirs = @{}
+            # A resolved VM is removed by its Id.
+            Ids = @{ 'test-01' = [guid]'5b1f0d8e-3c2a-4e6f-9a7b-1c2d3e4f5a6b' }
         }
         # Built from text so the stand-in cmdlets are not read as this suite's own functions.
         $fakeHyperV = @'
             function Get-VMHost { [pscustomobject]@{ VirtualHardDiskPath = 'C:\VHD' } }
-            function Get-VM { param($Name) if ($Name) { [pscustomobject]@{ Name = $Name; State = 'Off' } } else { $global:__HyperV.Disks.Keys | ForEach-Object { [pscustomobject]@{ Name = $_; State = 'Off' } } } }
+            function Get-VM {
+                param($Name, $Id)
+                if ($Id) {
+                    $named = @($global:__HyperV.Ids.Keys | Where-Object { $global:__HyperV.Ids[$_] -eq $Id })
+                    if ($named) { return [pscustomobject]@{ Name = $named[0]; State = 'Off'; Id = $Id } }
+                    throw "No VM has Id $Id"
+                }
+                if ($Name) { [pscustomobject]@{ Name = $Name; State = 'Off' } } else { $global:__HyperV.Disks.Keys | ForEach-Object { [pscustomobject]@{ Name = $_; State = 'Off' } } }
+            }
             function Get-VMHardDiskDrive { param($VMName, $VMCheckpoint) if ($VMCheckpoint) { return @() }; @($global:__HyperV.Disks[$VMName]) | ForEach-Object { [pscustomobject]@{ Path = $_ } } }
             function Get-VMSnapshot { param($VMName) @() }
             function Get-VMNetworkAdapter { param($VMName) [pscustomobject]@{ MacAddress = ($global:__HyperV.Mac -replace ':', '') } }
@@ -339,7 +349,7 @@ function Invoke-HyperVBoundedCall {
                 function Join-Path { param($Path, $ChildPath) "$(([string]$Path).TrimEnd('\'))\$ChildPath" }
                 function Test-Path { param($LiteralPath) $global:__HyperV.Dirs.ContainsKey([string]$LiteralPath) }
                 function Get-ChildItem { [CmdletBinding()] param($LiteralPath, [switch]$Recurse, [switch]$File, [switch]$Force) @($global:__HyperV.Dirs[[string]$LiteralPath]) | Where-Object { $_ } }
-                function Resolve-HyperVVM { param($VMName) if ($global:__HyperV.Present -contains $VMName) { @{ Presence = 'present'; VM = [pscustomobject]@{ Name = $VMName; State = 'Off' } } } else { @{ Presence = 'absent' } } }
+                function Resolve-HyperVVM { param($VMName) if ($global:__HyperV.Present -contains $VMName) { @{ Presence = 'present'; VM = [pscustomobject]@{ Name = $VMName; State = 'Off'; Id = $global:__HyperV.Ids[$VMName] } } } else { @{ Presence = 'absent' } } }
 '@))
             $global:__HyperV.Present = @()
             $global:__HyperV.Dirs['C:\VHD\test-01'] = @('test-01.vhdx')

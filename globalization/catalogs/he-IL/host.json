@@ -1273,6 +1273,11 @@
       "origin": "machine",
       "message": "מחקו את כלל status-service שהוסיף Yuruna"
     },
+    "host.kvm_config_port_rule_delete": {
+      "sourceHash": "20e8aa7e997c6819f5a1e10b952d15749ec47e3a67641991d4de27ccb1d72443",
+      "origin": "machine",
+      "message": "מחקו את כלל שירות התצורה שהוסיף Yuruna"
+    },
     "host.operator_50978cbbff00be18": {
       "sourceHash": "b636d7368c722b4a3cdec076709ff9971ba8a3337d36e5d40a13e5c3c6dc81c8",
       "origin": "machine",
@@ -1929,9 +1934,9 @@
       "message": "  SSH:      ssh download-agent-service-admin@{dockIp}  (המפתח של מערך הבדיקות מורשה)"
     },
     "host.operator_a0e97dcbb626019f": {
-      "sourceHash": "f618b6dfc7bb8a5e09a5724d98821422449f0acbdc957c6c86eee0899f03ac71",
+      "sourceHash": "3e6200b8bb70bd8bf58878661018ab2ece763d9c4e7b8b9e9fbed9dce368221b",
       "origin": "machine",
-      "message": "רק כלל status-port של ufw יוסר -- ניתן להוכיח שהוא שלנו. החברות בקבוצות, רשימת בקרת הגישה של $HOME, ‏libvirtd⁦/virtlogd⁩ והמפתחות של GNOME יישארו בדיוק כפי שהם, וידווחו."
+      "message": "רק כללי ufw ש-Yuruna סימן כשלו יוסרו. החברות בקבוצות, רשימת בקרת הגישה של $HOME, ‏libvirtd⁦/virtlogd⁩ והמפתחות של GNOME יישארו בדיוק כפי שהם, וידווחו."
     },
     "host.operator_a127790ebde6e4ff": {
       "sourceHash": "2e6dd560ea223f138e82db1148c64791ee0c4b9d65ef31fed7a4a29f338465ea",
@@ -2412,6 +2417,11 @@
       "sourceHash": "09042dddf2a68cac33703d3b217ba78a471cdd1d8a285039e00cf0e8257470f7",
       "origin": "machine",
       "message": "  חומת אש של שירות המצב: {message}"
+    },
+    "host.kvm_config_port_firewall": {
+      "sourceHash": "f199338c13ac23b004d72128fe56eb9472639efe0d1e318dc36b5901194192a5",
+      "origin": "machine",
+      "message": "  חומת אש של שירות התצורה: {message}"
     },
     "host.operator_5c039b0b7884d16b": {
       "sourceHash": "101159b1afe7d6f546740c18b0617bf2bc82707561f03e625cf08b080983827a",
@@ -5939,9 +5949,19 @@
       "message": "⁦Save-VMDiskSnapshot⁩: רשימת נקודות הביקורת של מודול ⁦Hyper-V⁩ עבור '{vMName}' נכשלה או לא ענתה בזמן שהשמירה המתינה {seconds} שניות לנקודת הביקורת '{id}'; הרישום של ⁦Hyper-V⁩ עצמו מכיל ⁦[{held}]⁩ (? כאשר לא ניתן היה לקרוא אותו)."
     },
     "host.hyperv_bounded_call_no_answer": {
-      "sourceHash": "2ef44748001e42ceafd235fd44188bf5dcba0e45fa7601b1afeb8a6a2c2176aa",
+      "sourceHash": "ceebd004fd1615852ff3216da8f1e05042fdaf0948d624205806f89040c76c25",
       "origin": "machine",
-      "message": "הקריאה ל-⁦Hyper-V⁩ הסתיימה בלי להחזיר תשובה (מצב המשימה: ⁦{state}⁩; סיבה: ⁦{reason}⁩)."
+      "message": "הקריאה ל-⁦Hyper-V⁩ הסתיימה בלי להחזיר תשובה (קוד היציאה של תהליך הבן: ⁦{exitCode}⁩; סיבה: ⁦{reason}⁩)."
+    },
+    "host.hyperv_worker_lookup_unanswered": {
+      "sourceHash": "241b947d6129abef092494e8bfa7aac1c036c38f2685c75f76ef8260d6c284dd",
+      "origin": "machine",
+      "message": "  החיפוש אחר תהליך העבודה ⁦vmwp.exe⁩ של המכונה הווירטואלית {vmId} לא ענה בתוך {seconds} שניות; יתבצע ניסיון חוזר של ⁦Stop-VM⁩."
+    },
+    "host.hyperv_worker_lookup_failed": {
+      "sourceHash": "b511b1575e9e01041dd8b3b8b1d27d94273d30bae5fb876b10e4bca0a29b6b85",
+      "origin": "machine",
+      "message": "  החיפוש אחר תהליך העבודה ⁦vmwp.exe⁩ של המכונה הווירטואלית {vmId} נכשל; יתבצע ניסיון חוזר של ⁦Stop-VM⁩. שגיאה: {message}"
     },
     "host.vm_storage_reconcile_action": {
       "sourceHash": "518ebc15e6c396cd1dc4a0f1dc5d0d10450037b1cc28c9b504784ba5ff8c1ed1",
@@ -6027,6 +6047,401 @@
       "sourceHash": "f9e98167cc295b055bd08d2232dfd51afd0b07096d61dead8fbed458d671fcea",
       "origin": "machine",
       "message": "ההורדה של {uri} לא הושלמה ({bytes} בתים שמורים לניסיון הבא): {detail}"
+    },
+    "host.kvm_journal_group_missing": {
+      "sourceHash": "959a3184ce5dd537d0c419ed9af27e3ec3802386ddd0d7ddeec5ee9084f4279b",
+      "origin": "machine",
+      "message": "הקבוצה 'systemd-journal' אינה קיימת, ולכן האבחון של מריץ הבדיקות אינו יכול לקרוא את יומן המערכת או את יומן הליבה של האתחול הקודם. systemd יוצר אותה מתוך sysusers.d; הפקודה 'sudo systemd-sysusers' משחזרת אותה, ולאחר מכן הריצו שוב את הסקריפט הזה."
+    },
+    "host.kvm_journal_group_session_stale": {
+      "sourceHash": "f88518214624d1392e44e5a735e816d46ae699a3a9c4536c7c2d292a9672744b",
+      "origin": "machine",
+      "message": "  החברות בקבוצה 'systemd-journal' רשומה ב-/etc/group; קבוצות המעטפת הנוכחית אינן מעודכנות. התנתקו והתחברו מחדש, ואז הפעילו את מריץ הבדיקות מההפעלה החדשה כדי שהאבחון שלו יוכל לקרוא את יומן המערכת."
+    },
+    "host.deep_diagnostics_requires_linux": {
+      "sourceHash": "6b05aeded11bfb3fbe2143cb0f0b2eb731dff67549ebde8823b41459d32e036a",
+      "origin": "machine",
+      "message": "מצב האבחון המעמיק מיועד למארח Ubuntu KVM, ומארח זה אינו מריץ Linux. דבר לא שונה."
+    },
+    "host.deep_diagnostics_requires_systemd": {
+      "sourceHash": "140ff13f904adbd57dbb40d5c17fd6177970b25b8686590144f53c79a3b1407a",
+      "origin": "machine",
+      "message": "מצב האבחון המעמיק דורש את systemd כמערכת ה-init הפועלת, ו-/run/systemd/system אינו קיים במארח זה. דבר לא שונה."
+    },
+    "host.deep_diagnostics_target_invalid": {
+      "sourceHash": "4a5fbc432b0e7b438dac76adce4499912bfdbcbd4b67227ebd1a2bffe101c028",
+      "origin": "machine",
+      "message": "הערך '{target}' של -NetconsoleTarget אינו כתובת IPv4 עם יציאה אופציונלית, כגון 192.168.1.20 או 192.168.1.20:6666. דבר לא שונה."
+    },
+    "host.deep_diagnostics_state_unreadable": {
+      "sourceHash": "b5eeab43b4781b4c49cd8dc37783da65b407cff9b3e825c8fa951e232bfc9e70",
+      "origin": "machine",
+      "message": "{path} קיים אך אינו קובץ מצב של אבחון מעמיק ({message}). דבר לא שונה; שחזרו את הקובץ או העבירו אותו למקום אחר לפני הרצה חוזרת."
+    },
+    "host.deep_diagnostics_sudo_unavailable": {
+      "sourceHash": "085b2ea5ba15995198d1610ef12a55ad483f850010992badf5908e68fe2ffac3",
+      "origin": "machine",
+      "message": "מצב האבחון המעמיק משנה הגדרות שבבעלות root, ו-sudo לא הריץ פקודה בלי לבקש סיסמה. דבר לא שונה. הריצו שוב את הסקריפט ממסוף שבו תוכלו להזין את סיסמת sudo, או בתור root."
+    },
+    "host.deep_diagnostics_plan_header": {
+      "sourceHash": "93f182324d96e9c4a211328e4e128fd392425488d893ee795992a6c33d8360a4",
+      "origin": "machine",
+      "message": "מצב אבחון מעמיק ב-{hostName}: שינויים מתוכננים"
+    },
+    "host.deep_diagnostics_plan_apply": {
+      "sourceHash": "90abb32af843093d728561eb69befd3b6e51c69a3dbdc0d5b266e6f0273f6a72",
+      "origin": "machine",
+      "message": "  {component} ({title}): יוחל"
+    },
+    "host.deep_diagnostics_plan_current": {
+      "sourceHash": "e8c4d1bdec6c29e91f74628b23bcb83866e3c6c4e0fcb7aea32a20796499e893",
+      "origin": "machine",
+      "message": "  {component} ({title}): כבר מוגדר"
+    },
+    "host.deep_diagnostics_plan_skip": {
+      "sourceHash": "d667df05a7d7a07ec6afea949a86a2356748e152ff70a91482a0ab2973e2114d",
+      "origin": "machine",
+      "message": "  {component} ({title}): ידולג -- {reason}"
+    },
+    "host.deep_diagnostics_change": {
+      "sourceHash": "f64563285514e9f41aff0483e32247cdeab458d5d2af944a1ae276bad67812d4",
+      "origin": "machine",
+      "message": "    {key}: {previous} -> {new}"
+    },
+    "host.deep_diagnostics_plan_note": {
+      "sourceHash": "2290f352f10fbdeaedb2acd773883bc7460789676a550159a94ac51dc4c3135e",
+      "origin": "machine",
+      "message": "    הערה: {note}"
+    },
+    "host.deep_diagnostics_state_record": {
+      "sourceHash": "acfa6fffe838eb8c061b7cd91dea999e71f05a2330c1d484bf12259ccd2a47a3",
+      "origin": "machine",
+      "message": "כל הערכים שלעיל מתועדים ב-{path} לפני השינוי הראשון; Disable-DeepDiagnostics.ps1 משחזר את המארח לפי רשומה זו."
+    },
+    "host.deep_diagnostics_title_sysctl": {
+      "sourceHash": "b99dee601390d5383306032b6d364536a82183dedffd573c6b0a49badfc48c1d",
+      "origin": "machine",
+      "message": "panic ואתחול מחדש בעת היתקעויות ואירועי oops"
+    },
+    "host.deep_diagnostics_title_pstore": {
+      "sourceHash": "5afb2adb367f08c36e860b89ca8b1c13a9ee8be430311372d70b411c35d5ee03",
+      "origin": "machine",
+      "message": "רשומות קריסה באחסון UEFI"
+    },
+    "host.deep_diagnostics_title_watchdog": {
+      "sourceHash": "0cf99a53ad4c2e29b4d5e7cc851e4b8a41ff9732e0f7b584c8c172da4bd6db7f",
+      "origin": "machine",
+      "message": "איפוס באמצעות watchdog חומרתי"
+    },
+    "host.deep_diagnostics_title_journald": {
+      "sourceHash": "6928e1288545bcae81a5822288377286ca60cbfcf5e4641ac139621db1e6c148",
+      "origin": "machine",
+      "message": "יומן שנשמר בדיסק ומסונכרן כל 10 שניות"
+    },
+    "host.deep_diagnostics_title_rasdaemon": {
+      "sourceHash": "bf11a2cf1687ff3b5c00951d6dbfbb685a3cabfd491755e766627ed3e993905c",
+      "origin": "machine",
+      "message": "יומן שגיאות חומרה"
+    },
+    "host.deep_diagnostics_title_netconsole": {
+      "sourceHash": "71852ec2d7f0bcdfda36e2b17a3d3a94d044d7576dc7c679e51711511da3a4d6",
+      "origin": "machine",
+      "message": "שליחת יומן הליבה למחשב אחר"
+    },
+    "host.deep_diagnostics_title_vitals": {
+      "sourceHash": "fef3b8a0e08f6ee195178027b3ca918551f5d0112efc7fdf79e7700eab3df013",
+      "origin": "machine",
+      "message": "מדדים חיוניים של המארח ביומן הליבה כל 10 שניות"
+    },
+    "host.deep_diagnostics_title_boot_evidence": {
+      "sourceHash": "2f6dcf73aa5f9f44b4b1990b3d298748bdbf7dca23d3e00edd85477329f70a1f",
+      "origin": "machine",
+      "message": "חבילת ראיות בכל אתחול"
+    },
+    "host.deep_diagnostics_value_absent": {
+      "sourceHash": "de66465ce8197184bd45fa0c8ff0ad4750423ddc6036db2efe9b4c62410422de",
+      "origin": "machine",
+      "message": "לא קיים"
+    },
+    "host.deep_diagnostics_value_yuruna_file": {
+      "sourceHash": "e763539e8f86109b6dc88d2aeb6f0115c03ebd5eb655d6f47be6d706e65f70d4",
+      "origin": "machine",
+      "message": "הגרסה של מצב האבחון המעמיק"
+    },
+    "host.deep_diagnostics_value_saved_content": {
+      "sourceHash": "c93b56c4f137b6c73055aeacc292668c97de4f11176b1fac7822f2da2751adab",
+      "origin": "machine",
+      "message": "תוכן אחר, שנשמר ב-{statePath}"
+    },
+    "host.deep_diagnostics_value_restored_content": {
+      "sourceHash": "6bb3e689ea3831c78c2af6d1ecbeb9f0441d2210635acc9f341fe9ff285ef07a",
+      "origin": "machine",
+      "message": "התוכן הקודם שנשמר ב-{statePath}"
+    },
+    "host.deep_diagnostics_value_removed": {
+      "sourceHash": "7d13121e6168384d737b8c509b9b66b1218a99eb346eba444a4f567d1992b0a5",
+      "origin": "machine",
+      "message": "הוסר"
+    },
+    "host.deep_diagnostics_value_loaded": {
+      "sourceHash": "dac66a41a0362379c4d458ab4c2e14e8ed3cd002ade1ce383ccec7d21d7b149d",
+      "origin": "machine",
+      "message": "טעון"
+    },
+    "host.deep_diagnostics_value_not_loaded": {
+      "sourceHash": "d90f1bb08c796195592d70fb9f77a5b42104a1c419ccd2c356b985beb36f51e8",
+      "origin": "machine",
+      "message": "לא טעון"
+    },
+    "host.deep_diagnostics_value_installed": {
+      "sourceHash": "855a99e9d5c3a53556dc4766d10b9bac4326b0e985b0cbc06e648f1ec76e9a72",
+      "origin": "machine",
+      "message": "מותקן"
+    },
+    "host.deep_diagnostics_value_not_installed": {
+      "sourceHash": "30194887522dcb661c5e129f67a1e16be4387c3c9c6ce9449ce63a9826c1a206",
+      "origin": "machine",
+      "message": "לא מותקן"
+    },
+    "host.deep_diagnostics_value_none": {
+      "sourceHash": "b43067ea1bc0cd80e851e3c69c5d02ce5fee95dea5834b9d1c34c11931f9c486",
+      "origin": "machine",
+      "message": "ללא"
+    },
+    "host.deep_diagnostics_key_netconsole": {
+      "sourceHash": "d6f49bce41cedf33a6e7b8542f7ab2dfa5dfebcf5b910d8e56d5a05d7f3a5388",
+      "origin": "machine",
+      "message": "יעד netconsole"
+    },
+    "host.deep_diagnostics_key_pstore_backend": {
+      "sourceHash": "4b697eec73e824d58e0ecc2d3a97d072e9d638be24e4ed1efc470009f439497d",
+      "origin": "machine",
+      "message": "מנגנון האחסון של pstore"
+    },
+    "host.deep_diagnostics_sysctl_not_exposed": {
+      "sourceHash": "0d14f303bc164a3dd5bcc7372eec90e9f43aac8cd8cccb16fba5eafa46b3fffb",
+      "origin": "machine",
+      "message": "{key} אינו זמין בליבה זו, ולכן הוא מושמט."
+    },
+    "host.deep_diagnostics_setting_overridden": {
+      "sourceHash": "d37e2aaf1b611ba93aa2f4ac302c0bf540772a97bb5683369743701bbe9f2bdb",
+      "origin": "machine",
+      "message": "{path} מגדיר {key}={value} ונקרא אחרי קובץ התצורה המשלים של מצב האבחון המעמיק, ולכן הערך שלו גובר בעת האתחול."
+    },
+    "host.deep_diagnostics_pstore_legacy_bios": {
+      "sourceHash": "8c1c8a89fbdcc446020b9196a754287992dce0551f1e55f0d3b30c1191f89443",
+      "origin": "machine",
+      "message": "מארח זה אותחל במצב BIOS מדור קודם, ו-efi-pstore דורש UEFI"
+    },
+    "host.deep_diagnostics_pstore_unsupported": {
+      "sourceHash": "b56250bd228a31dbfb233008cbe264638b79f17605378744f3c3d88a4ddbc2e4",
+      "origin": "machine",
+      "message": "ליבה זו אינה תומכת ב-pstore"
+    },
+    "host.deep_diagnostics_pstore_unit_masked": {
+      "sourceHash": "d515d44479ed6f6f63f20dbb4e494ca354f7df63f57e903ab3f64fd685252e69",
+      "origin": "machine",
+      "message": "היחידה systemd-pstore.service חסומה (masked); בטלו את החסימה (unmask) כדי לשמור בארכיון רשומות קריסה בעת האתחול"
+    },
+    "host.deep_diagnostics_pstore_backend": {
+      "sourceHash": "5c24abc4ae7281fa2cb5406b0130d847f0013223b2dfe496027667ca4470f743",
+      "origin": "machine",
+      "message": "pstore כבר משתמש במנגנון האחסון {backend}"
+    },
+    "host.deep_diagnostics_pstore_no_backend": {
+      "sourceHash": "05d00b7a4b08dd4dd5b0d64034934d6111ffe5b5584bc816ba11c38f46075d4f",
+      "origin": "machine",
+      "message": "efi_pstore נטען, אך pstore עדיין מדווח שאין מנגנון אחסון ({backend})"
+    },
+    "host.deep_diagnostics_watchdog_daemon": {
+      "sourceHash": "d5a9229957b4b2d84a91ac937ba617ba4b4a4d494e5484fb52409e299b25f772",
+      "origin": "machine",
+      "message": "{unit} פועל ומחזיק את התקן ה-watchdog; עצרו והשביתו אותו כדי לאפשר ל-systemd להשתמש בהתקן"
+    },
+    "host.deep_diagnostics_watchdog_held": {
+      "sourceHash": "5743b5803c9204852e61c3ff8039a8b767251b16488b77f2b87a096653d2f719",
+      "origin": "machine",
+      "message": "{device} פתוח בידי תהליך אחר, והתקן watchdog משרת משתמש אחד בלבד בכל פעם; עצרו את התהליך הזה כדי לאפשר ל-systemd להשתמש בו"
+    },
+    "host.deep_diagnostics_watchdog_nowayout": {
+      "sourceHash": "b2ac7b9b4301ac93b262f471c799e8c06b8fe16d8114ec85c4064415bf26264f",
+      "origin": "machine",
+      "message": "ב-{device} מוגדר nowayout: לאחר שהוא נדרך, לא ניתן לעצור אותו ללא אתחול מחדש, ולכן Disable-DeepDiagnostics.ps1 לא יוכל לשחזר את המארח הזה"
+    },
+    "host.deep_diagnostics_watchdog_softdog": {
+      "sourceHash": "8381fbb56daa05c0374930eddaff5cd39e16b88e9b76eaf578682f645ccb10d0",
+      "origin": "machine",
+      "message": "רק softdog רשום ({device}). softdog פועל על אותם מעבדים שקופאים, ולכן אינו יכול לפעול בקפיאה מוחלטת, ומנהל התקן חומרה לא יירשם כ-watchdog0 כל עוד softdog טעון; פרקו אותו (sudo modprobe -r softdog) והריצו שוב"
+    },
+    "host.deep_diagnostics_watchdog_no_driver": {
+      "sourceHash": "d58c83ad2ef3b807aed21883f12bf96bbf30bbe4789c8725bb52fd7e709632c3",
+      "origin": "machine",
+      "message": "לא רשום watchdog חומרתי ולא ידוע מנהל התקן עבור יצרן המעבד '{vendor}'; לא נעשה שימוש ב-softdog משום שאינו יכול לפעול בקפיאה מוחלטת"
+    },
+    "host.deep_diagnostics_watchdog_no_device": {
+      "sourceHash": "a2408b963eed9e009726b619879ef8e062e2c7a8822df76b910297e99cee5ef8",
+      "origin": "machine",
+      "message": "{module} נטען אך לא רשם watchdog חומרתי, מה שבדרך כלל אומר שהקושחה השביתה אותו (ראו: sudo dmesg | grep -i {module})"
+    },
+    "host.deep_diagnostics_netconsole_no_target": {
+      "sourceHash": "48dce015e2a8b88e597a07c6cbcd738d8f1570b153ad67be4726c2a0e219d5a0",
+      "origin": "machine",
+      "message": "לא צוין -NetconsoleTarget"
+    },
+    "host.deep_diagnostics_netconsole_how_to": {
+      "sourceHash": "0b814309d771e829a9aa828c2ca0914cfe2b1a9532e7a77efde547d2fa209c58",
+      "origin": "machine",
+      "message": "כדי לשלוח את יומן הליבה למחשב אחר בזמן אמת, הריצו באותו מחשב את pwsh test/lab/Receive-Netconsole.ps1, ולאחר מכן הריצו את הסקריפט הזה שוב עם -NetconsoleTarget <כתובת IPv4 של אותו מחשב>[:port]."
+    },
+    "host.deep_diagnostics_netconsole_no_dispatcher": {
+      "sourceHash": "634089ea5b1bf9eb5593697c0ecf4df3a824125bc823b2c12a50f159b12882a5",
+      "origin": "machine",
+      "message": "NetworkManager אינו מותקן, ולכן היעד מוגדר רק בעת האתחול ואינו מוגדר מחדש כאשר הכתובת של מארח זה משתנה"
+    },
+    "host.deep_diagnostics_netconsole_not_enabled": {
+      "sourceHash": "62b1f64884e33d03a771b8c27d70c1b586c419cc0dee2389bd05b1d3eebac0c8",
+      "origin": "machine",
+      "message": "יעד netconsole לא הופעל; ראו: journalctl -t yuruna-netconsole"
+    },
+    "host.deep_diagnostics_existing_unreadable": {
+      "sourceHash": "54b308d98d8ad851056e1654ab9f6363338e34facaf88d7c6384e29962263dea",
+      "origin": "machine",
+      "message": "{path} קיים אך לא ניתן לקרוא אותו, ולכן לא יהיה אפשר לשחזר אותו בהמשך; הוא נשאר כפי שהוא"
+    },
+    "host.deep_diagnostics_step_failed": {
+      "sourceHash": "67f91e75215cd0072714b307120b993389e41341d1d0362a04a95698902e8ade",
+      "origin": "machine",
+      "message": "{command} נכשל (קוד יציאה {exitCode}): {output}"
+    },
+    "host.deep_diagnostics_reason_interrupted": {
+      "sourceHash": "0c98ffb961b6c99bc391d32bb3122d127b416720117a82bc3ad143ab41110052",
+      "origin": "machine",
+      "message": "הסקריפט Enable-DeepDiagnostics.ps1 נעצר לפני שהרכיב הזה הוחל"
+    },
+    "host.deep_diagnostics_reason_declined": {
+      "sourceHash": "8ff34314fcc674351af08029040586a8d11b9405ac10b3f0aa768f4ec69aaf08",
+      "origin": "machine",
+      "message": "לא אושר"
+    },
+    "host.deep_diagnostics_applying": {
+      "sourceHash": "baa277e4f5776186b62feeb9236c54fe84d7afeeca3febd36120ae8d48b32f94",
+      "origin": "machine",
+      "message": "החלת {component} ({title})..."
+    },
+    "host.deep_diagnostics_component_failed": {
+      "sourceHash": "6cf2655cdf38304644af922d98f1a589f7eed757a5f869cc9b5f3a1a8273d827",
+      "origin": "machine",
+      "message": "{component} לא הוחל: {reason}"
+    },
+    "host.deep_diagnostics_summary_header": {
+      "sourceHash": "254aea78d7f5251b798565882d4aea83077bb3052f445e7c3321e8aaa4b2a922",
+      "origin": "machine",
+      "message": "מצב אבחון מעמיק:"
+    },
+    "host.deep_diagnostics_summary_applied": {
+      "sourceHash": "21cec2498c46ab7dddf62ff506d7f1dddb547cc9d3f45f6e067a599ff1870308",
+      "origin": "machine",
+      "message": "  {component}: הוחל"
+    },
+    "host.deep_diagnostics_summary_skipped": {
+      "sourceHash": "9dbefe557de9c84b7045f1a136f693c0355a77e1cb6baee9589443c8b6618986",
+      "origin": "machine",
+      "message": "  {component}: דולג -- {reason}"
+    },
+    "host.deep_diagnostics_summary_failed": {
+      "sourceHash": "6118c1f77ae58e29227accd35814c8b8aa142b584662b3a57b23319acfa54102",
+      "origin": "machine",
+      "message": "  {component}: נכשל -- {reason}"
+    },
+    "host.deep_diagnostics_nothing_to_change": {
+      "sourceHash": "1d4658fbf592d71a4ae4a53ae6f60315824ace0c72fab7c455ef09223caf1541",
+      "origin": "machine",
+      "message": "מצב האבחון המעמיק כבר מוגדר במארח זה; דבר לא השתנה."
+    },
+    "host.deep_diagnostics_receiver_command": {
+      "sourceHash": "8847e7f5806edaf80f102dab5b98f7b6d89b12121a477bb8d3a99cb891721e09",
+      "origin": "machine",
+      "message": "השאירו את המקלט פועל במחשב היעד: pwsh test/lab/Receive-Netconsole.ps1 -Port {port}"
+    },
+    "host.deep_diagnostics_verify": {
+      "sourceHash": "f84f4d3a3810c6760cc82222df8376fd1323ae54c9e28cc22b6a40a0b623dd19",
+      "origin": "machine",
+      "message": "כדי לבדוק את המסלול מקצה לקצה, הריצו: echo '<5>yuruna-deep-diagnostics: check' | sudo tee /dev/kmsg -- השורה מופיעה כאן ב-'journalctl -k -n 5', וכאשר netconsole פעיל, גם ביומן של המקלט."
+    },
+    "host.deep_diagnostics_enable_incomplete": {
+      "sourceHash": "34d619152e9f904c2d770cfa1840106510e0957e7e2d80a56d29a6e2c5b6f8ba",
+      "origin": "machine",
+      "message": "{count} רכיבים נכשלו והשאר הוחלו; תקנו את הגורם והריצו שוב את Enable-DeepDiagnostics.ps1."
+    },
+    "host.deep_diagnostics_should_record": {
+      "sourceHash": "d8ef8dcc86a8932be9c37985f50d618f4271e3c8c05df829d104c8ed7c3d80dd",
+      "origin": "machine",
+      "message": "תעדו את הערכים הנוכחיים והחילו את מצב האבחון המעמיק"
+    },
+    "host.deep_diagnostics_should_apply": {
+      "sourceHash": "4f72e0b25041f9ce22a660da511994cae6a6925b582d795504bda95170f9e2ae",
+      "origin": "machine",
+      "message": "החילו"
+    },
+    "host.deep_diagnostics_should_restore": {
+      "sourceHash": "f755d69f8166b16dd2ee8ea6c9c8d6a6bc6c0f45204fbfc9e1f3a1d07178a213",
+      "origin": "machine",
+      "message": "שחזרו את הערכים שתועדו לפני הפעלת מצב האבחון המעמיק"
+    },
+    "host.deep_diagnostics_not_enabled": {
+      "sourceHash": "d3efade36c8cb2684a1382e70fbc2586c2ba3aac49d1bf18d1cb1cd59b9a26bc",
+      "origin": "machine",
+      "message": "מצב האבחון המעמיק אינו מופעל במארח זה: {path} אינו קיים."
+    },
+    "host.deep_diagnostics_restore_header": {
+      "sourceHash": "722f5740d76ea24c4d05b0877b12bc1a00b805d35e973fef8f45ed87c3294746",
+      "origin": "machine",
+      "message": "מצב אבחון מעמיק, שהופעל ב-{enabledAtUtc} על ידי {enabledBy}: שחזור מתוכנן"
+    },
+    "host.deep_diagnostics_restore_failed": {
+      "sourceHash": "82fe1525917028e95190b7d494ced77911125bf64003950c9fb73a66056736ae",
+      "origin": "machine",
+      "message": "{item} לא שוחזר: {message}"
+    },
+    "host.deep_diagnostics_restore_done": {
+      "sourceHash": "cc0eb7256fcc9373f8af3c9695f9894d20751d586ea96718e187bf5fe49abcde",
+      "origin": "machine",
+      "message": "מצב האבחון המעמיק כבוי; {count} שינויים בוטלו."
+    },
+    "host.deep_diagnostics_restore_incomplete": {
+      "sourceHash": "5439dd6fcc36df7d6fa51a467c3c63b64430df56122d72c93cbec72177fad7c1",
+      "origin": "machine",
+      "message": "לא ניתן היה לבטל {count} שינויים; {path} נשמר, ולכן הרצה חוזרת של Disable-DeepDiagnostics.ps1 תשלים את השחזור."
+    },
+    "host.deep_diagnostics_evidence_kept": {
+      "sourceHash": "59e6df48eb7809b61b14f1c633d4be5d239b8590ce56d5d0676838bb9480a299",
+      "origin": "machine",
+      "message": "חבילות הראיות נשארות ב-{path}; האפשרות -RemoveEvidence מוחקת אותן"
+    },
+    "host.deep_diagnostics_module_in_use": {
+      "sourceHash": "9948fb83d9b1a39b16500aeb0460663cd5aa5c5f93d0b190237b12c5845c571f",
+      "origin": "machine",
+      "message": "{module} נשאר טעון משום שמשהו עדיין משתמש בו"
+    },
+    "host.deep_diagnostics_journal_directory_created": {
+      "sourceHash": "8b9fea77c799f6e51ffce071e6238187afdd4ba00977689895d563828a291cd5",
+      "origin": "machine",
+      "message": "התיקייה {path} נוצרה בזמן שמצב האבחון המעמיק היה מופעל, ו-journald שומר יומן בדיסק כל עוד היא קיימת. כדי לחזור ליומן בזיכרון בלבד: sudo rm -rf {path} && sudo systemctl restart systemd-journald"
+    },
+    "host.deep_diagnostics_watchdog_provider_unknown": {
+      "sourceHash": "105c4c2e87e0910a0ccc323369a908a1081c741d2711c0b1600d74960e51591a",
+      "origin": "machine",
+      "message": "לא ניתן היה לזהות את מודול הליבה שמספק את {device} ('{identity}') (מנהלי התקן watchdog טעונים: {drivers}), ולכן דבר לא יטען אותו באתחול הבא וה-watchdog ייעלם אחרי אתחול מחדש; כשטעון בדיוק מנהל התקן אחד של watchdog חומרתי, הריצו זאת שוב"
+    },
+    "host.deep_diagnostics_dependencies_kept": {
+      "sourceHash": "40b04747a120d8fce2a38d170a9297af66b87661949ed75514f44ba57d30f96e",
+      "origin": "machine",
+      "message": "החבילות שההתקנה של {package} משכה איתה, ש-apt סימן כמותקנות אוטומטית, נשארות כי תוכנה אחרת עשויה להשתמש בהן; /var/log/apt/history.log מפרט אותן תחת אותה התקנה. כדי להסיר גם אותן: sudo apt-get purge <החבילות האלה>. apt-get autoremove היה מסיר גם כל חבילה אחרת ש-apt כבר לא צריך, ובהן ליבות ישנות"
+    },
+    "host.deep_diagnostics_value_evidence": {
+      "sourceHash": "94132803a79189da09a466128fefa3117c8b08d51e96bec2b667bc0d47cbf5e5",
+      "origin": "machine",
+      "message": "חבילות הראיות"
     }
   }
 }

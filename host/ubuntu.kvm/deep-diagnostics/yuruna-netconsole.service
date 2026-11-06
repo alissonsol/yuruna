@@ -1,0 +1,18 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 429ee4d9-b76c-4bac-94ff-288b4617d53c
+# Installed by host/ubuntu.kvm/Enable-DeepDiagnostics.ps1 and removed by
+# Disable-DeepDiagnostics.ps1. Nothing stops the target at shutdown: a host
+# that hangs while rebooting is one of the cases this exists for.
+[Unit]
+Description=Yuruna deep diagnostics: kernel messages to the netconsole receiver
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/yuruna/deep-diagnostics/yuruna-netconsole.sh apply
+
+[Install]
+WantedBy=multi-user.target

@@ -34,6 +34,11 @@ Three properties shape everything else:
 - **Reads are open, writes are gated.** The UI, the catalog, the metadata, the
   bytes, and `/healthz` answer any client on the trusted LAN. Refresh, delete,
   and prune require the dashboard's rotating Lab token or the internal authentication key.
+  Every request must name the agent in its `Host` header by an address, its
+  host name, `localhost`, or a name the building host lists in
+  [`vmStart.serviceHostNames`](test-config.md#42b11c32-0015); any other name is
+  refused (`421`), so a page whose own name was made to resolve to the agent
+  cannot start downloads through it.
 - **The pool is the durable part.** The VM is disposable -- stopping the service
   destroys it, and starting it rebuilds from the base image. Everything
   downloaded lives on the pool share and is adopted again by the rebuilt agent.
@@ -667,6 +672,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

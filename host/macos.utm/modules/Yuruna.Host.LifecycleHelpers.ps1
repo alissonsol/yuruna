@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42cdd325-97d4-41ad-8d67-4e3593a0e961
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -828,7 +828,7 @@ function Start-UtmVM {
             if ($wantDisplay -lt 0) {
                 return @{ success = $false; errorMessage = (Format-YurunaOperatorMessage -Key 'host.operator_239ba3e5aec356be' -Arguments @{ vMName = "$VMName" }) }
             }
-            if ((Get-VncDisplayFromBundle -VMName $VMName) -ne $wantDisplay) {
+            if (-not (Test-VncDisplayInBundle -VMName $VMName -Display $wantDisplay)) {
                 if (Set-VncDisplayInBundle -VMName $VMName -Display $wantDisplay -Confirm:$false) {
                     Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'host.operator_645bdc6defb51655' -Arguments @{ vMName = "$VMName"; wantDisplay = "$wantDisplay"; wantDisplay2 = "$(5900 + $wantDisplay)" }) -InformationAction Continue
                 } else {
@@ -2025,7 +2025,15 @@ function Get-UtmEvidenceDirectory {
       - a bounded `log show` excerpt for the UTM, QEMUHelper and utmctl
         processes over the window;
       - with -VMName, a screenshot of that VM's display, for a guest that was
-        started but never reported.
+        started but never reported;
+      - with -VMName and a bundle that carries the console devices, the QEMU
+        monitor's answers to info status, info cpus and info registers -a
+        (qemu-monitor.<trigger>.txt, Save-UtmQemuMonitorCapture) and the
+        newest part of the guest's serial console log
+        (serial-console.<trigger>.log, Save-UtmSerialConsoleTail). Both are
+        read right after the census: they describe the guest, they are gone
+        once the VM restarts, and the slower UTM readings after them could
+        otherwise spend the shared deadline first.
 
     Every read is bounded and every failure is recorded in the snapshot
     rather than thrown; with no cycle folder to write into nothing is
@@ -2037,7 +2045,8 @@ function Get-UtmEvidenceDirectory {
 .PARAMETER Trigger
     A short token naming why the snapshot was taken; part of the file names.
 .PARAMETER VMName
-    The VM the failed request concerned, for the screenshot.
+    The VM the failed request concerned, for the screenshot and the guest's
+    monitor and serial console readings.
 .PARAMETER LogWindowMinutes
     How far back the unified-log excerpt and the crash-report scan reach.
 .PARAMETER LogTimeoutSeconds
@@ -2087,6 +2096,8 @@ function Save-UtmControlSnapshot {
         crashReports     = @()
         unifiedLog       = $null
         screenshot       = $null
+        qemuMonitor      = $null
+        serialConsole    = $null
         problems         = @()
     }
     $problems = [System.Collections.Generic.List[string]]::new()
@@ -2119,6 +2130,17 @@ function Save-UtmControlSnapshot {
             }
         }
         $record.processes = @($processes)
+        if (-not [string]::IsNullOrWhiteSpace($VMName)) {
+            try {
+                $console = Get-UtmConsolePortFromBundle -VMName $VMName -Deadline $Deadline
+                $record.qemuMonitor = Save-UtmQemuMonitorCapture -VMName $VMName -Port $console.Monitor -OutputDirectory $directory -Trigger $Trigger -Deadline $Deadline
+                if ($record.qemuMonitor.outcome -eq 'failed') { $problems.Add("qemu monitor: $($record.qemuMonitor.reason)") }
+            } catch { $problems.Add("qemu monitor: $($_.Exception.Message)") }
+            try {
+                $record.serialConsole = Save-UtmSerialConsoleTail -VMName $VMName -OutputDirectory $directory -Trigger $Trigger
+                if ($record.serialConsole.outcome -eq 'failed') { $problems.Add("serial console: $($record.serialConsole.reason)") }
+            } catch { $problems.Add("serial console: $($_.Exception.Message)") }
+        }
         try {
             $listing = Invoke-UtmctlProbe -Arguments @('list') -TimeoutSeconds 20 -Deadline $Deadline -Quiet
             $record.listing = [ordered]@{

@@ -76,8 +76,9 @@ func (s *Server) routes() http.Handler {
 	// Any page an operator opens can make the browser POST here, and ensure
 	// is open, so a cross-site unsafe request is refused. Hosts and scripts
 	// send neither Origin nor Sec-Fetch-Site and pass; this service's own pages
-	// are same-origin.
-	return http.NewCrossOriginProtection().Handler(mux)
+	// are same-origin. A page whose own name resolves here is same-origin too,
+	// which is why the Host check runs first.
+	return s.hostCheck.Handler(http.NewCrossOriginProtection().Handler(mux))
 }
 
 // --- REGION: JSON helpers

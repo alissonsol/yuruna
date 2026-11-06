@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 425c4e99-8eb0-4875-95bc-856e3d36c7fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,13 +36,14 @@ BeforeAll {
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Retry.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Result.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Workload.psm1') -Force -DisableNameChecking
+    Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Validation.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Resource.psm1') -Force -DisableNameChecking
     # In the environment, where the stand-in tools defined as global functions
     # can read it.
     $script:SavedPwshEntry = Save-YurunaTestEnvironment -Name 'YURUNA_DEADLINE_TEST_PWSH'
     $env:YURUNA_DEADLINE_TEST_PWSH = (Get-Process -Id $PID).Path
     $script:Hang = { & $env:YURUNA_DEADLINE_TEST_PWSH -NoProfile -NonInteractive -Command 'Start-Sleep -Seconds 60' }
-    $script:EnvironmentName = @('YURUNA_RETRY_MAX_ATTEMPTS', 'YURUNA_RETRY_DELAY_SECONDS', 'TF_PLUGIN_CACHE_DIR', 'TF_IN_AUTOMATION', 'contextName', 'workFolder', 'resourceName')
+    $script:EnvironmentName = @('YURUNA_RETRY_MAX_ATTEMPTS', 'YURUNA_RETRY_DELAY_SECONDS', 'YURUNA_DEADLINE_CONTEXT_CALL', 'YURUNA_DEADLINE_CONTEXT_LOG', 'TF_PLUGIN_CACHE_DIR', 'TF_IN_AUTOMATION', 'contextName', 'workFolder', 'resourceName')
 }
 
 AfterAll {
@@ -193,5 +194,52 @@ Describe 'a phase ends a stopped tool call as tool_timeout' {
         $ledger = Get-Content -Raw -LiteralPath (Get-YurunaDeployLedgerPath -ProjectRoot $root -ConfigSubfolder lab) | ConvertFrom-Json -AsHashtable
         Assert-StringEqual 'fail' $ledger.phases.resources.outcome
         Assert-StringEqual 'tool_timeout' $ledger.phases.resources.failureClass
+    }
+
+    It 'ends the workloads phase as tool_timeout when kubectl config <ContextCall> hangs, configured from globalVariables' -ForEach @(
+        @{ ContextCall = 'current-context' }
+        @{ ContextCall = 'get-contexts' }
+        @{ ContextCall = 'use-context' }
+    ) {
+        $root = Join-Path $TestDrive 'context'
+        $null = New-Item -ItemType Directory -Force -Path "$root/config/lab"
+        $yaml = [ordered]@{ globalVariables = @{ commandTimeoutSeconds = 2 }; workloads = @(@{ context = 'ctx'; deployments = @(@{ kubectl = 'apply -f manifest.yml' }) }) }
+        Set-Content -LiteralPath "$root/config/lab/workloads.yml" -Value (ConvertTo-Yaml $yaml)
+        Mock Confirm-WorkloadList -ModuleName Yuruna.Workload { $true }
+        $env:YURUNA_DEADLINE_CONTEXT_CALL = $ContextCall
+        $env:YURUNA_DEADLINE_CONTEXT_LOG = Join-Path $root 'kubectl.calls'
+        Set-Item -Path Function:global:kubectl -Value {
+            Add-Content -LiteralPath $env:YURUNA_DEADLINE_CONTEXT_LOG -Value ($args -join ' ')
+            if ($args[0] -eq 'config' -and $args[1] -eq $env:YURUNA_DEADLINE_CONTEXT_CALL) {
+                & $env:YURUNA_DEADLINE_TEST_PWSH -NoProfile -NonInteractive -Command 'Start-Sleep -Seconds 60'
+            } elseif ($args[0] -eq 'config' -and $args[1] -eq 'current-context') { 'original-context' }
+            $global:LASTEXITCODE = 0
+        }
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        $result = Publish-WorkloadList $root lab 3>$null 6>$null
+        Assert-True ($watch.Elapsed.TotalSeconds -lt 40) 'the context read was stopped at its bound'
+        Assert-False $result.success
+        Assert-StringEqual 'tool_timeout' $result.failureClass
+        Assert-Equal 124 $result.exitCode
+        Assert-Match "kubectl config $ContextCall" $result.errorMessage
+        Assert-True (-not ((Get-Content -LiteralPath $env:YURUNA_DEADLINE_CONTEXT_LOG) -match '^apply ')) 'a stopped context call prevents deployment'
+        $ledger = Get-Content -Raw -LiteralPath (Get-YurunaDeployLedgerPath -ProjectRoot $root -ConfigSubfolder lab) | ConvertFrom-Json -AsHashtable
+        Assert-StringEqual 'fail' $ledger.phases.workloads.outcome
+        Assert-StringEqual 'tool_timeout' $ledger.phases.workloads.failureClass
+    }
+
+    It 'bounds the validator''s context probe, which is not a verdict, and goes on' {
+        $root = Join-Path $TestDrive 'probe'
+        $null = New-Item -ItemType Directory -Force -Path "$root/config/lab"
+        $yaml = [ordered]@{ globalVariables = @{ commandTimeoutSeconds = 2 }; workloads = @(@{ context = 'ctx'; deployments = @(@{ kubectl = 'apply -f manifest.yml' }) }) }
+        Set-Content -LiteralPath "$root/config/lab/workloads.yml" -Value (ConvertTo-Yaml $yaml)
+        Set-Item -Path Function:global:kubectl -Value $script:Hang
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        $out = @(Confirm-WorkloadList $root lab 3>&1 6>$null)
+        Assert-True ($watch.Elapsed.TotalSeconds -lt 40) 'the probe was stopped at its bound'
+        $verdict = @($out | Where-Object { $_ -isnot [System.Management.Automation.WarningRecord] })[-1]
+        Assert-True ([bool]$verdict) 'a stopped probe reads like an absent context: the publisher, not the validator, fails the context'
+        $stopped = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] } | ForEach-Object { "$_" })
+        Assert-True ($stopped -match 'kubectl config get-contexts ctx did not finish within 2 seconds') "the stopped probe is named in a warning: $($stopped -join ' | ')"
     }
 }

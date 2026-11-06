@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42bfb844-2da5-4372-8912-d611d68edee6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,16 +36,17 @@ function Remove-HyperVGuestDefinition {
     if (-not $PSCmdlet.ShouldProcess($VMName, 'Remove existing VM definition')) { return }
     if ($existing.Presence -eq 'present') {
         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_96658c0e8ad547f3' -Arguments @{ vMName = "$VMName" }) -InformationAction Continue
-        # The resolved VM object, not the name: a name with wildcard
-        # characters would match others.
-        $null = Invoke-HyperVBoundedCall -ArgumentList @($existing.VM) -ScriptBlock {
-            param($Vm)
-            Hyper-V\Stop-VM -VM $Vm -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        # The resolved VM, found again by its Id inside each call, not the
+        # name: a name with wildcard characters would match others.
+        $vmId = [guid]$existing.VM.Id
+        $null = Invoke-HyperVBoundedCall -ArgumentList @($vmId) -ScriptBlock {
+            param($Id)
+            Hyper-V\Stop-VM -VM (Hyper-V\Get-VM -Id $Id -ErrorAction SilentlyContinue) -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
         }
         try {
-            $null = Invoke-HyperVLifecycleCmdlet -Verb 'Remove-VM' -VMName $VMName -ArgumentList @($existing.VM) -ScriptBlock {
-                param($Vm)
-                Hyper-V\Remove-VM -VM $Vm -Force -ErrorAction Stop
+            $null = Invoke-HyperVLifecycleCmdlet -Verb 'Remove-VM' -VMName $VMName -ArgumentList @($vmId) -ScriptBlock {
+                param($Id)
+                Hyper-V\Remove-VM -VM (Hyper-V\Get-VM -Id $Id -ErrorAction Stop) -Force -ErrorAction Stop
             }
         } catch {
             $diag = $existing.VM | Format-List Name, State, Status, Generation, Path | Out-String
@@ -103,15 +104,39 @@ function New-HyperVServiceGuest {
     $memory = [int64]$MemoryMb * 1MB
     $mac = if ($MacAddress) { $MacAddress } else { Get-YurunaGuestMacAddress -VMName $VMName }
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_b0bde9c66516dc8a' -Arguments @{ vMName = "$VMName"; switchName = "$SwitchName" }) -InformationAction Continue
-    Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $memory -SwitchName $SwitchName -VHDPath $DiskPath | Out-Null
-    Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($mac -replace ':', '')
-    Set-VM -Name $VMName -MemoryStartupBytes $memory -MemoryMinimumBytes $memory -MemoryMaximumBytes $memory -AutomaticCheckpointsEnabled $false | Out-Null
-    Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
-    Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
+    # Each cmdlet runs under the lifecycle cap: the builders run as their own
+    # process, and a management service that takes a call and never answers
+    # would otherwise hold the build until the operator ends it.
+    $null = Invoke-HyperVLifecycleCmdlet -Verb 'New-VM' -VMName $VMName -ArgumentList @($VMName, $memory, $SwitchName, $DiskPath) -ScriptBlock {
+        param($VMName, $memory, $SwitchName, $DiskPath)
+        Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $memory -SwitchName $SwitchName -VHDPath $DiskPath -ErrorAction Stop
+    }
+    $null = Invoke-HyperVLifecycleCmdlet -Verb 'Set-VMNetworkAdapter' -VMName $VMName -ArgumentList @($VMName, ($mac -replace ':', '')) -ScriptBlock {
+        param($VMName, $staticMac)
+        Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress $staticMac -ErrorAction Stop
+    }
+    $null = Invoke-HyperVLifecycleCmdlet -Verb 'Set-VM' -VMName $VMName -ArgumentList @($VMName, $memory) -ScriptBlock {
+        param($VMName, $memory)
+        Set-VM -Name $VMName -MemoryStartupBytes $memory -MemoryMinimumBytes $memory -MemoryMaximumBytes $memory -AutomaticCheckpointsEnabled $false -ErrorAction Stop
+    }
+    $null = Invoke-HyperVLifecycleCmdlet -Verb 'Set-VMMemory' -VMName $VMName -ArgumentList @($VMName) -ScriptBlock {
+        param($VMName)
+        Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false -ErrorAction Stop
+    }
+    $null = Invoke-HyperVLifecycleCmdlet -Verb 'Set-VMFirmware' -VMName $VMName -ArgumentList @($VMName) -ScriptBlock {
+        param($VMName)
+        Set-VMFirmware -VMName $VMName -EnableSecureBoot Off -ErrorAction Stop
+    }
     $null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
-    Add-VMDvdDrive -VMName $VMName -Path $SeedPath | Out-Null
+    $null = Invoke-HyperVLifecycleCmdlet -Verb 'Add-VMDvdDrive' -VMName $VMName -ArgumentList @($VMName, $SeedPath) -ScriptBlock {
+        param($VMName, $SeedPath)
+        Add-VMDvdDrive -VMName $VMName -Path $SeedPath -ErrorAction Stop
+    }
     $cores = Limit-HyperVLinuxGuestCoreCount -RequestedCores ([math]::Max(4, [math]::Floor($HostCores / 2)))
-    Set-VMProcessor -VMName $VMName -Count $cores | Out-Null
+    $null = Invoke-HyperVLifecycleCmdlet -Verb 'Set-VMProcessor' -VMName $VMName -ArgumentList @($VMName, $cores) -ScriptBlock {
+        param($VMName, $cores)
+        Set-VMProcessor -VMName $VMName -Count $cores -ErrorAction Stop
+    }
 }
 
 # --- REGION: Wait-HyperVServiceGuestAddress
@@ -131,9 +156,11 @@ function Wait-HyperVServiceGuestAddress {
     try {
         while ($clock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
             $record = Resolve-HyperVVM -VMName $VMName
+            # A copy of the VM, as a bounded call returns it: its adapters are
+            # read by its name.
             $vm = $record.VM
             if ($vm) {
-                $adapter = $vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue | Select-Object -First 1
+                $adapter = Get-VMNetworkAdapter -VMName $VMName -ErrorAction SilentlyContinue | Select-Object -First 1
                 if ($external -and $adapter.SwitchName -eq $SwitchName -and $clock.Elapsed.TotalSeconds -ge 30) {
                     if (-not $announced) {
                         Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_86ae3482cd8932d7' -Arguments @{ switchName = "$SwitchName" }) -InformationAction Continue

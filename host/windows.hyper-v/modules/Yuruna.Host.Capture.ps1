@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4259cf8a-3a2a-4cee-b176-bd4cd6e611ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,11 @@ function Get-VMSerialPipeName {
     param([Parameter(Mandatory)][string]$VMName)
     return "yuruna-serial-$VMName"
 }
+# How long a stop waits for the reader to honor the request before it kills
+# the reader's process. A reader between connections ends within its 2 s
+# connect wait. A reader in a read of a guest that writes nothing never sees
+# the request, so for that reader the stop costs this cap plus the kill.
+$script:HyperVSerialReaderStopSeconds = 5
 # The reader is a job named like the pipe, and its record lives in this module
 # instance. Initialize-YurunaHost re-imports the driver with -Force when the
 # sequence engine loads, between the runner's Start-VM phase and a sequence's
@@ -66,15 +71,71 @@ function Get-VMSerialCaptureRecord {
         PipeName = Get-VMSerialPipeName -VMName $VMName
     }
 }
+# See https://yuruna.link/42f52e37-001e
+# Requests the stop without waiting on it and kills a reader still running at
+# the cap. $true when no reader is left running: every job has ended, or the
+# process it named has.
 function Stop-VMSerialCaptureJob {
     [CmdletBinding()]
+    [OutputType([bool])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Stops reader jobs of this process; changes no durable system state, and must never prompt inside a runner cycle.')]
     param([Parameter(Mandatory)][string]$VMName)
-    foreach ($job in (Get-VMSerialCaptureJob -VMName $VMName)) {
-        Stop-Job -Job $job -ErrorAction SilentlyContinue
-        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+    $capMs = 1000 * $script:HyperVSerialReaderStopSeconds
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $jobs = @(Get-VMSerialCaptureJob -VMName $VMName)
+    # Job.StopJob returns only once the job has ended, so it runs on a pool
+    # thread. The delegate binds the public base method because PowerShell
+    # does not convert the method of the internal job type it is called on.
+    $stopJob = [System.Management.Automation.Job].GetMethod('StopJob', [Type]::EmptyTypes)
+    foreach ($job in $jobs) {
+        if ($job.Finished.WaitOne(0)) { continue }
+        try {
+            $null = [System.Threading.Tasks.Task]::Run([Action][Delegate]::CreateDelegate([Action], $job, $stopJob))
+        } catch {
+            Write-Verbose "Serial console capture: the stop request to the reader of '$VMName' failed: $($_.Exception.Message)"
+        }
     }
+    $readIdentity = {
+        param($Job)
+        @(Receive-Job -Job $Job -Keep -ErrorAction SilentlyContinue) | Where-Object { $null -ne $_.ProcessId } | Select-Object -First 1
+    }
+    $left = 0
+    foreach ($job in $jobs) {
+        # A reader an earlier stop killed keeps its job Running for about a
+        # minute, so a stop by name within that minute (the teardown after a
+        # failure's save, a re-arm) would spend the whole cap on a job whose
+        # process is already gone. Its job is not waited on.
+        $dead = $false
+        if (-not $job.Finished.WaitOne(0)) {
+            $identity = & $readIdentity $job
+            if ($identity) { $dead = (Get-YurunaProcessIdentityLiveness -ProcessId $identity.ProcessId -StartTimeUnixMs $identity.StartTimeUnixMs) -eq 'dead' }
+        }
+        if (-not $dead -and -not $job.Finished.WaitOne([int][Math]::Max(0, $capMs - $clock.ElapsedMilliseconds))) {
+            $identity = & $readIdentity $job
+            $liveness = $null
+            if ($identity) { $liveness = Get-YurunaProcessIdentityLiveness -ProcessId $identity.ProcessId -StartTimeUnixMs $identity.StartTimeUnixMs }
+            if ($liveness -eq 'alive') {
+                try {
+                    $process = [System.Diagnostics.Process]::GetProcessById([int]$identity.ProcessId)
+                    try {
+                        $process.Kill()
+                        $null = $process.WaitForExit([int][Math]::Max(0, 2 * $capMs - $clock.ElapsedMilliseconds))
+                    } finally { $process.Dispose() }
+                    Write-Verbose "Serial console capture: the reader of '$VMName' did not stop within $($script:HyperVSerialReaderStopSeconds) s; killed its process $($identity.ProcessId)."
+                } catch {
+                    Write-Verbose "Serial console capture: could not kill process $($identity.ProcessId), the reader of '$VMName': $($_.Exception.Message)"
+                }
+                $liveness = Get-YurunaProcessIdentityLiveness -ProcessId $identity.ProcessId -StartTimeUnixMs $identity.StartTimeUnixMs
+            }
+            if ($liveness -ne 'dead') {
+                $left++
+                Write-Verbose "Serial console capture: the reader of '$VMName' did not stop within $($script:HyperVSerialReaderStopSeconds) s and is left running; its job stays listed for the next stop."
+            }
+        }
+        if ($job.Finished.WaitOne(0)) { Remove-Job -Job $job -ErrorAction SilentlyContinue }
+    }
+    return ($left -eq 0)
 }
 <#
 .SYNOPSIS
@@ -101,8 +162,12 @@ function Start-VMSerialCapture {
         $pipeName = Get-VMSerialPipeName -VMName $VMName
         # See https://yuruna.link/42f52e37-001e
         # A job reads the pipe, reconnects across VM restarts, records its connection
-        # history in the sidecar and calls no module function.
+        # history in the sidecar and calls no module function. Its first output is its
+        # process id and start time, the identity a stop kills it by when it does not
+        # honor the stop request.
         $job = Start-Job -Name $pipeName -ScriptBlock {
+            $self = [System.Diagnostics.Process]::GetCurrentProcess()
+            [pscustomobject]@{ ProcessId = $self.Id; StartTimeUnixMs = [DateTimeOffset]::new($self.StartTime).ToUnixTimeMilliseconds() }
             $PipeName = $using:pipeName
             $LogPath = $using:logPath
             $StatePath = $using:statePath
@@ -186,10 +251,10 @@ function Stop-VMSerialCapture {
         if ($script:YurunaSerialCapture -and $script:YurunaSerialCapture.VMName -eq $capture.VMName) {
             $script:YurunaSerialCapture = $null
         }
-        Stop-VMSerialCaptureJob -VMName $capture.VMName
+        $stopped = Stop-VMSerialCaptureJob -VMName $capture.VMName
         if ($capture.LogPath) { Remove-Item -LiteralPath $capture.LogPath -Force -ErrorAction SilentlyContinue }
         if ($capture.StatePath) { Remove-Item -LiteralPath $capture.StatePath -Force -ErrorAction SilentlyContinue }
-        return $true
+        return $stopped
     } catch {
         Write-Verbose "Stop-VMSerialCapture failed: $($_.Exception.Message)"
         return $false
@@ -226,12 +291,17 @@ function Save-VMSerialCapture {
             $script:YurunaSerialCapture = $null
         }
         $claimed = $capture
-        Stop-VMSerialCaptureJob -VMName $VMName
+        $null = Stop-VMSerialCaptureJob -VMName $VMName
         if (-not (Test-Path -LiteralPath $OutputDirectory)) {
             New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
         }
         $bytes = 0L
-        if (Test-Path -LiteralPath $capture.LogPath) { $bytes = (Get-Item -LiteralPath $capture.LogPath).Length }
+        $lastByte = '(none)'
+        if (Test-Path -LiteralPath $capture.LogPath) {
+            $logFile = Get-Item -LiteralPath $capture.LogPath
+            $bytes = $logFile.Length
+            if ($bytes -gt 0) { $lastByte = $logFile.LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture) }
+        }
         if ($bytes -gt 0) {
             Copy-Item -LiteralPath $capture.LogPath -Destination (Join-Path $OutputDirectory 'serial-console.log') -Force
         }
@@ -254,6 +324,7 @@ function Save-VMSerialCapture {
             "vmName:   $VMName"
             "pipe:     \\.\pipe\$($capture.PipeName)"
             "bytes:    $bytes"
+            "lastByte: $lastByte"
             "savedUtc: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture))"
             "connects: $connects"
             "attempts: $attempts"
@@ -276,19 +347,23 @@ function Save-VMSerialCapture {
         }
         $info.AddRange([string[]]@(
             'reading:  serial-console.log holds everything the guest wrote to COM1 while a reader'
-            '          was connected: the journal lines journald forwards there and the kernel'
+            '          was connected: the journal lines its journal service copies there and the kernel'
             '          messages at or above the guest''s console log level, which the stock Ubuntu'
             '          settings put at errors -- warnings and stack traces stay in the journal. A'
             '          kernel whose CPUs are wedged can hold console output and flush it much later,'
             '          so the newest line does not date when the guest stopped. 0 bytes with a'
-            '          configured pipe means the guest never opened its serial port (no console='
-            '          argument, or the port is absent on this platform), not that it was silent.'
+            '          configured pipe means nothing reached this reader, not that the guest was'
+            '          silent.'
             'verdict:  a reader that never connected points at the pipe: the VM worker creates'
             '          the server end only while the VM is on, under the name Set-VMComPort was'
             '          given, and nothing the guest does changes that. A reader that connected'
             '          and still saved 0 bytes points at the guest''s console= setting: the'
             '          kernel cmdline names a UART this platform does not have (ttyS0 on ARM64,'
-            '          where the port is ttyAMA0) or carries no console= argument at all.'
+            '          where the port is ttyAMA0) or carries no console= argument at all. With'
+            '          console= correct, it points at a UART that stopped draining into the'
+            '          pipe: an x64 guest logs "IO Instructions/sec" in host-samples while its'
+            '          UART moves and reads 0 there when it does not, and the guest recorder''s'
+            '          /proc/tty/driver/serial counters stop.'
         ))
         Set-Content -LiteralPath (Join-Path $OutputDirectory 'serial-console.info.txt') -Encoding utf8NoBOM -Value $info.ToArray()
         return ($bytes -gt 0)

@@ -2150,9 +2150,9 @@
       "message": "רזולוציה מזערית: ההחלה החזירה {applyRc} (0 = הצלחה)."
     },
     "runner.operator_268e6069d124cd41": {
-      "sourceHash": "3f426b36b45806bd2b3765c13e040c2f2c752af49180abcfeb9f753a00b2def5",
+      "sourceHash": "9f097fedfc47c8e14a130828099251366517c4314da595bb4755a69a26aa14d5",
       "origin": "machine",
-      "message": "נוסף ufw allow {port}⁦/tcp⁩ כדי שלקוחות ברשת LAN יוכלו להגיע אל status service."
+      "message": "נוסף ufw allow {port}⁦/tcp⁩ כדי שלקוחות ברשת LAN יוכלו להגיע למארח זה דרך TCP ביציאה :{port}."
     },
     "runner.operator_26ae0718f0a53461": {
       "sourceHash": "11c765bcb732cbb1b33e3bdbcb8ae0c9367b91e833acfbc6b29ea56b421a883e",
@@ -2265,9 +2265,9 @@
       "message": "לכידת המצב של המארח הזה קדמה לרישום גרסת מערכת ההפעלה, ולכן לא ניתן לזהות באמצעותה שדרוג מאז ההגדרה. הרצה חוזרת של ⁦Enable-TestAutomation⁩ מתעדת את הגרסה."
     },
     "runner.operator_13a941989b043d74": {
-      "sourceHash": "e8b5515bf125f7bb07192c0a177b9977687095fdc30f682d3831ca473f35f4d6",
+      "sourceHash": "2b000e3644a54c26942040f8d3ccd60ec744afd2d95f642779e3dbda58566134",
       "origin": "machine",
-      "message": "המארח הזה החליף כתובת {changes} פעמים בין {distinctAddresses} כתובות שונות במהלך {lookbackHours}h האחרונות, ללא מרווח קבוע -- התנהגות התואמת אתחולים או אירועי קישור ולא חידוש שאינו מכובד. מנגנון הגילוי מטפל בכך."
+      "message": "המארח הזה החליף כתובת {changes} פעמים בין {distinctAddresses} כתובות שונות במהלך {lookbackHours}h האחרונות, ללא מרווח קבוע -- התנהגות התואמת אתחולים או אירועי קישור. מנגנון הגילוי מטפל בכך."
     },
     "runner.operator_13c098483d4f4c49": {
       "sourceHash": "f9652eabb813d9de1e9669d7ad9a53078b6b1cf75a1a314b0ae677e65f1aa7c3",
@@ -10568,6 +10568,16 @@
       "origin": "machine",
       "message": "⁦http://localhost:{port}/status/⁩ פועל, אך לקוחות ברשת המקומית הפונים אל ⁦http://{address}:{port}/status/⁩ יחרגו מזמן ההמתנה הקצוב."
     },
+    "runner.config_port_firewall_unconfirmed": {
+      "sourceHash": "28b64cd9ad83e6c8c1355bcfce6965c42c9a88fbcb5efa7ab85008b59b103790",
+      "origin": "machine",
+      "message": "שירות התצורה לא הצליח לאשר שתעבורת TCP נכנסת ביציאה :{port} פתוחה לאורחי השירות, שמביאים ממנה את פרטי ההזדהות שלהם עבור NAS: {detail}"
+    },
+    "runner.ufw_port_rule_left": {
+      "sourceHash": "78ffe2fb34d253f9854a2a67a871d12fd8d00bdef3a767007300feb44972bec8",
+      "origin": "machine",
+      "message": "כלל ה-ufw הקיים עבור TCP ביציאה :{port} נשאר כפי שהוא, כי Yuruna אינו מחליף כלל שלא הוסיף: {rule}. אם לקוחות ברשת המקומית צריכים להגיע למארח הזה ב-:{port}, שנו את הכלל הזה בעצמכם, לדוגמה: sudo ufw allow {port}⁦/tcp⁩"
+    },
     "runner.status_listener_busy": {
       "sourceHash": "fa084dae446914504db8f229fce6bcd4529e1731f3b1c6e67a22f504d221c2fd",
       "origin": "machine",
@@ -11704,9 +11714,9 @@
       "message": "{vmsg} (לידיעתכם: מצב העתקה שומר את התיקייה המקומית, ולכן הדבר לא יחסום את המחזור -- תקנו לפני הפעלת מצב העברה.)"
     },
     "runner.operator_d5b5d8e0969942b5": {
-      "sourceHash": "60875b23f3dd387d866fef398491d4e9271592181ff0bf2bd1b5c409058c8aa1",
+      "sourceHash": "c11bab88c0f8b471ffa2b2f33de1972f1faaca6f416d9986c14dc699ded8ea0f",
       "origin": "machine",
-      "message": "לא ניתן לתשאל את ufw (קוד יציאה {exitCode}); מצב חומת האש עבור יציאת המצב אינו ידוע. אם :{port} חסומה, הריצו בהרשאות מוגברות: sudo ufw allow {port}⁦/tcp⁩"
+      "message": "לא ניתן לתשאל את ufw (קוד יציאה {exitCode}); מצב חומת האש עבור TCP ביציאה :{port} אינו ידוע. אם :{port} חסומה, הריצו בהרשאות מוגברות: sudo ufw allow {port}⁦/tcp⁩"
     },
     "runner.operator_d5c597bca4182525": {
       "sourceHash": "6172207bd446303978c22d5fda3b7852ca16d085a8ba2354fc04277fa0a1a313",
@@ -14238,6 +14248,16 @@
       "origin": "machine",
       "message": "{base} זהות DHCP של הגשר אכן מקובעת, ולכן השרת אינו משתמש בה כמפתח להקצאות. קיבוע לא יפתור זאת."
     },
+    "runner.host_address_lease_expiry_churn": {
+      "sourceHash": "25d2f889c750e0d1358c922c35da5c21c8815be4de276f398297ec2f9e5c24ba",
+      "origin": "machine",
+      "message": "המארח הזה החליף כתובת {changes} פעמים במהלך {lookbackHours}h האחרונות, ל-{distinctAddresses} כתובות שונות, שינוי אחד כל {medianIntervalMinutes} min -- בערך פעם אחת לכל חכירה, ששרת DHCP הקצה ל-{leaseSeconds} s. זהות DHCP של הגשר אכן מקובעת, והמעברים מתרחשים כשחכירה פוקעת ולא בעת חידוש: החידושים אינם נכנסים לתוקף, ולכן כל חכירה פוקעת והבאה אחריה היא הקצאה חדשה. כתובת שמשתנה במרווחים קבועים שוברת כל אורח שמאחוריה בכל פעם שהיא זזה."
+    },
+    "runner.host_address_lease_expiry_remedy": {
+      "sourceHash": "ee6f18cbee93214f76c700a49177a6995157e5d7fa71205c35507f405df072f0",
+      "origin": "machine",
+      "message": "קראו את שורות dhcp4 של NetworkManager סביב מעבר (journalctl -b 0 -u NetworkManager --grep dhcp4, מודפסות גם באבחון המארח) כדי לבדוק אם כל חכירה הוארכה בעת חידוש או פקעה, ובדקו שחומת האש של המארח מאפשרת לתשובות השרת להגיע ליציאת UDP 68; לכידת תעבורה בגשר לאורך החידוש שבמחצית החכירה (tcpdump -ni yuruna-br0 'udp port 67 or udp port 68') מראה אם הבקשה נשלחה ונענתה, גם כאשר חומת האש של המארח חוסמת את התשובה לאחר מכן; שריון DHCP לכתובת MAC של הגשר, או כתובת סטטית, מייצבים את הכתובת בכל מקרה -- עיינו בקובץ ⁦docs/network.md⁩, בסעיף 'Pinning the host address'."
+    },
     "runner.operator_c3946652c6bc4408": {
       "sourceHash": "8270f3bbc844a44366844352e45b608a301b5b67f2922dd90f318891ed694750",
       "origin": "machine",
@@ -15072,6 +15092,51 @@
       "sourceHash": "7fdc6b34b1ab5468b2cdde1ab7a3ec85204038d9cd03e9b9aa8aef6616ebb6f8",
       "origin": "machine",
       "message": "לא ניתן היה לקרוא את {probe}: {tool} לא השיב, ולכן ההגדרה אינה ידועה ואין ודאות שהיא בטוחה."
+    },
+    "runner.capability_gate_host_command_missing": {
+      "sourceHash": "88496b61d861339fcd9178768b2b7e5e127d6a14df2826be7b6cdf1bdc189d9b",
+      "origin": "machine",
+      "message": "  הרצפים מריצים פקודות מארח שאינן קיימות במארח זה:"
+    },
+    "runner.capability_gate_host_command_step": {
+      "sourceHash": "44cd581585ef308c14d66c56bb383b2d39679c29798e66d05c66c6685c6c0b84",
+      "origin": "machine",
+      "message": "        {sequence}, שלב {step}: {action}"
+    },
+    "runner.capability_gate_host_command_remedy": {
+      "sourceHash": "b5681177ba736ee2b54a82cec0e4f3037e23ac75a6a1fea36ce6e228f4ec40b3",
+      "origin": "machine",
+      "message": "  התקינו במארח זה את הפקודות החסרות, או הסירו את השלבים שמריצים אותן מקובצי YAML של רצפי המחזור."
+    },
+    "runner.wait_ended_on_silent_guest": {
+      "sourceHash": "eb77fad8930c78797e50fcb5dce8efe22f6881ca94673be735f8adf5844fd153",
+      "origin": "machine",
+      "message": "ההמתנה לטקסט '{patternLabel}' הסתיימה אחרי ~{waited}s מתוך {timeoutSeconds}s: פלט המסוף של האורח לא השתנה במשך {outputStaticSeconds}s, ההעלאות של רכיב התיעוד שלו לא הגיעו למארח במשך {uploadAgeSeconds}s, והקונסולה הטורית שלו דיווחה על {kinds}"
+    },
+    "runner.netconsole_receiver_listening": {
+      "sourceHash": "78b432ccbb462aad03c543a07b748b5ca1a3990151eb0fc15a757a15b3305edb",
+      "origin": "machine",
+      "message": "מאזין ל-netconsole ביציאת UDP {port}; יומן אחד לכל מארח שולח ולכל יום UTC נכתב אל {directory}. לחצו על Ctrl+C כדי לעצור."
+    },
+    "runner.netconsole_receiver_bind_failed": {
+      "sourceHash": "b88c1dc0eaf00f5a9855743833948bd6882c0b549cdd5ba3c137e524b43fdcee",
+      "origin": "machine",
+      "message": "לא ניתן היה לפתוח את יציאת UDP {port}: {message}"
+    },
+    "runner.netconsole_receiver_write_failed": {
+      "sourceHash": "9c88847af386e1afa45f33c7ecfe94e6c708c348aec6c9f9bec07339301091ce",
+      "origin": "machine",
+      "message": "לא ניתן היה לכתוב שורה שהתקבלה תחת {directory}: {message}"
+    },
+    "runner.netconsole_receiver_stopped": {
+      "sourceHash": "07ad9fa07c380d39e2a5cfe1a00d2f36edd77dd0516e8dd4dfee1478e7936297",
+      "origin": "machine",
+      "message": "נעצר לאחר {count} דאטגרמות."
+    },
+    "runner.netconsole_receiver_small_buffer": {
+      "sourceHash": "77142cc3bc61f0cc0bdb8ea6c34ae6ef2fb3dedab62dac4770b400479fa5d4d4",
+      "origin": "machine",
+      "message": "המערכת הקצתה מאגר קליטה של UDP בגודל {granted} בתים, פחות מ-{requested} הבתים שהתבקשו, ולכן פרץ של הודעות ליבה, כמו עקבות המחסנית שמארח שולח לפני panic, עלול לגלוש ממנו ולאבד שורות. ב-Linux, הגדילו את המגבלה באמצעות 'sudo sysctl -w net.core.rmem_max={requested}' והפעילו את המקלט מחדש."
     }
   }
 }

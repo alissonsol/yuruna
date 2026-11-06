@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42430431-3a59-45e7-9caa-8e653f023904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -189,6 +189,50 @@ Describe 'Invoke-Remediation tells a wedged guest kernel from a stalled mirror' 
     }
 }
 
+# A wedge is filed as guest_kernel_stalled whichever verb was waiting, so the
+# advice cannot depend on the verb the way wait_timeout's does.
+Describe 'Invoke-Remediation names the wedged kernel for guest_kernel_stalled' {
+    BeforeAll {
+        function New-KernelStalledRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: returns an in-memory failure record.')]
+            [OutputType([hashtable])]
+            param([string]$ActionVerb, [string[]]$KernelFaults = @(), [string[]]$SilentProcessors = @(), [int]$LivelockedSeconds = 0)
+            return @{
+                failureClass = 'guest_kernel_stalled'; severity = 'hard'; vmName = 'test-guest-01'; actionVerb = $ActionVerb
+                context = @{ causeDetail = @{
+                    progressAdvisory = @{ verdict = 'insufficient-evidence'; kernelFaults = $KernelFaults }
+                    guestLivelock = @{ verdict = $(if ($LivelockedSeconds) { 'livelocked' } else { 'not-livelocked' }); livelockedSeconds = $LivelockedSeconds
+                        processorWindow = @{ NoInterruptsServicedProcessors = $SilentProcessors } }
+                } }
+            }
+        }
+    }
+
+    It 'names the wedged kernel on every wait verb (<Verb>)' -TestCases @(
+        @{ Verb = 'fetchAndExecute' }, @{ Verb = 'waitForText' }, @{ Verb = 'waitForTextWithNudge' }
+        @{ Verb = 'waitForAndEnter' }, @{ Verb = 'passwdPrompt' }, @{ Verb = 'retry' }
+    ) {
+        param($Verb)
+        $r = Invoke-Remediation -FailureRecord (New-KernelStalledRecord -ActionVerb $Verb -KernelFaults @('rcu-stall') -SilentProcessors @('1'))
+        $r.FailureClass | Should -BeExactly 'guest_kernel_stalled'
+        $r.Recommendation | Should -BeExactly 'retry_with_backoff' -Because 'the next attempt boots the guest again'
+        $r.Rationale | Should -Match 'test-guest-01'
+        $r.Rationale | Should -Match 'rcu-stall'
+        $r.Rationale | Should -Match 'serviced no interrupt: 1;'
+        $r.Rationale | Should -Not -Match 'most often blocked on a slow or stalled package mirror' -Because 'a wedged kernel is no package mirror to wait out'
+        ($r.Actions -join ' ') | Should -Not -Match 'NETWORK section'
+        ($r.Actions -join ' ') | Should -Match 'guestKernelStallEnd'
+        ($r.Actions -join ' ') | Should -Match 'docs/host-hyperv\.md'
+    }
+
+    It 'names how long every processor was held in the hypervisor' {
+        $r = Invoke-Remediation -FailureRecord (New-KernelStalledRecord -ActionVerb 'fetchAndExecute' -LivelockedSeconds 345)
+        $r.Rationale | Should -Match 'kernel reports: -;'
+        $r.Rationale | Should -Match 'held in the hypervisor: 345\)'
+    }
+}
+
 Describe 'Invoke-Remediation routes the infra-stage failure classes' {
     It 'requires capacity repair instead of retrying a measured storage shortage' {
         $record = @{ failureClass = 'provisioning_failure'; severity = 'hard'; vmName = 'core'; description = 'C: needs 14 GiB, 10 GiB available'; context = @{ hostStorage = @{ status = 'insufficient'; errorCode = '0x80070070' } } }
@@ -273,6 +317,21 @@ Describe 'Invoke-Remediation routes the infra-stage failure classes' {
         $r.Rationale | Should -Match 'fixture receipt rejected'
         ($r.Actions -join ' ') | Should -Match 'key IDs|receipt|selected SHA'
         Test-AutoRemediationAllowed -FailureClass 'source_integrity' | Should -BeFalse
+    }
+    It 'advises a host power-off for vm_not_stopped, not a cold-power-cycle retry the engine refuses around stopVm' {
+        # Test-SequenceColdPowerCyclePolicy admits a cold restart only after a
+        # login-wait timeout, so advice naming that retry sends the operator to
+        # a sequence the engine rejects as cold-power-cycle-unsafe-step-shape.
+        $r = Invoke-Remediation -FailureRecord @{ failureClass = 'vm_not_stopped'; severity = 'hard'; vmName = 'test-guest-01'; actionVerb = 'stopVm' }
+        $r.Recommendation | Should -BeExactly 'retry_with_backoff'
+        $r.Rationale | Should -Match 'test-guest-01'
+        $advice = (@($r.Rationale) + @($r.Actions)) -join ' '
+        $advice | Should -Not -Match 'coldPowerCycle|restartVmBeforeRetry|cold power cycle'
+        $actions = $r.Actions -join ' '
+        $actions | Should -Match 'Power the VM off from the host'
+        $actions | Should -Match 'stopVm'
+        $actions | Should -Match 'forceOnTimeout: true'
+        $actions | Should -Match 'hypervisor'
     }
     It 'has a registered handler for every canonical FailureClass (no unrouted class)' {
         $enum = @(Get-FailureClassEnum)

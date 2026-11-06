@@ -195,12 +195,24 @@ func login(t *testing.T, srv *httptest.Server, code string) *http.Response {
 	return resp
 }
 
+// proofAudience is the audience the aggregator's /go/stash binds a proof to for
+// the stash UI, which every gate in these tests either names or leaves open.
+const proofAudience = "svc-stash-service"
+
 // mintProof builds the wire proof the aggregator's /go/stash redirect leaves in
-// a service UI's URL fragment: "<expiry>.<base64 HMAC-SHA256(token,
-// "yuruna-control|proof|<expiry>")>". Spelled out here rather than calling the
-// production helper, so the format has to be changed in two places before these
-// tests stop noticing.
+// a service UI's URL fragment: "<expiry>.<audience>.<base64 HMAC-SHA256(token,
+// "yuruna-control|proof|v2|<audience>|<expiry>")>". Spelled out here rather than
+// calling the production helper, so the format has to be changed in two places
+// before these tests stop noticing.
 func mintProof(token string, expiry int64) string {
+	mac := hmac.New(sha256.New, []byte(token))
+	mac.Write([]byte("yuruna-control|proof|v2|" + proofAudience + "|" + strconv.FormatInt(expiry, 10)))
+	return strconv.FormatInt(expiry, 10) + "." + proofAudience + "." + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// unboundProof builds the retired unbound form, "<expiry>.<base64
+// HMAC-SHA256(token, "yuruna-control|proof|<expiry>")>", which names no target.
+func unboundProof(token string, expiry int64) string {
 	mac := hmac.New(sha256.New, []byte(token))
 	mac.Write([]byte("yuruna-control|proof|" + strconv.FormatInt(expiry, 10)))
 	return strconv.FormatInt(expiry, 10) + "." + base64.StdEncoding.EncodeToString(mac.Sum(nil))
@@ -724,7 +736,7 @@ func TestABoundProofOpensOnlyItsOwnService(t *testing.T) {
 		{"its own service", controlproof.ProofFor(labAuthToken, "svc-stash-service", expiry), http.StatusOK},
 		{"another service", controlproof.ProofFor(labAuthToken, "svc-pool-control-service", expiry), http.StatusUnauthorized},
 		{"a host", controlproof.ProofFor(labAuthToken, "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", expiry), http.StatusUnauthorized},
-		{"an unbound proof from an aggregator that predates audiences", mintProof(labAuthToken, expiry), http.StatusOK},
+		{"an unbound proof", unboundProof(labAuthToken, expiry), http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if r := unlockProof(t, srv, tc.proof); r.StatusCode != tc.want {

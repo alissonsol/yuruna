@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42ba21e6-945f-48b7-aacb-cdc136e03c30
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,7 +97,7 @@ function Get-HeaderText {
 
 function Get-PsInfoText {
     param([string]$Guid = (New-SourceGuid), [switch]$NoGuid, [switch]$NoCopyright, [switch]$NoPointer)
-    $lines = @('<#PSScriptInfo', '.VERSION 2026.10.31')
+    $lines = @('<#PSScriptInfo', '.VERSION 2026.11.05')
     if (-not $NoGuid) { $lines += ".GUID $Guid" }
     $lines += '.AUTHOR Alisson Sol et al.'
     if (-not $NoCopyright) { $lines += '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.' }
@@ -595,7 +595,7 @@ Describe 'the whole-tree report' {
         Save-FixtureCommit -Repository $r
         $script:TreeExemption = Write-Exemption -Name 'tree' -Body @{
             generated = @(
-                @{ repo = 'yuruna'; generator = 'tools/Make.ps1'; paths = @('gen/*.go'); reason = 'Fixture generator.' }
+                @{ repo = 'yuruna'; generator = 'tools/Make.ps1'; paths = @('gen/*.go', 'gen/*.rs'); reason = 'Fixture generator with a path that matches nothing.' }
                 @{ repo = 'yuruna'; generator = 'tools/Gone.ps1'; paths = @('nothing/*.go'); reason = 'Matches nothing.' })
             vendored = @(@{ repo = 'yuruna'; paths = @('ok/*.sh'); reason = 'Already compliant.' })
             synchronizedCopies = @(@{ repo = 'yuruna'; syncTool = 'tools/Sync.ps1'; files = @('ps/f.ps1', 'ps/missing.ps1'); reason = 'Fixture.' })
@@ -609,7 +609,7 @@ Describe 'the whole-tree report' {
     }
 
     It 'counts the findings per rule and per directory' {
-        Assert-Match -Pattern 'findings by rule: exemption 3, (copyright 2, guid 2|guid 2, copyright 2)' -Actual $script:Report.Output
+        Assert-Match -Pattern 'findings by rule: exemption 4, (copyright 2, guid 2|guid 2, copyright 2)' -Actual $script:Report.Output
         Assert-Match -Pattern '(?m)^\s+4\s+yuruna/debt$' -Actual $script:Report.Output
     }
 
@@ -619,9 +619,10 @@ Describe 'the whole-tree report' {
         Assert-True (Test-Flagged -Output $run.Output -Path 'debt/d.py' -Rule 'copyright' -Label 'GAP') $run.Output
     }
 
-    It 'calls out an exemption that matches nothing, one that covers only compliant files, and a broken sync group' {
+    It 'calls out an exemption that matches nothing, a dead path inside a live one, one that covers only compliant files, and a broken sync group' {
         $run = Invoke-MetadataGate -Argument @('-All', '-Detail', '-Root', $script:TreeRepo, '-ExemptionsPath', $script:TreeExemption)
         Assert-Match -Pattern 'generated entry for tools/Gone\.ps1 matches no tracked file in yuruna' -Actual $run.Output
+        Assert-Match -Pattern "generated entry for tools/Make\.ps1 has a path 'gen/\*\.rs' that matches no tracked file in yuruna; remove the path" -Actual $run.Output
         Assert-Match -Pattern 'vendored entry covers only files that already carry the standard header' -Actual $run.Output
         Assert-Match -Pattern 'synchronized copies kept by tools/Sync\.ps1 are not all tracked files' -Actual $run.Output
     }
@@ -950,11 +951,26 @@ Describe 'this repository' {
 }
 
 Describe 'The Markdown footer report' {
+    It 'allows a terminal period after navigation links but still refuses following prose' {
+        $repository = New-FixtureRepository -Name 'markdown-footer-navigation'
+        $path = Join-Path $repository 'navigation.md'
+        $footer = "# Guide`n`n---`n`nLICENSEURI https://yuruna.link/license`n`nCopyright (c) 2019-2026 by Alisson Sol et al.`n`nBack to the [project guide](README.md)."
+        [IO.File]::WriteAllText($path, $footer + "`n")
+        Save-FixtureCommit -Repository $repository
+        $clean = Invoke-MetadataGate -Argument @('-Markdown', '-Root', $repository)
+        $clean.Code | Should -Be 0 -Because $clean.Output
+        [IO.File]::WriteAllText($path, $footer + " A paragraph after the navigation.`n")
+        Save-FixtureCommit -Repository $repository
+        $late = Invoke-MetadataGate -Argument @('-Markdown', '-Root', $repository)
+        $late.Code | Should -Be 1 -Because $late.Output
+        $late.Output | Should -Match 'navigation\.md:9 \[markdown-footer\]'
+    }
+
     It 'passes a footer with a translated stamp and navigation links, and names a missing footer and content left after one' {
         $repository = New-FixtureRepository -Name 'markdown-footer'
         $footer = "---`n`nLICENSEURI https://yuruna.link/license`n`nCopyright (c) 2019-2026 by Alisson Sol et al.`n"
-        [IO.File]::WriteAllText((Join-Path $repository 'good.md'), "# Good`n`nBody.`n`n" + $footer + "`nLast review: 2026.10.31`n`nBack to [Yuruna](README.md)`n")
-        [IO.File]::WriteAllText((Join-Path $repository 'translated.md'), "# Bom`n`n" + $footer + "`n`u{00DA}ltima revis`u{00E3}o: 2026.10.31`n`nVoltar para [projeto](README.md) - [Yuruna](https://yuruna.com)`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'good.md'), "# Good`n`nBody.`n`n" + $footer + "`nLast review: 2026.11.05`n`nBack to [Yuruna](README.md)`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'translated.md'), "# Bom`n`n" + $footer + "`n`u{00DA}ltima revis`u{00E3}o: 2026.11.05`n`nVoltar para [projeto](README.md) - [Yuruna](https://yuruna.com)`n")
         [IO.File]::WriteAllText((Join-Path $repository 'AGENTS.md'), "# Agent rules`n`nRead them first.`n")
         $null = New-Item -ItemType Directory -Path (Join-Path $repository 'nested')
         [IO.File]::WriteAllText((Join-Path $repository 'nested/CLAUDE.md'), "Read and follow AGENTS.md.`n")
@@ -962,7 +978,7 @@ Describe 'The Markdown footer report' {
         $clean = Invoke-MetadataGate -Argument @('-Markdown', '-Root', $repository)
         $clean.Code | Should -Be 0 -Because $clean.Output
         $clean.Output | Should -Match '2 file\(s\) with the footer, 0 with content after it, 0 without one'
-        [IO.File]::WriteAllText((Join-Path $repository 'late.md'), "# Late`n`n" + $footer + "`nLast review: 2026.10.31`n`nA paragraph that landed under the license.`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'late.md'), "# Late`n`n" + $footer + "`nLast review: 2026.11.05`n`nA paragraph that landed under the license.`n")
         [IO.File]::WriteAllText((Join-Path $repository 'nofooter.md'), "# Notes`n`nNo footer here.`n")
         Save-FixtureCommit -Repository $repository
         $late = Invoke-MetadataGate -Argument @('-Markdown', '-Root', $repository)

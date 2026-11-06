@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42fd17d5-cc0b-4b81-94e7-4b54d311a679
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -475,5 +475,42 @@ Describe 'image preparation returns only its boolean outcome' {
         $result = Expand-ExtensionVmDisk -Path (Join-Path $TestDrive 'fixture.qcow2') -SizeBytes 256GB -Format qcow2 -WarningAction SilentlyContinue
         Assert-StringEqual 'Boolean' $result.GetType().Name 'resize progress must not bypass the caller failure gate'
         Assert-False $result
+    }
+}
+
+Describe 'The Windows 11 ISO is fetched on the resumable download engine' {
+    # Microsoft serves the ISO from a short-lived signed URL and the file is
+    # multi-gigabyte: a transport that cannot resume starts a cut-short transfer
+    # over, and one outside the host driver's wrapper never sees the caching
+    # proxy. The fetch step of each Fido-driven host script is sliced out and
+    # run with the engine stood in by a function that writes what it was asked
+    # to fetch, and with BITS and Invoke-WebRequest stood in by functions that
+    # refuse, so the staged bytes can only have come through Save-CachedHttpUri.
+    It 'stages the ISO through Save-CachedHttpUri on <Driver>' -ForEach @(
+        @{ Driver = 'windows.hyper-v'; Script = 'host/windows.hyper-v/guest.windows.11/Get-Image.ps1' }
+        @{ Driver = 'macos.utm';       Script = 'host/macos.utm/guest.windows.11/Get-Image.ps1' }
+    ) {
+        $source = Get-Content -Raw -LiteralPath (Join-Path $ImageRepoRoot $Script)
+        $notice = $source.IndexOf("-Key 'host.operator_26d58e13fc858352')", [StringComparison]::Ordinal)
+        $start = if ($notice -ge 0) { $source.IndexOf("`n", $notice) + 1 } else { -1 }
+        $end = if ($start -gt 0) { $source.IndexOf('if (-not (Test-Path $downloadFile))', $start, [StringComparison]::Ordinal) } else { -1 }
+        Assert-True ($start -gt 0 -and $end -gt $start) "$Script still frames its ISO fetch between the download notice and the staged-file check"
+        $body = $source.Substring($start, $end - $start)
+        $downloadFile = Join-Path $TestDrive "$Driver.downloaded.iso"
+        $url = 'https://software.download.example.invalid/Win11.iso?t=fixture'
+        $fixture = Join-Path $TestDrive "$Driver.fetch.ps1"
+        $header = @(
+            'function Format-YurunaOperatorMessage { param($Key, $Arguments) $null = $Arguments; $Key }'
+            'function Save-CachedHttpUri { param([string]$Uri, [string]$OutFile) [IO.File]::WriteAllText($OutFile, "engine $Uri") }'
+            "function Start-BitsTransfer { throw 'BITS is not the ISO transport' }"
+            "function Invoke-WebRequest { throw 'Invoke-WebRequest is not the ISO transport' }"
+            "`$downloadUrl = '$url'"
+            "`$downloadFile = '" + $downloadFile.Replace("'", "''") + "'"
+        )
+        [IO.File]::WriteAllText($fixture, ($header -join "`n") + "`n" + $body + "`nexit 0`n")
+        $output = @(& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File $fixture 2>&1 | ForEach-Object { "$_" })
+        Assert-Equal 0 $LASTEXITCODE "the sliced fetch of $Script must complete; output: $($output -join ' | ')"
+        Assert-True ([IO.File]::Exists($downloadFile)) "$Script stages the ISO at its download path"
+        Assert-StringEqual "engine $url" ([IO.File]::ReadAllText($downloadFile)) "on $Driver the bytes must come from Save-CachedHttpUri, the engine every other image fetch uses"
     }
 }

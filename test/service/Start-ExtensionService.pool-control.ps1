@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 427d5263-0226-4480-81d1-9a13f2b7a4b1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,20 +19,16 @@
 # The pool-control service's readiness phases. Start-ExtensionService.ps1 runs
 # this part in its own scope, inside the start operation's try block, after the
 # VM is adopted or built: it reads and sets that script's variables, and each
-# of its exits ends the start.
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', 'serviceOpResult',
-    Justification = 'Start-ExtensionService.ps1 reads it in the finally that closes the start operation.')]
+# of its exits ends the start. The steps it shares with the download-agent
+# part (waiting for the address and recovering it, reporting the source,
+# deciding the outcome) are the pipeline's script blocks, dot-sourced where
+# they run.
 param()
 
 if ($startPart -ne $PSCommandPath) { throw "$PSCommandPath runs only inside Start-ExtensionService.ps1." }
 
 # --- REGION: Resolve the VM address
-# See https://yuruna.link/42e220c4-0008
-Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
-Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
-$ipWaitStart = (Get-Date)
-$vmIp = try { Wait-VMIp -VMName $VMName -TimeoutSeconds 120 } catch { Write-Verbose "Wait-VMIp: $($_.Exception.Message)"; $null }
-$ipWaitSeconds = [int]((Get-Date) - $ipWaitStart).TotalSeconds
+. $resolveServiceVmAddress
 
 # --- REGION: Configure Shared NAT forwarding
 # See https://yuruna.link/42e220c4-0008
@@ -61,13 +57,9 @@ if ($HostType -eq 'host.macos.utm') {
 
 # --- REGION: Probe service readiness
 # See https://yuruna.link/42e220c4-0008
+Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
 $readyTimeoutSeconds = Get-ExtensionServiceReadyTimeoutSeconds -Area 'pool-control-service'
 $readyTimeoutMinutes = [int]($readyTimeoutSeconds / 60)
-# How long a guest located by the last-resort route below gets to answer on
-# :80. Deliberately short: it runs only after the ordinary wait has already
-# spent its whole budget, and it is confirming a listener that either answers
-# within a few polls or was never there.
-$recoveryProbeSeconds = 60
 
 $daemonReady = $false
 # A different question, kept apart from the one above: the daemon can be
@@ -79,20 +71,22 @@ $stillBuilding = $false
 # $null until a wait actually runs, which is itself an answer: a verdict that
 # was never taken is not a pass.
 $endpoint = $null
+# Re-points the host forward at an address the guest moved to: during the
+# wait below, and when the guest is found again at another address.
+$repointForwarder = {
+    param($newAddress)
+    $script:vmIp = $newAddress
+    if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
+        $script:poolControlForwarded = Add-PortMap -Owner 'pool-control-service' -VMIp $newAddress -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
+        if ($script:poolControlForwarded) {
+            Write-Verbose "  Re-pointed host :8081 -> ${newAddress}:80."
+        }
+    }
+}
 if ($vmIp) {
     Write-Verbose "VM '$VMName' is at $vmIp. Waiting up to $readyTimeoutMinutes min for the pool-control-service daemon to serve on :80 (first boot builds it in-guest)."
     Write-Verbose "  The wait extends itself while the guest reports it is still building; progress is printed as it happens."
     Write-Verbose "  Override the budget with YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS."
-    $repointForwarder = {
-        param($newAddress)
-        $script:vmIp = $newAddress
-        if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
-            $script:poolControlForwarded = Add-PortMap -Owner 'pool-control-service' -VMIp $newAddress -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
-            if ($script:poolControlForwarded) {
-                Write-Verbose "  Re-pointed host :8081 -> ${newAddress}:80."
-            }
-        }
-    }
     $endpoint = Wait-YurunaServiceVmDaemon -VMName $VMName -Port 80 `
         -TimeoutSeconds $readyTimeoutSeconds -Address $vmIp `
         -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' `
@@ -127,23 +121,7 @@ if ($vmIp) {
 }
 
 # --- REGION: Recover the VM address
-# See https://yuruna.link/4220a755-0046
-$recoveredIp = ''
-if ((Get-ServiceVmReadinessVerdict -Endpoint $endpoint).IsFailure) {
-    $recovery = Confirm-ServiceVmAtRecoveredAddress -VMName $VMName -Port 80 -KnownAddress ([string]$vmIp) -TimeoutSeconds $recoveryProbeSeconds
-    $recoveredIp = [string]$recovery.Address
-    Write-Verbose "  $($recovery.Summary)."
-    if ($recovery.Ready) {
-        $vmIp = $recoveredIp
-        $endpoint = New-ServiceVmRecoveredEndpoint -Endpoint $endpoint -Address $recoveredIp -WaitedSeconds $ipWaitSeconds
-        if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
-            $script:poolControlForwarded = Add-PortMap -Owner 'pool-control-service' -VMIp $recoveredIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false
-            if ($script:poolControlForwarded) {
-                Write-Verbose "  Re-pointed host :8081 -> ${recoveredIp}:80."
-            }
-        }
-    }
-}
+. $recoverServiceVmAddress
 
 # --- REGION: Evaluate service readiness
 # See https://yuruna.link/42e220c4-0008
@@ -200,27 +178,10 @@ To hold this script longer next time:
 }
 
 # --- REGION: Report the deployed source
-# See https://yuruna.link/42fffc2c-0013
-# The daemon is serving, so this is the first point where the framework it
-# was built from can be answered from evidence rather than prediction. It is
-# read before anything is published, so a refused build is never advertised.
-$sourceAccepted = $true
-if ($daemonReady) {
-    $sourceAccepted = Assert-ServiceVmFrameworkSource -Address ([string]$vmIp) -Port 80 `
-        -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' `
-        -Expected $frameworkExpected -ServiceLabel 'pool-control-service' `
-        -AllowMirrorSource:$AllowMirrorSource
-}
+. $reportServiceVmSource
 
 # --- REGION: Decide the start outcome
-# One record decides the census result, the advertisement and the exit. A stop
-# requested while this start ran wins: nothing is advertised for it.
-$stillWanted = Test-YurunaServiceOperationCurrent -Context $serviceOp
-$startOutcome = Resolve-YurunaServiceStartOutcome -Verdict $verdict -StillWanted $stillWanted -SourceAccepted $sourceAccepted -Degraded $buildDegraded
-if ($startOutcome.Result -eq 'confirmed') { $serviceOpResult = 'confirmed' }
-if (-not $stillWanted) {
-    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.service_start_stop_requested' -Arguments @{ vmName = $VMName; stopScript = 'Stop-PoolControlServiceVM.ps1' })
-}
+. $decideServiceStartOutcome
 
 # --- REGION: Publish service readiness
 # See https://yuruna.link/42fffc2c-0008

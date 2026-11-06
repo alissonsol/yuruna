@@ -410,8 +410,13 @@ func TestTheAggregatorMintsNoRefreshAuthority(t *testing.T) {
 	s.view().Hosts[refreshHostID] = &hostView{HostId: refreshHostID, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10",
 		Reachable: true, LastSeenUnixMs: time.Now().UnixMilli(), ExtensionTargets: map[string]string{"stash-service": "http://192.0.2.12"}}
 	seedExtensionHealth(s, refreshHostID, stashArea, "http://192.0.2.12")
-	fragment := regexp.MustCompile(`#yctl=[0-9]+\.(?:[A-Za-z0-9_-]+\.)?[A-Za-z0-9+/]+=*$`)
-	for _, target := range []string{"/go/host?host=" + refreshHostID, "/go/stash?host=" + refreshHostID} {
+	// The whole Location is pinned: the destination the route resolves, no
+	// query, and a fragment that is one control proof and nothing else.
+	proofShape := regexp.MustCompile(`^[0-9]+\.(?:[A-Za-z0-9_-]+\.)?[A-Za-z0-9+/]+=*$`)
+	for target, want := range map[string]string{
+		"/go/host?host=" + refreshHostID:  "http://192.0.2.10:8080",
+		"/go/stash?host=" + refreshHostID: "http://192.0.2.12",
+	} {
 		rec := httptest.NewRecorder()
 		if strings.HasPrefix(target, "/go/host") {
 			s.handleGoHost(rec, httptest.NewRequest(http.MethodGet, target, nil))
@@ -419,10 +424,11 @@ func TestTheAggregatorMintsNoRefreshAuthority(t *testing.T) {
 			s.handleGoStash(rec, httptest.NewRequest(http.MethodGet, target, nil))
 		}
 		loc := rec.Header().Get("Location")
-		if rec.Code != http.StatusFound || !fragment.MatchString(loc) || strings.Contains(loc, "yhr") {
-			t.Fatalf("%s: %d Location %q", target, rec.Code, loc)
+		dest, fragment, cut := strings.Cut(loc, "#")
+		proof, isControl := strings.CutPrefix(fragment, "yctl=")
+		if rec.Code != http.StatusFound || !cut || dest != want || !isControl || !proofShape.MatchString(proof) {
+			t.Fatalf("%s: %d Location %q, want %s#yctl=<control proof>", target, rec.Code, loc, want)
 		}
-		_, proof, _ := strings.Cut(loc, "#yctl=")
 		if !verifyControlProof(proofToken, proof, "", time.Now(), controlProofMaxTTL) {
 			t.Fatalf("%s: the fragment is not a control proof this daemon accepts", target)
 		}
@@ -455,8 +461,9 @@ func TestTheAggregatorMintsNoRefreshAuthority(t *testing.T) {
 	}
 }
 
-// The versioned refresh wire from the shared vector file is refused by this
-// daemon's legacy verifier under the very token that derives its key.
+// This daemon's control-proof verifier refuses both other forms in the shared
+// vector file: the unbound legacy wire, which names no target, and the
+// versioned refresh wire, even under the very token that derives its key.
 func TestLegacyVerifierRefusesTheSharedRefreshVector(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "extension-sdk", "hostrefresh", "testdata", "vectors.json"))
 	if err != nil {
@@ -479,11 +486,11 @@ func TestLegacyVerifierRefusesTheSharedRefreshVector(t *testing.T) {
 		t.Fatalf("the legacy mint drifted from the shared vector: %s", got)
 	}
 	at := time.Unix(v.Legacy.VerifyAtUnix, 0)
-	if !verifyControlProof(v.Legacy.Token, v.Legacy.Wire, "", at, controlProofMaxTTL) {
-		t.Fatal("the shared legacy vector must verify here")
+	if verifyControlProof(v.Legacy.Token, v.Legacy.Wire, "", at, controlProofMaxTTL) {
+		t.Fatal("the shared legacy vector verified here; the unbound form is refused")
 	}
 	if verifyControlProof(v.Legacy.Token, v.Versioned.Wire, "", at, controlProofMaxTTL) {
-		t.Fatal("the legacy verifier accepted a refresh proof")
+		t.Fatal("the control-proof verifier accepted a refresh proof")
 	}
 }
 

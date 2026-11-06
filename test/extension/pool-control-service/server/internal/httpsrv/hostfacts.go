@@ -49,7 +49,13 @@ type hostFactsRow struct {
 	// the name as plain text, so an older host build stays readable.
 	FrameworkURL string `json:"frameworkUrl,omitempty"`
 	ProjectURL   string `json:"projectUrl,omitempty"`
-	Error        string `json:"error,omitempty"`
+	// The framework commit the host's resident runner loaded and when it
+	// started, as the runner reported them: a runner keeps the code it loaded
+	// until it restarts, whatever the host's checkout holds since. Empty when
+	// the host has not reported them.
+	RunnerCommitSHA    string `json:"runnerCommitSha,omitempty"`
+	RunnerStartedAtUTC string `json:"runnerStartedAtUtc,omitempty"`
+	Error              string `json:"error,omitempty"`
 }
 
 // handleHostFacts fans out to every host the Hosts page can list -- the ones the

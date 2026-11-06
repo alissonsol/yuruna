@@ -1,0 +1,16 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42130aa6-54f3-40a4-acf4-2db4079628da
+# Installed by host/ubuntu.kvm/Enable-DeepDiagnostics.ps1 and removed by
+# Disable-DeepDiagnostics.ps1.
+[Unit]
+Description=Yuruna deep diagnostics: host vitals into the kernel log every 10 seconds
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/yuruna/deep-diagnostics/yuruna-vitals.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

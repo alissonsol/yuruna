@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a7229d-27c5-49c9-b988-b09c540defad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,6 +16,14 @@ Import-Module (Join-Path $PSScriptRoot 'Test.StateFile.psm1') -DisableNameChecki
 Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.PoolPlanner.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking
+
+# ConvertFrom-Json turns ISO-8601-looking strings into [DateTime] unless told
+# not to (-DateKind String, PowerShell 7.5 and later). The gate compares a
+# handed-off originCheckedAt with its signed receipt as exact text, and the
+# stale-replacement check parses retained times; a [DateTime] formatted back
+# loses its zone and is read in the host's local time.
+$script:SourceSelectionJsonOption = @{}
+if ((Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $script:SourceSelectionJsonOption.DateKind = 'String' }
 
 function Get-GitSourceConfiguration {
     <# .SYNOPSIS
@@ -199,7 +207,8 @@ function Read-InstalledGitSource {
     $path = Get-YurunaPrivateStatePath -Name 'installed-sources.json' -Subdirectory 'git-mirror' -NoCreate
     if (-not $path.Resolved -or -not (Test-Path -LiteralPath $path.Path)) { return @{} }
     if ((Get-Item -LiteralPath $path.Path).Length -gt 262144) { throw 'source-provenance-oversized' }
-    $document = Get-Content -LiteralPath $path.Path -Raw | ConvertFrom-Json -AsHashtable -Depth 20
+    $jsonOption = $script:SourceSelectionJsonOption
+    $document = Get-Content -LiteralPath $path.Path -Raw | ConvertFrom-Json -AsHashtable -Depth 20 @jsonOption
     if ($document.schemaVersion -ne 1 -or $document.repoRoot -cne [IO.Path]::GetFullPath($RepoRoot)) { return @{} }
     return $document
 }
@@ -269,7 +278,8 @@ function Read-GitSourceHandoff {
     $path = Get-GitSourceHandoffPath
     if (-not $path -or -not (Test-Path -LiteralPath $path)) { return $null }
     if ((Get-Item -LiteralPath $path).Length -gt 262144) { throw 'source-handoff-oversized' }
-    $record = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable -Depth 20
+    $jsonOption = $script:SourceSelectionJsonOption
+    $record = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable -Depth 20 @jsonOption
     if ($record.schemaVersion -ne 1 -or $record.cycleGeneration -cne $CycleGeneration -or
         $record.repoRoot -cne [IO.Path]::GetFullPath($RepoRoot) -or
         $record.configPath -cne [IO.Path]::GetFullPath($ConfigPath)) { throw 'source-handoff-identity-mismatch' }

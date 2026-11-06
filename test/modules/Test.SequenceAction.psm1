@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42c1c329-52af-4255-9e3b-0caf47235605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,6 +59,12 @@ function Register-SequenceAction {
     .PARAMETER HostIORequirement
         Names of host I/O actions (Send-Key, Send-Text, Send-Click)
         this verb requires. Consumed by Test-CyclePlanCapability.
+    .PARAMETER HostCommandRequirement
+        Names of the host commands this verb's Handler runs (for example
+        ssh), as Get-Command -CommandType Application resolves them, the way
+        Invoke-BoundedNativeCommand finds what it launches. Consumed by
+        Test-CyclePlanCapability, which refuses a plan whose steps need a
+        command this host does not have before any VM is built.
     .PARAMETER OcrRequired
         $true when this verb needs at least one enabled OCR provider.
     .PARAMETER Description
@@ -114,6 +120,7 @@ function Register-SequenceAction {
         [Parameter(Mandatory)][string]$Name,
         [scriptblock]$FailureLabel,
         [string[]]$HostIORequirement = @(),
+        [string[]]$HostCommandRequirement = @(),
         [bool]$OcrRequired = $false,
         [string]$Description = '',
         [string[]]$Aliases = @(),
@@ -131,7 +138,7 @@ function Register-SequenceAction {
             'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
             'host_network_degraded','ip_not_discovered','payload_unavailable',
             'pool_storage_full','dhcp_identity_unbounded','lab_dependency_down','input_lost','hypervisor_unresponsive','source_integrity',
-            'vm_not_stopped','guest_run_lost','unknown')]
+            'vm_not_stopped','guest_run_lost','guest_kernel_stalled','unknown')]
         [string]$FailureClass = 'unknown',
         [ValidateSet('hard','soft','unknown')]
         [string]$Severity = 'unknown',
@@ -164,6 +171,7 @@ function Register-SequenceAction {
         FailureLabel                = $FailureLabel
         Handler                     = $Handler
         HostIORequirement           = @($HostIORequirement)
+        HostCommandRequirement      = @($HostCommandRequirement)
         OcrRequired                 = $OcrRequired
         Description                 = $Description
         Aliases                     = @($Aliases)
@@ -339,7 +347,7 @@ function Get-SequenceActionFailureLabel {
 function Get-SequenceActionRequirementMap {
     <#
     .SYNOPSIS
-        Verb -> @{ HostIO; OcrRequired } map consumed by
+        Verb -> @{ HostIO; HostCommand; OcrRequired } map consumed by
         Test-CyclePlanCapability.
     .OUTPUTS
         System.Collections.Specialized.OrderedDictionary
@@ -353,6 +361,7 @@ function Get-SequenceActionRequirementMap {
         $entry = $store[$k]
         $out[$k] = @{
             HostIO      = @($entry.HostIORequirement)
+            HostCommand = @($entry.HostCommandRequirement)
             OcrRequired = [bool]$entry.OcrRequired
         }
     }

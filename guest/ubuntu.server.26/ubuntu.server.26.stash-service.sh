@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.31
+# Version: 2026.11.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 4269ddd2-50e1-4f8b-a2aa-0cb1d876bac8
@@ -70,6 +70,9 @@ HTTP_ADDR="${STASH_HTTP_ADDR-0.0.0.0:80}"
 POOL_WINDOW_DAYS="${STASH_POOL_WINDOW_DAYS:-30}"
 AGGREGATOR_URL_SEED=$(sed -nE "s/^YURUNA_AGGREGATOR_URL='(.*)'\$/\1/p" /etc/yuruna/pool.env 2>/dev/null | head -n1 || true)
 AGGREGATOR_URL="${STASH_AGGREGATOR_URL:-$AGGREGATOR_URL_SEED}"
+# Names the UI answers to besides its addresses, this VM's host name and
+# localhost; a request naming any other host is refused.
+ALLOWED_HOST_NAMES=$(sed -nE "s/^YURUNA_SERVICE_HOST_NAMES='(.*)'\$/\1/p" /etc/yuruna/service-host-names.env 2>/dev/null | head -n1 || true)
 if [ -n "$AGGREGATOR_URL" ]; then
   echo "Delete authorization: Lab token or Yuruna hosts dashboard link, checked by $AGGREGATOR_URL."
 else
@@ -193,6 +196,7 @@ POOL_WINDOW_DAYS=$POOL_WINDOW_DAYS
 AGGREGATOR_URL=$AGGREGATOR_URL
 HOST_ID=$HOST_ID
 PRESENCE_INTERVAL=$PRESENCE_INTERVAL
+ALLOWED_HOST_NAMES=$ALLOWED_HOST_NAMES
 ENV
 
 # --- REGION: systemd unit
@@ -213,7 +217,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/stash.env
-ExecStart=/usr/local/bin/stash-service --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL} --host-id=\${HOST_ID} --presence-interval=\${PRESENCE_INTERVAL} --language=\${YURUNA_LANGUAGE} --allow-pseudo-locale=\${YURUNA_ALLOW_PSEUDO_LOCALE}
+ExecStart=/usr/local/bin/stash-service --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL} --host-id=\${HOST_ID} --presence-interval=\${PRESENCE_INTERVAL} --allowed-host-names=\${ALLOWED_HOST_NAMES} --language=\${YURUNA_LANGUAGE} --allow-pseudo-locale=\${YURUNA_ALLOW_PSEUDO_LOCALE}
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

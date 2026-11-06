@@ -155,26 +155,9 @@ func (s *poolState) handoverHostLocked(view *poolstate.View, oldID, newID string
 		return fmt.Errorf("%w: %v", errHandoverPersistence, err)
 	}
 	view.SetAliases(copyAliases)
-	delete(view.Hosts, oldID)
-	delete(view.Incident, oldID)
-	if oldFailures := view.FailWindow[oldID]; len(oldFailures) != 0 {
-		view.FailWindow[newID] = append(view.FailWindow[newID], oldFailures...)
-		sort.Slice(view.FailWindow[newID], func(i, j int) bool { return view.FailWindow[newID][i].At.Before(view.FailWindow[newID][j].At) })
-	}
-	delete(view.FailWindow, oldID)
-	view.DropFootprint(oldID)
-	for k := range view.Announce {
-		if strings.HasPrefix(k, oldID+"|") {
-			delete(view.Announce, k)
-		}
-	}
-	for k := range view.ExtHealth {
-		if strings.HasPrefix(k, oldID+"|") {
-			delete(view.ExtHealth, k)
-		}
-	}
-	// Preserve pass/fail and cycle dedup state under the old key. Output paths
+	// The cycle records and counters stay under the old key. Output paths
 	// project them through the alias; removing them would lose live counts.
+	view.RetireHost(oldID, newID)
 	s.statsMu.Lock()
 	s.statsEpoch++
 	clear(s.statsCache)

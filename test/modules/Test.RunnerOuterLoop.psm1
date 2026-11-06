@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1615,6 +1615,28 @@ writing nothing.
     return [bool](Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue)
 }
 
+function Initialize-RunnerStatusLock {
+<#
+.SYNOPSIS
+Make the shared status-file lock resolvable before a fault-path rewrite of status.json.
+.DESCRIPTION
+The lock lives in Test.Status, which the outer process loads only when it
+needs the history-row builder. The fault stamp replaces the whole document,
+so it has to hold the same lock as the status service's pause routes and
+the start-cycle worker: without it, a stamp either side makes between this
+writer's read and its write is lost.
+.OUTPUTS
+[bool] whether the lock helpers are available.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    if (Get-Command Enter-StatusLock -ErrorAction SilentlyContinue) { return $true }
+    $statusModule = Join-Path $PSScriptRoot 'Test.Status.psm1'
+    if (Test-Path -LiteralPath $statusModule) { Import-Module $statusModule -Global -ErrorAction SilentlyContinue }
+    return [bool](Get-Command Enter-StatusLock -ErrorAction SilentlyContinue)
+}
+
 # --- REGION: Runner attempt evidence
 function Read-RunnerAttemptEvidence {
     <#
@@ -2063,114 +2085,149 @@ function Update-RunnerFaultStatus {
     )
     $statusFile = Join-Path $RuntimeDir 'status.json'
     if (-not $PSCmdlet.ShouldProcess($statusFile, (Format-YurunaOperatorMessage -Key 'runner.operator_83c012a12dddac6a' -Arguments @{ runnerState = "$RunnerState" }))) { return $false }
+    # The whole document is read, changed and replaced, so the read and the
+    # write hold the shared status-file lock that the status service's pause
+    # routes and the start-cycle worker take: a stamp from either side between
+    # this read and this write would otherwise be lost. A lock that cannot be
+    # resolved leaves the stamp unlocked rather than unwritten, as the state
+    # writer does: the stamp is the only record that the attempt failed.
+    $lock = if (Initialize-RunnerStatusLock) { Enter-StatusLock -Path $statusFile } else { $null }
     try {
-        $doc = if (Test-Path -LiteralPath $statusFile -PathType Leaf) {
-            Get-Content -Raw -LiteralPath $statusFile -ErrorAction Stop | ConvertFrom-Json -AsHashtable
-        } else {
-            @{ schemaVersion = 1; overallStatus = 'unknown'; guests = @(); gitCommits = @(); history = @(); lastFailure = $null }
-        }
-    } catch {
-        Write-Verbose "Update-RunnerFaultStatus: could not parse $statusFile ($($_.Exception.Message))."
-        return $false
-    }
-    if ($doc -isnot [System.Collections.IDictionary]) { return $false }
-    # An attempt can fail before the cycle document publishes identity. Read the
-    # already persisted host UUID so pool discovery can observe that fault too.
-    if (-not $doc['hostId'] -and (Test-Path -LiteralPath (Join-Path $RuntimeDir 'host.uuid') -PathType Leaf)) {
         try {
-            if (-not (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue)) {
-                Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -DisableNameChecking -ErrorAction Stop
+            $doc = if (Test-Path -LiteralPath $statusFile -PathType Leaf) {
+                Get-Content -Raw -LiteralPath $statusFile -ErrorAction Stop | ConvertFrom-Json -AsHashtable
+            } else {
+                @{ schemaVersion = 1; overallStatus = 'unknown'; guests = @(); gitCommits = @(); history = @(); lastFailure = $null }
             }
-            $persistedHostId = Get-YurunaHostId -RuntimeDir $RuntimeDir
-            if ($persistedHostId) { $doc['hostId'] = [string]$persistedHostId }
-        } catch { Write-Verbose "Fault status host identity unavailable: $($_.Exception.Message)" }
-    }
-    $doc['runnerState']          = $RunnerState
-    $doc['runnerStateReason']    = $Reason
-    $doc['runnerStateSinceUtc']  = (Get-Date).ToUniversalTime().ToString('o')
-    $doc['runnerStalledPhase']   = $StalledPhase
-    if ($RunnerState -in @('fault', 'paused')) {
-        $currentCycle = $doc['overallStatus'] -eq 'running'
-        if ($currentCycle -and $AttemptGeneration -and $doc['cycleGeneration']) {
-            $currentCycle = [string]$doc['cycleGeneration'] -ceq $AttemptGeneration
-        } elseif ($currentCycle -and $SpawnedAtUtc -ne [datetime]::MinValue) {
+        } catch {
+            Write-Verbose "Update-RunnerFaultStatus: could not parse $statusFile ($($_.Exception.Message))."
+            return $false
+        }
+        if ($doc -isnot [System.Collections.IDictionary]) { return $false }
+        # An attempt can fail before the cycle document publishes identity. Read the
+        # already persisted host UUID so pool discovery can observe that fault too.
+        if (-not $doc['hostId'] -and (Test-Path -LiteralPath (Join-Path $RuntimeDir 'host.uuid') -PathType Leaf)) {
             try {
-                $cycleStarted = ([datetime]$doc['cycleStartUtc']).ToUniversalTime()
-                $currentCycle = $cycleStarted -ge $SpawnedAtUtc.ToUniversalTime()
-            } catch { $currentCycle = $false }
-        }
-        $recordPath = $FailureRecordPath
-        if (-not $recordPath -and $currentCycle -and $env:YURUNA_LOG_DIR) {
-            $recordPath = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
-        }
-        $cause = Get-RunnerFaultCause -FailureRecordPath $recordPath -Reason $Reason -StalledPhase $StalledPhase -FailureClass $FailureClass
-        if ($AttemptEvidence -and $AttemptEvidence['description']) { $cause.errorMessage = [string]$AttemptEvidence['description'] }
-        $priorFault = $doc['runnerFault']
-        $attemptStarted = if ($SpawnedAtUtc -ne [datetime]::MinValue) { $SpawnedAtUtc.ToUniversalTime().ToString('o') } else { '' }
-        $faultRecordedAt = if ($priorFault -and [string]$priorFault['attemptGeneration'] -ceq $AttemptGeneration) { [string]$priorFault['recordedAt'] } else { [DateTime]::UtcNow.ToString('o') }
-        $attemptCompleted = $false
-        if ($doc['finishedAt']) {
-            if ($AttemptGeneration -and $doc['cycleGeneration']) {
-                $attemptCompleted = [string]$doc['cycleGeneration'] -ceq $AttemptGeneration
-            } elseif ($SpawnedAtUtc -ne [datetime]::MinValue) {
-                try { $attemptCompleted = ([datetime]$doc['cycleStartUtc']).ToUniversalTime() -ge $SpawnedAtUtc.ToUniversalTime() } catch { $null = $_ }
-            }
-        }
-        $doc['runnerFault'] = if ($attemptCompleted) { $null } else { [ordered]@{
-            failureClass = $cause.failureClass
-            stage = if ($AttemptEvidence) { [string]$AttemptEvidence['stage'] } else { '' }
-            severity = $cause.severity
-            stepName = $cause.stepName
-            errorMessage = $cause.errorMessage
-            recordedAt = $faultRecordedAt
-            attemptGeneration = $AttemptGeneration
-            attemptStartedAtUtc = $attemptStarted
-            attemptElapsedSeconds = if ($SpawnedAtUtc -ne [datetime]::MinValue) { [math]::Max(0, [math]::Round(([DateTime]::UtcNow - $SpawnedAtUtc.ToUniversalTime()).TotalSeconds, 3)) } else { $null }
-            frameworkCommitSha = if ($AttemptEvidence -and $AttemptEvidence['frameworkCommitSha']) { [string]$AttemptEvidence['frameworkCommitSha'] } else { $FrameworkCommitSha }
-            recordPath = if ($AttemptEvidence -and $AttemptEvidence['recordPath']) { [string]$AttemptEvidence['recordPath'] } else { '' }
-            transcriptPath = if ($AttemptEvidence -and $AttemptEvidence['transcriptPath']) { [string]$AttemptEvidence['transcriptPath'] } else { '' }
-        } }
-        if (-not $attemptCompleted -and $AttemptGeneration) {
-            try {
-                if (-not (Get-Command Write-RunnerAttemptFaultArtifact -ErrorAction SilentlyContinue)) {
-                    Import-Module (Join-Path $PSScriptRoot 'Test.RunnerAttemptHistory.psm1') -DisableNameChecking -ErrorAction Stop
+                if (-not (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue)) {
+                    Import-Module (Join-Path $PSScriptRoot 'Test.YurunaDir.psm1') -DisableNameChecking -ErrorAction Stop
                 }
-                $started = if ($SpawnedAtUtc -ne [datetime]::MinValue) { $SpawnedAtUtc } else { [DateTime]::UtcNow }
-                $retained = Write-RunnerAttemptFaultArtifact -RuntimeDir $RuntimeDir -AttemptGeneration $AttemptGeneration `
-                    -FailureClass $cause.failureClass -Description $cause.errorMessage -StartedAtUtc $started `
-                    -FrameworkCommitSha $doc['runnerFault']['frameworkCommitSha'] -ExitCode $ExitCode -Evidence $AttemptEvidence -Confirm:$false
-                if ($retained) {
-                    $doc['runnerFault']['recordPath'] = $retained.recordPath
-                    $doc['runnerFault']['transcriptPath'] = $retained.transcriptPath
+                $persistedHostId = Get-YurunaHostId -RuntimeDir $RuntimeDir
+                if ($persistedHostId) { $doc['hostId'] = [string]$persistedHostId }
+            } catch { Write-Verbose "Fault status host identity unavailable: $($_.Exception.Message)" }
+        }
+        $doc['runnerState']          = $RunnerState
+        $doc['runnerStateReason']    = $Reason
+        $doc['runnerStateSinceUtc']  = (Get-Date).ToUniversalTime().ToString('o')
+        $doc['runnerStalledPhase']   = $StalledPhase
+        if ($RunnerState -in @('fault', 'paused')) {
+            $currentCycle = $doc['overallStatus'] -eq 'running'
+            if ($currentCycle -and $AttemptGeneration -and $doc['cycleGeneration']) {
+                $currentCycle = [string]$doc['cycleGeneration'] -ceq $AttemptGeneration
+            } elseif ($currentCycle -and $SpawnedAtUtc -ne [datetime]::MinValue) {
+                try {
+                    $cycleStarted = ([datetime]$doc['cycleStartUtc']).ToUniversalTime()
+                    $currentCycle = $cycleStarted -ge $SpawnedAtUtc.ToUniversalTime()
+                } catch { $currentCycle = $false }
+            }
+            $recordPath = $FailureRecordPath
+            if (-not $recordPath -and $currentCycle -and $env:YURUNA_LOG_DIR) {
+                $recordPath = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+            }
+            $cause = Get-RunnerFaultCause -FailureRecordPath $recordPath -Reason $Reason -StalledPhase $StalledPhase -FailureClass $FailureClass
+            if ($AttemptEvidence -and $AttemptEvidence['description']) { $cause.errorMessage = [string]$AttemptEvidence['description'] }
+            $priorFault = $doc['runnerFault']
+            $attemptStarted = if ($SpawnedAtUtc -ne [datetime]::MinValue) { $SpawnedAtUtc.ToUniversalTime().ToString('o') } else { '' }
+            # A fault published without an attempt generation (an escape from the
+            # outer loop, a diagnostic hold) cannot be matched to an earlier one,
+            # so it is always a new fault.
+            $faultRepublished = $AttemptGeneration -and $priorFault -and [string]$priorFault['attemptGeneration'] -ceq $AttemptGeneration
+            $faultRecordedAt = [DateTime]::UtcNow.ToString('o')
+            if ($faultRepublished) {
+                # The document was parsed with ISO-8601 text as [datetime]; the
+                # republished fault keeps the text it was first published with.
+                $priorRecordedAt = $priorFault['recordedAt']
+                $faultRecordedAt = if ($priorRecordedAt -is [datetime]) { $priorRecordedAt.ToUniversalTime().ToString('o') } else { [string]$priorRecordedAt }
+            }
+            $attemptCompleted = $false
+            if ($doc['finishedAt']) {
+                if ($AttemptGeneration -and $doc['cycleGeneration']) {
+                    $attemptCompleted = [string]$doc['cycleGeneration'] -ceq $AttemptGeneration
+                } elseif ($SpawnedAtUtc -ne [datetime]::MinValue) {
+                    try { $attemptCompleted = ([datetime]$doc['cycleStartUtc']).ToUniversalTime() -ge $SpawnedAtUtc.ToUniversalTime() } catch { $null = $_ }
                 }
-            } catch { Write-Verbose "Runner attempt history could not be saved: $($_.Exception.Message)" }
-        }
-        if ($currentCycle) {
-            $doc['overallStatus'] = 'fail'
-            if (-not $doc['lastFailure']) { $doc['lastFailure'] = $cause }
-            $history = if ($doc['history']) { @($doc['history']) } else { @() }
-            $cycleKey = [string]$doc['cycleStartUtc']
-            $recorded = $false
-            foreach ($row in $history) {
-                if ($row -and [string]$row['cycleStartUtc'] -eq $cycleKey) { $recorded = $true; break }
             }
-            if ($cycleKey -and -not $recorded -and (Initialize-RunnerHistoryWriter)) {
-                $entry = New-CycleHistoryEntry -Document $doc -OverallStatus 'fail' `
-                    -CycleFolderUrl ([string]$doc['cycleFolderUrl']) `
-                    -FinishedAt ([DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)) `
-                    -LastFailure $cause
-                $doc['history'] = @(@($entry) + $history | Select-Object -First $MaxHistoryRuns)
+            $doc['runnerFault'] = if ($attemptCompleted) { $null } else { [ordered]@{
+                failureClass = $cause.failureClass
+                stage = if ($AttemptEvidence) { [string]$AttemptEvidence['stage'] } else { '' }
+                severity = $cause.severity
+                stepName = $cause.stepName
+                errorMessage = $cause.errorMessage
+                recordedAt = $faultRecordedAt
+                attemptGeneration = $AttemptGeneration
+                attemptStartedAtUtc = $attemptStarted
+                attemptElapsedSeconds = if ($SpawnedAtUtc -ne [datetime]::MinValue) { [math]::Max(0, [math]::Round(([DateTime]::UtcNow - $SpawnedAtUtc.ToUniversalTime()).TotalSeconds, 3)) } else { $null }
+                frameworkCommitSha = if ($AttemptEvidence -and $AttemptEvidence['frameworkCommitSha']) { [string]$AttemptEvidence['frameworkCommitSha'] } else { $FrameworkCommitSha }
+                recordPath = if ($AttemptEvidence -and $AttemptEvidence['recordPath']) { [string]$AttemptEvidence['recordPath'] } else { '' }
+                transcriptPath = if ($AttemptEvidence -and $AttemptEvidence['transcriptPath']) { [string]$AttemptEvidence['transcriptPath'] } else { '' }
+            } }
+            if (-not $attemptCompleted -and $AttemptGeneration) {
+                try {
+                    if (-not (Get-Command Write-RunnerAttemptFaultArtifact -ErrorAction SilentlyContinue)) {
+                        Import-Module (Join-Path $PSScriptRoot 'Test.RunnerAttemptHistory.psm1') -DisableNameChecking -ErrorAction Stop
+                    }
+                    $started = if ($SpawnedAtUtc -ne [datetime]::MinValue) { $SpawnedAtUtc } else { [DateTime]::UtcNow }
+                    $retained = Write-RunnerAttemptFaultArtifact -RuntimeDir $RuntimeDir -AttemptGeneration $AttemptGeneration `
+                        -FailureClass $cause.failureClass -Description $cause.errorMessage -StartedAtUtc $started `
+                        -FrameworkCommitSha $doc['runnerFault']['frameworkCommitSha'] -ExitCode $ExitCode -Evidence $AttemptEvidence -Confirm:$false
+                    if ($retained) {
+                        $doc['runnerFault']['recordPath'] = $retained.recordPath
+                        $doc['runnerFault']['transcriptPath'] = $retained.transcriptPath
+                    }
+                } catch { Write-Verbose "Runner attempt history could not be saved: $($_.Exception.Message)" }
+            }
+            # status.json keeps only the current fault, and the attempt history
+            # only so many attempts; the event stream is the lasting record.
+            # One event per attempt generation: a fault the attempt already
+            # published (fault, then the pause that follows it) is not sent
+            # again. The runner opens no cycle of its own, so the event waits
+            # for the next cycle's stream.
+            if ($doc['runnerFault'] -and -not $faultRepublished -and (Get-Command Add-PendingCycleEvent -ErrorAction SilentlyContinue)) {
+                $faultEvent = @{
+                    timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                    event     = 'runner_fault'
+                }
+                foreach ($key in $doc['runnerFault'].Keys) { $faultEvent[$key] = $doc['runnerFault'][$key] }
+                if (-not (Add-PendingCycleEvent -EventRecord $faultEvent -RuntimeDir $RuntimeDir)) {
+                    Write-Verbose "Update-RunnerFaultStatus: the runner_fault event for attempt '$AttemptGeneration' was not queued."
+                }
+            }
+            if ($currentCycle) {
+                $doc['overallStatus'] = 'fail'
+                if (-not $doc['lastFailure']) { $doc['lastFailure'] = $cause }
+                $history = if ($doc['history']) { @($doc['history']) } else { @() }
+                $cycleKey = [string]$doc['cycleStartUtc']
+                $recorded = $false
+                foreach ($row in $history) {
+                    if ($row -and [string]$row['cycleStartUtc'] -eq $cycleKey) { $recorded = $true; break }
+                }
+                if ($cycleKey -and -not $recorded -and (Initialize-RunnerHistoryWriter)) {
+                    $entry = New-CycleHistoryEntry -Document $doc -OverallStatus 'fail' `
+                        -CycleFolderUrl ([string]$doc['cycleFolderUrl']) `
+                        -FinishedAt ([DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)) `
+                        -LastFailure $cause
+                    $doc['history'] = @(@($entry) + $history | Select-Object -First $MaxHistoryRuns)
+                }
             }
         }
-    }
-    $null = Initialize-RunnerStateWriter
-    try {
-        $saved = Write-YurunaStateFileJson -Path $statusFile -Depth 32 -Compress:$false -Confirm:$false -InputObject $doc
-        return [bool]$saved
-    } catch {
-        Write-Verbose "Update-RunnerFaultStatus: status save failed (best-effort): $($_.Exception.Message)"
-        return $false
-    }
+        $null = Initialize-RunnerStateWriter
+        try {
+            $saved = Write-YurunaStateFileJson -Path $statusFile -Depth 32 -Compress:$false -Confirm:$false -InputObject $doc
+            return [bool]$saved
+        } catch {
+            Write-Verbose "Update-RunnerFaultStatus: status save failed (best-effort): $($_.Exception.Message)"
+            return $false
+        }
+    } finally { if ($lock) { Exit-StatusLock -Lock $lock } }
 }
 
 <#

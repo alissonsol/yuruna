@@ -3871,7 +3871,7 @@ written beside the config echo further into the cycle.
 
 <a id="4213a0b3-00ed"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Start-CycleHostDiagnostic
+## test/modules/Test.RunnerInnerLoop.psm1: Save-CycleHostDiagnostic
 
 The child also drops a machine-readable sibling next to the prose
 dump (<OutFile>.json, schema yuruna.diagnostic.problems/v1) whose
@@ -6349,6 +6349,14 @@ lock (Enter/Exit-StatusLock) -- the owner re-reads `nested` before its flush
 re-reads the whole doc before touching its node. Neither can lose the other's
 section. The single "am I nested?" signal is the inherited
 $env:YURUNA_CYCLE_CONTEXT handle; its absence == standalone owner.
+
+The same lock covers every other whole-document writer: the status service's
+pause routes and the start-cycle worker (Update-StatusDocumentField), the
+outer runner's fault stamp (Update-RunnerFaultStatus), the configuration
+gate's fault clear (Write-ConfigGateArtifact) and the service start's
+`repoUrl` rewrite (Start-StatusService.ps1, through
+Update-StatusDocumentField), so a stamp and a route cannot lose each other's
+fields.
 
 <a id="4213a0b3-0181"></a>
 

@@ -625,6 +625,71 @@ saved. The manual command below retains its normal screenshot attempt.
 These observations distinguish a capture failure from unchanged
 guest output without claiming which kernel or hypervisor component failed.
 
+Ubuntu guests built from the UTM templates also carry two loopback-only TCP
+serial devices that never wait for a client. The guest's PL011 UART listens
+on the VM's VNC port plus 1000 (6910..6989) and QEMU's human monitor (HMP) on
+the VNC port plus 2000 (7910..7989); both move with the display when a start
+reassigns it, and `Get-UtmConsolePortFromBundle` reads them from the bundle.
+`Start-VM` arms a reader before UTM powers the VM on, because QEMU drops what
+the guest writes while no client is attached. The reader appends to
+`serial-console.log` in the VM's folder of the cycle log (`<cycle>/<vm>/`),
+reconnects across restarts and keeps its own account in
+`serial-console.reader.json`. At 4 MiB the log rolls over to
+`serial-console.1.log`, so the folder keeps the newest 4 to 8 MiB. The log
+stays after a cycle that passes, so a guest that wedged and then recovered
+through a cold restart still shows what it printed first. When a guest
+fails, its two segments are joined, oldest first, into one
+`serial-console.log` of at most 8 MiB, because the runner reads that one
+file for the kernel's reports, as it does on Hyper-V. A failed guest also
+gets `serial-console.info.txt`, the reader's account at that moment with how
+many bytes came from the rolled segment and when the newest byte arrived, and,
+when the log holds kernel reports the runner recognizes,
+`serial-console.kernel.json`.
+
+The log is the raw byte stream: firmware and GRUB output with their terminal
+escapes, then the kernel's console. No `console=` argument is added. With
+none on the command line the arm64 kernel takes the ACPI SPCR UART, which is
+this PL011, as its console, so it already logs there while getty and the
+installer keep drawing on the framebuffer the OCR reads. The kernel prints
+only messages at or above its console log level: the installer's
+`dmesg -n 1` early-command limits the rest of the install to emergency
+messages (soft lockups, oopses, panics), and the installed system's
+`loglevel=3` adds alert and critical ones. The installed system's
+`yuruna-serial-journal.service` also copies what its services and systemd log to this UART (see
+[Ubuntu installs end with a power-off and a cold start](#42885ada-0014)),
+but never the kernel's own records, so RCU stalls and hung tasks stay in
+the journal.
+
+When a startup wait ends with the guest wedged, the control snapshot taken
+before the cold restart also asks the monitor for `info status`, `info cpus`
+and `info registers -a`, into `qemu-monitor.<trigger>.txt` beside the
+snapshot, and copies the newest 256 KiB of the serial log, across a
+rollover and byte for byte, into `serial-console.<trigger>.log`. The
+snapshot's `qemuMonitor` and `serialConsole` fields record each outcome, the
+time each command took, and `logBytes`, where the restart begins in the live
+log. In the log a failure saves, the restart begins `previousLogBytes` plus
+`logBytes` bytes in, unless the log rolled over again in between. Every step
+is bounded: a monitor that does not answer costs seconds and is recorded as
+`no-prompt`, `no-answer` or `partial`. The `PC=` values of
+`info registers -a` say where each virtual CPU was executing, and the thread
+ids of `info cpus` match the QEMU threads in a host `sample` or spindump.
+
+To attach by hand, run `nc 127.0.0.1 <port>`. Each port serves one client at
+a time: while the runner's reader holds the serial console a second client
+waits until the reader lets go, and the monitor is free except during a
+snapshot.
+
+The monitor asks for no password, and it exposes more than the loopback VNC
+display, which reaches only the guest's screen and keyboard. Any account on
+the host can connect to it and act on the host as the account that runs UTM,
+within whatever sandbox UTM gives its QEMU process: `migrate "exec:<command>"`
+starts a host process, and `pmemsave` and `dump-guest-memory` write the
+guest's memory to host files, including any secret the guest holds, such as
+the GitHub token the seed installs when one is configured. It can also stop,
+reset or quit the VM. On a host where other accounts can log in, treat each
+of them as able to run commands as the account that runs UTM while these
+guests run.
+
 Before a manual restart, copy the guest's `failed_step*-attempt*` folders and
 `last_failure.json` from its cycle log directory. If no attempt snapshot was
 saved, run this in PowerShell from the repository root, using the exact VM
@@ -642,6 +707,69 @@ reach login may recover through a cold VM restart. Restart UTM.app itself
 only for a corroborated control-channel problem, since that affects the
 other VMs it hosts. Keep the saved evidence if restarting recovers the guest:
 successful recovery alone does not identify the underlying cause.
+
+<a id="42885ada-0014"></a>
+
+## Ubuntu installs end with a power-off and a cold start
+
+Subiquity ends an install with a reboot by default, a warm reset inside the
+same QEMU process. Under UTM the installed system's first boot after that
+reset can wedge: one virtual CPU waits in `csd_lock_wait` for an idle one
+that QEMU never wakes, and the display never activates. A new QEMU process
+booting the same disk does not wedge, which is why the login wait's cold
+restart recovered such a guest, though only after minutes of a dead
+console.
+
+The UTM overlay therefore sets `shutdown: poweroff`, and the runner starts
+the installed system cold. The Ubuntu UTM templates boot the disk before the
+ISO, so that start runs the installed system. The KVM and Hyper-V seeds keep the
+installer's reboot: their overlays carry the `SHUTDOWN` section empty. Two
+start sequences run only on this host,
+`test/sequences/start.guest.ubuntu.server.24.macos.utm.yml` and
+`test/sequences/start.guest.ubuntu.server.26.macos.utm.yml`. Each is the
+generic file of its release with two steps after the autoinstall answer: a
+`startVm` with `installPowerOff: true`, which waits up to 2400 seconds for
+the VM to report stopped, saving a console frame every 30 seconds, and then
+starts it, and a 15-second settle. The installed-login wait and its bounded
+cold restart follow unchanged, as a safety net. A parity case in
+`test/modules/Test.SourceConsistency.Tests.ps1` fails when a generic file
+changes and its UTM copy does not. Two paths stay outside this: the SSH
+start variants have no UTM copy, so on UTM they would wait for SSH on a VM
+the install powered off, and Ubuntu 24.04 still ends provisioning with
+`sudo reboot now`, a warm reset of the installed system that its
+post-provision login wait covers with a bounded cold restart.
+
+The costs: every UTM Ubuntu cycle pays one cold start, on hosts that never
+wedged too. The power-off wait does not look for installer failures on the
+screen, so an installer that crashes keeps the VM running until the
+2400-second limit. The step then fails as `provisioning_failure`, with the
+console frames of the wait, the last frame's OCR text and the observed VM
+state on the failure record; an installer that caught its own error has also
+sent its logs to the status service through the seed's
+[error-commands upload](vmconfig.md#429f3d06-002f). The guest is not recorded
+as silent: an installer still drawing its own screen has not stopped
+answering.
+
+To confirm that a cycle took this path, look for `reboot: Power down` at the
+end of the install in `serial-console.log` (the installer's reboot prints
+`reboot: Restarting system` instead), a `startVm` step that lasted about as
+long as the install, and no retry at "Wait for installed login prompt". A VM
+built by hand with `New-VM.ps1` ends its install powered off as well: start
+it again in UTM to reach the login prompt.
+
+The installed system also copies its journal to the PL011 UART the runner's
+serial reader logs. A late command installs `yuruna-serial-journal.service`,
+the service the Hyper-V overlay installs for its COM1, writing to
+`/dev/ttyAMA0`. journald itself keeps the base seed's `ForwardToConsole=no`:
+its console writes are inline, so a UART that stopped draining would block
+journald and then every `sudo` and `sshd` logging to it. The copy starts with
+the installed system's first boot, at every priority, and covers what services
+and systemd log, not the kernel's own records. The kernel command line keeps no
+`console=` argument: the PL011 that SPCR names stays the kernel's console,
+so kernel and systemd console output stays off the framebuffer the OCR
+reads, where getty and the installer draw. Forwarded lines make the serial
+log roll over sooner, and the runner skips them when it reads the log for
+kernel reports.
 
 <a id="42885ada-0013"></a>
 
@@ -671,6 +799,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -70,6 +71,8 @@ func mirrorWithPhase(phase string, err error) error {
 		reason = "filesystem-permission-denied"
 	} else if os.IsNotExist(err) {
 		reason = "filesystem-not-found"
+	} else if errors.Is(err, syscall.EXDEV) {
+		reason = "filesystem-cross-device"
 	}
 	return &mirrorFailure{diagnostic: mirrorDiagnostic{Phase: phase, ExitCode: -1, Failure: reason}, cause: err}
 }

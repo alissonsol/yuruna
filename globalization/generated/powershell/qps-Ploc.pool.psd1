@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4264ed3d-6368-8876-a160-49b6eee20de7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1299,6 +1299,23 @@
     )
     'pool.result' = '[Řéšúļţ ~~~]'
     'pool.row_number' = '[Řóŵ ñúɱƀéř ~~~~]'
+    'pool.runner' = '[Řúññéř ~~~]'
+    'pool.runner_cell' = @(
+        '['
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' šíñçé '
+        @{
+            'arg' = 'startedAt'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~]'
+    )
+    'pool.runner_unreported' = '[Ţħíš ħóšţ''š řúññéř ħáš ñóţ řéƥóřţéď íţš çóɱɱíţ áñď šţářţ ţíɱé. Á řúññéř šţářţéď ƀéƒóřé ţħáţ řéƥóřţ éẋíšţéď řéƥóřţš ţħéɱ áƒţéř íţš ñéẋţ řéšţářţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'pool.running' = '[Řúññíñğ:  ~~~~]'
     'pool.running_checks' = '[Řúññíñğ çħéçķš... ~~~~~~~]'
     'pool.save_failed_value1' = @(

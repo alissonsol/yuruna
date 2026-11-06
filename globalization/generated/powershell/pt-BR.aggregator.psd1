@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42bda300-8f98-7969-bc3d-200d08e0d119
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -194,7 +194,7 @@
     'aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1' = 'tempo para remover um host da visualização do grupo após o último contato; seu estado de eliminação de duplicatas por ciclo é mantido por mais uma hora para evitar contagem dupla se ele reaparecer. Os links do painel continuam resolvendo por pelo menos 24 h. Os contadores acumulados de aprovações e falhas não expiram por este parâmetro; use POST /api/v1/forget-host'
     'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = 'arquivo com o token Bearer compartilhado exigido por POST /ingest, POST /api/v1/forget-host, POST /api/v1/handover-host e GET /api/v1/host-history; caminho vazio, arquivo ausente ou arquivo vazio desativa essas operações (sem rota de controle sem autenticação)'
     'aggregator.help_framework_ring_state_file' = 'arquivo que guarda a revisão do framework que cada ciclo concluído de cada host executou, para que o anel canário sobreviva a uma reinicialização (vazio a mantém em memória)'
-    'aggregator.help_loki_outbox_dir' = 'pasta que guarda as linhas do Loki até o Loki aceitá-las (vazio as mantém na memória, perdidas ao reiniciar)'
+    'aggregator.help_loki_outbox_dir' = 'pasta que guarda as linhas do Loki até o Loki aceitá-las (vazio as mantém na memória, até 64 MiB, perdidas ao reiniciar)'
     'aggregator.help_loki_push_api_url_c89d9321' = 'URL da API do Loki push'
     'aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f' = 'ao iniciar, restaure as contagens de ciclo do Loki sobre esta janela (0 para desativar)'
     'aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc' = 'abrir um incidente após muitos ciclos falhados dentro da janela-incidente'
@@ -213,6 +213,7 @@
     'aggregator.host_not_known_to_the_pool' = 'hospedeiro desconhecido do grupo'
     'aggregator.hostid_must_be_a_42_prefixed_32_hex_id' = 'hostId deve ser um id 32-hex de 42 prefixos'
     'aggregator.ingest_disabled' = 'ingerir desativado'
+    'aggregator.ingest_not_recorded' = 'o coletor não conseguiu registrar estas linhas; tente novamente'
     'aggregator.ingest_queue_full' = 'o coletor não consegue guardar estas linhas agora; tente novamente mais tarde'
     'aggregator.invalid_control_scope' = 'escopo de controle inválido'
     'aggregator.invalid_hostid' = 'hostId inválido'

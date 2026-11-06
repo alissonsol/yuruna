@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42f97555-078b-4a8e-8eef-1fac4bd333c4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,35 +75,46 @@ if (-not (Get-Module -ListAvailable powershell-yaml)) {
 }
 Import-Module powershell-yaml -DisableNameChecking
 
-$rawText = Get-Content -Raw -LiteralPath $ConfigPath
-$config = ConvertFrom-Yaml -Yaml $rawText -Ordered
-$migration = ConvertTo-ConfigNamingMigration -Config $config -ObsoleteEntry (Get-ObsoleteConfigEntry -Text $rawText)
-if ($migration.Changes.Count -eq 0) {
-    Write-Information "$ConfigPath already uses the current key names -- nothing to convert." -InformationAction Continue
-    exit 0
+# The read, the conversion and the write hold the config's write lock, so a
+# runner or the status page's editor writing at the same time cannot have its
+# change dropped by this rewrite, and the bytes being replaced go to the
+# config's journal under the writer name config-naming, beside the
+# .pre-renaming copy. The block returns the exit code instead of exiting, so
+# the lock is released by the same path on every outcome.
+$cmdlet = $PSCmdlet
+$exitCode = Use-TestConfigLock -Path $ConfigPath -Action {
+    $rawText = Get-Content -Raw -LiteralPath $ConfigPath
+    $config = ConvertFrom-Yaml -Yaml $rawText -Ordered
+    $migration = ConvertTo-ConfigNamingMigration -Config $config -ObsoleteEntry (Get-ObsoleteConfigEntry -Text $rawText)
+    if ($migration.Changes.Count -eq 0) {
+        Write-Information "$ConfigPath already uses the current key names -- nothing to convert." -InformationAction Continue
+        return 0
+    }
+    $changes = @($migration.Changes | ForEach-Object {
+        $suffix = if ($_.Factor -ne 1) { " (value x $($_.Factor))" } else { '' }
+        "  $($_.Old) -> $($_.New)$suffix"
+    })
+
+    Write-Information "Converting $ConfigPath ($($changes.Count) key(s)):" -InformationAction Continue
+    foreach ($c in $changes) { Write-Information $c -InformationAction Continue }
+
+    $sorted = ConvertTo-SortedConfig $migration.Config
+    $newYaml = $sorted | ConvertTo-Yaml
+    $obsoleteText = Format-ObsoleteConfigEntry -ObsoleteEntry $migration.Obsolete
+    if ($obsoleteText) { $newYaml = $newYaml.TrimEnd() + "`n`n" + $obsoleteText + "`n" }
+
+    if (-not $cmdlet.ShouldProcess($ConfigPath, "Rewrite with current key names and preserve a migration backup")) {
+        Write-Information "-WhatIf: nothing written." -InformationAction Continue
+        return 0
+    }
+
+    $backup = New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false
+    $null = Save-TestConfigJournalEntry -ConfigPath $ConfigPath -Writer 'config-naming' -NewContent $newYaml
+    if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $newYaml -Confirm:$false)) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_save_failed' -Arguments @{ configPath = $ConfigPath })
+        return 1
+    }
+    Write-Information "Wrote $ConfigPath (previous file kept as $backup)." -InformationAction Continue
+    return 0
 }
-$changes = @($migration.Changes | ForEach-Object {
-    $suffix = if ($_.Factor -ne 1) { " (value x $($_.Factor))" } else { '' }
-    "  $($_.Old) -> $($_.New)$suffix"
-})
-
-Write-Information "Converting $ConfigPath ($($changes.Count) key(s)):" -InformationAction Continue
-foreach ($c in $changes) { Write-Information $c -InformationAction Continue }
-
-$sorted = ConvertTo-SortedConfig $migration.Config
-$newYaml = $sorted | ConvertTo-Yaml
-$obsoleteText = Format-ObsoleteConfigEntry -ObsoleteEntry $migration.Obsolete
-if ($obsoleteText) { $newYaml = $newYaml.TrimEnd() + "`n`n" + $obsoleteText + "`n" }
-
-if (-not $PSCmdlet.ShouldProcess($ConfigPath, "Rewrite with current key names and preserve a migration backup")) {
-    Write-Information "-WhatIf: nothing written." -InformationAction Continue
-    exit 0
-}
-
-$backup = New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false
-if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $newYaml -Confirm:$false)) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_save_failed' -Arguments @{ configPath = $ConfigPath })
-    exit 1
-}
-Write-Information "Wrote $ConfigPath (previous file kept as $backup)." -InformationAction Continue
-exit 0
+exit $exitCode

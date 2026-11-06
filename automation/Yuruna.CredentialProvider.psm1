@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42ef082c-e8a7-4b9b-a65e-775dd8f26574
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,10 +24,20 @@
 param()
 
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableNameChecking
+# Invoke-YurunaToolWithDeadline, the deploy tools' deadline, under which every
+# login below runs. -Global -Force so the import does not evict an instance
+# another module loaded.
+Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Global -Force
 if (-not $global:YurunaCredentialProviders) {
     $global:YurunaCredentialProviders = [ordered]@{}
 }
 $script:Providers = $global:YurunaCredentialProviders
+# Bound of one login, in seconds: the CLI's token exchange and the docker login
+# together. A login reaches a registry or an identity service, and one that
+# stops answering would otherwise hold a deploy's step past its budget. Well
+# past a normal login, so it ends only one that stopped making progress; the
+# stopped login reports exit 124 and the Authenticator answers $false.
+$script:RegistryLoginTimeoutSeconds = 120
 # The providers this module registers below. A provider a project registers
 # is any other type, and Get-CredentialProvider consults those first: the
 # built-in docker-generic matches every host, so a provider registered after
@@ -121,8 +131,11 @@ Register-CredentialProvider -Type 'azurecr' `
             Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_a85e6d3c95a02f33')
             return $false
         }
-        & az acr login --name $registry | Out-Null
-        return ($LASTEXITCODE -eq 0)
+        $outcome = @{}
+        $null = Invoke-YurunaToolWithDeadline -Label "az acr login -n $registry" -TimeoutSeconds $script:RegistryLoginTimeoutSeconds -Outcome $outcome -ScriptBlock {
+            & az acr login --name $registry | Out-Null
+        }
+        return (-not $outcome['TimedOut'] -and $LASTEXITCODE -eq 0)
     } `
     -LoginCommand {
         param([string]$Target)
@@ -148,10 +161,13 @@ Register-CredentialProvider -Type 'ecr' `
             Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_48ffd650c4a65b3b')
             return $false
         }
-        $password = & aws ecr get-login-password --region $region
-        if ($LASTEXITCODE -ne 0) { return $false }
-        $password | & docker login --username AWS --password-stdin $registryHost | Out-Null
-        return ($LASTEXITCODE -eq 0)
+        $outcome = @{}
+        $null = Invoke-YurunaToolWithDeadline -Label "aws ecr get-login-password | docker login $registryHost" -TimeoutSeconds $script:RegistryLoginTimeoutSeconds -Outcome $outcome -ScriptBlock {
+            $password = & aws ecr get-login-password --region $region
+            if ($LASTEXITCODE -ne 0) { return }
+            $password | & docker login --username AWS --password-stdin $registryHost | Out-Null
+        }
+        return (-not $outcome['TimedOut'] -and $LASTEXITCODE -eq 0)
     } `
     -LoginCommand {
         param([string]$Target)
@@ -178,10 +194,13 @@ Register-CredentialProvider -Type 'gar' `
             Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_f4bb767139b39bba')
             return $false
         }
-        $token = & gcloud auth print-access-token
-        if ($LASTEXITCODE -ne 0) { return $false }
-        $token | & docker login --username oauth2accesstoken --password-stdin "https://$registryHost" | Out-Null
-        return ($LASTEXITCODE -eq 0)
+        $outcome = @{}
+        $null = Invoke-YurunaToolWithDeadline -Label "gcloud auth print-access-token | docker login https://$registryHost" -TimeoutSeconds $script:RegistryLoginTimeoutSeconds -Outcome $outcome -ScriptBlock {
+            $token = & gcloud auth print-access-token
+            if ($LASTEXITCODE -ne 0) { return }
+            $token | & docker login --username oauth2accesstoken --password-stdin "https://$registryHost" | Out-Null
+        }
+        return (-not $outcome['TimedOut'] -and $LASTEXITCODE -eq 0)
     } `
     -LoginCommand {
         param([string]$Target)
@@ -210,8 +229,11 @@ Register-CredentialProvider -Type 'dockerhub' `
             Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_2a3b65a19646de9d')
             return $false
         }
-        $password | & docker login --username $userName --password-stdin | Out-Null
-        return ($LASTEXITCODE -eq 0)
+        $outcome = @{}
+        $null = Invoke-YurunaToolWithDeadline -Label 'docker login docker.io' -TimeoutSeconds $script:RegistryLoginTimeoutSeconds -Outcome $outcome -ScriptBlock {
+            $password | & docker login --username $userName --password-stdin | Out-Null
+        }
+        return (-not $outcome['TimedOut'] -and $LASTEXITCODE -eq 0)
     } `
     -LoginCommand {
         param([string]$Target)
@@ -243,8 +265,11 @@ Register-CredentialProvider -Type 'docker-generic' `
             Write-Warning (Format-YurunaOperatorMessage -Key 'automation.operator_7f64bfad9ab853d4')
             return $false
         }
-        $password | & docker login --username $userName --password-stdin $registryHost | Out-Null
-        return ($LASTEXITCODE -eq 0)
+        $outcome = @{}
+        $null = Invoke-YurunaToolWithDeadline -Label "docker login $registryHost" -TimeoutSeconds $script:RegistryLoginTimeoutSeconds -Outcome $outcome -ScriptBlock {
+            $password | & docker login --username $userName --password-stdin $registryHost | Out-Null
+        }
+        return (-not $outcome['TimedOut'] -and $LASTEXITCODE -eq 0)
     } `
     -LoginCommand {
         param([string]$Target)

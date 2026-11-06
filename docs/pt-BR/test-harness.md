@@ -367,6 +367,10 @@ inicia um serviço de hipervisor apenas diante de evidência positiva de que est
 `Test.HostDriverContractParity` verifica se os três drivers definem, exportam e
 declaram todos os verbos do contrato, e `Test.KvmStartIfStopped` e
 `Test.HyperVVirtualizationResponsive` cobrem os dois verbos em KVM e Hyper-V.
+Ao ser carregado, cada driver entrega suas exportações a
+`Assert-YurunaHostContractCoverage`, que recusa a importação com uma única
+mensagem que nomeia todos os verbos ausentes, de modo que um driver nunca é
+carregado com apenas parte do contrato.
 Observações por hospedeiro para os contratos que
 divergem de formas operacionalmente significativas (snapshot + renomeação, E/S
 de tela):
@@ -661,9 +665,18 @@ Uma suíte que falha na execução paralela executa mais uma vez, sozinha, depoi
 dela (até dez suítes; não com `-FailFast` nem com limite de concorrência 1). Sua
 linha registra `alone` como `passed` ou `failed`, sua linha de problema diz qual
 dos dois, e uma suíte aprovada sozinha é listada em `loadSensitive`: suas margens
-de tempo não se mantêm sob a carga de uma execução paralela. O veredito é o da
-primeira execução em qualquer caso, e o resultado da execução isolada é mantido
-ao lado dele como `nunit-<suite>.alone.xml`.
+de tempo não se mantêm sob a carga de uma execução paralela. Uma suíte cujo
+processo foi encerrado pelo hospedeiro antes de gravar um arquivo de resultados
+é executada sozinha da mesma forma: uma morte por sinal no Linux e no macOS
+(saídas de 129 a 159, como 134 para SIGABRT e 139 para SIGSEGV) ou um código
+de exceção no Windows (`0xC0000005`, `0xC00000FD`), nunca um código atribuído
+pelo shim, pelo pwsh ou pelo executor (0 a 2, 124 a 126). Sua linha registra
+`alone` como `load-crash` quando ela passa na nova execução, e ela entra em
+`loadSensitive` com as demais; uma falha de processo que se repete recebe
+`failed`, e um processo que terminou por conta própria sem um arquivo de
+resultados (um erro de script) não é executado novamente. O veredito é o da
+primeira execução em qualquer caso, e o resultado da execução isolada é
+mantido ao lado dele como `nunit-<suite>.alone.xml`.
 
 Um processo que uma suíte deixou em execução depois que o próprio processo dela
 terminou é encerrado, exibido como aviso e listado em `leftovers` no
@@ -752,8 +765,15 @@ a entrada ou descartavam o valor externo, de modo que sete suítes deixavam
 `YURUNA_RUNTIME_DIR`, e uma `YURUNA_LOG_DIR`, apontando para uma pasta de fixture
 ou sem valor para o que rodasse em seguida no processo. Um teste cujo objeto
 define entradas que ele não consegue nomear de antemão salva todas com `-All` e
-restaura com `-RemoveOthers`, que também remove o que foi acrescentado. Uma pasta
-de fixture com nome único vem de `New-YurunaTestTempDir` e é removida com
+restaura com `-RemoveOthers`, que também remove o que foi acrescentado. A regra
+verifica uma restauração manual onde quer que a limpeza a alcance: no próprio
+bloco `finally`, `AfterEach` ou `AfterAll` e em qualquer função local da suíte
+que esse bloco chame, tanto na forma de lista `Remove-Item Env:A, Env:B` quanto
+na forma individual. Ela também exige que cada entrada definida pela suíte
+com um nome literal seja coberta por `Save-YurunaTestEnvironment` com esse nome
+(ou com `-All`), pois uma entrada definida e nunca restaurada vaza para o que
+for executado depois no processo. Uma pasta de fixture com nome único vem de
+`New-YurunaTestTempDir` e é removida com
 `Remove-YurunaTestTempDir`; um arquivo ou um caminho que ainda não pode existir
 fica dentro de uma pasta assim. Um listener de loopback vem de
 `New-YurunaTestTcpListener` (em todos os endereços com `-AnyAddress`, sem iniciar
@@ -886,9 +906,10 @@ o que o ambiente de testes pode fazer no hospedeiro atual -- quais motores OCR
 estão disponíveis, quais ações de E/S do hospedeiro estão conectadas e quais
 extensões estão ativas em cada área. A mesma matriz é cruzada com o plano de
 sequências de cada ciclo: ciclos que referenciam uma ação de E/S do hospedeiro
-não implementada falham antes que qualquer VM seja acessada, com uma mensagem
-que identifica o backend ausente, em vez de falhar mais tarde dentro de uma
-etapa com "Unknown host: ...".
+não implementada, ou uma etapa cujo handler executa um comando que este
+hospedeiro não tem, falham antes que qualquer VM seja acessada, com uma mensagem
+que identifica o backend ou o comando ausente, em vez de falhar mais tarde dentro
+de uma etapa com "Unknown host: ..." ou com um comando que não consegue iniciar.
 
 Implementação:
 [`test/modules/Test.Capability.psm1`](../../test/modules/Test.Capability.psm1).
@@ -931,12 +952,16 @@ Depois de imprimir o banner, o executor interno chama
 `Test-CyclePlanCapabilityFromPlan`, que:
 
 1. Percorre cada sequência do plano de ciclo (incluindo blocos `retry`
-   aninhados) e coleta os verbos de ação usados.
+   aninhados) e coleta os verbos de ação usados e as etapas que os usam.
 2. Para cada verbo, consulta seus requisitos por meio de
    [`Test.SequenceAction\Get-SequenceActionRequirementMap`](../../test/modules/Test.SequenceAction.psm1) --
-   cada verbo declara quais ações de E/S do hospedeiro precisa e se OCR é necessário.
+   cada verbo declara quais ações de E/S do hospedeiro precisa, quais comandos
+   do hospedeiro seu handler executa e se OCR é necessário.
 3. Cruza os requisitos com as matrizes ativas de
-   `Test.HostIO`/`Test.OcrEngine`.
+   `Test.HostIO`/`Test.OcrEngine` e procura cada comando do hospedeiro da mesma
+   forma que os handlers o iniciam (`Get-Command -CommandType Application`; no
+   Windows, `ssh` é o `ssh.exe` do cliente OpenSSH). O comando em si nunca é
+   executado.
 
 Quando uma ação de E/S do hospedeiro exigida está ausente, o ciclo é abortado com:
 
@@ -958,11 +983,25 @@ Se um motor OCR é exigido, mas nenhum provedor está habilitado+disponível,
   Install tesseract or wire a per-host provider via Register-OcrProvider.
 ```
 
+Uma etapa cujo handler executa um comando que este hospedeiro não tem identifica
+o comando e todas as etapas que o executam, por sequência e número da etapa (o
+número que um registro de falha traz):
+
+```
+  Sequences run host commands this host does not have:
+    - ssh
+        workload.guest.ubuntu.server.24.ssh, step 1: sshWaitReady
+        workload.guest.ubuntu.server.24.ssh, step 2: sshExec
+  Install the missing commands on this host, or drop the steps that run them from the cycle's sequence YAMLs.
+```
+
 O ciclo NÃO inicia uma VM após uma falha na barreira de capacidades;
 `$GuestList` é esvaziado para que o laço por convidado execute zero iterações,
 e o ciclo é finalizado com `$OverallPassed=false`. Isso incrementa
 `ConsecutiveFailures` e dispara notificações no mesmo limite usado
-para qualquer outra falha.
+para qualquer outra falha. O registro de falha é `plan_invalid`, da etapa
+`Test-CyclePlanCapability`, e sua mensagem lista todas as lacunas que a barreira
+encontrou, cada comando do hospedeiro ausente com as etapas que o executam.
 
 <a id="42d38664-0012"></a>
 
@@ -986,20 +1025,26 @@ novo verbo em desenvolvimento antes do caminho lento.
 Atualmente (consulte as chamadas a `Register-SequenceAction` em
 [`Test.SequenceHandler.psm1`](../../test/modules/Test.SequenceHandler.psm1)):
 
-| Verbo                    | HostIO exigido            | OCR exigido  |
-|--------------------------|---------------------------|--------------|
-| `pressKey`               | `Send-Key`                | não          |
-| `inputText`              | `Send-Text`               | não          |
-| `inputTextAndEnter`      | `Send-Text`, `Send-Key`   | não          |
-| `tapOn`                  | `Send-Click`              | sim          |
-| `waitForText`            | _(nenhum)_                | sim          |
-| `waitForTextWithNudge`   | `Send-Key`                | sim          |
-| `waitForAndEnter`        | `Send-Text`, `Send-Key`   | sim          |
-| `passwdPrompt`           | `Send-Text`, `Send-Key`   | sim          |
-| `fetchAndExecute`        | `Send-Text`, `Send-Key`   | sim          |
-| `networkRelease`         | `Send-Text`, `Send-Key`   | não          |
-| `sshExec` / `sshFetchAndExecute` / `sshWaitReady` | _(nenhum)_ | não |
-| `startVm` / `stopVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(nenhum)_ | não |
+| Verbo                    | HostIO exigido            | Comandos do hospedeiro | OCR exigido  |
+|--------------------------|---------------------------|------------------------|--------------|
+| `pressKey`               | `Send-Key`                | _(nenhum)_             | não          |
+| `inputText`              | `Send-Text`               | _(nenhum)_             | não          |
+| `inputTextAndEnter`      | `Send-Text`, `Send-Key`   | _(nenhum)_             | não          |
+| `tapOn`                  | `Send-Click`              | _(nenhum)_             | sim          |
+| `waitForText`            | _(nenhum)_                | _(nenhum)_             | sim          |
+| `waitForTextWithNudge`   | `Send-Key`                | _(nenhum)_             | sim          |
+| `waitForAndEnter`        | `Send-Text`, `Send-Key`   | _(nenhum)_             | sim          |
+| `passwdPrompt`           | `Send-Text`, `Send-Key`   | _(nenhum)_             | sim          |
+| `fetchAndExecute`        | `Send-Text`, `Send-Key`   | _(nenhum)_             | sim          |
+| `networkRelease`         | `Send-Text`, `Send-Key`   | _(nenhum)_             | não          |
+| `sshExec` / `sshFetchAndExecute` / `sshWaitReady` | _(nenhum)_ | `ssh`, `ssh-keygen` | não |
+| `startVm` / `stopVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(nenhum)_ | _(nenhum)_ | não |
+
+Os verbos ssh executam `ssh-keygen` por meio da verificação da chave do ambiente
+de testes na primeira chamada ssh de cada processo do executor.
+`fetchAndExecute` e `saveSystemDiagnostic` usam ssh quando o hospedeiro o tem,
+mas não precisam dele: o primeiro digita seu comando no console, e a sequência
+de tentativas de diagnóstico do segundo continua sem ele.
 
 Adicionar um novo verbo exige uma chamada a `Register-SequenceAction` que
 declare suas capacidades -- a barreira o reconhece no próximo ciclo.
@@ -1441,6 +1486,19 @@ Informados, mas nunca alterados: nftables/iptables sem ufw e o firewall de
 aplicativos do macOS (com escopo por aplicativo, não por porta -- a porta não
 é bloqueada por padrão).
 
+A porta do serviço de configuração (`configService.port`, 8443 por padrão)
+passa pelo mesmo auxiliar: é nela que os convidados de serviço buscam sua
+credencial do NAS em `test/service/Start-ConfigService.ps1`. No Ubuntu KVM,
+`host/ubuntu.kvm/Enable-TestAutomation.ps1` adiciona a regra do ufw para ela
+ao lado da regra da porta de status, com a porta em que o executor inicia o
+serviço, e `host/ubuntu.kvm/Disable-TestAutomation.ps1` remove as duas
+quando trazem o comentário com que o auxiliar as adiciona; uma regra
+adicionada à mão, ou por uma versão anterior a esse comentário, permanece. O
+inicializador também tenta aplicar a regra a cada inicialização, sem
+solicitar a senha do sudo, e avisa, nomeando o serviço de configuração,
+sempre que não consegue confirmar que a porta está aberta: ufw ausente,
+estado do ufw ilegível, a permissão recusada ou um erro dentro do auxiliar.
+
 <a id="42d38664-0022"></a>
 
 <a id="per-cycle-diagnostic-capture"></a>
@@ -1543,9 +1601,12 @@ de 5 MiB também se aplicam aqui. Cada POST tem limite de 6 segundos, além do
 prazo de encerramento; falhas no envio aparecem na próxima amostra e no arquivo
 local `status`. O envio final marca o gravador como parado. As amostras locais
 permanecem no diretório privado `/tmp/yuruna-fae-recorder.*` indicado no log de
-execução até que a próxima invocação nesse convidado remova o diretório e o perfil
-indicados no log anterior, ou até a limpeza do convidado. Sem um endpoint de status, a gravação local
-continua funcionando.
+execução até que uma invocação posterior nesse convidado remova o diretório e o
+perfil indicados no log anterior, depois que a invocação dona deles tiver
+terminado, ou até a limpeza do convidado. Uma invocação iniciada pelo payload de
+uma invocação em execução mantém o diretório e o perfil dessa invocação externa
+e os indica em linhas `# retained:` do próprio log. Sem um endpoint de status, a
+gravação local continua funcionando.
 
 Após uma invocação lenta ou com falha, `fetch-and-execute.<id>.evidence.json` e o
 registro de evidências de execução de `step_end` distinguem timeout do SSH,
@@ -1658,6 +1719,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Voltar para [Yuruna](../../README.md)

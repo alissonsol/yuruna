@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b17423-c407-4384-96bd-8aa338c885ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,10 +50,10 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# These four are pinned to the Go side (pool-aggregator-service/main.go,
-# labEnvelopeLabel and labEnvelopeIters). They are restated here rather than
-# imported so this script keeps reporting when the module that owns them is the
-# thing that is wrong.
+# These four are pinned to the Go side
+# (pool-aggregator-service/internal/routes/labtoken.go, LabEnvelopeLabel and
+# LabEnvelopeIters). They are restated here rather than imported so this script
+# keeps reporting when the module that owns them is the thing that is wrong.
 $EnvelopeLabel      = 'yuruna-lab-token|v1'
 $EnvelopeIterations = 600000
 $KeyBytes           = 32

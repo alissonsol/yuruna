@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1174,7 +1174,7 @@ Describe 'the Windows updater verifies host archives through the guest channel' 
             . ([scriptblock]::Create($script:DigestFn))
             $script:Repo = Join-Path $TestDrive 'framework'
             $null = New-Item -ItemType Directory -Path (Join-Path $script:Repo 'docs') -Force
-            Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '2026.10.31'
+            Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '2026.11.05'
             Set-Content -LiteralPath (Join-Path $script:Repo 'docs/x.md') -Value 'excluded'
             $null = New-YurunaTestGitRepository -Path $script:Repo -AddExisting -CommitMessage 'seed'
             $script:Commit = ([string](Invoke-YurunaTestGit -Path $script:Repo -Argument @('rev-parse', 'HEAD'))).Trim()
@@ -1272,6 +1272,286 @@ Describe 'the Windows updater verifies host archives through the guest channel' 
             ([regex]::Matches($script:UpdaterText, 'Get-GuestHostArchive -Archive framework -BaseUrl')).Count | Should -Be 2
             ([regex]::Matches($script:UpdaterText, 'Get-GuestHostArchive -Archive project -BaseUrl')).Count | Should -Be 1
             $script:UpdaterText | Should -Not -Match 'Invoke-WebRequest -Uri \$(projectT|t)arballUrl'
+        }
+    }
+}
+
+# The update scripts clone the framework and the project from the URLs that
+# /control/test-config names whenever the host's archives are not served or fail
+# their digest. Taken unproven, those URLs let whatever answers at the host's
+# address choose what a guest clones, so a guest seeded with its host's
+# guest-channel key asks with a fresh nonce and takes the two URLs only from an
+# answer that proves the key over them for its own host; any other answer leaves
+# the URLs seeded in host.env.
+Describe 'the updaters take clone URLs only from a test-config answer that proves the guest-channel key' {
+    BeforeAll {
+        Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+        Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Force -DisableNameChecking
+        $script:TcKey = 'e6' * 32
+        $script:TcOtherKey = 'f7' * 32
+        $script:TcHost = '42eeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+        $script:TcNonce = '00112233445566778899aabbccddeeff'
+        $script:TcShellFiles = @('guest/shared/ubuntu.update.sh', 'guest/amazon.linux.2023/amazon.linux.2023.update.sh', 'guest/macos.26/macos.26.update.sh')
+        $script:TcConfig = Join-Path $TestDrive 'test.config.yml'
+        [IO.File]::WriteAllText($script:TcConfig, "repositories:`n  frameworkUrl: https://example.invalid/framework.git`n  projectUrl: file:///operator/project`nsecrets:`n  token: fixture-token`n")
+        # The runtime's own GET read, between the two lines the redaction suite
+        # also slices on, with the key and the host id stubbed. The stubs read
+        # Fixture* names: a stub resolves a name through its caller's scope
+        # first, where the route's own $channelKey would answer instead. The
+        # route reads ?nonce= from the request before its try, outside that
+        # slice, so the fixture runs that statement as written ahead of the
+        # slice and hands it a request: a route that stops reading the nonce
+        # from the request then answers these cases without guestChannel, as
+        # it would answer every keyed guest.
+        $runtime = Get-Content -LiteralPath (Join-Path $repoRoot 'test/service/Invoke-StatusServiceRuntime.ps1') -Raw
+        $runtimeAst = [Management.Automation.Language.Parser]::ParseInput($runtime, [ref]$null, [ref]$null)
+        $proofFn = $runtimeAst.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-TestConfigChannelProof' }, $true)
+        $getStart = $runtime.IndexOf('$doc  = Read-TestConfig -Path $testConfigFile -ThrowOnError', [StringComparison]::Ordinal)
+        $getEnd = $runtime.IndexOf('$bytes = [System.Text.Encoding]::UTF8.GetBytes($json)', $getStart, [StringComparison]::Ordinal)
+        if ($getStart -lt 0 -or $getEnd -le $getStart) { throw 'the /control/test-config GET read was not found' }
+        $routeStart = $runtime.IndexOf('# --- REGION: /control/test-config', [StringComparison]::Ordinal)
+        $nonceRead = @($runtimeAst.FindAll({ param($n)
+                    $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Extent.StartOffset -gt $routeStart -and
+                    $n.Extent.EndOffset -le $getStart -and $n.Right.Extent.Text -match '\$req\.QueryString\[''nonce''\]' }, $true))
+        if ($routeStart -lt 0 -or $nonceRead.Count -ne 1) { throw 'the /control/test-config read of ?nonce= was not found' }
+        $script:TestConfigAnswer = [scriptblock]::Create((@(
+                    'param([string]$testConfigFile, $req, [string]$FixtureKey, [string]$FixtureHostId)'
+                    'function Get-YurunaGuestChannelKey { if ($FixtureKey -ceq ''throw'') { throw ''fixture key read failure'' }; $FixtureKey }'
+                    'function Get-ArchiveHostId { $FixtureHostId }'
+                    'function Write-ServerErr { param($Message) [void]$Message }'
+                    $(if ($proofFn) { $proofFn.Extent.Text } else { '' })
+                    $nonceRead[0].Extent.Text
+                    $runtime.Substring($getStart, $getEnd - $getStart)
+                    'return $json'
+                ) -join "`n"))
+        function Get-TestConfigRequest {
+            # A GET as the listener hands it to the route; an empty nonce
+            # leaves ?nonce= out of the query.
+            param([string]$Nonce)
+            $query = [Collections.Specialized.NameValueCollection]::new()
+            if ($Nonce) { $query['nonce'] = $Nonce }
+            [pscustomobject]@{ QueryString = $query; HttpMethod = 'GET' }
+        }
+        function Get-TestConfigBody {
+            # What a host answers a guest, honest or not: proof (this host, its
+            # key), wrongkey (another key), otherhost (another host's id),
+            # noproof (a host that ignores the nonce), changed (a URL rewritten
+            # after the host proved the answer).
+            param([string]$Mode, [string]$Nonce = $script:TcNonce)
+            $request = Get-TestConfigRequest $Nonce
+            switch ($Mode) {
+                'proof' { & $script:TestConfigAnswer $script:TcConfig $request $script:TcKey $script:TcHost }
+                'wrongkey' { & $script:TestConfigAnswer $script:TcConfig $request $script:TcOtherKey $script:TcHost }
+                'otherhost' { & $script:TestConfigAnswer $script:TcConfig $request $script:TcKey '42ffffffffffffffffffffffffffffff' }
+                'noproof' { & $script:TestConfigAnswer $script:TcConfig (Get-TestConfigRequest '') $script:TcKey $script:TcHost }
+                'changed' {
+                    $body = & $script:TestConfigAnswer $script:TcConfig $request $script:TcKey $script:TcHost | ConvertFrom-Json -AsHashtable
+                    $body.repositories.projectUrl = 'https://attacker.invalid/project.git'
+                    $body | ConvertTo-Json -Depth 20
+                }
+                default { throw "unknown answer mode '$Mode'" }
+            }
+        }
+    }
+
+    Context 'host route' {
+        It 'answers a nonce with the host id and a proof of the served clone URLs' {
+            $answer = Get-TestConfigBody proof | ConvertFrom-Json -AsHashtable
+            $answer.guestChannel.hostId | Should -BeExactly $script:TcHost
+            $answer.guestChannel.proof | Should -BeExactly (Get-YurunaGuestChannelProof -Key $script:TcKey -HostId $script:TcHost -Nonce $script:TcNonce -Scope 'test-config' -Value @('https://example.invalid/framework.git', 'file:///operator/project'))
+            $answer.guestChannel.proof | Should -Not -Be (Get-YurunaGuestChannelProof -Key $script:TcKey -HostId $script:TcHost -Nonce $script:TcNonce)
+            $answer.repositories.projectUrl | Should -BeExactly 'file:///operator/project'
+            $answer.secrets.Count | Should -Be 0
+        }
+
+        It 'leaves the document unchanged without a nonce, with a malformed nonce or on a host with no key' {
+            foreach ($case in @(
+                    @{ Nonce = ''; Key = $script:TcKey }
+                    @{ Nonce = 'not-hex'; Key = $script:TcKey }
+                    @{ Nonce = $script:TcNonce; Key = '' }
+                    @{ Nonce = $script:TcNonce; Key = 'throw' }
+                )) {
+                $answer = & $script:TestConfigAnswer $script:TcConfig (Get-TestConfigRequest $case.Nonce) $case.Key $script:TcHost | ConvertFrom-Json -AsHashtable
+                $answer.ContainsKey('guestChannel') | Should -BeFalse -Because "nonce '$($case.Nonce)', key '$($case.Key)'"
+                $answer.repositories.projectUrl | Should -BeExactly 'file:///operator/project'
+                $answer.secrets.Count | Should -Be 0
+            }
+        }
+    }
+
+    Context 'shell updaters' -Skip:($IsWindows -or -not (Get-Command bash -ErrorAction SilentlyContinue) -or -not (Get-Command python3 -ErrorAction SilentlyContinue)) {
+        BeforeAll {
+            $script:TcKeyFile = Join-Path $TestDrive 'guest-channel.key'
+            [IO.File]::WriteAllText($script:TcKeyFile, $script:TcKey + "`n")
+            function Invoke-RepositoryUrlFixture {
+                # Runs the file's URL region as shipped, with host.env, the key,
+                # the nonce and the HTTP client replaced by fixtures. -NoWget
+                # takes the curl path a macOS guest, which has no wget, takes.
+                param([string]$File, [string]$Mode, [switch]$Keyless, [switch]$NoWget)
+                $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+                $null = New-Item -ItemType Directory -Path $root
+                [IO.File]::WriteAllText((Join-Path $root 'body.json'), (Get-TestConfigBody $Mode))
+                [IO.File]::WriteAllText((Join-Path $root 'host.env'), "YURUNA_STATUS_SERVICE_IP=192.0.2.10`nYURUNA_STATUS_SERVICE_PORT=8080`nYURUNA_HOST_ID=$($script:TcHost)`nYURUNA_FRAMEWORK_URL=https://seeded.invalid/framework.git`nYURUNA_PROJECT_URL=file:///seeded/project`n")
+                $source = Get-Content -LiteralPath (Join-Path $repoRoot $File) -Raw
+                $start = $source.IndexOf('# --- REGION: Resolve framework and project URLs', [StringComparison]::Ordinal)
+                $end = $source.IndexOf('# --- REGION: Keep git non-interactive', $start, [StringComparison]::Ordinal)
+                if ($start -lt 0 -or $end -le $start) { throw "the URL region of $File was not found" }
+                $region = $source.Substring($start, $end - $start).Replace('/etc/yuruna/host.env', '"$FIXTURE_ROOT/host.env"')
+                $prefix = @'
+set -euo pipefail
+od() { printf ' 00 11 22 33 44 55 66 77 88 99 aa bb cc dd ee ff\n'; }
+fixture_http() {
+    printf 'REQUEST=%s\n' "${!#}" >> "$FIXTURE_ROOT/requests"
+    printf 'ARGS=%s\n' "$*" >> "$FIXTURE_ROOT/requests"
+    cat "$FIXTURE_ROOT/body.json"
+}
+wget() { fixture_http "$@"; }
+curl() { fixture_http "$@"; }
+if [ "${FIXTURE_NO_WGET:-}" = 1 ]; then
+    command() { if [ "$1" = -v ] && [ "$2" = wget ]; then return 1; fi; builtin command "$@"; }
+fi
+yuruna_host_env() {
+    . "$FIXTURE_ROOT/host.env"
+    [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]
+}
+. "$FIXTURE_ROOT/host.env"
+
+'@
+                $suffix = @'
+
+printf 'FRAMEWORK_URL=%s\nPROJECT_URL=%s\n' "$FRAMEWORK_URL" "$PROJECT_URL"
+cat "$FIXTURE_ROOT/requests" 2>/dev/null || true
+'@
+                $keyFile = if ($Keyless) { Join-Path $root 'absent.key' } else { $script:TcKeyFile }
+                $run = Invoke-YurunaTestShell -Body ($prefix + $region + $suffix) -TimeoutSeconds 20 `
+                    -Environment @{ FIXTURE_ROOT = $root; FIXTURE_NO_WGET = $(if ($NoWget) { '1' } else { '0' }); YURUNA_GUEST_CHANNEL_KEY_FILE = $keyFile }
+                # The region's banner is colored; an escape character that
+                # reaches a failure message breaks the NUnit result writer.
+                $output = $run.Output -replace '\x1b\[[0-9;]*m', ''
+                $run.ExitCode | Should -Be 0 -Because $output
+                return $output
+            }
+        }
+
+        It '<File> asks with a nonce and takes the URLs from an answer that proves the key' -ForEach @(
+            @{ File = 'guest/shared/ubuntu.update.sh' }
+            @{ File = 'guest/amazon.linux.2023/amazon.linux.2023.update.sh' }
+            @{ File = 'guest/macos.26/macos.26.update.sh' }
+        ) {
+            $output = Invoke-RepositoryUrlFixture -File $File -Mode proof
+            $output | Should -Match '(?m)^FRAMEWORK_URL=https://example\.invalid/framework\.git$'
+            $output | Should -Match '(?m)^PROJECT_URL=file:///operator/project$'
+            $output | Should -Match '(?m)^REQUEST=http://192\.0\.2\.10:8080/control/test-config\?nonce=00112233445566778899aabbccddeeff$'
+            $output | Should -Match '(?m)^ARGS=.*--no-proxy'
+        }
+
+        It 'asks through curl, bypassing proxies, on a guest without wget' {
+            $output = Invoke-RepositoryUrlFixture -File 'guest/macos.26/macos.26.update.sh' -Mode proof -NoWget
+            $output | Should -Match '(?m)^PROJECT_URL=file:///operator/project$'
+            $output | Should -Match '(?m)^REQUEST=http://192\.0\.2\.10:8080/control/test-config\?nonce=00112233445566778899aabbccddeeff$'
+            $output | Should -Match '(?m)^ARGS=-fsS --noproxy \* --max-time 5 '
+        }
+
+        It '<File> keeps the host.env URLs when the answer <Case>' -ForEach @(
+            foreach ($file in @('guest/shared/ubuntu.update.sh', 'guest/amazon.linux.2023/amazon.linux.2023.update.sh', 'guest/macos.26/macos.26.update.sh')) {
+                @{ File = $file; Case = 'comes from another key'; Mode = 'wrongkey' }
+                @{ File = $file; Case = 'speaks for another host'; Mode = 'otherhost' }
+                @{ File = $file; Case = 'carries no proof'; Mode = 'noproof' }
+                @{ File = $file; Case = 'changed a URL after proving'; Mode = 'changed' }
+            }
+        ) {
+            $output = Invoke-RepositoryUrlFixture -File $File -Mode $Mode
+            $output | Should -Match '(?m)^FRAMEWORK_URL=https://seeded\.invalid/framework\.git$'
+            $output | Should -Match '(?m)^PROJECT_URL=file:///seeded/project$'
+            $output | Should -Match '192\.0\.2\.10:8080'
+            $output | Should -Match 'guest-channel key|speaks for host'
+            $output | Should -Not -Match 'attacker\.invalid'
+        }
+
+        It '<File> reads the answer as served on a guest without the key' -ForEach @(
+            @{ File = 'guest/shared/ubuntu.update.sh' }
+            @{ File = 'guest/amazon.linux.2023/amazon.linux.2023.update.sh' }
+            @{ File = 'guest/macos.26/macos.26.update.sh' }
+        ) {
+            $output = Invoke-RepositoryUrlFixture -File $File -Mode noproof -Keyless
+            $output | Should -Match '(?m)^FRAMEWORK_URL=https://example\.invalid/framework\.git$'
+            $output | Should -Match '(?m)^PROJECT_URL=file:///operator/project$'
+            $output | Should -Match '(?m)^REQUEST=http://192\.0\.2\.10:8080/control/test-config$'
+        }
+    }
+
+    It 'carries one identical yuruna_read_repository_urls in the three shell updaters' {
+        $shared = Get-YurunaTestShellFunction -Text (Get-Content -LiteralPath (Join-Path $repoRoot $script:TcShellFiles[0]) -Raw) -Name 'yuruna_read_repository_urls'
+        foreach ($file in $script:TcShellFiles[1..2]) {
+            Get-YurunaTestShellFunction -Text (Get-Content -LiteralPath (Join-Path $repoRoot $file) -Raw) -Name 'yuruna_read_repository_urls' |
+                Should -BeExactly $shared -Because "$file must keep the shared copy"
+        }
+    }
+
+    Context 'Windows updater' {
+        BeforeAll {
+            $script:TcUpdaterText = Get-Content -LiteralPath (Join-Path $repoRoot 'guest/windows.11/windows.11.update.ps1') -Raw
+            $updaterAst = [Management.Automation.Language.Parser]::ParseInput($script:TcUpdaterText, [ref]$null, [ref]$null)
+            $urlFn = $updaterAst.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-GuestRepositoryUrl' }, $true)
+            $script:TcUrlFn = if ($urlFn) { $urlFn.Extent.Text } else { '' }
+            . ([scriptblock]::Create($script:TcUrlFn))
+            $script:TcWindowsKeyFile = Join-Path $TestDrive 'windows-guest-channel.key'
+            Set-Content -LiteralPath $script:TcWindowsKeyFile -Value $script:TcKey
+        }
+        BeforeEach {
+            $script:TcMode = 'proof'
+            $script:TcUri = ''
+            Mock Invoke-RestMethod {
+                $script:TcUri = [string]$Uri
+                $nonce = ([regex]::Match([string]$Uri, 'nonce=([0-9a-f]+)')).Groups[1].Value
+                Get-TestConfigBody $script:TcMode $nonce | ConvertFrom-Json
+            }
+        }
+
+        It 'takes the URLs from an answer that proves the key' {
+            $urls = Get-GuestRepositoryUrl -BaseUrl 'http://192.0.2.10:8080' -KeyPath $script:TcWindowsKeyFile -HostId $script:TcHost
+            $urls.FrameworkUrl | Should -BeExactly 'https://example.invalid/framework.git'
+            $urls.ProjectUrl | Should -BeExactly 'file:///operator/project'
+            $script:TcUri | Should -Match '^http://192\.0\.2\.10:8080/control/test-config\?nonce=[0-9a-f]{32}$'
+        }
+
+        It 'refuses an answer that <Case>' -ForEach @(
+            @{ Case = 'comes from another key'; Mode = 'wrongkey'; Expected = '*does not prove this host''s guest-channel key*' }
+            @{ Case = 'speaks for another host'; Mode = 'otherhost'; Expected = '*speaks for host*' }
+            @{ Case = 'carries no proof'; Mode = 'noproof'; Expected = '*does not prove this host''s guest-channel key*' }
+            @{ Case = 'changed a URL after proving'; Mode = 'changed'; Expected = '*does not prove this host''s guest-channel key*' }
+        ) {
+            $script:TcMode = $Mode
+            { Get-GuestRepositoryUrl -BaseUrl 'http://192.0.2.10:8080' -KeyPath $script:TcWindowsKeyFile -HostId $script:TcHost } |
+                Should -Throw -ExpectedMessage $Expected
+        }
+
+        It 'reads the answer as served on a guest without the key' {
+            $urls = Get-GuestRepositoryUrl -BaseUrl 'http://192.0.2.10:8080' -KeyPath (Join-Path $TestDrive 'absent.key') -HostId $script:TcHost
+            $urls.FrameworkUrl | Should -BeExactly 'https://example.invalid/framework.git'
+            $urls.ProjectUrl | Should -BeExactly 'file:///operator/project'
+            $script:TcUri | Should -BeExactly 'http://192.0.2.10:8080/control/test-config'
+        }
+
+        It 'keeps the URLs seeded in host.env when the answer is refused' {
+            $script:TcMode = 'wrongkey'
+            $script:TcAddress = '192.0.2.10'
+            $script:TcPort = '8080'
+            $script:TcSeededFramework = 'https://seeded.invalid/framework.git'
+            $script:TcSeededProject = 'file:///seeded/project'
+            # The region as shipped, reading the fixture's coordinates and key
+            # instead of the guest's environment.
+            $start = $script:TcUpdaterText.IndexOf('# --- REGION: Resolve framework and project URLs', [StringComparison]::Ordinal)
+            $end = $script:TcUpdaterText.IndexOf('# --- REGION: Keep git non-interactive', $start, [StringComparison]::Ordinal)
+            $region = $script:TcUpdaterText.Substring($start, $end - $start).
+                Replace('$env:YURUNA_STATUS_SERVICE_IP', '$script:TcAddress').Replace('$env:YURUNA_STATUS_SERVICE_PORT', '$script:TcPort').
+                Replace('$env:YURUNA_HOST_ID', '$script:TcHost').
+                Replace('$env:YURUNA_FRAMEWORK_URL', '$script:TcSeededFramework').Replace('$env:YURUNA_PROJECT_URL', '$script:TcSeededProject')
+            . ([scriptblock]::Create($script:TcUrlFn.Replace('''C:\ProgramData\yuruna\guest-channel.key''', "'$($script:TcWindowsKeyFile)'")))
+            $output = . ([scriptblock]::Create($region))
+            $projectUrl | Should -BeExactly 'file:///seeded/project'
+            $frameworkUrl | Should -BeExactly 'https://seeded.invalid/framework.git'
+            ($output -join "`n") | Should -Match 'guest-channel key'
         }
     }
 }

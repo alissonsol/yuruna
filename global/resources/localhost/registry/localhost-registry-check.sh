@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.10.31
+# Version: 2026.11.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 423507ea-3154-4742-a8e8-be62d752d021
@@ -18,7 +18,7 @@ if [ "$state" != "true" ]; then
         echo "       The workload bash script is expected to start it BEFORE Set-Resource runs, through"
         echo "       example_registry_prepare in project/tools/example-workload.sh:"
         echo "           docker start registry \\"
-        echo "             || docker run -d -p 127.0.0.1:5000:5000 --restart=always --name registry registry:2"
+        echo "             || docker run -d -p 127.0.0.1:5000:5000 --restart=always --name registry registry:2.8.3"
         echo "       Run 'docker ps -a' and check dockerd logs to see why the container is gone."
     } >&2
     exit 1

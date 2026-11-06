@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42e5dbd9-8c32-496e-ab48-855a0584ae9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,7 @@ BeforeAll {
     $script:MacSrc      = Get-Content -LiteralPath (Join-Path $ModulesDir 'Test.HostCondition.Mac.psm1') -Raw
     $script:WindowsSrc  = Get-Content -LiteralPath (Join-Path $ModulesDir 'Test.HostCondition.Windows.psm1') -Raw
     $script:LinuxEnable = Get-Content -LiteralPath (Join-Path (Split-Path -Parent (Split-Path -Parent $ModulesDir)) 'host/ubuntu.kvm/Enable-TestAutomation.ps1') -Raw
+    $script:LinuxDisable = Get-Content -LiteralPath (Join-Path (Split-Path -Parent (Split-Path -Parent $ModulesDir)) 'host/ubuntu.kvm/Disable-TestAutomation.ps1') -Raw
 
     # Knobs the plan records as deliberately NOT reversed, so a write to them is
     # expected to have no capture entry. Anything else must be captured.
@@ -114,8 +115,15 @@ Describe 'the pre-automation capture covers every setter write' {
         }
 
         It 'captures each powercfg setting the setter changes' {
-            $written = [regex]::Matches($WindowsSrc, 'powercfg\s+/SET(?:AC|DC)VALUEINDEX\s+SCHEME_CURRENT\s+(\S+)\s+(\S+)') |
-                ForEach-Object { $_.Groups[2].Value } | Sort-Object -Unique
+            # The bounded writer keeps the powercfg arguments in a literal array.
+            $boundedPattern = 'Write-WindowsPowerSetting\s+-ArgumentList\s+@\(\s*[''"]/SET(?:AC|DC)VALUEINDEX[''"]\s*,\s*' +
+                '[''"]SCHEME_CURRENT[''"]\s*,\s*[''"][^''"]+[''"]\s*,\s*[''"]([^''"]+)[''"]'
+            $written = @(
+                [regex]::Matches($WindowsSrc, 'powercfg\s+/SET(?:AC|DC)VALUEINDEX\s+SCHEME_CURRENT\s+(\S+)\s+(\S+)') |
+                    ForEach-Object { $_.Groups[2].Value }
+                [regex]::Matches($WindowsSrc, $boundedPattern) |
+                    ForEach-Object { $_.Groups[1].Value }
+            ) | Sort-Object -Unique
             $written | Should -Not -BeNullOrEmpty
             foreach ($setting in $written) {
                 $CaptureSrc | Should -Match ([regex]::Escape($setting)) -Because "the setter writes powercfg $setting, so the capture must record it"
@@ -140,6 +148,43 @@ Describe 'the pre-automation capture covers every setter write' {
     }
 
     Context 'Ubuntu' {
+        BeforeAll {
+            # The names a foreach over $grp walks, taken from the loop whose
+            # body carries the marker: Enable's usermod loop, the capture's
+            # group/<name> loop and Disable's gpasswd loop.
+            function Get-GroupLoopName {
+                param([string]$Source, [string]$Marker)
+                $ast = [System.Management.Automation.Language.Parser]::ParseInput($Source, [ref]$null, [ref]$null)
+                $loop = $ast.FindAll({ param($node)
+                        $node -is [System.Management.Automation.Language.ForEachStatementAst] -and
+                        $node.Variable.VariablePath.UserPath -eq 'grp' -and $node.Body.Extent.Text.Contains($Marker)
+                    }.GetNewClosure(), $true) | Select-Object -First 1
+                if (-not $loop) { throw "no loop over `$grp carries '$Marker'" }
+                @($loop.Condition.FindAll({ param($node) $node -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true) |
+                    ForEach-Object { $_.Value })
+            }
+        }
+
+        It 'captures the membership of every group the Enable script adds' {
+            # Disable removes a membership only on the capture's word that the
+            # runner was not a member before, so a group Enable adds with no
+            # capture entry is one Disable can never take back.
+            $added = @(Get-GroupLoopName -Source $LinuxEnable -Marker 'usermod')
+            $captured = @(Get-GroupLoopName -Source $CaptureSrc -Marker 'group/')
+            $added | Should -Contain 'systemd-journal'
+            foreach ($grp in $added) {
+                $captured | Should -Contain $grp -Because "Enable adds the runner to '$grp', so the capture must record whether it was a member before"
+            }
+        }
+
+        It 'has Disable consider every group the Enable script adds' {
+            $added = @(Get-GroupLoopName -Source $LinuxEnable -Marker 'usermod')
+            $considered = @(Get-GroupLoopName -Source $LinuxDisable -Marker 'gpasswd')
+            foreach ($grp in $added) {
+                $considered | Should -Contain $grp -Because "Enable adds the runner to '$grp', and Disable is where that is taken back"
+            }
+        }
+
         It 'captures every gsettings key the Enable script writes' {
             $LinuxEnable | Should -Match '\$tweaks\s*=\s*Get-LinuxAutomationGsetting'
             $CaptureSrc | Should -Match 'foreach \(\$t in \(Get-LinuxAutomationGsetting\)\)'
@@ -373,6 +418,180 @@ Describe 'the teardown steps every host shares' {
             $text = Get-Content -LiteralPath (Join-Path $root "host/$platform/Disable-TestAutomation.ps1") -Raw
             $text | Should -Not -Match 'CachingProxyService' -Because "$platform must call Stop-YurunaServiceVMSet"
             $text | Should -Not -Match 'Unregister-SecretVault' -Because "$platform must call Write-DisableCommonEpilogue"
+        }
+    }
+}
+
+Describe 'Ubuntu KVM group membership: Enable adds the runner to systemd-journal, Disable takes back only what Enable added' {
+    # Each script's group step is sliced out between its region markers and run
+    # in a child process. Stand-ins answer for getent, id and sudo, and the
+    # message renderer answers with its key and arguments, so no group on this
+    # machine is read or changed and no assertion depends on catalog wording.
+    BeforeAll {
+        $script:KvmHostDir = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'host/ubuntu.kvm'
+
+        function Get-GroupStepSlice {
+            param([string]$Script, [string]$NextRegion)
+            $path = Join-Path $script:KvmHostDir $Script
+            $source = [IO.File]::ReadAllText($path)
+            $start = $source.IndexOf('# --- REGION: Group membership', [StringComparison]::Ordinal)
+            $end = if ($start -ge 0) { $source.IndexOf("# --- REGION: $NextRegion", $start, [StringComparison]::Ordinal) } else { -1 }
+            if ($start -lt 0 -or $end -le $start) { throw "$Script no longer frames its group step between two region markers" }
+            return @{ Path = $path; Body = $source.Substring($start, $end - $start) }
+        }
+
+        # getent answers from a table of /etc/group lines and id from a fixed
+        # active-group list. Each sudo stand-in writes one line per call straight
+        # to stdout, where the value its caller tests cannot swallow it.
+        function Get-GroupFixturePreamble {
+            param([hashtable]$Group, [string]$ActiveGroups)
+            $rows = @(foreach ($name in $Group.Keys) { "'$name' = '$($Group[$name])'" }) -join '; '
+            @'
+$ErrorActionPreference = 'Stop'
+$env:USER = 'runner'
+$groupTable = @{ __ROWS__ }
+function Format-YurunaOperatorMessage {
+    param([string]$Key, [hashtable]$Arguments = @{})
+    $pairs = @($Arguments.Keys | Sort-Object | ForEach-Object { "$_=$($Arguments[$_])" })
+    return ((@('MSG', $Key) + $pairs) -join '|')
+}
+function getent { param($Database, $Name) $null = $Database; $groupTable[$Name] }
+function id { '__ACTIVE__' }
+'@.Replace('__ROWS__', $rows).Replace('__ACTIVE__', $ActiveGroups)
+        }
+
+        function Invoke-GroupFixture {
+            param([string[]]$Text)
+            $fixture = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.ps1')
+            [IO.File]::WriteAllText($fixture, ($Text -join "`n") + "`n")
+            $lines = @(& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File $fixture 2>&1 | ForEach-Object {
+                    [regex]::Replace([regex]::Replace("$_", '\x1b\[[0-9;?]*[ -/]*[@-~]', ''), '[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '')
+                })
+            return @{ ExitCode = $LASTEXITCODE; Lines = $lines; Text = ($lines -join "`n") }
+        }
+
+        function Invoke-EnableGroupStep {
+            param([hashtable]$Group, [string]$ActiveGroups, [bool]$SudoSucceeds = $true, [bool]$LibvirtReady = $true)
+            $slice = Get-GroupStepSlice -Script 'Enable-TestAutomation.ps1' -NextRegion 'Pool storage and host identity'
+            $sudo = @'
+$Script:Unmet = [System.Collections.Generic.List[string]]::new()
+$libvirtReady = __READY__
+function Invoke-HostSudo {
+    param([string[]]$Argument)
+    [Console]::Out.WriteLine("SUDO|$($Argument -join ' ')")
+    return __RESULT__
+}
+'@.Replace('__READY__', $(if ($LibvirtReady) { '$true' } else { '$false' })).Replace('__RESULT__', $(if ($SudoSucceeds) { '$true' } else { '$false' }))
+            Invoke-GroupFixture -Text @(
+                (Get-GroupFixturePreamble -Group $Group -ActiveGroups $ActiveGroups)
+                $sudo
+                (Get-YurunaTestFunctionAst -Path $slice.Path -Name 'Invoke-Step').Extent.Text
+                $slice.Body
+                '"UNMET|$($Script:Unmet -join ";")"'
+            )
+        }
+
+        function Invoke-DisableGroupStep {
+            param([hashtable]$Group, [hashtable]$Knob)
+            $slice = Get-GroupStepSlice -Script 'Disable-TestAutomation.ps1' -NextRegion 'libvirt-qemu search ACL on $HOME'
+            $knobs = @{}
+            foreach ($name in $Knob.Keys) { $knobs["group/$name"] = @{ name = "membership of $name"; present = $true; value = $Knob[$name] } }
+            $stateJson = (@{ knobs = $knobs } | ConvertTo-Json -Depth 4 -Compress).Replace("'", "''")
+            $teardown = @'
+$state = '__STATE__' | ConvertFrom-Json
+$restored = [System.Collections.Generic.List[string]]::new()
+$skipped = [System.Collections.Generic.List[string]]::new()
+function Invoke-YurunaSudo {
+    param([string[]]$Argument, [switch]$TolerateBlocked)
+    $null = $TolerateBlocked
+    [Console]::Out.WriteLine("SUDO|$($Argument -join ' ')")
+    return @{ ExitCode = 0; Output = '' }
+}
+'@.Replace('__STATE__', $stateJson)
+            # The real knob reader, imported before the stand-ins so that the
+            # renderer the step calls is the stand-in rather than the module's.
+            Invoke-GroupFixture -Text @(
+                '[CmdletBinding(SupportsShouldProcess)] param()'
+                "Import-Module '$(Join-Path $PSScriptRoot 'Test.HostAutomationState.psm1')' -DisableNameChecking"
+                (Get-GroupFixturePreamble -Group $Group -ActiveGroups 'runner')
+                $teardown
+                $slice.Body
+                'foreach ($line in $restored) { "RESTORED|$line" }'
+                'foreach ($line in $skipped) { "SKIPPED|$line" }'
+            )
+        }
+
+        $script:MemberGroups = @{ libvirt = 'libvirt:x:119:runner'; kvm = 'kvm:x:993:runner' }
+    }
+
+    Context 'Enable' {
+        It 'adds the runner to systemd-journal and says that a new login is needed' {
+            $run = Invoke-EnableGroupStep -ActiveGroups 'runner libvirt kvm' -Group ($script:MemberGroups + @{ 'systemd-journal' = 'systemd-journal:x:101:' })
+            $run.ExitCode | Should -Be 0 -Because $run.Text
+            @($run.Lines | Where-Object { $_ -like 'SUDO|*' }) | Should -Be @('SUDO|usermod -aG systemd-journal runner')
+            $run.Text | Should -Match ([regex]::Escape('MSG|host.operator_a5c2b328548a1dd1|grp=systemd-journal|uSER=runner'))
+            $run.Lines | Should -Contain 'UNMET|'
+        }
+
+        It 'records an unmet condition when usermod is refused' {
+            $run = Invoke-EnableGroupStep -ActiveGroups 'runner libvirt kvm' -SudoSucceeds $false -Group ($script:MemberGroups + @{ 'systemd-journal' = 'systemd-journal:x:101:other' })
+            $run.ExitCode | Should -Be 0 -Because $run.Text
+            $run.Text | Should -Match ([regex]::Escape('MSG|host.operator_0a2c942a7a5d733a|grp=systemd-journal|uSER=runner'))
+            $run.Lines | Should -Contain "UNMET|runner not in group 'systemd-journal'"
+        }
+
+        It 'leaves an existing membership alone' {
+            $run = Invoke-EnableGroupStep -ActiveGroups 'runner libvirt kvm systemd-journal' -Group ($script:MemberGroups + @{ 'systemd-journal' = 'systemd-journal:x:101:other,runner' })
+            $run.ExitCode | Should -Be 0 -Because $run.Text
+            @($run.Lines | Where-Object { $_ -like 'SUDO|*' }) | Should -BeNullOrEmpty
+            @($run.Lines | Where-Object { $_ -like '*MSG|*' }) | Should -BeNullOrEmpty
+            $run.Lines | Should -Contain 'UNMET|'
+        }
+
+        It 'asks for a new login session when the membership is newer than this one' {
+            $run = Invoke-EnableGroupStep -ActiveGroups 'runner libvirt kvm' -Group ($script:MemberGroups + @{ 'systemd-journal' = 'systemd-journal:x:101:runner' })
+            $run.ExitCode | Should -Be 0 -Because $run.Text
+            @($run.Lines | Where-Object { $_ -like 'SUDO|*' }) | Should -BeNullOrEmpty
+            $run.Lines | Should -Contain 'MSG|host.kvm_journal_group_session_stale'
+            $run.Text | Should -Not -Match ([regex]::Escape('MSG|host.operator_37d4fa1ce9d640c6|grp=systemd-journal')) -Because 'that message is about virsh and virt-install'
+        }
+
+        It 'adds the journal group even where the libvirt packages are missing' {
+            $run = Invoke-EnableGroupStep -ActiveGroups 'runner' -LibvirtReady $false -Group @{ 'systemd-journal' = 'systemd-journal:x:101:' }
+            $run.ExitCode | Should -Be 0 -Because $run.Text
+            @($run.Lines | Where-Object { $_ -like 'SUDO|*' }) | Should -Be @('SUDO|usermod -aG systemd-journal runner')
+            $run.Text | Should -Not -Match ([regex]::Escape('MSG|host.operator_1c96d636b10e91f1')) -Because 'the package gate already reported the missing libvirt groups'
+        }
+
+        It 'warns, without blaming usermod or libvirt, when the host has no systemd-journal group' {
+            $run = Invoke-EnableGroupStep -ActiveGroups 'runner libvirt kvm' -Group $script:MemberGroups
+            $run.ExitCode | Should -Be 0 -Because $run.Text
+            @($run.Lines | Where-Object { $_ -like 'SUDO|*' }) | Should -BeNullOrEmpty
+            $run.Text | Should -Match ([regex]::Escape('MSG|host.kvm_journal_group_missing'))
+            $run.Text | Should -Not -Match ([regex]::Escape('MSG|host.operator_1c96d636b10e91f1|grp=systemd-journal'))
+        }
+    }
+
+    Context 'Disable' {
+        It 'removes the systemd-journal membership the capture shows Enable added' {
+            $run = Invoke-DisableGroupStep -Group ($script:MemberGroups + @{ 'systemd-journal' = 'systemd-journal:x:101:runner' }) -Knob @{ 'systemd-journal' = 'not-a-member' }
+            $run.ExitCode | Should -Be 0 -Because $run.Text
+            @($run.Lines | Where-Object { $_ -like 'SUDO|*' }) | Should -Be @('SUDO|gpasswd -d runner systemd-journal')
+            @($run.Lines | Where-Object { $_ -like "RESTORED|Removed runner from 'systemd-journal'*" }).Count | Should -Be 1
+        }
+
+        It 'leaves a systemd-journal membership the capture has no record of' {
+            $run = Invoke-DisableGroupStep -Group ($script:MemberGroups + @{ 'systemd-journal' = 'systemd-journal:x:101:runner' }) -Knob @{}
+            $run.ExitCode | Should -Be 0 -Because $run.Text
+            @($run.Lines | Where-Object { $_ -like 'SUDO|*' }) | Should -BeNullOrEmpty
+            $run.Lines | Should -Contain "SKIPPED|Membership of 'systemd-journal' (not captured; left as it is)"
+        }
+
+        It 'leaves a systemd-journal membership that was there before Enable' {
+            $run = Invoke-DisableGroupStep -Group ($script:MemberGroups + @{ 'systemd-journal' = 'systemd-journal:x:101:runner' }) -Knob @{ 'systemd-journal' = 'member' }
+            $run.ExitCode | Should -Be 0 -Because $run.Text
+            @($run.Lines | Where-Object { $_ -like 'SUDO|*' }) | Should -BeNullOrEmpty
+            $run.Lines | Should -Contain "SKIPPED|Membership of 'systemd-journal' (was already 'member' before automation)"
         }
     }
 }

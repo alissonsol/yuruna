@@ -267,6 +267,22 @@ renumbered host reads as a cause already ruled out rather than the reader's
 leading hypothesis, and points at whichever coordinate of the indirection is
 missing.
 
+**What the guest-channel key proves.** The key is per host, not per guest:
+the host writes the same key, readable by every account, into every Linux and
+Windows guest and every service VM it builds -- `/etc/yuruna/guest-channel.key`,
+mode 0644, in the Ubuntu, Amazon Linux and four service-VM seeds, and
+`C:\ProgramData\yuruna\guest-channel.key` on Windows. macOS guests have no
+seed and hold no key. The key proves the host to a guest -- an answer at a
+stale address, or at an address the directory supplied, comes from this
+guest's own host -- and nothing more. Any process on any guest of that host
+can compute the same proof, so the key does not tell one guest of a host from
+another, and a guest that takes over its host's address can answer that
+host's other guests as the host. That is accepted inside the lab LAN, the
+trust boundary the [control routes](control-routes.md) also rely on. The same
+key, under a separate scope for each question, proves the host's answers about
+its archives (`/archive-digest`) and its clone URLs ([the two-source
+scheme](#defining-the-two-source-scheme-for-framework-and-project-urls)).
+
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
 [`automation/yuruna-host-locate.sh`](../automation/yuruna-host-locate.sh).
 
@@ -519,11 +535,17 @@ scheme so framework + project URLs are NOT duplicated across them:
    (cloud-init-populated; Windows guests read the same keys from
    `C:\ProgramData\yuruna\host.env`).
 2. Pull `repositories.frameworkUrl` / `repositories.projectUrl` from
-   the host status service's `/control/test-config` endpoint.
+   the host status service's `/control/test-config` endpoint. A guest
+   seeded with its host's guest-channel key asks with a fresh nonce and
+   takes the two URLs only from an answer that proves the key over them
+   for its host id; any other answer counts as no answer. A guest without
+   the key (macOS, or a guest built before the key existed) reads the
+   answer as served.
 3. Fall back to `YURUNA_FRAMEWORK_URL` / `YURUNA_PROJECT_URL` in
-   `host.env` when step 2 returned nothing. That endpoint lives *on* the
-   host, so a guest cut off from the host gets nothing from it -- exactly
-   the moment it most needs a URL to clone from. The same two URLs
+   `host.env` when step 2 returned nothing or its answer was not proven.
+   That endpoint lives *on* the host, so a guest cut off from the host
+   gets nothing from it -- exactly the moment it most needs a URL to
+   clone from. The same two URLs
    are baked into the seed at New-VM time for that case.
 4. **Framework**: prefer the host's `/yuruna-archive.tar.gz` (committed
    working tree, no `.git/`), fall back to `git clone $FRAMEWORK_URL`
@@ -1625,6 +1647,15 @@ Page-specific behavior:
   more than one), so the column reads as sequences even for old rows;
   a guest the current plan no longer references degrades to its bare
   guest key.
+- **Resident runner line (`#runner-resident`).** In the "Runner attempt
+  failures" section, one line names the framework commit the resident
+  runner loaded (its first nine characters) and when that runner started,
+  from `status.json`'s `runnerResident`, which the runner writes as it
+  starts and every cycle start carries forward. A runner keeps that code
+  until it restarts, so a commit older than the cycle's own is a runner
+  still on old code. A document without the field says the runner has not
+  reported them, and an unavailable `status.json` hides the line. The
+  values are rendered as text, never as markup. A report, not a gate.
 - **`#cycle-timestamp`, `#cycle-started`, `#cycle-commit`,
   `#cycle-images-refresh`.** The four "Latest Cycle" meta-cards
   (`#cycle-timestamp` holds the UTC cycle identifier shown under the
@@ -1906,7 +1937,9 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `inner.pid` | `<runtimeDir>` | atomic write at top of [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | pre-wiped by outer before each spawn | Inner's PID -- read by the outer's watchdog. Temp-file + Move-Item makes the write atomic so a crash mid-write can't leave a truncated digit. |
 | `runner.heartbeat` | `<runtimeDir>` | C# `Yuruna.HeartbeatWriter` timer in [Test.RunnerHeartbeat.psm1](../test/modules/Test.RunnerHeartbeat.psm1), started by [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | overwritten every 30 s | Process-level proof of life. Stays fresh even when the runspace is wedged inside a long SSH/OCR call. |
 | `runner.stepHeartbeat` | `<runtimeDir>` | runspace-side touch at step boundaries and after completed pause polls or lab-health probes; outer pre-wipes + force-touches before each spawn | overwritten on completed progress | Runspace-level proof of life. Deliberate holds remain live; blocked calls still age beyond `testCycle.stepTimeoutSeconds` and trigger the watchdog. |
-| `runner.configGate.json` + `runner-attempts/<attempt>/config-gate.{json,log}` | `<runtimeDir>` | [Test.ConfigPreflight.psm1](../test/modules/Test.ConfigPreflight.psm1) after a gate verdict | latest pointer replaced; 20 attempt folders retained | Structured configuration findings and transcript with attempt generation, timestamps and framework commit. Separate from completed cycle artifacts. |
+| `runner.configGate.json` + `runner-attempts/<attempt>/config-gate.{json,log}` | `<runtimeDir>` | [Test.ConfigPreflight.psm1](../test/modules/Test.ConfigPreflight.psm1) after a gate verdict | latest pointer replaced; the folders of the latest 20 attempts retained, plus up to 30 older failed attempts that a later attempt passed after (`olderFailures` in `runner-attempts/index.json`) | Structured configuration findings and transcript with attempt generation, timestamps and framework commit. Separate from completed cycle artifacts. |
+| `runner-attempts/<attempt>/runner-fault.queued` | `<runtimeDir>` | `Start-LogFile` in [Test.Log.psm1](../test/modules/Test.Log.psm1), once a `runner_fault` for the failed attempt is queued, found queued by the runner or found in an earlier cycle's stream | removed with its attempt folder | `{ attemptGeneration, queuedAtUtc }`: the attempt's fault reached the pending queue or a cycle stream, so no later cycle queues it again. Not served. |
+| `cycle-events.pending.json` | `<runtimeDir>` | `Add-PendingCycleEvent` in [Test.Log.psm1](../test/modules/Test.Log.psm1), for events raised while no cycle is open (boot recovery, runner faults) | emptied by `Send-PendingCycleEvent` once the next cycle's stream holds the events | Events waiting for a cycle stream, oldest first, each with its own `timestamp` and an `eventId`; at most 200 events and 512 KiB, the oldest dropped and counted past either bound; an event larger than 512 KiB on its own is the only one dropped. Changed only under the held-open `cycle-events.pending.json.lock`. Not served. |
 | `recovery.health.json` | `<runtimeDir>` | `Set-RecoveryLedgerHealth` in [Test.RecoveryLedger.psm1](../test/modules/Test.RecoveryLedger.psm1) when the recovery ledger cannot be read or written | removed once a ledger line is written again | Why automatic recovery is disabled (`ledger-unreadable` or `ledger-unwritable`); `/control/runner-status` reports it as `recoveryDisabled`, the status page shows it, and the pool notifier queues one `pool.alert` notice per episode. |
 | `server.lease.json` | `<runtimeDir>` | the status service's listener loop (`Update-StatusServiceLease` in [Test.StatusControlRoute.psm1](../test/modules/Test.StatusControlRoute.psm1)), renewed while idle and stamped with each request | replaced by the next listener; a lease naming another process is ignored | The listener's liveness: `idle` or `busy`, the route being served and since when. A start whose probe times out leaves a listener the lease shows serving, and the host-address beacon replaces one whose lease reads wedged (`Get-StatusServiceLeaseVerdict`). Not served. |
 | `status-replace.out`, `status-replace.err` | `<runtimeDir>` | the host-address beacon, from the `Start-StatusService.ps1 -RefreshSafe -ReplaceWedged` run that replaced a wedged listener | replaced by the next replacement | That start's console output, for the operator who wants to know why a listener was replaced. Not served. |
@@ -1937,7 +1970,11 @@ Conventions:
   `break-active.json` to `break-active.<UTC>.json.aborted`. A clean
   boot is silent; a non-trivial sweep emits a single
   `boot_recovery_completed` NDJSON event with the archived /
-  cleared counts.
+  cleared counts. No cycle is open during the sweep, so the event
+  waits in `cycle-events.pending.json` and is written into the next
+  cycle's stream. An archived cycle whose host booted after its
+  last file write also gets `host-restart.json` and
+  `host-restart.txt` and a `host_restart` event.
 
 <a id="42fa6f45-002a"></a>
 
@@ -2075,12 +2112,16 @@ enums in [Test.SequenceAction.psm1](../test/modules/Test.SequenceAction.psm1):
   bootstrap_sync, plan_invalid, elevation_required, project_access_denied,
   host_network_degraded, ip_not_discovered, payload_unavailable,
   pool_storage_full, dhcp_identity_unbounded, lab_dependency_down, input_lost,
-  hypervisor_unresponsive, unknown.
+  hypervisor_unresponsive, source_integrity, vm_not_stopped, guest_run_lost,
+  guest_kernel_stalled, unknown.
 * **severity**: hard, soft, unknown.
 
 `actionVerb`, `action`, `description`, `sequencePath`, `vmName`,
 `guestKey`, `hostType`, `error`, `reason`, `hostname`, `handler`,
-`snapshotId` are typed as strings.
+`snapshotId`, `eventId` are typed as strings. On `runner_fault`,
+`failureClass` may also be one of the runner fault classes
+(`RunnerFaultClassEnum` in [Test.RecoveryContract.psm1](../test/modules/Test.RecoveryContract.psm1)),
+which `status.json` publishes in `runnerFault`.
 
 <a id="42fa6f45-0030"></a>
 
@@ -2100,7 +2141,10 @@ typed fields.
 | `step_failure` | [Test.SequenceEngine](../test/modules/Test.SequenceEngine.psm1) | Normal-path or engine-crash failure; mirrors `step_end` plus `lastSucceededStepNumber`, `innerActionVerb`, `failureScreenshotPath`, `failureOcrPath`. |
 | `runner_state_transition` | [Test.RunnerState](../test/modules/Test.RunnerState.psm1) | Every state transition + synthetic boot-recovery fault pair; carries `fromState`, `toState`, optional `reason` / `synthetic`. |
 | `remediation_recommended` | [Test.Remediation](../test/modules/Test.Remediation.psm1) | `Invoke-Remediation` dispatched a handler; carries `recommendation` enum, `handledBy`, `autoApply`. |
-| `boot_recovery_completed` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep found at least one stale class to clean; carries `archivedCycleCount`, `clearedPidFileCount`, `archivedBreakActive`, `warningCount`. Silent on clean boot. |
+| `boot_recovery_completed` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep found at least one stale class to clean; carries `archivedCycleCount`, `clearedPidFileCount`, `archivedBreakActive`, `warningCount`. Silent on clean boot. Queued, and delivered by the next cycle (see below). |
+| `host_restart` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep archived a cycle whose host booted after the cycle's last file write; carries `abortedCycleFolder`, `abortedCycleStartUtc`, `abortedCycleNumber`, `lastWriteUtc`, `bootUtc`, `downSeconds`, `evidenceFiles[]`, `deepDiagnosticsBundles`. Queued. |
+| `runner_fault` | [Update-RunnerFaultStatus](../test/modules/Test.RunnerOuterLoop.psm1), [Start-LogFile](../test/modules/Test.Log.psm1) | The runner published a new `runnerFault` in `status.json`, once per attempt generation, and each time for a fault published without one (an escape from the outer loop, a diagnostic hold); carries the same fields (`failureClass`, `stage`, `severity`, `stepName`, `errorMessage`, `attemptGeneration`, `attemptStartedAtUtc`, `attemptElapsedSeconds`, `frameworkCommitSha`, `recordPath`, `transcriptPath`, `recordedAt`). A cycle that opens also queues one for each failed attempt in the `attempts` list of `runtime/runner-attempts/index.json` that finished after the newest passing attempt and that no `runner_fault` carried, from the fields the history keeps (no `severity` or `stepName`), dated when the attempt failed and placed ahead of any queued event dated after it, with an `eventId` derived from `attemptGeneration`. Queued. |
+| `pending_cycle_events_dropped` | [Send-PendingCycleEvent](../test/modules/Test.Log.psm1) | The pending queue dropped events at a bound, its oldest or one too large to queue; carries `droppedCount` and `lastDroppedEvent`, dated by the newest event dropped but never after the first event that survived, which it precedes. |
 | `cycle_log_rotated` | [Invoke-CycleLogRotation](../test/modules/Test.Log.psm1) | Cycle-folder count reached `CYCLE_HISTORY_TRIGGER`; carries `historyFolder`, `moved`, `kept`. |
 | `snapshot_missing` | [loadDiskSnapshot / recoverFromSnapshot](../test/modules/Test.SequenceHandler.psm1) | `Test-VMDiskSnapshot` returned $false; carries `vmName`, `snapshotId`, `handler`. |
 | `snapshot_manifest_missing` | snapshot handlers | Manifest sidecar absent -- legacy snapshot; warn-only. |
@@ -2120,6 +2164,36 @@ typed fields.
 New events MUST be added here in the same commit that introduces them,
 so a streaming consumer never discovers a new
 event name in production.
+
+**Queued events.** An event raised while no cycle is open -- the outer
+runner's boot recovery and its runner faults -- has no stream to join,
+and the log-root fallback is a file nothing collects. It waits in
+`<runtimeDir>/cycle-events.pending.json` (`Add-PendingCycleEvent`) and
+`Start-LogFile` writes it into the next cycle's stream through
+`Send-CycleEventSafely`, ahead of `cycle_start` and oldest first. A
+runner keeps the code it started with, so before that drain
+`Start-LogFile` also queues a `runner_fault` for each failed attempt
+the attempt history records after its newest passing attempt and no
+`runner_fault` carried, ahead of any queued event dated after it, and
+marks the attempt (`runner-fault.queued`) so neither it nor a fault the
+runner queued itself is sent twice. A fault already in the stream of
+one of the newest few cycles opened after the attempt failed whose
+folders the log directory still holds (a cycle running older code
+carried it) is marked and not queued again. A failure the history
+moved to `olderFailures` is never queued, so the oldest failure of a
+streak longer than the attempt window is left out when the opening
+cycle's own gate pushes it there. Each queued event keeps its own
+`timestamp` and is stamped with the delivering cycle's
+`cycleFolder`, `cycleStartUtc`, `runId` and `hostId`, so it names the
+cycle it belongs to under its own fields (`abortedCycleFolder`,
+`attemptGeneration`). The order is Loki's: a line joins a stream only
+while it is at most an hour behind the newest line already there, and
+a runner fault followed by an hour-long failure pause would be refused
+after `cycle_start` or after a newer queued event. Delivery is at least
+once: the queue is rewritten only after the stream holds what was
+delivered, so a failed write leaves the event queued for the next
+cycle, and an interruption between the two writes delivers it again
+with the same `eventId`.
 
 <a id="42fa6f45-0031"></a>
 
@@ -2197,6 +2271,12 @@ routes the operator straight to the snapshot subsystem.
 [Yuruna.Image.psm1](../host/modules/Yuruna.Image.psm1) generalizes
 the warn-only SHA-256 verification policy first established for the
 Ubuntu live-server ISOs.
+
+The Windows 11 ISO is outside this gateway: `Get-Image.ps1` downloads it
+from the short-lived signed URL that Fido obtains from Microsoft, and
+Microsoft publishes no machine-readable digest for that file, so its
+content is not checked. Only `Fido.ps1` itself, pinned by version and
+SHA-256, is verified before it runs.
 
 <a id="42fa6f45-0036"></a>
 
@@ -2518,6 +2598,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

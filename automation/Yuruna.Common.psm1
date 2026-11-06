@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2713,8 +2713,8 @@ function Invoke-BoundedNativeCommand {
 .OUTPUTS
     [hashtable] @{ ExitCode; StdOut; StdErr; TimedOut; Started; DrainTimedOut;
     KillFailed; OutputTruncated; ElapsedMs; DeadlineExhausted; ProcessId;
-    StartError; CleanupPending; KillRequestedAtMs; KillTaskStatus;
-    KillTaskSucceeded; ExitObserved }.
+    StartError; StartWin32Error; CleanupPending; KillRequestedAtMs;
+    KillTaskStatus; KillTaskSucceeded; ExitObserved }.
     Started is $false when the command could not be found or launched, or
     when the deadline left no time to issue it; ExitCode then stays -1 and
     both streams are empty. TimedOut with ExitCode 124 means the child was
@@ -2725,7 +2725,9 @@ function Invoke-BoundedNativeCommand {
     cap. OutputTruncated means a stream was cut at MaxCapturedChars.
     DeadlineExhausted means nothing was launched because the shared deadline
     had under one second left. ProcessId is the direct child's PID, 0 when
-    nothing started. StartError retains the launch exception detail.
+    nothing started. StartError retains the launch exception detail, and
+    StartWin32Error the system error code of a launch the system refused (0
+    otherwise), so a caller can classify that refusal by its code.
     CleanupPending reports asynchronous resource disposal still in progress;
     it does not invalidate fully drained output from a process that exited
     normally. Gate
@@ -2752,7 +2754,7 @@ function Invoke-BoundedNativeCommand {
     $result = @{
         ExitCode = -1; StdOut = ''; StdErr = ''; TimedOut = $false; Started = $false
         DrainTimedOut = $false; KillFailed = $false; OutputTruncated = $false; ElapsedMs = 0
-        DeadlineExhausted = $false; ProcessId = 0; StartError = ''; CleanupPending = $false; OutputHandlerError = ''
+        DeadlineExhausted = $false; ProcessId = 0; StartError = ''; StartWin32Error = 0; CleanupPending = $false; OutputHandlerError = ''
         KillRequestedAtMs = -1L; KillTaskStatus = 'NotStarted'; KillTaskSucceeded = $false; ExitObserved = $false
     }
     $startedAtTicks = [System.Diagnostics.Stopwatch]::GetTimestamp()
@@ -2806,6 +2808,11 @@ function Invoke-BoundedNativeCommand {
     } catch {
         Write-Verbose "Invoke-BoundedNativeCommand: could not start '$resolved': $($_.Exception.Message)"
         $result.StartError = $_.Exception.Message
+        # PowerShell wraps the exception the launch threw in one for the method
+        # call; the system's refusal carries its code on the one inside.
+        $launch = $_.Exception
+        if ($launch -is [System.Management.Automation.MethodInvocationException] -and $launch.InnerException) { $launch = $launch.InnerException }
+        if ($launch -is [System.ComponentModel.Win32Exception]) { $result.StartWin32Error = [int]$launch.NativeErrorCode }
         $result.ElapsedMs = $stopwatch.ElapsedMilliseconds
         return $result
     }
@@ -4322,10 +4329,10 @@ function Get-YurunaGuestChannelProof {
     guest-channel key of "yuruna-<scope>/1", the host id, the guest's nonce and
     any further values, one per line.
 .DESCRIPTION
-    Bound to an audience (the host id) and a scope (livecheck, archive-digest), so
-    a proof for one question or one host never answers another. The key is used
-    as the ASCII bytes of its hex form, which is what `openssl dgst -sha256 -hmac`
-    takes on a guest.
+    Bound to an audience (the host id) and a scope (livecheck, archive-digest,
+    test-config), so a proof for one question or one host never answers
+    another. The key is used as the ASCII bytes of its hex form, which is what
+    `openssl dgst -sha256 -hmac` takes on a guest.
 #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -4903,6 +4910,9 @@ $script:YurunaStaleTempPattern = [ordered]@{
     # Production
     'serial-capture'        = @{ Pattern = '^yuruna-serial-.+\.(?:log|state\.json)$'; Source = 'host/windows.hyper-v/modules/Yuruna.Host.psm1'; Literal = 'yuruna-serial-' }
     'dhcp-capture'          = @{ Pattern = '^yuruna-dhcp-.+\.(?:etl|pcap)$'; Source = 'host/windows.hyper-v/modules/Yuruna.Host.psm1'; Literal = 'yuruna-dhcp-' }
+    # A bounded Hyper-V call's request, left behind when its caller was killed
+    # before the child read and deleted it.
+    'hyperv-call'           = @{ Pattern = '^yuruna-hyperv-call-[0-9a-f]{32}\.xml$'; Source = 'host/windows.hyper-v/modules/Yuruna.Host.LifecycleHelpers.ps1'; Literal = 'yuruna-hyperv-call-' }
     'squid-ca'              = @{ Pattern = '^yuruna-squid-ca(?:-[0-9a-f]{32})?\.pem$'; Source = 'host/modules/Yuruna.HostDownload.psm1'; Literal = 'yuruna-squid-ca-' }
     'status-bounce'         = @{ Pattern = '^yuruna-status-bounce-\d+\.log(?:\.out|\.err)?$'; Source = 'test/modules/Test.ConfigServiceSync.psm1'; Literal = 'yuruna-status-bounce-' }
     'host-performance'      = @{ Pattern = '^yuruna-host-performance-\d{8}T\d{6}Z-[0-9a-f]{32}$'; Source = 'automation/Collect-HostPerformance.ps1'; Literal = 'yuruna-host-performance-' }

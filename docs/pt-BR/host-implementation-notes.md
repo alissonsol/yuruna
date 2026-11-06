@@ -787,6 +787,30 @@ configuração inicial é o que persiste. A porta vem de test.config.yml
 (8080 por padrão), a mesma fonte lida por Start-StatusService. Sem efeito
 quando ufw está inativo ou ausente.
 
+A porta do serviço de configuração (`configService.port`, 8443 por padrão)
+é a segunda porta de entrada em que o hospedeiro responde: os convidados
+de serviço buscam sua credencial do NAS em `test/service/Start-ConfigService.ps1`
+por TLS mútuo, então uma porta fechada aparece depois como uma falha na
+montagem do NAS pelo convidado. A configuração do hospedeiro também abre
+essa porta aqui, pelo mesmo auxiliar, na porta em que o executor inicia
+esse serviço (Resolve-ConfigServiceStart, que também fornece o padrão
+8443), e Disable-TestAutomation remove as duas regras quando trazem o
+comentário abaixo; uma regra adicionada à mão, ou por uma versão anterior a
+esse comentário, permanece. Uma regra que já existe para a porta, de
+permissão ou não, é mantida como está: o ufw a substituiria pela do próprio
+framework. O inicializador
+também tenta aplicar a regra a cada inicialização, sem solicitar a senha
+do sudo
+(`sudo -n ufw allow <port>/tcp comment 'Yuruna test automation'`; o comentário
+marca a regra como uma das que o Disable-TestAutomation remove), o que um
+executor sem privilégios em geral não consegue, então a regra com privilégios
+criada na configuração é a que vale. Como o inicializador não faz nada enquanto o serviço continua
+ativo, ele avisa, nomeando o serviço de configuração e citando a mensagem
+do auxiliar, sempre que não consegue confirmar que a porta está aberta:
+ufw ausente (nftables/iptables não são gerenciados), estado do ufw ilegível
+sem uma credencial do sudo em cache, a permissão recusada ou um erro dentro
+do auxiliar.
+
 <a id="42e5cdfd-0022"></a>
 
 <a id="hostubuntukvmenable-testautomationps1-host-clock"></a>

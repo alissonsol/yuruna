@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -761,8 +761,9 @@ function Copy-FailureArtifactsToStatusLog {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c8408d1fb61db057' -Arguments @{ message = "$($_.Exception.Message)" })
         }
         # The guest's own account of a silence: what it wrote to its serial port
-        # while SSH and the console stopped answering. Only the Hyper-V driver
-        # provides Save-VMSerialCapture; elsewhere this step is skipped.
+        # while SSH and the console stopped answering. Only the Hyper-V and
+        # macOS UTM drivers provide Save-VMSerialCapture; elsewhere this step
+        # is skipped.
         try {
             if (Get-Command Save-VMSerialCapture -ErrorAction SilentlyContinue) {
                 if (Save-VMSerialCapture -VMName $VMName -OutputDirectory $destSeqDir) {
@@ -2268,41 +2269,33 @@ function Start-CycleLogFile {
     }
 }
 
-function Start-CycleHostDiagnostic {
+function Save-CycleHostDiagnostic {
     <#
     .SYNOPSIS
-        Capture cycle-start host state to the cycle folder and open the per-step
-        perf log, returning the host-diagnostic path (or $null when it was not
-        written) so the caller/perf log can reference it.
+        Capture cycle-start host state to host.diagnostic.txt at the root of the
+        cycle folder, returning that path ($null when no cycle folder is open).
     .DESCRIPTION
         The host diagnostic (docker/kubectl state, disk pressure, listening sockets,
         recent kernel events, top processes) is written at the cycle ROOT so it sits
         alongside the cycle HTML log -- separate from the per-guest failure-time host
         diagnostic. Forked into a child pwsh so the diagnostic's Start-Transcript and
-        global $script:Problems list don't leak into the runner. Start-PerfCycle is
-        initialized AFTER the write so its hostInfoHash points at the fresh dump; the
-        path may be $null (script missing / capture failed), in which case
-        Start-PerfCycle leaves the hash null and downstream rows lose that one
-        dimension. Both rungs are soft-failing -- a diagnostic/perf error never fails
-        the cycle. The captured path is consumed entirely here (it feeds
-        Start-PerfCycle's hostInfoHash) and is not read downstream, so it is not
-        returned -- only the "Host diagnostic (cycle start): ..." log line surfaces.
+        global $script:Problems list don't leak into the runner. Soft-failing: a
+        missing script or a failed capture is a warning, never a cycle failure, and
+        the returned path then names a file that may not exist.
+
+        Every runner cycle takes it: Start-CycleHostDiagnostic when the runner opens
+        the cycle, Invoke-OrchestrationSequence -CaptureHostDiagnostic when an
+        orchestration does. The orchestrator returns its exit code on the success
+        stream, so the lines reporting the capture go to the information stream and
+        the path is the only value this function emits.
     #>
     [CmdletBinding()]
+    [OutputType([string])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
         Justification = '$global:__YurunaCycleFolder is the cross-module per-cycle folder handle the inner runner threads through its helpers; the cycle-start host diagnostic is written at its root.')]
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Delegates to the child diagnostic script / Start-PerfCycle -- the same soft-failing capture the cycle body already performed; those callees own their own confirmation surface.')]
-    param(
-        [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)][string]$CycleStartUtc,
-        [Parameter(Mandatory)][string]$HostType,
-        [Parameter(Mandatory)][string]$Hostname,
-        [AllowNull()][string]$GitCommit,
-        [AllowNull()][string]$ProjectGitCommit
-    )
+    param([Parameter(Mandatory)][string]$RepoRoot)
     # Init null so a throw before assignment (e.g. a null cycle-folder global)
-    # still yields a well-defined return / -HostDiagnosticPath.
+    # still yields a well-defined return.
     $cycleHostDiagOut = $null
     try {
         $hostDiagScript    = Join-Path $RepoRoot 'automation/Get-SystemDiagnostic.ps1'
@@ -2314,7 +2307,7 @@ function Start-CycleHostDiagnostic {
                 # URL resolves to the post-rename location once Stop-
                 # LogFile moves the folder to <base>/.
                 $cycleBaseName = Get-StableCycleBaseName
-                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_129990a926a40e2a' -Arguments @{ cycleBaseName = "$cycleBaseName" })
+                Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'runner.operator_129990a926a40e2a' -Arguments @{ cycleBaseName = "$cycleBaseName" }) -InformationAction Continue
                 # See https://yuruna.link/4213a0b3-00ed
                 $hostDiagSidecar = "$cycleHostDiagOut.json"
                 if (Test-Path -LiteralPath $hostDiagSidecar) {
@@ -2326,9 +2319,9 @@ function Start-CycleHostDiagnostic {
                             if ($diagCount -gt 0) {
                                 $diagByClass = if ($diagDoc['byClass'] -is [System.Collections.IDictionary]) { $diagDoc['byClass'] } else { @{} }
                                 $diagTally = (@($diagByClass.Keys | Sort-Object | ForEach-Object { "$_=$($diagByClass[$_])" }) -join ', ')
-                                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_5d4003f8fdb37099' -Arguments @{ diagCount = "$diagCount"; diagTally = "$diagTally" })
+                                Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'runner.operator_5d4003f8fdb37099' -Arguments @{ diagCount = "$diagCount"; diagTally = "$diagTally" }) -InformationAction Continue
                             } else {
-                                Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_2f2b89b8229b6a83')
+                                Write-Information -MessageData (Format-YurunaOperatorMessage -Key 'runner.operator_2f2b89b8229b6a83') -InformationAction Continue
                             }
                         }
                     } catch {
@@ -2342,6 +2335,35 @@ function Start-CycleHostDiagnostic {
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_c458b9ad926bc49e' -Arguments @{ message = "$($_.Exception.Message)" })
     }
+    return $cycleHostDiagOut
+}
+
+function Start-CycleHostDiagnostic {
+    <#
+    .SYNOPSIS
+        Capture cycle-start host state to the cycle folder (Save-CycleHostDiagnostic)
+        and open the per-step perf log over it.
+    .DESCRIPTION
+        Start-PerfCycle is initialized AFTER the write so its hostInfoHash points at
+        the fresh dump; when there is none (script missing / capture failed)
+        Start-PerfCycle leaves the hash null and downstream rows lose that one
+        dimension. Both rungs are soft-failing -- a diagnostic/perf error never fails
+        the cycle. The captured path is consumed entirely here (it feeds
+        Start-PerfCycle's hostInfoHash) and is not read downstream, so it is not
+        returned -- only the "Host diagnostic (cycle start): ..." log line surfaces.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Delegates to Save-CycleHostDiagnostic / Start-PerfCycle -- the same soft-failing capture the cycle body already performed; those callees own their own confirmation surface.')]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$CycleStartUtc,
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][string]$Hostname,
+        [AllowNull()][string]$GitCommit,
+        [AllowNull()][string]$ProjectGitCommit
+    )
+    $cycleHostDiagOut = Save-CycleHostDiagnostic -RepoRoot $RepoRoot
 
     # Per-step structured perf log (Test.Perf.psm1). Initialized AFTER
     # the host diagnostic write so hostInfoHash points at the freshly
@@ -2461,7 +2483,8 @@ function Write-CapabilityGateFailureBanner {
     <#
     .SYNOPSIS
         Print the capability-gate failure banner: the cycle plan references a host
-        I/O action no backend on this host registered, or requires OCR with no
+        I/O action no backend on this host registered, has a step whose handler
+        runs a host command this host does not have, or requires OCR with no
         provider available. Pure output; $Cap is a Test-CyclePlanCapabilityFromPlan
         result. The caller still zeroes the guest list + writes the infra record.
     #>
@@ -2476,11 +2499,39 @@ function Write-CapabilityGateFailureBanner {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_802a4b0de5d5f942')
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e44d1c53aa9fba0b')
     }
+    if ($Cap.missingHostCommand.Count) {
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.capability_gate_host_command_missing')
+        foreach ($missing in $Cap.missingHostCommand) {
+            Write-Output "    - $($missing.command)"
+            foreach ($step in $missing.steps) {
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.capability_gate_host_command_step' -Arguments @{ sequence = "$($step.sequence)"; step = [int]$step.step; action = "$($step.action)" })
+            }
+        }
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.capability_gate_host_command_remedy')
+    }
     if ($Cap.ocrRequired -and -not $Cap.ocrAvailable) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_02d1fa76ed2f0ae2')
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_20c8d607a6fb6e96')
     }
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+}
+
+function Get-CapabilityGateFailureMessage {
+    <#
+    .SYNOPSIS
+        The error message of the capability gate's plan_invalid record: the
+        missing host I/O actions, each missing host command with the steps that
+        run it, and the OCR verdict. $Cap is a Test-CyclePlanCapabilityFromPlan
+        result.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)]$Cap)
+    $commands = foreach ($missing in $Cap.missingHostCommand) {
+        $steps = @(foreach ($step in $missing.steps) { "$($step.sequence) step $($step.step) $($step.action)" }) -join ', '
+        "$($missing.command) ($steps)"
+    }
+    return "Missing host I/O: $($Cap.missingHostIO -join ', '); Missing host commands: $(@($commands) -join '; '); ocrRequired=$($Cap.ocrRequired) ocrAvailable=$($Cap.ocrAvailable)"
 }
 
 function Test-CycleHostNetworkDegraded {
@@ -3667,9 +3718,11 @@ do {
     # --- REGION: Capability gate
     # Print the matrix once per cycle (helps post-mortem readers in the
     # cycle log) and refuse the cycle when the plan references a host
-    # I/O action no backend on this host has registered -- catching it
-    # here, at plan time, instead of as a silent "Unknown host: ..."
-    # that surfaces only at runtime, deep inside a sequence step.
+    # I/O action no backend on this host has registered, or has a step
+    # whose handler runs a host command this host does not have --
+    # catching it here, at plan time, instead of as a silent
+    # "Unknown host: ..." or a missing command that surfaces only at
+    # runtime, deep inside a sequence step.
     if (-not $plannerFatal -and $script:CyclePlan -and $script:CyclePlan.Count -gt 0) {
         Write-HostCapabilityBanner
         $cap = Test-CyclePlanCapabilityFromPlan -Plan $script:CyclePlan -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType
@@ -3680,7 +3733,7 @@ do {
             $OverallPassed  = $false
             $FailedGuest    = "(capability gate)"
             $FailedStep     = "Test-CyclePlanCapability"
-            $FailureMessage = "Missing host I/O: $($cap.missingHostIO -join ', '); ocrRequired=$($cap.ocrRequired) ocrAvailable=$($cap.ocrAvailable)"
+            $FailureMessage = Get-CapabilityGateFailureMessage -Cap $cap
             Write-CycleInfraFailure -Stage 'Test-CyclePlanCapability' -FailureClass 'plan_invalid' -GuestKey '(capability gate)' -ErrorMessage $FailureMessage -HostType $HostType
         }
         if ($cap.unknownActions.Count) {
@@ -4019,7 +4072,9 @@ do {
         # row per inner sequence), and Completes + seals the transcript itself --
         # the same path a standalone `Debug-TestSequence <orch>` takes. So we do NOT
         # call Complete-CycleRun here; we only map its exit code to the cycle
-        # result the gating/notification tail below reads.
+        # result the gating/notification tail below reads. -CaptureHostDiagnostic
+        # takes the cycle-start host diagnostic Start-CycleHostDiagnostic takes for
+        # every other runner cycle; a standalone run takes none.
         Write-Output ""
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_d6d232856028e02f' -Arguments @{ orchestrationName = "$orchestrationName" })
         $orchestrationDecision = @{ EventData = $null }
@@ -4045,7 +4100,7 @@ do {
         $orchRc = Invoke-OrchestrationSequence `
             -Sequence $orchestrationDoc -SequencePath $orchestrationPath `
             -RepoRoot $RepoRoot -SequencesDir $SequencesDir -TestRoot $TestRoot `
-            -HostType $HostType -Config $Config -BeforeSeal $decideBeforeSeal
+            -HostType $HostType -Config $Config -BeforeSeal $decideBeforeSeal -CaptureHostDiagnostic
         # The alert below ships this payload rather than deciding a second time.
         if ($orchestrationDecision.EventData) { $cycleFailureEventData = $orchestrationDecision.EventData }
         $OverallPassed = ($orchRc -eq 0)
@@ -5254,7 +5309,7 @@ Export-ModuleMember -Function `
     Get-RunnerReloadableConfig, New-RunnerConfigState, Sync-RunnerCycleConfig, `
     Sync-RunnerStepConfig, `
     Resolve-RunnerLogLevel, Copy-FailureArtifactsToStatusLog, Invoke-RunnerInnerCycle, `
-    Write-CycleInfraFailure, Get-YurunaRefreshInnerMode, Invoke-YurunaRefreshPreflight, `
+    Write-CycleInfraFailure, Save-CycleHostDiagnostic, Get-YurunaRefreshInnerMode, Invoke-YurunaRefreshPreflight, `
     Wait-YurunaRefreshRelease, Wait-YurunaHeldControlBarrier, Test-YurunaRefreshCycleGate, `
     Test-RunnerHypervisorControlGate, Invoke-RunnerTempHousekeeping, Invoke-CycleProjectRefresh, Test-CycleHostNetworkDegraded, `
     Invoke-CycleHostNetworkGate, Invoke-CycleServiceVmRestore, Invoke-CycleExternalSwitchRepair, Invoke-CycleCachingProxyGate

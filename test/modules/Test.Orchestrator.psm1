@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -512,6 +512,15 @@ function Invoke-OrchestrationSequence {
         cycle, with the overall status and the first failure's reason. What it
         records lands in this cycle's folder and stream; its output goes to the
         transcript.
+    .PARAMETER CaptureHostDiagnostic
+        Write the runner's cycle-start host diagnostic (host.diagnostic.txt,
+        through Save-CycleHostDiagnostic) into the cycle folder this run owns,
+        before the perf log opens over it. The runner passes it; a standalone
+        Debug-TestSequence run takes no cycle-start host diagnostic for any
+        sequence it runs, so it does not. Ignored when nested: only the cycle's
+        owner takes it. The failure-time capture of a failed guest chain
+        (host.diagnostics.txt in the guest's folder) does not depend on this
+        switch.
     #>
     [CmdletBinding()]
     [OutputType([int])]
@@ -526,7 +535,8 @@ function Invoke-OrchestrationSequence {
         [Parameter(Mandatory)][string]$HostType,
         [Parameter(Mandatory)]$Config,
         [switch]$ShowSensitive,
-        [scriptblock]$BeforeSeal
+        [scriptblock]$BeforeSeal,
+        [switch]$CaptureHostDiagnostic
     )
 
     $setName = if ($Sequence.Contains('name') -and $Sequence['name']) {
@@ -638,6 +648,14 @@ function Invoke-OrchestrationSequence {
         $logFile         = $registered.LogFile
         foreach ($e in $entries) { Set-GuestTopLevel -GuestKey $e.name -TopLevel $e.name -Confirm:$false }
         Write-OrchestratorLine (Format-YurunaOperatorMessage -Key 'runner.operator_254906044fad17f7' -Arguments @{ logFile = "$logFile" })
+
+        # The cycle-start host diagnostic every runner cycle carries. Only this
+        # owner knows the cycle folder, so the runner asks for it here instead of
+        # taking it itself. Written before the perf log opens below, which hashes
+        # the same file for hostInfoHash.
+        if ($CaptureHostDiagnostic -and (Get-Command -Name Save-CycleHostDiagnostic -ErrorAction SilentlyContinue)) {
+            $null = Save-CycleHostDiagnostic -RepoRoot $RepoRoot
+        }
 
         # Open the per-step perf log for the cycle this orchestration owns.
         # An orchestration owns its whole cycle, so nothing upstream has opened

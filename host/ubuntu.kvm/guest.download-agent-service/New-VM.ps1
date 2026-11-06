@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42e86329-1c8d-47ab-b9aa-49b5bb5ed6e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,7 +131,7 @@ if ($networkName -eq 'default') {
     # --- REGION: Bridge-uplink preflight
     # See https://yuruna.link/42e220c4-0004
     # Reject a confirmed dead bridge; leave network repair to the caching-proxy launcher.
-    $netXml = (& virsh --connect $virshUri net-dumpxml $networkName 2>$null) -join "`n"
+    $netXml = (Invoke-Virsh -VirshArgs @('net-dumpxml', $networkName)) -join "`n"
     if ($netXml -match "<forward\s+mode='bridge'" -and $netXml -match "<bridge\s+name='([^']+)'") {
         $extBridge = $Matches[1]
         $brifDir   = "/sys/class/net/$extBridge/brif"
@@ -161,6 +161,12 @@ $tc = $_statusSeed.Config
 $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
+# The names the VM answers to besides its addresses, from this host's
+# test.config.yml. Read in the plan, while the working VM is still advertised,
+# because a malformed vmStart.serviceHostNames entry refuses the build.
+Import-Module (Join-Path $repoRoot 'test/modules/Test.ExtensionService.psm1') -DisableNameChecking -Verbose:$false
+try { $serviceHostNames = Get-ExtensionServiceHostNameSeed -Config $tc }
+catch { Write-Error $_.Exception.Message; exit 1 }
 
 # --- REGION: Report seed values baked empty
 # The build goes on without them, because the guest can still serve, but it
@@ -278,6 +284,7 @@ $userData = New-CloudInitUserData `
         DOWNLOAD_AGENT_AUTO_SEED_PLACEHOLDER     = $agentAutoSeed
         YURUNA_CACHE_PROXY_IP_PLACEHOLDER        = $cacheProxyIp
         YURUNA_CACHE_CA_CERT_BASE64_PLACEHOLDER  = $cacheCaB64
+        YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER    = $serviceHostNames
     } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
 
@@ -359,7 +366,7 @@ try {
     # active would otherwise leave the pool unserved until someone re-runs the
     # start script. The service-VM roster re-ensure remains the guarantee; this is
     # the cheap belt-and-braces libvirt already offers.
-    $autostartOut = & virsh --connect $virshUri autostart $VMName 2>&1
+    $autostartOut = Invoke-Virsh -VirshArgs @('autostart', $VMName)
     if ($LASTEXITCODE -ne 0) {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_d86a196b1addbb2e' -Arguments @{ vMName = "$VMName"; join = "$($autostartOut -join '; ')" })
     }

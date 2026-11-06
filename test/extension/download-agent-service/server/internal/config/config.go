@@ -85,8 +85,8 @@ const (
 	SidecarSuffix = ".meta.json"
 
 	// ServiceStateDirName is the per-service state directory on the pool share
-	// (audit.jsonl + status.json), beside the images root rather than inside it
-	// so the images tree stays artifacts-only.
+	// (each agent's audit.<agent>.jsonl and status.<agent>.json), beside the
+	// images root rather than inside it so the images tree stays artifacts-only.
 	ServiceStateDirName = "download-agent-service"
 )
 

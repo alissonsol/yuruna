@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4237ad83-6e92-4eb7-a7bf-243c8271c38d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -258,6 +258,58 @@ Describe 'alpha' {
             @($run.Result.loadSensitive) | Should -Be @('test/modules/Alpha.Tests.ps1')
             (@($run.Result.problems) -join "`n") | Should -Match 'Alpha\.Tests\.ps1: 1 failed, 0 error\(s\) -- passed when run alone after the parallel run: load-sensitive'
             (@($run.Result.problems) -join "`n") | Should -Match 'Beta\.Tests\.ps1: 1 failed, 0 error\(s\) -- failed again when run alone'
+            Test-Path -LiteralPath (Join-Path $root '.test-results/nunit-test_modules_Alpha.Tests.ps1.alone.xml') | Should -BeTrue
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'reruns a suite whose process crashed before writing a result and labels it load-crash when it passes alone' {
+        $root = New-FixtureTree
+        try {
+            $marker = Join-Path $root 'first-run.marker'
+            # The process dies the way a host under load ends it: a signal on
+            # Linux and macOS (SIGSEGV, exit 139), the access-violation status
+            # on Windows (0xC0000005). Nothing in the child writes a result.
+            $crash = @'
+        if ($IsWindows) { [Environment]::Exit(-1073741819) }
+        & kill -s SEGV $PID
+        Start-Sleep -Seconds 2
+        [Environment]::Exit(139)
+'@
+            # Crashes while the marker is absent: the parallel run crashes, the run alone passes.
+            Set-FixtureSuite -Root $root -Name 'Alpha' -Body (@'
+Describe 'alpha' {
+    BeforeAll {
+        $first = -not (Test-Path -LiteralPath 'MARKER')
+        [IO.File]::WriteAllText('MARKER', 'seen')
+        if ($first) {
+CRASH
+        }
+    }
+    It 'passes once the process survives' { 1 | Should -Be 1 }
+}
+'@ -replace 'MARKER', ($marker -replace "'", "''") -replace 'CRASH', $crash)
+            Set-FixtureSuite -Root $root -Name 'Beta' -Body ("Describe 'beta' {`n    BeforeAll {`n$crash`n    }`n    It 'never runs' { 1 | Should -Be 1 }`n}")
+            # A process that ends on its own account (a script error, rc 2 from
+            # the shim) is deterministic and is not a crash.
+            Set-FixtureSuite -Root $root -Name 'Gamma' -Body "throw 'exploded before any Describe'"
+            $run = Invoke-Runner -Root $root -ThrottleLimit 2
+            $run.ExitCode | Should -Be 1 -Because 'the first result stays the verdict'
+            $run.Result.totals.incomplete | Should -Be 3
+            $rows = @{}
+            foreach ($row in @($run.Result.suites)) { $rows[[IO.Path]::GetFileName($row.path)] = $row }
+            $expectedRc = if ($IsWindows) { -1073741819 } else { 139 }
+            $rows['Alpha.Tests.ps1'].rc | Should -Be $expectedRc
+            $rows['Alpha.Tests.ps1'].haveXml | Should -BeFalse -Because 'the parallel run''s crash is the row''s evidence'
+            $rows['Alpha.Tests.ps1'].alone | Should -BeExactly 'load-crash'
+            $rows['Beta.Tests.ps1'].alone | Should -BeExactly 'failed'
+            $rows['Gamma.Tests.ps1'].rc | Should -Be 2
+            $rows['Gamma.Tests.ps1'].PSObject.Properties['alone'] | Should -BeNullOrEmpty -Because 'a suite that failed on its own account is not rerun'
+            @($run.Result.loadSensitive) | Should -Be @('test/modules/Alpha.Tests.ps1')
+            $problems = @($run.Result.problems) -join "`n"
+            $problems | Should -Match "Alpha\.Tests\.ps1: suite process exited with rc=$expectedRc -- passed when run alone after the parallel run: load-crash"
+            $problems | Should -Match 'Alpha\.Tests\.ps1: produced no result file'
+            $problems | Should -Match "Beta\.Tests\.ps1: suite process exited with rc=$expectedRc -- failed again when run alone"
+            $problems | Should -Match '(?m)Gamma\.Tests\.ps1: suite process exited with rc=2$'
             Test-Path -LiteralPath (Join-Path $root '.test-results/nunit-test_modules_Alpha.Tests.ps1.alone.xml') | Should -BeTrue
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }

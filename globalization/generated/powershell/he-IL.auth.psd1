@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b82f42-c6d9-a81f-8dcf-0c02e575e3eb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,21 @@
     'auth.detail_unconfigured' = 'לא הוגדרו אסימון אימות למעבדה או כתובת URL של המרכז'
     'auth.detail_unreachable' = 'לא ניתן להגיע ליעד'
     'auth.encode_refusal' = 'השער לא הצליח לקודד את הודעת הסירוב שלו'
+    'auth.host_not_served' = @(
+        'שירות זה אינו עונה לשם '
+        @{
+            'arg' = 'host'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; פתחו אותו לפי הכתובת שלו, או הוסיפו את השם ל-'
+        @{
+            'arg' = 'setting'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' במארח שבונה את המכונה הווירטואלית של שירות זה, ובנו מחדש את המכונה הווירטואלית'
+    )
     'auth.login_unavailable' = 'לא הוגדרה כתובת URL של המרכז, ולכן מרכז המאגר אינו יכול לבדוק אסימון מעבדה; הפעולות נשארות נעולות'
     'auth.malformed_request' = 'גוף הבקשה אינו תקין'
     'auth.proof_check_failed' = @(

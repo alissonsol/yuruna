@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 420cb71b-a0c8-4471-9a53-9f8a03416299
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@ BeforeDiscovery {
         @{ Program = 'tools/tests/test_low_workflows.py'; Tests = 12 }
         @{ Program = 'tools/tests/test_pester_selection.py'; Tests = 1 }
         @{ Program = 'tools/tests/test_sbom_dependencies.py'; Tests = 27 }
-        @{ Program = 'tools/tests/test_sbom_provisioning.py'; Tests = 40 }
+        @{ Program = 'tools/tests/test_sbom_provisioning.py'; Tests = 42 }
         @{ Program = 'tools/tests/test_sbom_sync.py'; Tests = 21 }
         @{ Program = 'tools/tests/test_utf8_catalog.py'; Tests = 3 }
         @{ Program = 'host/vmconfig/tests/test_collector_seed.py'; Tests = 9 }

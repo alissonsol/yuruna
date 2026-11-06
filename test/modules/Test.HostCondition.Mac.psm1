@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,6 +150,28 @@ function Get-MacPmsetKeyValue {
     return [string[]]@($PmsetCustom |
         Select-String -Pattern ('^\s*' + [regex]::Escape($Key) + '\s+(\d+)') |
         ForEach-Object { $_.Matches[0].Groups[1].Value })
+}
+
+function Read-MacPmsetCustom {
+    <#
+    .SYNOPSIS
+    The lines of `pmset -g custom` for the setup run, read under the bound
+    every in-cycle probe uses; empty when pmset did not answer or failed.
+    .DESCRIPTION
+    A power service that stops answering held the setup run on an unbounded
+    read, exactly as it once held the cycle gate. An empty answer leaves each
+    guard rule to its own absence policy (Get-MacPmsetGuardPending), and the
+    gate re-checks every key before a cycle, so an unanswered read never
+    stands in for a value.
+    .OUTPUTS
+    [string[]] the lines as pmset printed them, every power block included.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    $answer = Invoke-MacBoundedTool -Tool 'pmset' -Arguments @('-g', 'custom') -Context 'power settings read'
+    if ($answer.ExitCode -ne 0 -or -not $answer.Text) { return [string[]]@() }
+    return [string[]]@("$($answer.Text)" -split '\r?\n')
 }
 
 function Get-MacSleepGuardList {
@@ -373,6 +395,45 @@ function Get-MacScreenLockDisabled {
         Status   = $status
         Disabled = ($status -match 'screenLock\s+(is\s+off|delay\s+is\s+-1)')
     }
+}
+
+function Read-MacScreenLockStatus {
+    <#
+    .SYNOPSIS
+    The unified screen lock's state for the setup run, from a bounded
+    `sysadminctl -screenLock status`, or $null when the tool did not answer.
+    .DESCRIPTION
+    sysadminctl asks opendirectoryd, which can stop answering, and an
+    unbounded read would hold the setup run with it. An unanswered read
+    leaves the lock undetermined, which a caller must not read as either
+    state; the gate reads the same status the same way
+    (Get-MacScreenLockIssue). The tool writes its answer to stderr.
+    .OUTPUTS
+    [pscustomobject] as Get-MacScreenLockDisabled returns it, or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    $answer = Invoke-MacBoundedTool -Tool 'sysadminctl' -Arguments @('-screenLock', 'status') -Context 'screen lock status read' -IncludeError
+    if ($answer.TimedOut -or -not $answer.Started) { return $null }
+    return (Get-MacScreenLockDisabled -Raw ("$($answer.Text)" -split '\r?\n' | Select-Object -First 1))
+}
+
+function Test-MacConfigurationProfilePresent {
+    <#
+    .SYNOPSIS
+    $true when a bounded `profiles list` answered, exited 0 and listed a
+    configuration profile.
+    .DESCRIPTION
+    The management-profile warning is advisory, so a read that timed out,
+    could not start or failed says nothing either way. stderr stands in for
+    an empty stdout, so the answer is read on whichever stream the tool used.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    $answer = Invoke-MacBoundedTool -Tool 'profiles' -Arguments @('list') -Context 'configuration profiles read' -IncludeError
+    return ([bool]$answer.Started -and -not $answer.TimedOut -and $answer.ExitCode -eq 0 -and "$($answer.Text)" -notmatch 'no configuration profiles')
 }
 
 function Get-MacScreenLockIssue {
@@ -1394,7 +1455,7 @@ function Set-MacHostConditionSet {
     # every power source this machine HAS, so a single read of the current
     # value is enough to decide whether a write is needed.
     $changed = $false
-    $pmCustomLines = @(& pmset -g custom 2>$null)
+    $pmCustomLines = @(Read-MacPmsetCustom)
     # `pmset -g custom` prints a "Battery Power:" block only on a machine that
     # has a battery. On a desktop Mac `pmset -b` fails by design, and counting
     # that failure would report a perfectly healthy host as degraded on every
@@ -1433,8 +1494,9 @@ function Set-MacHostConditionSet {
     # ~1200s built-in default. Skip write only when the key EXISTS and is
     # exactly "0"; any other case (missing, empty, other number) triggers
     # an explicit write.
-    $ssIdle = & defaults read com.apple.screensaver idleTime 2>$null
-    $ssIdleRead = ($LASTEXITCODE -eq 0)
+    $ssIdleAnswer = Invoke-MacBoundedTool -Tool 'defaults' -Arguments @('read', 'com.apple.screensaver', 'idleTime') -Context 'screensaver idleTime'
+    $ssIdle = $ssIdleAnswer.Text
+    $ssIdleRead = ($ssIdleAnswer.ExitCode -eq 0)
     if ($ssIdleRead -and "$ssIdle".Trim() -eq "0") {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_018abd0c53f4a963')
     } else {
@@ -1450,8 +1512,9 @@ function Set-MacHostConditionSet {
     # --- REGION: Screen lock (password after screen saver) -> OFF
     # Same "missing key != safe" as the "Screen saver idle time -> 0" region: some macOS versions default
     # askForPassword to 1. Write 0 unless the key is explicitly "0".
-    $askPw = & defaults read com.apple.screensaver askForPassword 2>$null
-    $askPwRead = ($LASTEXITCODE -eq 0)
+    $askPwAnswer = Invoke-MacBoundedTool -Tool 'defaults' -Arguments @('read', 'com.apple.screensaver', 'askForPassword') -Context 'screensaver askForPassword'
+    $askPw = $askPwAnswer.Text
+    $askPwRead = ($askPwAnswer.ExitCode -eq 0)
     if ($askPwRead -and "$askPw".Trim() -eq "0") {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_d43ef9ad8699ec93')
     } else {
@@ -1469,8 +1532,9 @@ function Set-MacHostConditionSet {
     # this, System Settings still shows non-zero idle time after the
     # "Screen saver idle time -> 0" region above and
     # the saver still kicks in. Same missing-key-is-unsafe logic as that region.
-    $ssIdleHost = & defaults -currentHost read com.apple.screensaver idleTime 2>$null
-    $ssIdleHostRead = ($LASTEXITCODE -eq 0)
+    $ssIdleHostAnswer = Invoke-MacBoundedTool -Tool 'defaults' -Arguments @('-currentHost', 'read', 'com.apple.screensaver', 'idleTime') -Context 'screensaver -currentHost idleTime'
+    $ssIdleHost = $ssIdleHostAnswer.Text
+    $ssIdleHostRead = ($ssIdleHostAnswer.ExitCode -eq 0)
     if ($ssIdleHostRead -and "$ssIdleHost".Trim() -eq "0") {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_6c83f353523e76b4')
     } else {
@@ -1485,8 +1549,9 @@ function Set-MacHostConditionSet {
 
     # --- REGION: Screen lock password -- per-host variant
     # Same missing-key-is-unsafe logic as the "Screen lock (password after screen saver) -> OFF" region.
-    $askPwHost = & defaults -currentHost read com.apple.screensaver askForPassword 2>$null
-    $askPwHostRead = ($LASTEXITCODE -eq 0)
+    $askPwHostAnswer = Invoke-MacBoundedTool -Tool 'defaults' -Arguments @('-currentHost', 'read', 'com.apple.screensaver', 'askForPassword') -Context 'screensaver -currentHost askForPassword'
+    $askPwHost = $askPwHostAnswer.Text
+    $askPwHostRead = ($askPwHostAnswer.ExitCode -eq 0)
     if ($askPwHostRead -and "$askPwHost".Trim() -eq "0") {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_06d926b8e7ee2f1f')
     } else {
@@ -1526,7 +1591,7 @@ function Set-MacHostConditionSet {
     # --- REGION: System sleep + disk sleep -> Never (requires sudo)
     # See https://yuruna.link/4213a0b3-006b
     $sleepGuards  = Get-MacSleepGuardList
-    $sleepPending = @(Get-MacPmsetGuardPending -PmsetCustom (& pmset -g custom 2>$null) -Guard $sleepGuards)
+    $sleepPending = @(Get-MacPmsetGuardPending -PmsetCustom (Read-MacPmsetCustom) -Guard $sleepGuards)
 
     if ($sleepPending.Count -gt 0) {
         $pendingNames = ($sleepPending | ForEach-Object { $_.Key }) -join ', '
@@ -1556,7 +1621,7 @@ function Set-MacHostConditionSet {
     # exactly what is applied here. Per-key rationale, OptionalKey policy, and
     # precheck-before-sudo logic at https://yuruna.link/42885ada
     $pmsetGuards  = Get-MacPmsetGuardList
-    $pmsetPending = @(Get-MacPmsetGuardPending -PmsetCustom (& pmset -g custom 2>$null) -Guard $pmsetGuards)
+    $pmsetPending = @(Get-MacPmsetGuardPending -PmsetCustom (Read-MacPmsetCustom) -Guard $pmsetGuards)
     if ($pmsetPending.Count -eq 0) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_3e04ef0941c09bf2')
     } elseif (-not (Test-MacSudoAvailable)) {
@@ -1596,7 +1661,7 @@ function Set-MacHostConditionSet {
             }
         }
         $changed = $true
-        $stillPending = @(Get-MacPmsetGuardPending -PmsetCustom (& pmset -g custom 2>$null) -Guard $pmsetGuards)
+        $stillPending = @(Get-MacPmsetGuardPending -PmsetCustom (Read-MacPmsetCustom) -Guard $pmsetGuards)
         if ($stillPending.Count -eq 0) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_40166e264a276e0a')
         } else {
@@ -1620,9 +1685,9 @@ function Set-MacHostConditionSet {
     $dockReloadNeeded = $false
     foreach ($corner in @('tl','tr','bl','br')) {
         $key = "wvous-$corner-corner"
-        $val = & defaults read com.apple.dock $key 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            $valTrim = "$val".Trim()
+        $valAnswer = Invoke-MacBoundedTool -Tool 'defaults' -Arguments @('read', 'com.apple.dock', $key) -Context "hot corner $key"
+        if ($valAnswer.ExitCode -eq 0) {
+            $valTrim = "$($valAnswer.Text)".Trim()
             if ($dangerousCorners.ContainsKey($valTrim)) {
                 $action = $dangerousCorners[$valTrim]
                 if ($PSCmdlet.ShouldProcess((Format-YurunaOperatorMessage -Key 'runner.operator_3fe39c3d9a1ca872' -Arguments @{ corner = "$corner"; action = "$action"; valTrim = "$valTrim" }), (Format-YurunaOperatorMessage -Key 'runner.operator_d4f9111adb74121b'))) {
@@ -1709,9 +1774,14 @@ function Set-MacHostConditionSet {
 
     # --- REGION: sysadminctl unified screen lock (Ventura+)
     # See https://yuruna.link/4213a0b3-006e
-    $slParsed = Get-MacScreenLockDisabled -Raw (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1)
-    $slStatus = $slParsed.Status
-    if (-not $slParsed.Disabled) {
+    $slParsed = Read-MacScreenLockStatus
+    if ($null -eq $slParsed) {
+        # Undetermined, so nothing is written: the account password would be
+        # asked for over a service that is not answering, and the gate refuses
+        # this host as well (Get-MacScreenLockIssue).
+        $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_797700a687a800ce'))
+    } elseif (-not $slParsed.Disabled) {
+        $slStatus = $slParsed.Status
         # See https://yuruna.link/4213a0b3-006f
         if ($NoGuiDisruption -or -not ((Test-MacSudoAvailable) -and (Test-YurunaCanPrompt))) {
             Write-Warning "========"
@@ -1742,14 +1812,18 @@ function Set-MacHostConditionSet {
             # Re-check: if we couldn't disable (wrong password, policy
             # override, MDM), surface the state so the user knows legacy
             # keys won't save them.
-            $slAfterParsed = Get-MacScreenLockDisabled -Raw (& sysadminctl -screenLock status 2>&1 | Select-Object -First 1)
-            if ($slAfterParsed.Disabled) {
+            $slAfterParsed = Read-MacScreenLockStatus
+            if ($slAfterParsed -and $slAfterParsed.Disabled) {
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b9ae4e6cd33819d9')
                 $changed = $true
             } else {
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0cd364e6b88ded33' -Arguments @{ status = "$($slAfterParsed.Status)" })
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_926e57287853be11')
-                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_43278e033cc67db4')
+                # A re-check that did not answer leaves the write's outcome
+                # unknown: still unmet, but no claim about a state nobody read.
+                if ($slAfterParsed) {
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_0cd364e6b88ded33' -Arguments @{ status = "$($slAfterParsed.Status)" })
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_926e57287853be11')
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_43278e033cc67db4')
+                }
                 $unmet.Add((Format-YurunaOperatorMessage -Key 'runner.operator_797700a687a800ce'))
             }
         }
@@ -1759,8 +1833,10 @@ function Set-MacHostConditionSet {
 
     # --- REGION: Auto-logout after inactivity (Security -> Advanced)
     # See https://yuruna.link/4213a0b3-0070
-    $autoLogoutDelay = & defaults read /Library/Preferences/.GlobalPreferences com.apple.autologout.AutoLogOutDelay 2>$null
-    $autoLogoutOff = ($LASTEXITCODE -ne 0 -or "$autoLogoutDelay".Trim() -eq "0")
+    $autoLogoutAnswer = Invoke-MacBoundedTool -Tool 'defaults' -Arguments @('read', '/Library/Preferences/.GlobalPreferences', 'com.apple.autologout.AutoLogOutDelay') -Context 'auto-logout delay'
+    $autoLogoutDelay = $autoLogoutAnswer.Text
+    # A key that is not set is off; a read that did not answer is not known to be.
+    $autoLogoutOff = ($autoLogoutAnswer.Started -and -not $autoLogoutAnswer.TimedOut -and ($autoLogoutAnswer.ExitCode -ne 0 -or "$autoLogoutDelay".Trim() -eq "0"))
     if (-not $autoLogoutOff) {
         # Required: Assert-ScreenLock refuses a host with an active auto-logout.
         # It kicks the session to loginwindow mid-cycle, which looks exactly
@@ -1782,8 +1858,9 @@ function Set-MacHostConditionSet {
 
     # --- REGION: Spaces "switch to a Space with open windows" toggle
     # See https://yuruna.link/4213a0b3-0071
-    $spacesAutoSwitch = & defaults read NSGlobalDomain AppleSpacesSwitchOnActivation 2>$null
-    $spacesAutoSwitchOff = ($LASTEXITCODE -eq 0 -and "$spacesAutoSwitch".Trim() -eq "0")
+    $spacesAnswer = Invoke-MacBoundedTool -Tool 'defaults' -Arguments @('read', 'NSGlobalDomain', 'AppleSpacesSwitchOnActivation') -Context 'Spaces auto-switch'
+    $spacesAutoSwitch = $spacesAnswer.Text
+    $spacesAutoSwitchOff = ($spacesAnswer.ExitCode -eq 0 -and "$spacesAutoSwitch".Trim() -eq "0")
     if (-not $spacesAutoSwitchOff) {
         if ($PSCmdlet.ShouldProcess("AppleSpacesSwitchOnActivation (currently $($spacesAutoSwitch))", (Format-YurunaOperatorMessage -Key 'runner.operator_39e5847dbcba5b40'))) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_73b483ef7463dc84')
@@ -1816,8 +1893,7 @@ function Set-MacHostConditionSet {
     # mcxrefresh. We can't bypass a profile; warn the user so they
     # don't chase a ghost.
     try {
-        $profOutput = & profiles list 2>&1
-        $hasProfiles = ($LASTEXITCODE -eq 0 -and "$profOutput" -notmatch 'no configuration profiles')
+        $hasProfiles = Test-MacConfigurationProfilePresent
         if ($hasProfiles) {
             Write-Warning "========"
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_69026426aeb39009')

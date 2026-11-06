@@ -425,7 +425,10 @@ it add their `durationSeconds`, and once the sum reaches the budget no pause of
 that class ends early -- neither by this trigger nor by a recovery probe --
 until older failures leave the window. A hang that the watchdog killed is filed
 as a `wait_timeout`, whose repair is the retry; without the budget the same
-hang would repeat after every early end.
+hang would repeat after every early end. A wait that ended on a wedged guest
+kernel is filed as `guest_kernel_stalled`, whose budget is its own (180
+minutes, written in its route), so a host whose guests keep wedging spends
+that class's minutes and not the ones real step timeouts are retried on.
 
 The automatic host-refresh decision runs after every dispatch, through
 `Test.HostRefreshTrigger` when that module is present (it is off by default;
@@ -835,6 +838,26 @@ published as a runner fault (`cycle_spawn_failed`, stage `CycleSpawn`), the
 same way a failed framework pull already is, so the pool sees a host that
 cannot start its cycles.
 
+`status.json` holds only the current `runnerFault`, so each fault the runner
+publishes is also queued once per attempt generation as a `runner_fault` event
+with the same fields; the fault and the pause that republishes it are one
+event. A fault published without an attempt generation (an escape from the
+outer loop, a diagnostic hold) is an event each time. The next cycle writes it
+into its stream, which reaches the pool's event log. A runner keeps the code it
+started with, so one started before runners queued these events never queues
+them; the cycle process, which loads the current code each cycle, also queues from
+`runtime/runner-attempts/index.json` each failed attempt that finished after
+the newest passing attempt and that no `runner_fault` carried yet, marking it
+with `runner-fault.queued` beside its record. A fault the runner queued itself
+gets the marker and no second event, and a failure before the newest passing
+attempt is not sent late: its line would be more than an hour behind the
+stream, which Loki refuses. A fault without an attempt generation has no record
+there, so only a runner that queues it sends it.
+`runtime/runner-attempts/index.json` lists the latest 20 attempts in
+`attempts` and, in `olderFailures`, up to 30 older failed attempts that a later
+attempt passed after, with their evidence: on a host that recovers, the
+passing cycles after a failure would otherwise retire it within hours.
+
 The cycle process writes the record through `Publish-CycleOutcomeRecord`, which
 reads it back through the same validator (`Read-CycleOutcomeRecord`, both in
 [`Test.RecoveryContract`](../test/modules/Test.RecoveryContract.psm1)) before it
@@ -958,6 +981,20 @@ handles them itself, with the code it loaded when it started.
   goes too. The recovery result for that cycle is `aborted`
   (`cycle_killed`, stage `CycleCeiling`).
 
+The resident keeps the modules it imported when it started until it exits: a
+host pull changes what each later cycle process loads, but never the resident's
+own handling of these faults, of the failure pause and of the repairs. So the
+runner publishes, as it starts and once its startup refusals are behind it, the
+framework commit it started on and the moment it started, as `runnerResident`
+(`commitSha`, `startedAtUtc`) in `status.json`. Every cycle start carries the
+field forward, and only the next runner start changes it. The host status page
+shows it in the "Runner attempt failures" section, and `/control/host-facts`
+relays it (`runnerCommitSha`, `runnerStartedAtUtc`) to the pool Hosts page's
+Runner column. For a runner started before the report existed, the status page
+says it has not reported, and the column shows `--` with that reason as its
+title. It is a report, not a gate: a runner whose commit is older than its
+host's checkout keeps running, and a restart is what brings it the newer code.
+
 <a id="42f909ad-0011"></a>
 
 ## Watchdog and heartbeat protocol
@@ -986,6 +1023,7 @@ runner respawns the inner from a clean state.
 | `runner.refresh-gated.json` | inner runner         | cycle process         | Written when the inner stops at one of its host-refresh gate sites, naming itself and its parent. Consumed by the cycle process that spawned it. |
 | `runner.refresh-evidence.json` | inner runner (service-VM restore) | outer runner | Hypervisor evidence for the automatic refresh decision, stamped with the cycle generation. Read and consumed by the outer after every dispatch. |
 | `outer.log`              | outer + inner           | post-mortem, status service | Append-only milestone log. Survives a `conhost` output wedge. |
+| `cycle-events.pending.json` | outer runner (boot recovery, runner faults) | next cycle's `Start-LogFile` | Events raised while no cycle is open, written into the next cycle's `cycle.events.ndjson` ahead of `cycle_start`. See [queued events](definition.md#42fa6f45-0030). |
 
 <a id="42f909ad-0013"></a>
 
@@ -1261,6 +1299,42 @@ pidfiles whose PID is no longer live, and archives a `break-active.json`
 no live runner can honor. The state machine
 synthesizes the *narrative*; `Test.Recovery` cleans the *state*.
 
+Before archiving an orphaned cycle, the sweep compares the newest write
+time of any file in its folder with the host's boot time (`btime` in
+`/proc/stat` on Linux, `kern.boottime` on macOS, the time since boot on
+Windows). A host that froze leaves files whose data never reached the disk
+but whose entries did, so that newest write is within seconds of the
+freeze. The host counts as restarted under the cycle when it booted after
+both that write and the start in the cycle's marker, within five seconds;
+a runner killed and started again without a reboot finds a boot from
+before the cycle and never counts. The archived `.aborted.<UTC>.json`
+carries `lastWriteUtc`, `bootUtc`, `hostRestarted` and `downSeconds` (boot
+minus last write).
+
+For a host restart the sweep also writes into the aborted folder
+`host-restart.json` (what each command returned, the hardware-error lines,
+any crash reports, and whether the system journal was readable) and
+`host-restart.txt` (the output). On Linux: `journalctl --list-boots`, the
+previous boot's last 300 journal lines and its kernel warnings, the
+current boot's kernel lines naming BERT, a hardware error, a machine check,
+EDAC, AER or a watchdog, and the head of `last -x -F`. journalctl reads
+only the runner's own journal unless the account is in `systemd-journal`
+or `adm`; the evidence says so instead of failing. A host in deep
+diagnostics mode writes one bundle per boot to
+`/var/log/yuruna/deep-diagnostics/`; bundles written since the cycle's
+last write are copied in as `host-restart.deep-diagnostics.<name>`, or the
+reason they could not be read is recorded. On Windows: the System log's
+Kernel-Power 41, 6008 and BugCheck 1001 events and the minidumps written
+since then. On macOS: the panic reports written since then and the head of
+`last reboot`. Every command is bounded, and a failure is recorded, never
+thrown.
+
+No cycle is open during the sweep, so its events -- one `host_restart` per
+cycle the host restarted under, then `boot_recovery_completed` -- wait in
+`runtime/cycle-events.pending.json` and are written into the next cycle's
+event stream ahead of its `cycle_start`, where the pool collects them
+(see [queued events](definition.md#42fa6f45-0030)).
+
 <a id="42f909ad-0020"></a>
 
 ### History depth
@@ -1281,6 +1355,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

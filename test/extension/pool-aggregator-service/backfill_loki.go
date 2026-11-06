@@ -258,7 +258,7 @@ func eventPayloads(h activeHost, rec cycleRecord) []map[string]any {
 }
 
 // replayHostIncidents applies the collector's per-host incident rule
-// (evaluateIncidents) to a host's failed cycles after the fact. A fail joins the
+// (View.EvaluateIncidents) to a host's failed cycles after the fact. A fail joins the
 // window at its own time and the window keeps the fails newer than that time
 // minus win. An incident opens when a fail brings the window to n, and resolves
 // when the newest fail in it ages out, at that fail's time plus win -- the

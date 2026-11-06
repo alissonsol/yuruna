@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -523,7 +523,8 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
 
     # Prefer the host driver's Get-VMIp -- it has the most up-to-date
     # discovery (External-vSwitch ARP probes, dhcpd_leases fallback, etc.).
-    if (Get-Command Get-VMIp -ErrorAction SilentlyContinue) {
+    $driverAddress = Get-Command Get-VMIp -ErrorAction SilentlyContinue
+    if ($driverAddress) {
         try {
             $ip = Get-VMIp -VMName $VMName
             if ($ip) { return [string]$ip }
@@ -533,7 +534,10 @@ System.String. An IPv4 address if one was discovered, otherwise the VMName.
     }
 
     # See https://yuruna.link/4213a0b3-016f
-    if ($IsWindows -and (Get-Command Get-VMNetworkAdapter -ErrorAction SilentlyContinue)) {
+    # Only without the driver: its Get-VMIp read these addresses under its cap,
+    # and an uncapped second read would hold the caller when the service is
+    # what failed to answer.
+    if ($IsWindows -and -not $driverAddress -and (Get-Command Get-VMNetworkAdapter -ErrorAction SilentlyContinue)) {
         try {
             $addrs = (Get-VMNetworkAdapter -VMName $VMName -ErrorAction Stop).IPAddresses
             # Accept v4 or v6 from KVP -- ssh handles either. The shared selector
@@ -1636,6 +1640,14 @@ with a different owner, that is likewise invisible in the exit status.
             if ($detached -and $accumulated.Length -gt 0) {
                 $timeoutOutput = "$($accumulated.ToString())`n$timeoutOutput".TrimEnd()
             }
+            # A re-attach gets at least 30 s, and a session to a guest that
+            # accepts connections but never answers lasts a minute or more
+            # before ssh gives up, so the last re-attach of such a step usually
+            # ends at its own cap. With no supervisor marker on stderr the guest
+            # never answered this session: the lost transport the deadline
+            # check above reports, not a command that ran out of time.
+            $reattachCutOff = $detached -and $attempt -gt 1 -and ($native.TimedOut -or $native.DrainTimedOut) -and
+                -not [regex]::IsMatch($stderrText, 'YURUNA_RUN_(START|ATTACH|EXIT)')
             return @{
                 success         = $false
                 exitCode        = -1
@@ -1644,7 +1656,7 @@ with a different owner, that is likewise invisible in the exit status.
                 linesConsumed   = $fromLine
                 runLost         = $false
                 addressResolved = $addressResolved
-                transportLost   = $false
+                transportLost   = [bool]$reattachCutOff
                 timedOut        = [bool]($native.TimedOut -or $native.DrainTimedOut)
                 drainTimedOut   = [bool]$native.DrainTimedOut
                 outputTruncated = [bool]$native.OutputTruncated

@@ -56,9 +56,10 @@ func TestAllocatePicksUpExistingFilesOnDisk(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 	// Pre-existing entries: an extension'd file, a no-extension file, an
-	// archive, an in-progress staging dir, and a sidecar (section 8.5). Each
-	// reserves the leading 4-char ID -- including the sidecar, so the
-	// allocator never hands out an ID a sidecar already claims.
+	// archive, an in-progress staging dir, and a sidecar. Each reserves the
+	// leading 4-char ID -- including the sidecar, which shares the artifact's
+	// ID prefix (see https://yuruna.link/429e934f-000f), so the allocator never
+	// hands out an ID a sidecar already claims.
 	for _, name := range []string{"a1b2.pdf", "c3d4", "e5f6.yuruna.archive.zip", "g7h8.staging", "i9j0.yuruna.meta.json"} {
 		if err := os.WriteFile(filepath.Join(dayDir, name), nil, 0o600); err != nil {
 			t.Fatalf("write %s: %v", name, err)

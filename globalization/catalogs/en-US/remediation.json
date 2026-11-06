@@ -1371,7 +1371,7 @@
       "lifecycle": "active"
     },
     "remediation.vm_not_stopped_rationale": {
-      "message": "{vmName} never reached the stopped state the step waited for: the guest ignored the shutdown request, and waiting again cannot change that. A cold power cycle can.",
+      "message": "{vmName} never reached the stopped state the step waited for: the guest ignored the shutdown request, and waiting again cannot change that. Powering it off from the host can.",
       "description": "Rationale of the vm_not_stopped recovery handler in test/modules/Test.Remediation.psm1.",
       "lifecycle": "active",
       "placeholders": {
@@ -1383,8 +1383,8 @@
       }
     },
     "remediation.vm_not_stopped_action_power": {
-      "message": "Power the VM off from the host -- a retry with restartVmBeforeRetry: coldPowerCycle does this -- and run the step again.",
-      "description": "Action of the vm_not_stopped recovery handler in test/modules/Test.Remediation.psm1; keep the sequence key and its value.",
+      "message": "Power the VM off from the host -- a stopVm step with forceOnTimeout: true does this in the sequence, or turn it off from the hypervisor -- and run the step again.",
+      "description": "Action of the vm_not_stopped recovery handler in test/modules/Test.Remediation.psm1; keep the action name stopVm and the sequence key and value forceOnTimeout: true.",
       "lifecycle": "active"
     },
     "remediation.vm_not_stopped_action_inspect": {
@@ -1412,6 +1412,43 @@
     "remediation.guest_run_lost_action_inspect": {
       "message": "Read the guest's execution log for what ended the process.",
       "description": "Action of the guest_run_lost recovery handler in test/modules/Test.Remediation.psm1.",
+      "lifecycle": "active"
+    },
+    "remediation.guest_kernel_stalled_rationale": {
+      "message": "guest_kernel_stalled on {vmName}: the guest kernel stopped making progress, so the step could not finish (kernel reports: {kinds}; virtual processors that serviced no interrupt: {processors}; seconds every virtual processor was held in the hypervisor: {heldSeconds}). This is not a slow mirror or a payload fault, and the same boot does not recover; the next attempt boots the guest again.",
+      "description": "Rationale of the guest_kernel_stalled recovery handler in test/modules/Test.Remediation.psm1, for a step whose wait ended on a wedged guest kernel. Preserve the failure class name guest_kernel_stalled; vmName, kinds and processors are untrusted display data, and kinds and processors are '-' when the record has none.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "test-ubuntu-server-26"
+        },
+        "kinds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "rcu-stall"
+        },
+        "processors": {
+          "type": "detail",
+          "trust": "external",
+          "example": "1"
+        },
+        "heldSeconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 345
+        }
+      }
+    },
+    "remediation.guest_kernel_stalled_action_evidence": {
+      "message": "Read causeDetail.guestKernelStallEnd and causeDetail.guestLivelock in last_failure.json, and the kernel's reports in the guest folder's serial-console.log",
+      "description": "Action of the guest_kernel_stalled recovery handler in test/modules/Test.Remediation.psm1. Preserve the record fields causeDetail.guestKernelStallEnd and causeDetail.guestLivelock and the file names last_failure.json and serial-console.log.",
+      "lifecycle": "active"
+    },
+    "remediation.guest_kernel_stalled_retry_reason": {
+      "message": "a guest kernel that stopped making progress recovers only on a new boot, which the next attempt starts; these retries spend a daily budget of their own",
+      "description": "Reason the auto-remediation allow-list in test/modules/Test.Remediation.psm1 gives for retrying a guest_kernel_stalled failure unattended; shown to the operator beside the class name.",
       "lifecycle": "active"
     }
   }

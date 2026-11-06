@@ -15,40 +15,17 @@ import (
 	"time"
 )
 
-// Verify accepts a proof "<expiry>.<base64 HMAC>" only inside the inclusive
-// window now <= expiry <= now+maxTTL. The MAC covers the canonical decimal
-// expiry, using the token's exact bytes, and is compared in constant time.
-// Malformed, expired or mismatched input is false.
-func Verify(token, wire string, now time.Time, maxTTL time.Duration) bool {
-	if strings.TrimSpace(token) == "" || strings.TrimSpace(wire) == "" {
-		return false
-	}
-	dot := strings.IndexByte(wire, '.')
-	if dot <= 0 || dot >= len(wire)-1 {
-		return false
-	}
-	expiry, err := strconv.ParseInt(wire[:dot], 10, 64)
-	if err != nil {
-		return false
-	}
-	unix := now.Unix()
-	if expiry < unix || expiry > unix+int64(maxTTL/time.Second) {
-		return false
-	}
-	given, err := base64.StdEncoding.DecodeString(wire[dot+1:])
-	if err != nil {
-		return false
-	}
-	return hmac.Equal(proofMAC(token, expiry), given)
-}
-
 func proofMAC(token string, expiry int64) []byte {
 	mac := hmac.New(sha256.New, []byte(token))
 	mac.Write([]byte("yuruna-control|proof|" + strconv.FormatInt(expiry, 10)))
 	return mac.Sum(nil)
 }
 
-// Proof returns the canonical shared proof, or an empty string without a usable key.
+// Proof returns the retired unbound form "<expiry>.<base64 HMAC>", or an empty
+// string without a usable key. No verifier accepts it: it names no target, so it
+// would open every host and service that shares the key. It is still minted for
+// the shared golden vector, and Mint's answer tells a caller whether it holds a
+// usable key.
 func Proof(token string, expiry int64) string {
 	if strings.TrimSpace(token) == "" {
 		return ""
@@ -56,18 +33,19 @@ func Proof(token string, expiry int64) string {
 	return strconv.FormatInt(expiry, 10) + "." + base64.StdEncoding.EncodeToString(proofMAC(token, expiry))
 }
 
-// Mint creates a proof expiring ttl from now using the same empty-key rule as Verify.
+// Mint creates the unbound form expiring ttl from now, or an empty string
+// without a usable key.
 func Mint(token string, ttl time.Duration) string {
 	return Proof(token, time.Now().Add(ttl).Unix())
 }
 
 // A bound proof names the one target it unlocks, its audience: a host id for a
 // host's /control/* routes, or "svc-<service>" for an extension service's UI.
-// The key is pool-wide, so an unbound proof copied from one host's address bar
-// (a screenshot, a pasted link) works on every host for its lifetime; a bound
-// one works only where it was meant to. The audience sits between the expiry
-// and the MAC, so a page that reads the deadline off the first field reads both
-// forms, and a verifier that predates audiences refuses the bound form.
+// The key is pool-wide, so a proof that named no target, copied from one host's
+// address bar (a screenshot, a pasted link), would work on every host for its
+// lifetime; a bound one works only where it was meant to. The audience sits
+// between the expiry and the MAC, so a page reads the deadline off the first
+// field of every form.
 var audiencePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
 
 // ValidAudience reports whether a is a well-formed audience.
@@ -94,16 +72,14 @@ func MintFor(token, audience string, ttl time.Duration) string {
 }
 
 // VerifyFor accepts a bound proof whose audience equals audience, ignoring
-// case, inside the same window Verify enforces. It also accepts an unbound
-// proof, because hosts and services are updated at different times and the
-// pool runs both forms until every minter binds. An empty audience accepts a
-// bound proof for any target; only a verifier answering for a caller that
-// names no audience uses that.
+// case, only inside the inclusive window now <= expiry <= now+maxTTL. The MAC
+// covers the audience and the canonical decimal expiry, using the token's exact
+// bytes, and is compared in constant time. An empty audience accepts a bound
+// proof for any target; only a verifier answering for a caller that names no
+// audience uses that. The unbound form, which names no target, is refused like
+// any other malformed, expired or mismatched input.
 func VerifyFor(token, wire, audience string, now time.Time, maxTTL time.Duration) bool {
 	parts := strings.Split(wire, ".")
-	if len(parts) == 2 {
-		return Verify(token, wire, now, maxTTL)
-	}
 	if len(parts) != 3 || strings.TrimSpace(token) == "" || !ValidAudience(parts[1]) {
 		return false
 	}
@@ -159,9 +135,9 @@ func MintForScope(token, audience, scope string, ttl time.Duration) string {
 }
 
 // VerifyScoped accepts a scoped proof whose audience equals audience, ignoring
-// case, and whose scope is one of scopes, inside the window Verify enforces.
-// It accepts nothing else: a caller that also takes the bound and unbound
-// forms asks VerifyFor for those.
+// case, and whose scope is one of scopes, inside the window VerifyFor enforces.
+// It accepts nothing else: a caller that also takes the bound form asks
+// VerifyFor for it.
 func VerifyScoped(token, wire, audience string, scopes []string, now time.Time, maxTTL time.Duration) bool {
 	parts := strings.Split(wire, ".")
 	if len(parts) != 4 || strings.TrimSpace(token) == "" || !ValidAudience(parts[1]) || !ValidScope(parts[2]) {

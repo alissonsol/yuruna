@@ -587,7 +587,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.too_many_announced_extensions"
@@ -601,7 +601,8 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "test/extension/pool-aggregator-service/internal/routes/labtoken.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.payload_too_large_or_unreadable"
@@ -615,7 +616,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/deeplinks.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.stash_target_not_known_to_the_pool"
@@ -629,7 +630,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.announce_accepted_but_not_durably_recorded_retry"
@@ -643,7 +644,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/labtoken.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.too_many_failed_attempts_retry_later"
@@ -657,7 +658,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/routes.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.failed_to_encode_pool_status"
@@ -671,7 +672,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.announce_accepted_but_not_recorded"
@@ -685,7 +686,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.invalid_hostid"
@@ -699,7 +700,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/routes.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.failed_to_encode_extension_hosts"
@@ -713,7 +714,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.sender_identity_could_not_be_bound_undiscovered_ip_hostid_not_own"
@@ -727,7 +728,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.announced_address_did_not_serve_status_json"
@@ -741,7 +742,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.invalid_target_address_detail"
@@ -755,7 +756,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.batch_mixes_multiple_hostids"
@@ -769,7 +770,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/deeplinks.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.the_pool_share_is_not_mounted_on_this_machine"
@@ -783,7 +784,8 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.host_not_known_to_the_pool"
@@ -797,7 +799,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/stats.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.unsupported_range_use_1h_24h_7d_or_30d"
@@ -811,7 +813,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.invalid_statusport"
@@ -825,7 +827,10 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/deeplinks.go",
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "test/extension/pool-aggregator-service/internal/routes/labtoken.go",
+        "test/extension/pool-aggregator-service/internal/routes/routes.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.method_not_allowed"
@@ -839,7 +844,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/deeplinks.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.missing_host"
@@ -853,7 +858,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.ingest_disabled"
@@ -867,7 +872,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/deeplinks.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.no_cycle_results_folder_for_that_host_at_that_time"
@@ -881,7 +886,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.too_many_lines"
@@ -895,7 +900,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/routes.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.failed_to_encode_scrape_targets"
@@ -909,7 +914,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/routes.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.metrics_are_served_to_this_host_only"
@@ -923,7 +928,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/routes.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.failed_to_encode_result"
@@ -937,7 +942,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/routes.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.unauthorized"
@@ -951,7 +956,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/labtoken.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.control_proof_verification_disabled_this_aggregator_holds_no_inte"
@@ -965,7 +970,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/deeplinks.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.unusable_cycle_results_folder_for_that_host_at_that_time"
@@ -979,7 +984,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/labtoken.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.failed_to_seal_the_token"
@@ -993,7 +998,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.announced_address_serves_a_different_hostid"
@@ -1007,7 +1012,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.target_host_must_be_the_announcing_address"
@@ -1021,7 +1026,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.invalid_hostid_or_area"
@@ -1035,7 +1040,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.invalid_target_url"
@@ -1049,7 +1054,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/routes.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.hostid_must_be_a_42_prefixed_32_hex_id"
@@ -1063,7 +1068,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/routes.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.no_live_host_for_that_extension_area"
@@ -1077,7 +1082,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.malformed_announce"
@@ -1091,7 +1096,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/labtoken.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.malformed_request"
@@ -1105,7 +1110,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/labtoken.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.labtoken_must_be_6_lowercase_letters_digits"
@@ -1119,7 +1124,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.announce_disabled"
@@ -1133,7 +1138,8 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/ingest.go",
+        "test/extension/pool-aggregator-service/internal/routes/labtoken.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.no_source_address"
@@ -1147,7 +1153,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/stats.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.encode_failed"
@@ -1161,7 +1167,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/routes.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.forget_host_disabled_no_auth_token_configured"
@@ -1175,7 +1181,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/labtoken.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.unknown_or_expired_lab_token"
@@ -1189,7 +1195,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/stats.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.loki_query_failed"
@@ -1203,7 +1209,7 @@
       "lifecycle": "active",
       "means": "The aggregator refused or failed this request; this code names its catalog-backed failure condition.",
       "producedBy": [
-        "test/extension/pool-aggregator-service/main.go"
+        "test/extension/pool-aggregator-service/internal/routes/labtoken.go"
       ],
       "consumedBy": [],
       "rendersAs": "aggregator.lab_token_exchange_disabled"

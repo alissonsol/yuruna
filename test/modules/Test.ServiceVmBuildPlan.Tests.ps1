@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42861ba7-21b4-45b8-96e4-6615fceded8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,6 +87,14 @@ Describe 'service VM builders resolve their plan before anything is torn down' {
         Assert-True ($templateCheck -gt 0 -and $templateCheck -lt $planExit[0].Extent.StartOffset) "$Builder checks its seed templates in its plan"
         $hostDegraded = $text.IndexOf("Write-SeedDegradation -VMName `$VMName -Name 'hostAddress'")
         Assert-True ($hostDegraded -gt 0 -and $hostDegraded -lt $planExit[0].Extent.StartOffset) "$Builder reports an empty host address in its plan"
+        # A malformed vmStart.serviceHostNames entry refuses these three seeds. By
+        # the time the builder renders, its Start has removed the proxy VM or
+        # withdrawn the service's advertisement, so the plan reads the names.
+        if ($Service -ne 'pool-control-service') {
+            $names = @(Get-BuilderCommand -Ast $ast -Name 'Get-ExtensionServiceHostNameSeed')
+            Assert-True ($names.Count -ge 1) "$Builder reads the service host names"
+            Assert-True ($names[0].Extent.EndOffset -lt $planExit[0].Extent.StartOffset) "$Builder reads the service host names in its plan"
+        }
 
         # Every later step that can still refuse the build runs before teardown too.
         foreach ($prepare in 'Assert-YurunaBaseImage', 'New-CloudInitUserData', 'Get-YurunaConfigServiceSeedMaterial', 'Get-YurunaBumpCa') {
@@ -102,6 +110,28 @@ Describe 'service VM builders resolve their plan before anything is torn down' {
             $empty = $text.IndexOf("host.operator_a32e7c960a5619ec")
             Assert-True ($empty -gt 0 -and $empty -lt $planExit[0].Extent.StartOffset) 'the KVM proxy refuses an unresolved network in its plan'
         }
+    }
+
+    It '<Builder> refuses a malformed service host name in its plan' -ForEach @(
+        foreach ($platform in 'ubuntu.kvm', 'macos.utm', 'windows.hyper-v') {
+            foreach ($service in 'caching-proxy-service', 'stash-service', 'download-agent-service') {
+                @{ Builder = "host/$platform/guest.$service/New-VM.ps1" }
+            }
+        }
+    ) {
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot $Builder), [ref]$null, [ref]$null)
+        $names = @(Get-BuilderCommand -Ast $ast -Name 'Get-ExtensionServiceHostNameSeed')
+        Assert-True ($names.Count -ge 1) "$Builder reads the service host names"
+        # The builder's own statement, so a catch that swallowed the refusal fails here.
+        $statement = $names[0]
+        while ($statement.Parent -and $statement.Parent -isnot [Management.Automation.Language.NamedBlockAst]) { $statement = $statement.Parent }
+        $module = Join-Path $script:RepoRoot 'test/modules/Test.ExtensionService.psm1'
+        # The comma-joined form of the daemon's flag is one entry, and no name.
+        $stub = New-StubBuilder ("`$ErrorActionPreference = 'Stop'`nImport-Module '$module' -DisableNameChecking`n" +
+            "`$tc = [ordered]@{ vmStart = [ordered]@{ serviceHostNames = @('cache.lab,stash.lab') } }`n" +
+            "$($statement.Extent.Text)`nexit 0")
+        $plan = Test-YurunaServiceVmBuildPlan -BuilderPath $stub -VMName 'fixture-vm' 6>$null
+        Assert-Equal -Expected $false -Actual $plan.Ok -Because "$Builder refuses the plan"
     }
 }
 
@@ -183,6 +213,24 @@ Describe 'Invoke-YurunaServiceVmBuild bounds and relays the builder' {
 }
 
 Describe 'Invoke-YurunaServiceVmBuilderRun' {
+    It 'relays complete CRLF lines and split terminators without carriage returns or seed tokens' {
+        $builder = New-StubBuilder 'exit 0'
+        Mock -ModuleName Test.ServiceVm Invoke-BoundedNativeCommand {
+            param($OutputHandler)
+            & $OutputHandler "first line`r`nYURUNA_SEED_DEGRADED=aggregatorUrl`r" 'stdout'
+            & $OutputHandler "`nlast line`r`n" 'stdout'
+            & $OutputHandler "diagnostic`r`n" 'stderr'
+            [pscustomobject]@{ Started = $true; TimedOut = $false; ExitCode = 0 }
+        }
+        $all = @(Invoke-YurunaServiceVmBuilderRun -BuilderPath $builder -VMName 'fixture-vm' 6>&1)
+        $result = $all | Where-Object { $_ -is [hashtable] } | Select-Object -Last 1
+        $lines = @($all | Where-Object { $_ -is [Management.Automation.InformationRecord] } | ForEach-Object { [string]$_.MessageData })
+        Assert-True $result.Ok 'the builder succeeded'
+        Assert-StringEqual -Expected 'aggregatorUrl' -Actual ($result.Degraded -join ',')
+        Assert-Equal -Expected 3 -Actual $lines.Count -Because 'each stream relays complete lines and consumes the seed token'
+        Assert-StringEqual -Expected "first line|last line|diagnostic" -Actual ($lines -join '|')
+    }
+
     It 'passes each builder argument after -VMName to the child, a value holding a space included' {
         $builder = Join-Path $TestDrive ("builder-{0}.ps1" -f [guid]::NewGuid().ToString('N'))
         [IO.File]::WriteAllText($builder, "param([string]`$VMName, [string]`$MacAddress, [int]`$MemoryMb, [string]`$SquidCacheMem, [switch]`$AllowPseudoLocale)`nWrite-Output ('BOUND:{0}|{1}|{2}|{3}|{4}' -f `$VMName, `$MacAddress, `$MemoryMb, `$SquidCacheMem, [bool]`$AllowPseudoLocale)`n")
@@ -390,6 +438,24 @@ Describe 'service Start scripts adopt, plan, withdraw and build in that order' {
         $marker = $text.IndexOf("-Active `$true -BaseUrl")
         Assert-True ($stop -gt 0 -and $stop -lt $launch) 'the previous daemon is stopped before a new one starts'
         Assert-True ($exited -gt $launch -and $exited -lt $marker) 'a daemon that exited at once is not recorded'
+    }
+}
+
+Describe 'Stop-ConfigService follows the lifecycle opening' {
+    It 'answers -WhatIf and changes nothing, its PID file included' {
+        $runtime = Join-Path $TestDrive 'config-runtime'
+        [void](New-Item -ItemType Directory -Path $runtime)
+        $pidFile = Join-Path $runtime 'config-server.pid'
+        [IO.File]::WriteAllText($pidFile, '999999')
+        $previous = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        try {
+            $env:YURUNA_RUNTIME_DIR = $runtime
+            $null = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $script:RepoRoot 'test/service/Stop-ConfigService.ps1') -WhatIf 2>&1
+            Assert-Equal 0 $LASTEXITCODE -Because 'the script takes -WhatIf, as Stop-StatusService does'
+        } finally {
+            Restore-YurunaTestEnvironment -Saved $previous
+        }
+        Assert-True (Test-Path -LiteralPath $pidFile) 'a preview leaves the PID file in place'
     }
 }
 

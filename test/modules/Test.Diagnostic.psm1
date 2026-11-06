@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1518,7 +1518,7 @@ function ConvertFrom-GuestKernelFaultText {
         guest's serial console or kernel journal text.
     .DESCRIPTION
         A Hyper-V guest's serial log carries the kernel's console output and
-        every journal line journald forwards there, PowerShell script-block
+        every journal line the guest copies there, PowerShell script-block
         text included, so a keyword anywhere on a line proves nothing: 'loops'
         contains 'oops', and a forwarded script can quote any kernel message.
         Each physical line is split at its printk timestamps (two records can
@@ -1528,13 +1528,13 @@ function ConvertFrom-GuestKernelFaultText {
         own, which console text cannot tell apart from a kernel record that
         landed in the middle of a journal line. journalctl -o short-monotonic
         output carries '<host> kernel: ' after the timestamp: in recorder text
-        that prefix is removed first, and in serial text, where journald never
-        forwards kernel records, a record carrying it is quoted output. A
+        that prefix is removed first, and in serial text, where the copy leaves
+        out kernel records, a record carrying it is quoted output. A
         record repeated with the same timestamp and text is read once, because
         the guest recorder's journal samples overlap.
 
         journald stamps a forwarded line with the guest's CLOCK_MONOTONIC as
-        it forwards it, while a kernel record carries printk's clock, and a
+        it receives it, while a kernel record carries printk's clock, and a
         clock jump can move one and leave the other alone. So in serial text a
         new boot starts where a record falls back, within its own kind, by more
         than 30 seconds to an early timestamp; where the first record of its

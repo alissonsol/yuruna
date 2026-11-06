@@ -4,6 +4,16 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.11.05
+
+- **Working git mirror.** After a caching-proxy rebuild, hosts and guests fetch
+  sources from the proxy, and enrolled hosts keep cycling during GitHub failures
+  for up to seven days.
+- **Also in this release.** Host restarts leave evidence, an optional deep
+  diagnostics mode captures KVM host freezes, a stalled guest serial port no
+  longer wedges sudo and sshd, Hyper-V calls and serial stops end at their caps,
+  UTM Ubuntu installs first boot cold, and services refuse unknown Host names.
+
 ## 2026.10.31
 
 - **Shared service start.** The stash, pool-control and download-agent VMs
@@ -672,6 +682,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](README.md)

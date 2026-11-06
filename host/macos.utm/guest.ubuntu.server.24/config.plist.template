@@ -177,8 +177,37 @@
 		</dict>
 	</array>
 	<!-- REGION: Serial -->
+	<!-- Loopback TCP servers that never wait for a client: the guest's UART,
+	     which the runner's serial reader logs, and QEMU's monitor (HMP), which
+	     the wedge snapshot reads. Ports follow the VNC display:
+	     Get-UtmConsolePortForDisplay. -->
 	<key>Serial</key>
-	<array/>
+	<array>
+		<dict>
+			<key>Mode</key>
+			<string>TcpServer</string>
+			<key>Target</key>
+			<string>Auto</string>
+			<key>TcpPort</key>
+			<integer>__SERIAL_PORT__</integer>
+			<key>WaitForConnection</key>
+			<false/>
+			<key>RemoteConnectionAllowed</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>Mode</key>
+			<string>TcpServer</string>
+			<key>Target</key>
+			<string>Monitor</string>
+			<key>TcpPort</key>
+			<integer>__MONITOR_PORT__</integer>
+			<key>WaitForConnection</key>
+			<false/>
+			<key>RemoteConnectionAllowed</key>
+			<false/>
+		</dict>
+	</array>
 	<!-- REGION: Sharing -->
 	<key>Sharing</key>
 	<dict>

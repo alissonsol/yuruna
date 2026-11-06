@@ -2,7 +2,11 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 // GUID: 420976ba-7c9d-40a5-bc03-b2f1d7dcfe22
 
-package main
+// Package localization renders the aggregator's catalog messages: the localized
+// HTTP error bodies the routes answer with, and the operator log and flag help
+// lines. The -language and -allow-pseudo-locale flags are registered on the
+// default flag set when the package initializes.
+package localization
 
 import (
 	"encoding/json"
@@ -20,7 +24,7 @@ var pageAllowPseudo = flag.Bool("allow-pseudo-locale", false, "")
 var localizedPageOnce sync.Once
 var localizedPageStore *i18n.Pages
 
-func localizedPages() *i18n.Pages {
+func Pages() *i18n.Pages {
 	localizedPageOnce.Do(func() {
 		pages, err := i18n.NewPages(catalog.Catalogs, catalog.BrowserCatalogs, catalog.BrowserKernel, *pageLanguage, *pageAllowPseudo)
 		if err != nil {
@@ -31,12 +35,12 @@ func localizedPages() *i18n.Pages {
 	return localizedPageStore
 }
 
-func localizedHTTPError(w http.ResponseWriter, r *http.Request, key string, status int) {
-	localizedHTTPErrorArgs(w, r, key, status, nil)
+func HTTPError(w http.ResponseWriter, r *http.Request, key string, status int) {
+	HTTPErrorArgs(w, r, key, status, nil)
 }
 
-func localizedHTTPErrorArgs(w http.ResponseWriter, r *http.Request, key string, status int, args map[string]any) {
-	pages := localizedPages()
+func HTTPErrorArgs(w http.ResponseWriter, r *http.Request, key string, status int, args map[string]any) {
+	pages := Pages()
 	locale := pages.Negotiator.Resolve(r)
 	i18n.Apply(w.Header(), locale)
 	w.Header().Set("X-Yuruna-Message-Code", key)
@@ -44,8 +48,8 @@ func localizedHTTPErrorArgs(w http.ResponseWriter, r *http.Request, key string, 
 	http.Error(w, pages.Catalog.Render(key, args, locale.ResolvedTag), status)
 }
 
-func localizedJSONError(w http.ResponseWriter, r *http.Request, key string, status int) {
-	pages := localizedPages()
+func JSONError(w http.ResponseWriter, r *http.Request, key string, status int) {
+	pages := Pages()
 	locale := pages.Negotiator.Resolve(r)
 	i18n.Apply(w.Header(), locale)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -92,7 +96,7 @@ func operatorLanguage() (string, bool) {
 	return language, pseudo
 }
 
-func operatorMessage(key string, args map[string]any) string {
+func OperatorMessage(key string, args map[string]any) string {
 	operatorCatalogOnce.Do(func() {
 		operatorCatalog = i18n.NewCatalog(nil)
 		for tag, domains := range catalog.Catalogs {

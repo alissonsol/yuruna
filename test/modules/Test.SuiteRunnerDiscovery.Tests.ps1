@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 426885fa-49ed-4e47-8e22-c7994fa575f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -228,6 +228,21 @@ Describe 'result reporting failures preserve diagnostics and evidence' {
 
     AfterEach {
         Remove-Item -LiteralPath $script:ReportingRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'exports complete fixture NUnit evidence, including the executed case and environment' {
+        Remove-Item -LiteralPath $script:ReportingBaseline
+        Set-FixtureSuite -Root $script:ReportingRoot -Name Alpha -Body "Describe 'fixture export' { It 'passes' { 1 | Should -Be 1 } }"
+        $run = Invoke-Runner -Root $script:ReportingRoot
+        $run.ExitCode | Should -Be 0 -Because $run.Output
+        $xml = [xml]([IO.File]::ReadAllText($script:ReportingXml))
+        @($xml.SelectNodes('//test-case')).Count | Should -Be 1 -Because 'an exporter failure can close a readable XML root before it writes any cases'
+        $xml.SelectSingleNode('//test-case').GetAttribute('executed') | Should -BeExactly 'True'
+        if ($IsWindows) {
+            $xml.SelectSingleNode('/test-results/environment').GetAttribute('platform') | Should -BeExactly 'SuiteRunner fixture OS'
+        }
+        $stdout = [IO.File]::ReadAllText(@($run.Result.suites)[0].stdoutLog)
+        $stdout | Should -Not -Match 'Invoking step End failed' -Because 'the fixture must accept the exporter''s normal OS metadata probe'
     }
 
     It 'publishes a passing result and baseline while releasing its result-directory lock' {

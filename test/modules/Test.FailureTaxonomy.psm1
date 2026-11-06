@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a11720-948f-47cf-8739-5beedf5f7176
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,8 +34,12 @@ $script:FailureClassEnum = @(
     'hypervisor_unresponsive', 'source_integrity',
     # Split out of wait_timeout and instrumentation_failure: a guest that ignored
     # a shutdown and a run its supervisor could not account for are fixed by a
-    # cold power cycle and a restore, where those two classes are retried as-is.
+    # power-off from the host and a restore, where those two classes are retried
+    # as-is.
     'vm_not_stopped', 'guest_run_lost',
+    # Split out of wait_timeout so a wedged guest kernel's retries spend a budget
+    # of their own.
+    'guest_kernel_stalled',
     'unknown'
 )
 $script:SeverityEnum = @('hard', 'soft', 'unknown')
@@ -64,6 +68,11 @@ $script:FailureClassRoute = [ordered]@{
     # Backed by a Repair-* primitive that is safe to run twice.
     'instrumentation_failure' = @{ UnattendedRetry = $true; WarmResume = $true }
     'host_io_blocked'         = @{ UnattendedRetry = $true; WarmResume = $true }
+    # A wedged guest kernel cannot finish the step, and the same boot does not
+    # recover: the repair is a new boot, which the next attempt starts. A budget
+    # of its own leaves real step timeouts the minutes they are retried on. No
+    # warm resume: a resume in place would wait again on the same wedged kernel.
+    'guest_kernel_stalled'    = @{ UnattendedRetry = $true; RetryMinutesPerDay = 180 }
     # No source served the script, so the payload never ran: resuming the step
     # is sound. Only the shortage cases reach this class -- a digest mismatch is
     # a refusal and has its own -- and the usual cause, a host that renumbered,
@@ -79,8 +88,10 @@ $script:FailureClassRoute = [ordered]@{
 # sum reaches the budget the failure pause runs to its end for that class until
 # older failures leave the window. A hang that the watchdog kills is filed as a
 # wait_timeout, the class whose repair is the retry, so without this bound the
-# same hang would repeat at every early end of the pause. A route entry may
-# carry its own RetryMinutesPerDay; every other class has the default.
+# same hang would repeat at every early end of the pause; a wait that ended on a
+# wedged guest kernel is filed as guest_kernel_stalled and spends that class's
+# budget instead. A route entry may carry its own RetryMinutesPerDay; every
+# other class has the default.
 $script:DefaultRetryMinutesPerDay = 180
 
 function Get-FailureClassEnum {

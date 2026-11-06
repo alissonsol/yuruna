@@ -12,7 +12,8 @@ import (
 
 // New must be best-effort: when the share is offline at startup the folder is
 // an unmountable/unwritable mountpoint and the pre-create mkdirs fail, but the
-// daemon must still come up and buffer locally (section 8.4). Simulate an
+// daemon must still come up and buffer locally (see
+// https://yuruna.link/429e934f-000e). Simulate an
 // uncreatable share by rooting it under a regular file (MkdirAll then fails).
 func TestNewIsBestEffortWhenShareUncreatable(t *testing.T) {
 	tmp := t.TempDir()

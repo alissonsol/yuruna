@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 426c2f81-86df-422e-8db7-a94bd7ff61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1589,7 +1589,8 @@ function Invoke-ServiceVmBuilderProcess {
         $cut = $text.LastIndexOf("`n")
         if ($cut -lt 0) { return }
         [void]$buffer.Clear().Append($text.Substring($cut + 1))
-        foreach ($line in ($text.Substring(0, $cut) -split "`r?`n")) { & $relay $line }
+        # The last LF is outside the slice, leaving its CR behind on Windows.
+        foreach ($line in ($text.Substring(0, $cut) -split "`r?`n")) { & $relay ($line.TrimEnd("`r")) }
     }
     $native = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) `
         -ArgumentList (@('-NoProfile', '-NonInteractive', '-File', $BuilderPath) + $Argument) `

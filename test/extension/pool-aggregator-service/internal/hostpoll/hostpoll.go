@@ -17,6 +17,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -276,12 +277,28 @@ func NormalizeRefreshCapability(raw json.RawMessage) *pool.HostRefresh {
 	return &n
 }
 
+// NewInternalHTTPClient builds the client for the aggregator's requests to the
+// pool's hosts and to Loki, all on the LAN or loopback: it never uses a proxy
+// (Proxy nil, whatever http_proxy this machine exports) and opens a fresh
+// connection per request (DisableKeepAlives). A poll uses NewPollHTTPClient.
+// See https://yuruna.link/42c29d04-0016.
+func NewInternalHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			Proxy:             nil,
+			DisableKeepAlives: true,
+			DialContext:       (&net.Dialer{Timeout: timeout}).DialContext,
+		},
+	}
+}
+
 // NewPollHTTPClient is the client one poll runs on. A poll asks each host five
 // to seven questions in a row (status, registration, version, control status,
 // runner status, and the step sidecar while a step pause is armed), so the
 // connection to a host is kept for the poll instead of opened per question. The
 // caller closes the connections when the poll ends, which keeps what
-// newInternalHTTPClient's DisableKeepAlives protects: no pooled connection lives
+// NewInternalHTTPClient's DisableKeepAlives protects: no pooled connection lives
 // on into the next poll to go stale and fail a live host's probe.
 func NewPollHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
@@ -475,4 +492,34 @@ func FetchControlStatus(client *http.Client, base string) (ControlStatus, error)
 		out.UtcNow = t.UTC()
 	}
 	return out, nil
+}
+
+const (
+	// Control-proof lifetime, and the ceiling the host-side verifier
+	// (Test.ConfigServiceSync\Test-YurunaControlProof -MaxTtlSeconds) accepts.
+	// 15 min, not 5: the proof is minted once on arrival and never refreshed, so
+	// a config edit that takes longer than the window would fail at Save with
+	// the typing already done. The verifier's ceiling is held strictly ABOVE the
+	// mint so a host whose clock trails the proxy still accepts a freshly minted
+	// proof; that surplus is the whole skew tolerance, which is what
+	// poll.ClassifyControl measures a host's clock against.
+	ControlProofTTL    = 15 * time.Minute
+	ControlProofMaxTTL = 20 * time.Minute
+)
+
+// HostIPFromBaseURL extracts the bare host (IP) from a status base URL like
+// "http://192.168.7.13:8080" -> "192.168.7.13". Returns "" for an unparseable /
+// host-less URL, so a malformed Loki-recorded baseUrl can't seed a garbage probe
+// candidate. The scheme + port are dropped on purpose: the poll rebuilds the probe
+// URL from the IP + the configured -status-port.
+func HostIPFromBaseURL(baseURL string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return ""
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }

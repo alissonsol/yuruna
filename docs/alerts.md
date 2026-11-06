@@ -15,6 +15,19 @@ cannot edit anything under **Alerting**, ask the Grafana administrator for
 those prerequisites. The current Yuruna proxy provisions no email contact
 point or SMTP settings; a new rule alone cannot send mail.
 
+Sign in as `admin`. Each build of the caching-proxy VM gives that account a
+new random password; there is no default. The host that built the proxy keeps
+it in its vault with the proxy's other secrets, as the logical user
+`caching-proxy-grafana-admin`. With the default authentication extension, that
+is the `users.caching-proxy-grafana-admin.password` value in
+`test/status/extension/authentication/vault.yml`, and `previousPassword` beside
+it holds the one before. The proxy keeps the same value in
+`/etc/yuruna/grafana-admin.env`, which only root can read. From the host that
+built it, for example:
+`ssh -i test/status/ssh/yuruna_ed25519 caching-proxy-service-admin@<proxy address> sudo cat /etc/yuruna/grafana-admin.env`.
+A rebuild replaces the password, and a password changed in Grafana itself is
+not written back to either place.
+
 The steps below use the **Yuruna hosts** dashboard on the caching-proxy VM.
 For example, the current lab serves it at
 `http://192.168.7.42:3000/d/yuruna-pool/yuruna-hosts`; use your lab's Grafana
@@ -175,6 +188,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

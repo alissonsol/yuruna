@@ -71,6 +71,9 @@ component:
         nudgeKey: Enter
         nudgeIntervalSeconds: 60
         freshMatch: true
+        # The guest is booting after the install: the console shows nothing
+        # until getty prints, and that blank run-up is not a stale capture feed.
+        expectBlankConsole: true
         # Fail promptly on installer crashes or a rejected password rotation.
         failurePatterns:
           - "install_fail.crash"
@@ -198,4 +201,7 @@ workload:
         nudgeKey: Enter
         nudgeIntervalSeconds: 60
         freshMatch: true
+        # The guest is booting after the cold restart: the console shows nothing
+        # until getty prints, and that blank run-up is not a stale capture feed.
+        expectBlankConsole: true
         description: "OCR: ${hostLabel} login:"

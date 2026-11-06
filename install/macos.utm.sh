@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.31
+# Version: 2026.11.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42f9c4ac-c6ad-4def-81e6-8822c5a6abdb
@@ -1293,7 +1293,8 @@ command -v utmctl >/dev/null 2>&1 || die "$UTMCTL_LINK exists, but 'utmctl' stil
 # The pinned version and the SHA-512 the gallery publishes for its package
 # (PackageHash, base64): the bytes are checked before anything is unpacked.
 # The same pin lives in test/modules/Test.HostGit.psm1, which installs it on a
-# host set up without this script; Test.HostGitInstall keeps the two equal.
+# host set up without this script, and in the other host installers;
+# Test.HostGitInstall keeps every copy equal.
 POWERSHELL_YAML_VERSION="0.4.12"
 POWERSHELL_YAML_SHA512="Vc5DLyw7hLsCL6yFlSvzsdUUWmgfqoM35XmRavtKOz37GHBg3p+vWxaO/9wS8MbptzWspdUBcVRGSqAdlJmtUg=="
 log "Installing required PowerShell modules"

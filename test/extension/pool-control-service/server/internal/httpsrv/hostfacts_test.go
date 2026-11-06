@@ -30,7 +30,7 @@ func hostFactsAggStub(t *testing.T) *httptest.Server {
                 {"hostId":"42aa","baseUrl":"` + base + `/42aa"},
                 {"hostId":"42bb","baseUrl":""}]}`))
 		case r.URL.Path == "/42aa/control/host-facts":
-			_, _ = w.Write([]byte(`{"ok":true,"memoryBytes":34359738368,"cores":8,"storageTotalBytes":2199023255552,"storageFreeBytes":549755813888,"frameworkAccess":"yuruna","frameworkAccessState":"readable","projectAccess":"","projectAccessState":"denied","frameworkUrl":"https://github.com/alissonsol/yuruna","projectUrl":"https://github.com/alius-git/private"}`))
+			_, _ = w.Write([]byte(`{"ok":true,"memoryBytes":34359738368,"cores":8,"storageTotalBytes":2199023255552,"storageFreeBytes":549755813888,"frameworkAccess":"yuruna","frameworkAccessState":"readable","projectAccess":"","projectAccessState":"denied","frameworkUrl":"https://github.com/alissonsol/yuruna","projectUrl":"https://github.com/alius-git/private","runnerCommitSha":"a507e41ad0123456789abcdef0123456789abcde","runnerStartedAtUtc":"2026-10-25T03:13:08.0000000Z"}`))
 		case strings.HasPrefix(r.URL.Path, "/scanned") && strings.HasSuffix(r.URL.Path, "/control/host-facts"):
 			_, _ = w.Write([]byte(`{"ok":true,"memoryBytes":17179869184,"cores":4,"storageTotalBytes":1099511627776,"storageFreeBytes":274877906944,"frameworkAccess":"yuruna-fork","frameworkAccessState":"readable","projectAccess":"amisad.dev","projectAccessState":"readable","frameworkUrl":"file:///home/operator/git/yuruna-fork","projectUrl":"https://github.com/alius-git/amisad.dev"}`))
 		default:
@@ -87,12 +87,21 @@ func TestHostFactsRelayAnswersAndKeepSilentHosts(t *testing.T) {
 		got.ProjectURL != "https://github.com/alius-git/private" {
 		t.Errorf("42aa repository urls not relayed verbatim: %+v", got)
 	}
+	// The resident runner's commit and start time, as the host reported them:
+	// a runner keeps the code it loaded until it restarts.
+	if got.RunnerCommitSHA != "a507e41ad0123456789abcdef0123456789abcde" ||
+		got.RunnerStartedAtUTC != "2026-10-25T03:13:08.0000000Z" {
+		t.Errorf("42aa runner report not relayed verbatim: %+v", got)
+	}
 	silent, found := out.Hosts["42bb"]
 	if !found {
 		t.Fatalf("42bb dropped from the answer: %+v", out.Hosts)
 	}
 	if silent.OK || silent.Error == "" {
 		t.Errorf("42bb should be not-ok with a reason, got %+v", silent)
+	}
+	if silent.RunnerCommitSHA != "" || silent.RunnerStartedAtUTC != "" {
+		t.Errorf("42bb reported no runner, got %+v", silent)
 	}
 }
 

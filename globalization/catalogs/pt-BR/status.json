@@ -1240,6 +1240,16 @@
       "sourceHash": "b1bd6b3503ae1d57782436d56992bb25f636eb5481c4bf6b37d0e26e7194ab5a",
       "message": "Commit do framework: {commit}"
     },
+    "status.runner_resident": {
+      "sourceHash": "00191ed0dbffee631a5072dbc56e99023685bc24871c31502852b459958d0d26",
+      "origin": "machine",
+      "message": "Executor residente: commit {commit}, iniciado em {startedAt}."
+    },
+    "status.runner_resident_unreported": {
+      "sourceHash": "ffd2cea7762a327c4f1d878c418b606bb7687adc1aef41a7d1145fc3a05bf708",
+      "origin": "machine",
+      "message": "O executor residente não informou seu commit e seu horário de início. Um executor iniciado antes de esse relatório existir passa a informá-los após o próximo reinício."
+    },
     "status.save": {
       "sourceHash": "e397dcaa7762faf99f6efc4289af6b24e6537928dcbdca416e18ea4a4b32c2cc",
       "message": "Gravar"
@@ -1834,8 +1844,8 @@
       "origin": "machine"
     },
     "status.runner_attempts_description": {
-      "sourceHash": "ca4036f65cf8e0840e7fed11fec0db167fd0c6056ccfa940d227fd94a3aa5560",
-      "message": "As falhas das últimas 20 tentativas do executor permanecem aqui após a recuperação. As falhas na verificação prévia ocorrem antes do início de um novo ciclo de testes.",
+      "sourceHash": "151b16e1809895e2c67bbe2ede8f529406759faf7883cbd3722eded0a2e257a1",
+      "message": "As falhas das últimas 20 tentativas do executor permanecem aqui após a recuperação, assim como até 30 falhas mais antigas seguidas por uma tentativa posterior que passou. As falhas na verificação prévia ocorrem antes do início de um novo ciclo de testes.",
       "origin": "machine"
     },
     "status.runner_attempts_empty": {

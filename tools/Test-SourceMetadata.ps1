@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 423c6a1c-f359-436b-9533-31e9a82bfb68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -629,7 +629,7 @@ try {
                     # The copyright line, a review stamp in the document's language,
                     # and navigation links -- a short lead word, then links only.
                     if ($text -match $CopyrightPattern -or $text -match '^[^\[\]:]{1,40}:\s+\d{4}\.\d{2}\.\d{2}(\.\d+)?$' -or
-                        $text -match '^[^\[\]]{0,24}\[[^\]]+\]\([^)]+\)(\s*[|-]\s*\[[^\]]+\]\([^)]+\))*$') { continue }
+                        $text -match '^[^\[\]]{0,24}\[[^\]]+\]\([^)]+\)(\s*[|-]\s*\[[^\]]+\]\([^)]+\))*\.?$') { continue }
                     $footerFinding.Add(('FAIL  {0}/{1}:{2} [markdown-footer] content after the license footer' -f $repo.Name, $relative, ($i + 1)))
                     break
                 }
@@ -686,15 +686,18 @@ try {
 
     # Header rules, with the exemption each path resolves to. For an exempt
     # file the rules it would face unexempted are counted too, so an entry
-    # that only covers files which already comply can be called out.
+    # that only covers files which already comply can be called out, and the
+    # paths of an entry that matched something are noted so a path left
+    # behind by removed files is called out inside an entry that still lives.
     $exempted = @{}
     $checked = foreach ($file in $candidate) {
         $fact = Get-SourceHeaderFact -Style $file.Style -Line $file.Line -RelativePath $file.Path
         $exempt = Resolve-Exemption -Repo $file.Repo -RelativePath $file.Path
         if ($exempt) {
-            if (-not $exempted.ContainsKey($exempt.Label)) { $exempted[$exempt.Label] = [pscustomobject]@{ Matched = 0; Compliant = 0 } }
+            if (-not $exempted.ContainsKey($exempt.Label)) { $exempted[$exempt.Label] = [pscustomobject]@{ Matched = 0; Compliant = 0; Path = @{} } }
             $exempted[$exempt.Label].Matched++
             if (@(Get-HeaderGap -Style $file.Style -Fact $fact).Count -eq 0 -and ($file.Style -eq 'psinfo' -or $fact.Guid)) { $exempted[$exempt.Label].Compliant++ }
+            foreach ($pattern in $exempt.Path) { if ($file.Path -clike $pattern) { $exempted[$exempt.Label].Path[$pattern] = $true } }
         }
         $problem = [Collections.Generic.List[object]]::new()
         foreach ($item in (Get-FileProblem -Style $file.Style -Fact $fact -Line $file.Line -Exempt $exempt)) { $problem.Add($item) }
@@ -797,6 +800,11 @@ try {
             if (-not $count) { $text = "$what matches no tracked file in $($entry.Repo); remove it or correct its paths" }
             elseif ($count.Compliant -eq $count.Matched) { $text = "$what covers only files that already carry the standard header; remove it so they are checked" }
             if ($text) {
+                $findings.Add([pscustomobject]@{ Repo = $entry.Repo; Path = $ExemptionsName; Rule = 'exemption'; Message = $text; Fix = @(); Existing = $true })
+                continue
+            }
+            foreach ($pattern in @($entry.Path | Where-Object { -not $count.Path.ContainsKey($_) })) {
+                $text = "$what has a path '$pattern' that matches no tracked file in $($entry.Repo); remove the path"
                 $findings.Add([pscustomobject]@{ Repo = $entry.Repo; Path = $ExemptionsName; Rule = 'exemption'; Message = $text; Fix = @(); Existing = $true })
             }
         }

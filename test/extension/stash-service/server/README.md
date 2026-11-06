@@ -154,7 +154,7 @@ view, delete). The JSON API it consumes:
 | GET | `/api/host?host=<id>` | best-effort hostId->stash-UI resolution (pool-aggregator-service) |
 | GET | `/api/hostinfo` | host id, version, this daemon's own IPs |
 | GET | `/v/{id}` | short URL: 302 to the canonical `/s/{hostId}/{y}/{m}/{d}/{id}` permalink |
-| GET | `/{id}` | the same redirect without the prefix, so `http://stash-service/h775` opens the stash. A single-segment wildcard and the catch-all of last resort: every literal route above is more specific and still wins, and a segment that is not an id simply 404s |
+| GET | `/{id}` | the same redirect without the prefix, so `http://yuruna-stash-service/h775` opens the stash. A single-segment wildcard and the catch-all of last resort: every literal route above is more specific and still wins, and a segment that is not an id 404s |
 
 Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
 `--pool-window-days` (`30`), `--pool-refresh-secs` (`60`),
@@ -163,6 +163,11 @@ Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
 and `--presence-interval` (`2m`, `0` disables) for the presence beacon
 (section 4.7). It must stay under the aggregator's five-minute extension health
 grace: a re-announce is also how a renumbered service reports its new address.
+`--allowed-host-names` (empty) is a comma list of names the UI answers to in
+the `Host` header besides any address, this VM's host name and `localhost`; a
+request naming another host is refused with `421`. The bring-up passes the names
+the building host baked into the seed
+([vmStart.serviceHostNames](../../../../docs/test-config.md#42b11c32-0015)).
 
 **Delete authorization.** Reads and creates are open on the LAN; `DELETE` needs
 a session, unlocked either with the dashboard's rotating Lab token or with the
@@ -286,6 +291,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../../../../README.md)

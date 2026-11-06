@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"yuruna.com/test/extension/pool-aggregator-service/internal/poolstate"
 )
 
 // backfillStateVersion is bumped only when an older file can no longer be read
@@ -173,7 +175,7 @@ func pruneHostFiles(stateDir string, cutoff time.Time) {
 	}
 	for _, e := range entries {
 		id := strings.TrimSuffix(e.Name(), ".json")
-		if e.IsDir() || !plainHostIDRE.MatchString(id) {
+		if e.IsDir() || !poolstate.IsPlainHostID(id) {
 			continue
 		}
 		if hs := loadHostState(stateDir, id); hs.SeenAt.IsZero() || hs.SeenAt.Before(cutoff) {

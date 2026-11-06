@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42539169-cf17-4eb5-b0d6-c972156d3841
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -522,5 +522,34 @@ Describe 'Per-guest SSH host key pins' {
         $proxy.IndexOf('Reset-GuestHostKeyPin -VMName $VMName -Confirm:$false') | Should -BeLessThan $proxy.IndexOf('Invoke-YurunaServiceVmBuilderRun -BuilderPath $NewVMScript') -Because 'the cache forgets the pin right before its builder runs'
         $proxy.IndexOf('Reset-GuestHostKeyPin -VMName $VMName -Confirm:$false') | Should -BeGreaterThan $proxy.IndexOf('# --- REGION: Create the VM')
         $proxy.IndexOf('Reset-GuestHostKeyPin') | Should -BeGreaterThan $proxy.IndexOf('# --- REGION: Adopt a healthy VM') -Because 'the cache adopts first and forgets the pin only when it rebuilds'
+    }
+}
+
+Describe 'Get-GuestAddress' {
+    It 'reads the Hyper-V KVP addresses itself only when no driver Get-VMIp is loaded' {
+        # The driver's Get-VMIp reads these addresses under its cap; a second,
+        # uncapped read after it found none would hold the caller when the
+        # service is what failed to answer. The read is gated on Windows, so its
+        # placement is pinned by structure rather than by running it.
+        $fn = Get-YurunaTestFunctionAst -Path $modulePath -Name 'Get-GuestAddress'
+        $reads = @($fn.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Get-VMNetworkAdapter' }, $true))
+        Assert-Equal 1 $reads.Count 'one raw KVP read'
+        $offset = $reads[0].Extent.StartOffset
+        $clause = $null
+        for ($node = $reads[0].Parent; $null -ne $node -and $null -eq $clause; $node = $node.Parent) {
+            if ($node -is [Management.Automation.Language.IfStatementAst]) {
+                $clause = $node.Clauses | Where-Object { $_.Item2.Extent.StartOffset -le $offset -and $offset -lt $_.Item2.Extent.EndOffset } | Select-Object -First 1
+            }
+        }
+        Assert-NotNull $clause 'the read sits in an if clause'
+        $condition = $clause.Item1.Extent.Text
+        # Negated inline, or through a variable assigned from the driver lookup.
+        $negated = $condition -match '-not\s*\(\s*Get-Command\s+Get-VMIp\b'
+        foreach ($match in [regex]::Matches($condition, '-not\s+\$(\w+)')) {
+            $name = $match.Groups[1].Value
+            $assigned = $fn.Find({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq "`$$name" -and $n.Right.Extent.Text -match '^Get-Command\s+Get-VMIp\b' }, $true)
+            if ($assigned) { $negated = $true }
+        }
+        Assert-True $negated "the KVP read runs only when no driver Get-VMIp is loaded: if ($condition)"
     }
 }

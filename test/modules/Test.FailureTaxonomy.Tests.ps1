@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42e7a0f2-fce5-47f4-aa02-059ecae18abf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,6 +137,18 @@ Describe 'The class routing table is the one place a class is routed' {
             Assert-True ($budget -is [int] -and $budget -gt 0) "$class has a positive budget ($budget)"
         }
         Assert-Equal -Expected 180 -Actual (Get-FailureClassRoute -FailureClass 'wait_timeout').RetryMinutesPerDay -Because 'the default'
+    }
+    It 'routes a wedged guest kernel to the unattended retry on a budget of its own' {
+        # A wedged kernel recovers only on a new boot, which the next attempt
+        # gives; a resume in place would wait again on the same kernel.
+        $enum = @(Get-FailureClassEnum)
+        Assert-Equal -Expected ($enum.Count - 2) -Actual ([array]::IndexOf($enum, 'guest_kernel_stalled')) -Because 'the class sits just before the catch-all unknown'
+        $route = Get-FailureClassRoute -FailureClass 'guest_kernel_stalled'
+        Assert-True $route.UnattendedRetry 'its retry is the whole repair'
+        Assert-False $route.WarmResume 'a resume in place replays a wait on the same wedged kernel'
+        Assert-False $route.TransientNetwork 'a wedged kernel is no network refusal'
+        Assert-Equal -Expected 180 -Actual $route.RetryMinutesPerDay -Because 'its runner-minute budget is its own, written in its route'
+        (Get-FailureClassDocUrl -FailureClass 'guest_kernel_stalled') | Should -BeLike '*#failure-class-guest_kernel_stalled'
     }
     It 'is what the unattended-retry allow-list admits, each with its reason' {
         $allowList = Get-AutoRemediationAllowList

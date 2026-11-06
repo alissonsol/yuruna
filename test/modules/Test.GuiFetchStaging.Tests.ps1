@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42dc2c8b-375c-4869-8113-cd1b1b7a0e53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -751,14 +751,17 @@ $script:consoleFrame=$null
 $script:frameCalls=0
 $script:vncEvents=@()
 $script:vncSince=$null
+$script:recorderArtifactPath=$null
+$script:recorderPath=$null
 function Invoke-GuestSsh { param($VMName,$GuestKey,$Command,$TimeoutSeconds,$TransportRetryCount,$DetachToken) $null=$VMName;$null=$GuestKey;$null=$TransportRetryCount;$null=$DetachToken;$script:sshCalls.Add([string]$Command);$script:sshTimeout=$TimeoutSeconds; if ([string]$Command -match 'gui-rejection' -and [string]$Command -match 'rm -f --') { return $script:rejectionResult }; if ($script:stateAnswers.Count -and [string]$Command -match 'fetch-context/') { return @{success=$true;output=$script:stateAnswers.Dequeue()} }; return $script:sshResult }
 function Save-GuestConsoleFrame { param($Context,$Label) $null=$Context;$null=$Label; $script:frameCalls++; return $script:consoleFrame }
 function Get-VncConnectionEvent { param($VMName,$SinceUtc) $null=$VMName; $script:vncSince=$SinceUtc; return $script:vncEvents }
 function Send-CycleEventSafely { param($EventRecord) $script:events.Add($EventRecord) }
 function Get-FetchExecutionContext {
     param($Context,$CommandLine,[switch]$Compress)
-    $null=$Context;$null=$CommandLine
+    $null=$CommandLine
     $script:compressionRequested=[bool]$Compress
+    if ($script:recorderArtifactPath) { $Context.RecorderArtifactPath=$script:recorderArtifactPath }
     return [pscustomobject]@{Id='7c4e2a91b80';Command=$script:preparedCommand;Launch='yfe 7c4e2a91b80 bash -c ''echo ready'''}
 }
 function Get-GuiFetchEnvelopeInput { param($FetchContext,$CommandLine) $null=$FetchContext;$null=$CommandLine; $script:compactInput }
@@ -783,7 +786,7 @@ function Send-TextUTM {
     $script:utmCalls.Add(@{VMName=$VMName;Text=$Text;CharDelayMs=$CharDelayMs;ShellEscape=[bool]$ShellEscape})
     return $true
 }
-function Wait-ForText { param($FreshMatch,$EarlyFailurePattern,$FailurePattern,[switch]$EndOnGuestLivelock) $script:endOnLivelock=[bool]$EndOnGuestLivelock; $script:waited++; $script:fresh=$FreshMatch; $script:early=$EarlyFailurePattern; $script:failure=$FailurePattern; $result = if ($script:waitResults.Count) { $script:waitResults.Dequeue() } else { $script:waitResult }; $script:Fail.WaitForTextMatchedFailurePattern = if ($result) { $null } else { $script:matchedPattern }; return $result }
+function Wait-ForText { param($FreshMatch,$EarlyFailurePattern,$FailurePattern,[switch]$EndOnGuestLivelock,$GuestRecorderPath) $script:endOnLivelock=[bool]$EndOnGuestLivelock; $script:recorderPath=$GuestRecorderPath; $script:waited++; $script:fresh=$FreshMatch; $script:early=$EarlyFailurePattern; $script:failure=$FailurePattern; $result = if ($script:waitResults.Count) { $script:waitResults.Dequeue() } else { $script:waitResult }; $script:Fail.WaitForTextMatchedFailurePattern = if ($result) { $null } else { $script:matchedPattern }; return $result }
 function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds) $script:captured++; $script:succeeded=$Succeeded }
 '@
         $helpers = (Get-FunctionSource 'Get-GuiFetchExecutionInput') + "`n" + (Get-FunctionSource 'Resolve-SequenceCharDelay') + "`n" + (Get-FunctionSource 'Test-GuiFetchInputStalled') + "`n" + (Get-FunctionSource 'Get-GuiFetchPayloadState') +
@@ -816,6 +819,7 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
             $script:rejectionResult=@{success=$true;output=''};$script:events.Clear();$script:waitResults.Clear();$script:matchedPattern=$null;$script:Fail.StepLauncherRejection=$null
             $script:compactInput=@();$script:compactSupported=$false;$script:capabilityCalls=0
             $script:stateAnswers.Clear();$script:consoleFrame=$null;$script:frameCalls=0;$script:vncEvents=@();$script:vncSince=$null
+            $script:recorderArtifactPath=$null;$script:recorderPath=$null
         }
         & $script:engineStandIn { $script:keys.Clear(); $script:keyResult = $true }
         $script:handlerContext = @{HostType='host.macos.utm';VMName='vm';GuestKey='guest.ubuntu.server.26';StepInvocationId='9dd7e79e0e404f0b8aa334f1337540e9';SequenceInvocationId='2ba53dd6961e4beea8ec17e8416f8651';
@@ -851,6 +855,23 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
             $script:waited | Should -Be 1
             $script:captured | Should -Be 1
             $script:succeeded | Should -BeFalse
+        }
+    }
+
+    It 'names the step recorder upload to the wait so a silent guest can end it' {
+        & $script:handlerModule { $script:preparedCommand='echo ready'; $script:waitResult=$false
+            $script:recorderArtifactPath='/log/000042.incomplete/vm/execution.system.diagnostic.9dd7e79e0e404f0b8aa334f1337540e9.txt' }
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeFalse
+        & $script:handlerModule {
+            $script:recorderPath | Should -BeExactly '/log/000042.incomplete/vm/execution.system.diagnostic.9dd7e79e0e404f0b8aa334f1337540e9.txt'
+        }
+    }
+
+    It 'names no recorder upload to the wait of a step that keeps no recorder' {
+        & $script:handlerModule { $script:preparedCommand='echo ready'; $script:waitResult=$false }
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeFalse
+        & $script:handlerModule {
+            $script:recorderPath | Should -BeExactly ''
         }
     }
 

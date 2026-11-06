@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42d64c35-2931-4e2a-aa8a-75a10025ea5a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,6 +145,32 @@ Describe 'Windows host conditions read powercfg bounded and name each refusal' {
         Assert-Equal -Expected 300 -Actual $read.Dc
     }
 
+    It 'writes a power setting through the bounded powercfg call and reports one that <Case>' -TestCases @(
+        @{ Case = 'timed out'; Outcome = @{ TimedOut = $true; Started = $true; ExitCode = 124; StdOut = '' }; Expected = $false }
+        @{ Case = 'could not start'; Outcome = @{ TimedOut = $false; Started = $false; ExitCode = -1; StdOut = '' }; Expected = $false }
+        @{ Case = 'exited non-zero'; Outcome = @{ TimedOut = $false; Started = $true; ExitCode = 1; StdOut = 'Invalid Parameters' }; Expected = $false }
+        @{ Case = 'answered'; Outcome = @{ TimedOut = $false; Started = $true; ExitCode = 0; StdOut = '' }; Expected = $true }
+    ) {
+        param([string]$Case, [hashtable]$Outcome, [bool]$Expected)
+        $script:FixtureOutcome = [pscustomobject]$Outcome
+        Mock -ModuleName Test.HostCondition.Windows Invoke-BoundedNativeCommand { $script:FixtureOutcome }
+        $written = & $script:WindowsModule { Write-WindowsPowerSetting -ArgumentList @('/change', 'monitor-timeout-ac', '0') }
+        Assert-Equal -Expected $Expected -Actual $written "a write that $Case is written only when powercfg answered and accepted it"
+        Should -Invoke -ModuleName Test.HostCondition.Windows Invoke-BoundedNativeCommand -Times 1 -Exactly -ParameterFilter {
+            $FilePath -eq 'powercfg' -and $TimeoutSeconds -gt 0 -and ($ArgumentList -join ' ') -eq '/change monitor-timeout-ac 0'
+        }
+    }
+
+    It 'the setup run writes powercfg only through the bounded writer' {
+        # The setup run is reached from an operator session, where a power
+        # service that stops answering held it as it once held the gate.
+        $body = (Get-Command Set-WindowsHostConditionSet).ScriptBlock.Ast.Body
+        $raw = @($body.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and "$($n.CommandElements[0].Extent.Text)".Trim("'", '"') -eq 'powercfg' }, $true))
+        Assert-Equal -Expected 0 -Actual $raw.Count "no direct powercfg call remains: $(($raw | ForEach-Object { "line $($_.Extent.StartLineNumber)" }) -join ', ')"
+        $bounded = @($body.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Write-WindowsPowerSetting' }, $true))
+        Assert-True ($bounded.Count -ge 5) "the display timeout and resume lock writes go through the bounded writer ($($bounded.Count) calls)"
+    }
+
     It 'names <Condition> when <Case>' -TestCases @(
         @{ Case = 'the process is not elevated'; Condition = 'elevation'; Elevated = $false; Service = 'Running'; Power = 'answered'; Detail = '' }
         @{ Case = 'vmms is stopped'; Condition = 'hypervisor-service'; Elevated = $true; Service = 'Stopped'; Power = 'answered'; Detail = 'vmms=Stopped' }
@@ -179,6 +205,47 @@ Describe 'Windows host conditions read powercfg bounded and name each refusal' {
         $null = Assert-WindowsHostConditionSet -HostType 'host.windows.hyper-v' 3>$null
         $null = Assert-WindowsHostConditionSet -HostType 'host.macos.utm'
         Assert-Null (Get-WindowsHostConditionFailure) 'a stale refusal must not be read back after a pass'
+    }
+}
+
+Describe 'Windows setup reads the Hyper-V feature state bounded' {
+    It 'reads Unknown from a dism call that <Case>' -TestCases @(
+        @{ Case = 'timed out'; Outcome = @{ TimedOut = $true; Started = $true; ExitCode = 124; StdOut = '' } }
+        @{ Case = 'could not start'; Outcome = @{ TimedOut = $false; Started = $false; ExitCode = -1; StdOut = '' } }
+        @{ Case = 'exited 740'; Outcome = @{ TimedOut = $false; Started = $true; ExitCode = 740; StdOut = "Feature Name : Microsoft-Hyper-V-All`r`nState : Enabled`r`n" } }
+        @{ Case = 'named no state'; Outcome = @{ TimedOut = $false; Started = $true; ExitCode = 0; StdOut = "Feature Name : Microsoft-Hyper-V-All`r`nDisplay Name : Hyper-V`r`n" } }
+    ) {
+        param([string]$Case, [hashtable]$Outcome)
+        $null = $Case
+        $script:FixtureOutcome = [pscustomobject]$Outcome
+        Mock -ModuleName Test.HostCondition.Windows Invoke-BoundedNativeCommand { $script:FixtureOutcome }
+        $state = & $script:WindowsModule { Read-WindowsHyperVFeatureState -DismPath 'C:\Windows\System32\dism.exe' }
+        Assert-Equal -Expected 'Unknown' -Actual $state 'a read that did not answer names no state'
+        Should -Invoke -ModuleName Test.HostCondition.Windows Invoke-BoundedNativeCommand -Times 1 -Exactly -ParameterFilter {
+            $FilePath -eq 'C:\Windows\System32\dism.exe' -and $TimeoutSeconds -gt 0 -and ($ArgumentList -join ' ') -eq '/English /Online /Get-FeatureInfo /FeatureName:Microsoft-Hyper-V-All'
+        }
+    }
+
+    It 'reads <Expected> from an answered dism query' -TestCases @(
+        @{ Expected = 'Enabled' }
+        @{ Expected = 'Disabled' }
+    ) {
+        param([string]$Expected)
+        $script:FixtureOutcome = [pscustomobject]@{ TimedOut = $false; Started = $true; ExitCode = 0; StdOut = "Feature Name : Microsoft-Hyper-V-All`r`nState : $Expected`r`n" }
+        Mock -ModuleName Test.HostCondition.Windows Invoke-BoundedNativeCommand { $script:FixtureOutcome }
+        $state = & $script:WindowsModule { Read-WindowsHyperVFeatureState -DismPath 'C:\Windows\System32\dism.exe' }
+        Assert-Equal -Expected $Expected -Actual $state
+    }
+
+    It 'the setup run reads the Hyper-V feature state only through the bounded reader' {
+        # The servicing stack can stay busy far longer than a setup run should
+        # wait. The raw call's first element is the dism path variable, so a
+        # match on the command name alone would find nothing either way.
+        $body = (Get-Command Set-WindowsHostConditionSet).ScriptBlock.Ast.Body
+        $raw = @($body.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and "$($n.CommandElements[0].Extent.Text)" -match '(?i)dism' }, $true))
+        Assert-Equal -Expected 0 -Actual $raw.Count "no direct dism call remains: $(($raw | ForEach-Object { "line $($_.Extent.StartLineNumber)" }) -join ', ')"
+        $bounded = @($body.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Read-WindowsHyperVFeatureState' }, $true))
+        Assert-Equal -Expected 1 -Actual $bounded.Count 'the feature state is read through the bounded reader'
     }
 }
 
@@ -247,6 +314,123 @@ Describe 'macOS screen-lock probes refuse when a tool does not answer' {
         Should -Invoke -ModuleName Test.HostCondition.Mac Invoke-MacBoundedTool -Times 11 -Exactly
         $body = (Get-Command Get-MacScreenLockIssue).ScriptBlock.Ast.Body.Extent.Text
         Assert-False ($body -match '&\s*(pmset|defaults|sysadminctl)\b') 'no direct call of a probe tool remains'
+    }
+
+    It 'reads the power profile for the setup run through the bounded tool, and reads nothing from a pmset that <Case>' -TestCases @(
+        @{ Case = 'timed out'; How = 'timeout' }
+        @{ Case = 'could not start'; How = 'not-started' }
+    ) {
+        param([string]$Case, [string]$How)
+        $null = $Case
+        $script:Unanswered = @('pmset')
+        $script:UnansweredHow = $How
+        $lines = @(& $script:MacModule { Read-MacPmsetCustom })
+        Assert-Equal -Expected 0 -Actual $lines.Count 'an unanswered read reports no value'
+        Should -Invoke -ModuleName Test.HostCondition.Mac Invoke-MacBoundedTool -Times 1 -Exactly -ParameterFilter {
+            $Tool -eq 'pmset' -and ($Arguments -join ' ') -eq '-g custom'
+        }
+    }
+
+    It 'reads every power block of an answered pmset for the setup run' {
+        $lines = @(& $script:MacModule { Read-MacPmsetCustom })
+        Assert-True ($lines.Count -gt 1 -and $lines[0] -eq 'AC Power:') "the lines as pmset printed them: $($lines -join ' | ')"
+    }
+
+    It 'the setup run reads pmset, defaults, sysadminctl and profiles only through the bounded tool' {
+        # The setup run is reached from an operator session, where a
+        # preference, power, directory or management service that stops
+        # answering held it as it once held the gate.
+        $body = (Get-Command Set-MacHostConditionSet).ScriptBlock.Ast.Body
+        $raw = @($body.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and "$($n.CommandElements[0].Extent.Text)".Trim("'", '"') -in @('pmset', 'defaults', 'sysadminctl', 'profiles') }, $true))
+        Assert-Equal -Expected 0 -Actual $raw.Count "no direct pmset, defaults, sysadminctl or profiles call remains: $(($raw | ForEach-Object { "line $($_.Extent.StartLineNumber)" }) -join ', ')"
+        $pmset = @($body.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Read-MacPmsetCustom' }, $true))
+        Assert-True ($pmset.Count -ge 4) "the display-sleep, sleep-guard and extended-guard reads go through the bounded helper ($($pmset.Count) calls)"
+        $screenLock = @($body.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Read-MacScreenLockStatus' }, $true))
+        Assert-Equal -Expected 2 -Actual $screenLock.Count 'the status read and the re-check after the write go through the bounded reader'
+        $profiles = @($body.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Test-MacConfigurationProfilePresent' }, $true))
+        Assert-Equal -Expected 1 -Actual $profiles.Count 'the configuration profile read goes through the bounded reader'
+    }
+
+    It 'reads the unified screen lock for the setup run through the bounded tool, and reads no state from a sysadminctl that <Case>' -TestCases @(
+        @{ Case = 'timed out'; How = 'timeout' }
+        @{ Case = 'could not start'; How = 'not-started' }
+    ) {
+        param([string]$Case, [string]$How)
+        $null = $Case
+        $script:Unanswered = @('sysadminctl')
+        $script:UnansweredHow = $How
+        $read = & $script:MacModule { Read-MacScreenLockStatus }
+        Assert-Null $read 'an unanswered read is neither state of the lock'
+        Should -Invoke -ModuleName Test.HostCondition.Mac Invoke-MacBoundedTool -Times 1 -Exactly -ParameterFilter {
+            $Tool -eq 'sysadminctl' -and ($Arguments -join ' ') -eq '-screenLock status' -and $IncludeError
+        }
+    }
+
+    It 'reads the unified screen lock state from an answered sysadminctl, its log prefix stripped' {
+        $off = & $script:MacModule { Read-MacScreenLockStatus }
+        Assert-True $off.Disabled "a delay of -1 is the lock turned off: $($off.Status)"
+        Mock -ModuleName Test.HostCondition.Mac Invoke-MacBoundedTool -ParameterFilter { $Tool -eq 'sysadminctl' } -MockWith {
+            [pscustomobject]@{ Text = "2026-11-03 10:00:00.123 sysadminctl[123:abcd] screenLock delay is 300 seconds`nsecond line"; TimedOut = $false; Started = $true; ExitCode = 0 }
+        }
+        $active = & $script:MacModule { Read-MacScreenLockStatus }
+        Assert-False $active.Disabled 'a 300 s delay is an active lock'
+        Assert-Equal -Expected 'screenLock delay is 300 seconds' -Actual $active.Status -Because 'the first line, without the log prefix'
+    }
+
+    It 'the setup run writes the unified screen lock only after the bounded status read answered' {
+        # An unanswered read must not reach the write: the account password
+        # would be asked for over a service that is not answering.
+        $body = (Get-Command Set-MacHostConditionSet).ScriptBlock.Ast.Body
+        $writes = @($body.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Set-MacScreenLockState' }, $true))
+        Assert-Equal -Expected 1 -Actual $writes.Count 'one unified screen lock write'
+        $branch = $null
+        for ($node = $writes[0].Parent; $null -ne $node; $node = $node.Parent) {
+            if ($node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -match '^\$null\s*-eq\s*\$slParsed$') { $branch = $node; break }
+        }
+        Assert-NotNull $branch 'the write sits under a branch that first tests for an unanswered status read'
+        $unanswered = $branch.Clauses[0].Item2
+        Assert-True ($unanswered.Extent.Text.Contains('runner.operator_797700a687a800ce')) 'an unanswered read is reported unmet'
+        $unansweredWrites = @($unanswered.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Set-MacScreenLockState' }, $true))
+        Assert-Equal -Expected 0 -Actual $unansweredWrites.Count 'and writes nothing'
+        $writeOffset = $writes[0].Extent.StartOffset
+        $later = @($branch.Clauses | Select-Object -Skip 1 | Where-Object { $_.Item2.Extent.StartOffset -le $writeOffset -and $writeOffset -lt $_.Item2.Extent.EndOffset })
+        Assert-Equal -Expected 1 -Actual $later.Count 'the write sits in a later clause of the same statement'
+    }
+
+    It 'the setup run claims the unified screen lock still active only from a re-check that answered' {
+        # A re-check that did not answer leaves the write's outcome unknown:
+        # the condition stays unmet, but nothing claims a state nobody read.
+        $body = (Get-Command Set-MacHostConditionSet).ScriptBlock.Ast.Body
+        $recheck = $body.Find({ param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -match '^\$slAfterParsed\s+-and\s+\$slAfterParsed\.Disabled$' }, $true)
+        Assert-NotNull $recheck 'the re-check passes only on an answered read that found the lock off'
+        Assert-NotNull $recheck.ElseClause 'and has a branch for every other outcome'
+        $stillActive = $recheck.ElseClause.Find({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.Extent.Text.Contains('runner.operator_0cd364e6b88ded33') }, $true)
+        Assert-NotNull $stillActive 'the still-active warning is kept for an answered re-check'
+        $answered = $null
+        for ($node = $stillActive.Parent; $null -ne $node -and $node -ne $recheck; $node = $node.Parent) {
+            if ($node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -eq '$slAfterParsed') { $answered = $node; break }
+        }
+        Assert-NotNull $answered 'the still-active warning is written only when the re-check answered'
+        $unmet = @($recheck.ElseClause.Statements | Where-Object { $_.Extent.Text.Contains('$unmet.Add(') -and $_.Extent.Text.Contains('runner.operator_797700a687a800ce') })
+        Assert-Equal -Expected 1 -Actual $unmet.Count 'every outcome but an answered off is reported unmet, answered or not'
+    }
+
+    It 'warns about configuration profiles only on a profiles read that answered and listed one: <Case>' -TestCases @(
+        @{ Case = 'timed out'; Answer = @{ Text = ''; TimedOut = $true; Started = $true; ExitCode = 124 }; Expected = $false }
+        @{ Case = 'could not start'; Answer = @{ Text = ''; TimedOut = $false; Started = $false; ExitCode = -1 }; Expected = $false }
+        @{ Case = 'exited 1'; Answer = @{ Text = 'profiles: an error occurred'; TimedOut = $false; Started = $true; ExitCode = 1 }; Expected = $false }
+        @{ Case = 'listed none'; Answer = @{ Text = 'There are no configuration profiles installed'; TimedOut = $false; Started = $true; ExitCode = 0 }; Expected = $false }
+        @{ Case = 'listed one'; Answer = @{ Text = '_computerlevel[1] attribute: profileIdentifier: com.example.mdm'; TimedOut = $false; Started = $true; ExitCode = 0 }; Expected = $true }
+    ) {
+        param([string]$Case, [hashtable]$Answer, [bool]$Expected)
+        $script:FixtureAnswer = [pscustomobject]$Answer
+        Mock -ModuleName Test.HostCondition.Mac Invoke-MacBoundedTool -ParameterFilter { $Tool -eq 'profiles' } -MockWith { $script:FixtureAnswer }
+        $present = & $script:MacModule { Test-MacConfigurationProfilePresent }
+        Assert-True ($present -is [bool]) "the reader answers a bool: [$present]"
+        Assert-Equal -Expected $Expected -Actual $present "a profiles read that $Case"
+        Should -Invoke -ModuleName Test.HostCondition.Mac Invoke-MacBoundedTool -Times 1 -Exactly -ParameterFilter {
+            $Tool -eq 'profiles' -and ($Arguments -join ' ') -eq 'list' -and $IncludeError
+        }
     }
 
     It 'files the first refused gate, with the screen-lock issue lines as its detail' {

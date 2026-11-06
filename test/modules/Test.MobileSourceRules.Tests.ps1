@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 424025fc-72c7-4d6f-8266-32ee055a88e0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,8 +27,9 @@
     every page, a mirrored side for every one-sided panel anchor, the 16px text
     pin under a coarse pointer, a measured footer height, 100dvh beside every
     100vh, every service table inside a scroll region, an identifier input a
-    phone keyboard cannot capitalize, state colors drawn from tokens, and a PDF
-    preview embedded only where the browser has an inline viewer.
+    phone keyboard cannot capitalize, state colors drawn from tokens, a PDF
+    preview embedded only where the browser has an inline viewer, and a phone
+    rule lifting every control a stylesheet sizes under the touch minimum.
 #>
 
 BeforeDiscovery {
@@ -57,6 +58,47 @@ BeforeAll {
             [pscustomobject]@{ Selector = $_.Groups[1].Value.Trim(); Body = $_.Groups[2].Value }
         })
     }
+    # Get-CssRule drops the @media a rule sits under, and the touch-floor rule
+    # is about that: the same selector at the base and inside a phone block.
+    # This walk keeps every enclosing at-rule prelude with the rule.
+    function Get-CssRuleInMedia {
+        param([string]$Css)
+        $text = [regex]::Replace($Css, '(?s)/\*.*?\*/', '')
+        $rules = [Collections.Generic.List[object]]::new()
+        $open = [Collections.Generic.List[string]]::new()
+        $start = 0
+        for ($i = 0; $i -lt $text.Length; $i++) {
+            $c = $text[$i]
+            if ($c -eq ';') { $start = $i + 1; continue }
+            if ($c -eq '}') { if ($open.Count -gt 0) { $open.RemoveAt($open.Count - 1) }; $start = $i + 1; continue }
+            if ($c -ne '{') { continue }
+            $prelude = $text.Substring($start, $i - $start).Trim()
+            if ($prelude.StartsWith('@')) { $open.Add($prelude); $start = $i + 1; continue }
+            $end = $text.IndexOf('}', $i)
+            $rules.Add([pscustomobject]@{ Media = ($open -join ' '); Selector = $prelude; Body = $text.Substring($i + 1, $end - $i - 1) })
+            $i = $end; $start = $i + 1
+        }
+        return $rules
+    }
+    function Get-CssDeclaration {
+        param([string]$Body, [string]$Property)
+        $found = [regex]::Matches($Body, '(?:^|;)\s*' + [regex]::Escape($Property) + '\s*:\s*([^;]+)')
+        if ($found.Count -eq 0) { return $null }
+        return $found[$found.Count - 1].Groups[1].Value.Trim()
+    }
+    # A literal length in CSS px, or $null for what a parser cannot resolve (a
+    # token, calc(), auto). 1rem is 16px: no sheet here changes the root size.
+    function Get-CssLengthPx {
+        param([string]$Value)
+        $m = [regex]::Match([string]$Value, '^(\d*\.?\d+)(px|rem|em)$')
+        if (-not $m.Success) { return $null }
+        if ($m.Groups[2].Value -eq 'px') { return [double]$m.Groups[1].Value }
+        return 16 * [double]$m.Groups[1].Value
+    }
+    function Split-CssSelector {
+        param([string]$Selector)
+        return @($Selector -split ',' | ForEach-Object { ($_ -replace '\s+', ' ').Trim() })
+    }
 }
 
 Describe 'Every page renders at the device width' {
@@ -82,6 +124,42 @@ Describe 'Phone rules in the shared chrome' {
         }
         $css | Should -Match '(?s)@media \(pointer: coarse\) \{[^@]*select, textarea[^{]*\{ font-size: 16px; \}' -Because 'iOS zooms into a smaller control on focus, at any width'
         $css | Should -Match 'var\(--footer-h,' -Because 'the fixed footer reserves its measured height'
+    }
+    It 'lifts every control sized under the touch minimum to the floor on phones in <Name>' -TestCases $script:SheetCases {
+        param($Name, $Path)
+        $null = $Name
+        # The floor every Yuruna UI shares is --touch-min (44px). A control may
+        # size itself under it for a pointer device, as the menu button does,
+        # only while a rule under the phone width and one under a coarse pointer
+        # lift it: a control outside those rules stays small on a phone, and the
+        # paint-based gate flags a box only under 24px, so it never sees one.
+        # A control is a rule that declares cursor: pointer or names a native
+        # control or a button/link role; its size is a literal height or
+        # min-height, read as a phone reads it (min-height wins).
+        $floorPx = 44
+        $floorValue = '^(var\(--touch-min\)|44px|2\.75rem)$'
+        $control = '(^|[\s>+~])(button|input|select|textarea|summary|a)(?![\w-])|\[role="(button|link)"\]'
+        $rules = Get-CssRuleInMedia -Css ([IO.File]::ReadAllText($Path))
+        foreach ($rule in @($rules | Where-Object { -not $_.Media })) {
+            $minHeight = Get-CssDeclaration -Body $rule.Body -Property 'min-height'
+            $sized = if ($null -ne $minHeight) { Get-CssLengthPx $minHeight } else { Get-CssLengthPx (Get-CssDeclaration -Body $rule.Body -Property 'height') }
+            if ($null -eq $sized -or $sized -ge $floorPx) { continue }
+            $compounds = Split-CssSelector $rule.Selector
+            $acts = ((Get-CssDeclaration -Body $rule.Body -Property 'cursor') -eq 'pointer') -or
+                [bool]@($compounds | Where-Object { $_ -match $control })
+            if (-not $acts) { continue }
+            foreach ($compound in $compounds) {
+                foreach ($phone in @('max-width:\s*600px', 'pointer:\s*coarse')) {
+                    $lifted = @($rules | Where-Object {
+                        $_.Media -match $phone -and $_.Media -notmatch 'min-width' -and
+                        (Split-CssSelector $_.Selector) -contains $compound -and
+                        ((Get-CssDeclaration -Body $_.Body -Property 'min-height') -match $floorValue -or
+                            (Get-CssDeclaration -Body $_.Body -Property 'height') -match $floorValue)
+                    })
+                    $lifted.Count | Should -BeGreaterThan 0 -Because "$compound is ${sized}px tall for a pointer device and no ($phone) rule lifts it to the ${floorPx}px touch minimum"
+                }
+            }
+        }
     }
     It 'measures the footer in every page script' {
         foreach ($file in @('test/status/yuruna.common.js', 'test/extension/extension-sdk/webui/assets/yuruna.core.js')) {

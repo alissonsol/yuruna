@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42d985d1-8774-4cde-a9d4-deb5b4740d25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -442,5 +442,75 @@ Describe 'status JSON collection shapes' {
             Restore-YurunaTestEnvironment -Saved $beforeRuntime
             Remove-Item -LiteralPath $dir -Recurse -Force
         }
+    }
+}
+
+# A runner keeps the code it imported when it started until it exits, so a host
+# that pulled a fix can still run the old code in its runner; the report says
+# which commit that is.
+Describe 'The resident runner''s report in status.json' {
+    BeforeAll {
+        $script:BlockEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $script:StringDates = @{}
+        if ((Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $script:StringDates.DateKind = 'String' }
+    }
+    AfterAll { Restore-YurunaTestEnvironment -Saved $script:BlockEnvironment }
+
+    It 'publishes the runner''s commit and start time without touching the rest of status.json' {
+        $dir = New-TempStatusDir
+        $sf = Join-Path $dir 'status.json'
+        [IO.File]::WriteAllText($sf, ([ordered]@{ schemaVersion = 1; overallStatus = 'pass'; cycleStartUtc = '2026-10-25T03:00:00Z'
+            history = @(@{ cycleStartUtc = '2026-10-24T03:00:00Z'; overallStatus = 'pass' }, @{ cycleStartUtc = '2026-10-23T03:00:00Z'; overallStatus = 'fail' }) } | ConvertTo-Json -Depth 6))
+        $started = [datetime]::new(2026, 10, 25, 3, 13, 8, [DateTimeKind]::Utc)
+        Set-StatusRunnerResident -StatusPath $sf -CommitSha ('a' * 40) -StartedAtUtc $started -Confirm:$false | Should -BeTrue
+        $stringDates = $script:StringDates
+        $doc = [IO.File]::ReadAllText($sf) | ConvertFrom-Json -AsHashtable @stringDates
+        $doc.runnerResident.commitSha | Should -BeExactly ('a' * 40)
+        $doc.runnerResident.startedAtUtc | Should -BeExactly '2026-10-25T03:13:08.0000000Z'
+        @($doc.history).Count | Should -Be 2
+        $doc.overallStatus | Should -BeExactly 'pass'
+        $doc.cycleStartUtc | Should -BeExactly '2026-10-25T03:00:00Z' -Because 'every other field keeps the text it was written with'
+        Test-Path -LiteralPath "$sf.lock" | Should -BeFalse -Because 'the shared status-file lock is released'
+    }
+
+    It 'creates a minimal status.json for a runner that starts on a new host' {
+        $dir = New-TempStatusDir
+        $sf = Join-Path $dir 'status.json'
+        Set-StatusRunnerResident -StatusPath $sf -CommitSha ('b' * 40) -StartedAtUtc ([datetime]::UtcNow) -Confirm:$false | Should -BeTrue
+        $doc = Get-Content -Raw -LiteralPath $sf | ConvertFrom-Json -AsHashtable
+        $doc.schemaVersion | Should -Be 1
+        $doc.Contains('overallStatus') | Should -BeFalse -Because 'no cycle has run yet, and the page reads a document without a verdict as idle'
+        $doc.runnerResident.commitSha | Should -BeExactly ('b' * 40)
+        $resumed = Join-Path $dir 'resumed.json'
+        Set-StatusRunnerResident -StatusPath $resumed -CommitSha ('b' * 40) -StartedAtUtc ([datetime]::UtcNow) -ExistingOnly -Confirm:$false | Should -BeFalse
+        Test-Path -LiteralPath $resumed | Should -BeFalse -Because 'a runner resumed by a host refresh writes no new status document'
+        $broken = Join-Path $dir 'broken.json'
+        [IO.File]::WriteAllText($broken, '{ not json')
+        Set-StatusRunnerResident -StatusPath $broken -CommitSha ('b' * 40) -StartedAtUtc ([datetime]::UtcNow) -Confirm:$false | Should -BeFalse
+        [IO.File]::ReadAllText($broken) | Should -BeExactly '{ not json' -Because 'a document that does not parse is left for the cycle start to move aside'
+    }
+
+    It 'carries the runner''s report across a cycle start as ISO-8601 text' {
+        $dir = New-TempStatusDir
+        $env:YURUNA_RUNTIME_DIR = $dir
+        $sf = Join-Path $dir 'status.json'
+        [IO.File]::WriteAllText($sf, (@{ schemaVersion = 1; overallStatus = 'pass'; history = @()
+            runnerResident = @{ commitSha = ('c' * 40); startedAtUtc = '2026-10-25T03:13:08.1234567Z' } } | ConvertTo-Json -Depth 6))
+        Reset-StatusDocumentForCycleStart -StatusFilePath $sf -Confirm:$false
+        Get-Content -Raw -LiteralPath $sf | Should -Match '"startedAtUtc":\s*"2026-10-25T03:13:08\.1234567Z"'
+        Initialize-StatusDocument -StatusFilePath $sf -HostType 'h' -Hostname 'host' -GitCommit 'abc' -GuestList @('guest.x') -StepNames @('Sequence')
+        $raw = Get-Content -Raw -LiteralPath $sf
+        $raw | Should -Match '"startedAtUtc":\s*"2026-10-25T03:13:08\.1234567Z"'
+        $raw | Should -Match ('"commitSha":\s*"' + ('c' * 40) + '"')
+    }
+
+    It 'reads no report from a document without one' {
+        Get-StatusRunnerResident -Document $null | Should -BeNullOrEmpty
+        Get-StatusRunnerResident -Document @{} | Should -BeNullOrEmpty
+        Get-StatusRunnerResident -Document ([pscustomobject]@{ overallStatus = 'pass' }) | Should -BeNullOrEmpty
+        $parsed = '{"runnerResident":{"commitSha":"' + ('d' * 40) + '","startedAtUtc":"2026-10-25T03:13:08.1234567Z"}}' | ConvertFrom-Json
+        $report = Get-StatusRunnerResident -Document $parsed
+        $report.commitSha | Should -BeExactly ('d' * 40)
+        $report.startedAtUtc | Should -BeExactly '2026-10-25T03:13:08.1234567Z' -Because 'a [datetime] read back is ISO-8601 text again, never the invariant short form'
     }
 }

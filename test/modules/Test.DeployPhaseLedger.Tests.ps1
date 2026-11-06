@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a6ed9f-c626-4fda-9037-997b94337522
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -269,6 +269,7 @@ Describe 'the output checks of the reusable phases' {
     }
 
     It 'confirms pushed images through the registry and refuses on any doubt' {
+        $savedLedger = Save-YurunaTestEnvironment -Name 'ledgerDockerLog', 'ledgerProbeExit'
         try {
             $env:ledgerDockerLog = Join-Path $TestDrive 'docker-calls.log'
             Set-Item -Path Function:global:docker -Value { Add-Content -LiteralPath $env:ledgerDockerLog -Value ($args -join ' '); $global:LASTEXITCODE = [int]$env:ledgerProbeExit }
@@ -283,7 +284,7 @@ Describe 'the output checks of the reusable phases' {
             Assert-False (& $probe @()) 'nothing recorded'
         } finally {
             Remove-Item -Path Function:global:docker -ErrorAction SilentlyContinue
-            Remove-Item -Path Env:ledgerProbeExit, Env:ledgerDockerLog -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $savedLedger
         }
     }
 }

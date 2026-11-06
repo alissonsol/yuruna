@@ -879,13 +879,24 @@ O relatório final dele distingue três coisas:
   sem restauração** -- um ajuste não capturado é listado em "Left as it
   is". O arquivo de captura é mantido para que o comando possa ser
   executado novamente; exclua-o você mesmo quando terminar.
-- **Removido de vez.** Apenas o que é comprovadamente do próprio
-  framework, pelo nome: no Windows, a regra de firewall da porta de
-  status e a regra `Yuruna: Allow ICMPv4 Echo Request`; no Ubuntu, a
-  regra allow do `ufw` para a porta de status, mais a participação nos
-  grupos `libvirt` / `kvm` e a ACL de `libvirt-qemu` em `$HOME` --
-  esses dois últimos apenas quando a captura prova que o
-  `Enable-TestAutomation` os adicionou. O macOS não remove nada.
+- **Removido de vez.** O que o framework adiciona: no Windows, pelo
+  nome, a regra de firewall da porta de status e a regra
+  `Yuruna: Allow ICMPv4 Echo Request`; no Ubuntu, as regras allow do
+  `ufw` que ele adicionou para a porta de status e para a porta do
+  serviço de configuração (`configService.port`, 8443 por padrão), que
+  levam o comentário `Yuruna test automation` -- uma regra com esse
+  comentário é removida qualquer que seja a porta, e uma regra para
+  qualquer uma dessas portas sem ele permanece, inclusive uma que uma
+  versão anterior adicionou antes de o framework passar a marcar suas
+  regras; uma regra allow simples entre elas também é listada com o
+  comando que a remove -- mais a
+  participação nos grupos `libvirt` / `kvm` e a ACL de
+  `libvirt-qemu` em `$HOME`, esses dois últimos apenas quando a captura
+  prova que o `Enable-TestAutomation` os adicionou. O macOS não remove nada. No
+  Windows, a regra do serviço de configuração não está nesta lista:
+  `test/service/Start-ConfigService.ps1` abre a porta ao iniciar, então
+  remova a regra `Yuruna config service` por conta própria se não
+  quiser mais mantê-la.
 - **Apenas reportado.** A lista final `NOT reversed (deliberately)`
   nomeia o que ele não vai tocar, a maior parte com o comando para você
   mesmo executar: pacotes e módulos do PSGallery, o cofre de
@@ -959,6 +970,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.10.31
+Última revisão: 2026.11.05
 
 Voltar para [Yuruna](../../README.md)

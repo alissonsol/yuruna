@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4211664b-fb87-4dab-a225-c1006746d404
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,6 +62,12 @@ BeforeAll {
     $script:RunnerPath = Join-Path $script:RepoRoot 'test/modules/Test.RunnerInnerLoop.psm1'
     $script:DriverText = Get-YurunaSourceText -Path $script:DriverPath
     $script:RunnerText = Get-Content -Raw -LiteralPath $script:RunnerPath
+    # The serial reader's stop reads its cap from the driver module and checks a
+    # reader's identity with Yuruna.Common, which the driver imports. The
+    # Describe blocks below lift the stop out of the module, so both come from
+    # here, with a cap shorter than the driver's.
+    Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -DisableNameChecking
+    $script:HyperVSerialReaderStopSeconds = 3
 
     # Function bodies close at column 0 in this module, so the first
     # column-0 brace after the header is the function's end.
@@ -246,19 +252,26 @@ Describe 'hyper-v serial console capture: the guest-side record of a silence' {
         $fn | Should -Match 'Stop-VMSerialCapture -VMName \$VMName'
         $fn | Should -Match 'Start-Job -Name \$pipeName' -Because 'the job carries the name every path finds it by'
     }
-    It 'has the guest write to the port: journald forwards every level and the kernel adds a serial console' {
-        $script:OverlayText | Should -Match '70-yuruna-serial\.conf'
-        $script:OverlayText | Should -Match 'ForwardToConsole=yes'
-        $script:OverlayText | Should -Match 'TTYPath=/dev/\$tty' -Because 'the device is chosen per architecture inside the installer, not pinned'
+    It 'ends the earlier boot''s reader before the VM starts, so it cannot take the new pipe' {
+        $fn = [regex]::Match($script:DriverText, '(?s)function Start-VM \{.*?\n\}').Value
+        $stop = $fn.IndexOf('Stop-VMSerialCapture -VMName $VMName')
+        $stop | Should -BeGreaterThan -1
+        $stop | Should -BeLessThan $fn.IndexOf('Start-HyperVVM -VMName') -Because 'an old reader retries its connect and would be the new pipe''s first client'
+    }
+    It 'has the guest write to the port: a separate service copies the journal and the kernel adds a serial console' {
+        $script:OverlayText | Should -Match 'yuruna-serial-journal\.service'
+        $script:OverlayText | Should -Not -Match '(?m)^\s*ForwardToConsole=yes' -Because 'journald''s console write is inline: a UART that stops draining would block journald, and sudo and sshd behind it'
+        $script:OverlayText | Should -Match 'ExecStart=/usr/local/lib/yuruna/serial-journal /dev/\$tty' -Because 'the device is chosen per architecture inside the installer, not pinned'
         $script:OverlayText | Should -Match 'console=%s,115200n8 console=tty0' -Because 'tty0 must stay last so the framebuffer the OCR reads remains the primary console'
         $script:OverlayText | Should -Not -Match 'console=tty0 console='
     }
     It 'picks the UART the platform has: ttyAMA0 on ARM64, ttyS0 elsewhere' {
         @([regex]::Matches($script:OverlayText, '(?m)^\s*tty=ttyS0; \[ "\$\(uname -m\)" = aarch64 \] && tty=ttyAMA0\s*$')).Count |
-            Should -Be 2 -Because 'the journald drop-in and the grub drop-in each name the device'
-        $script:OverlayText | Should -Not -Match 'TTYPath=/dev/ttyS0' -Because 'a pinned ttyS0 leaves an ARM64 guest with a host reader at 0 bytes'
+            Should -Be 2 -Because 'the journal service and the grub drop-in each name the device'
+        $script:OverlayText | Should -Not -Match 'serial-journal /dev/ttyS0' -Because 'a pinned ttyS0 leaves an ARM64 guest with a host reader at 0 bytes'
         $script:OverlayText | Should -Not -Match 'console=ttyS0'
-        $script:OverlayText | Should -Match '(?m)^\s*cat > /target/etc/systemd/journald\.conf\.d/70-yuruna-serial\.conf << EOF\s*$' -Because 'a quoted heredoc delimiter would keep $tty literal'
+        $script:OverlayText | Should -Match '(?m)^\s*cat > /target/etc/systemd/system/yuruna-serial-journal\.service << EOF\s*$' -Because 'a quoted heredoc delimiter would keep $tty literal'
+        $script:OverlayText | Should -Match "(?m)^\s*cat > /target/usr/local/lib/yuruna/serial-journal << 'EOF'\s*$" -Because 'an unquoted delimiter would expand the script''s own variables in the installer'
         $script:OverlayText | Should -Match 'printf ''GRUB_CMDLINE_LINUX_DEFAULT="\$\{GRUB_CMDLINE_LINUX_DEFAULT\} console=%s' -Because 'GRUB expands that variable at boot; the installer shell must leave it alone'
     }
     It 'marks the installer lease critical so the installed netplan keeps the address against the clock' {
@@ -299,6 +312,8 @@ Describe 'hyper-v serial console capture: the reader records its own state' {
         $fn | Should -Match '"lastError: \$lastError"'
         $fn | Should -Match 'never connected points at the pipe'
         $fn | Should -Match 'console= setting'
+        $fn | Should -Match 'stopped draining' -Because 'a connected reader at 0 bytes can also be a stalled UART on a correctly configured guest'
+        $fn | Should -Match '"lastByte: \$lastByte"' -Because 'the newest byte dates when a working UART stopped'
         $fn | Should -Match 'serial-console\.reader\.json' -Because 'the raw sidecar travels with the summary'
         $fn | Should -Match 'serial-console\.info\.txt'
     }
@@ -433,6 +448,232 @@ Describe 'hyper-v serial console capture: the live log is read without disturbin
         $script:YurunaSerialCapture = @{ VMName = 'vm-other'; Job = $null; LogPath = (Join-Path $env:TEMP 'yuruna-serial-vm-other.log'); StatePath = $null; PipeName = 'yuruna-serial-vm-other' }
         Stop-VMSerialCapture -VMName 'vm-absent' | Should -BeTrue
         $script:YurunaSerialCapture.VMName | Should -Be 'vm-other'
+    }
+}
+
+Describe 'hyper-v serial console capture: a stop never waits on a silent guest' {
+    BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
+        $ast = [Management.Automation.Language.Parser]::ParseInput($script:DriverText, [ref]$null, [ref]$null)
+        foreach ($name in 'Start-VMSerialCapture', 'Stop-VMSerialCapture', 'Save-VMSerialCapture', 'Read-VMSerialCapture',
+            'Get-VMSerialPipeName', 'Get-VMSerialCaptureJob', 'Get-VMSerialCaptureRecord', 'Stop-VMSerialCaptureJob') {
+            $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+        $script:PriorTemp = Save-YurunaTestEnvironment -Name 'TEMP'
+        $env:TEMP = Join-Path $TestDrive 'temp-mute'
+        $null = New-Item -ItemType Directory -Path $env:TEMP -Force
+        # The one Hyper-V call the start makes: the VM has a COM1 pipe.
+        New-Module -Name 'Hyper-V' -ScriptBlock {
+            function Get-VMComPort {
+                [CmdletBinding()]
+                param([string]$VMName, [int]$Number)
+                [pscustomobject]@{ Name = "COM $Number"; Path = "\\.\pipe\yuruna-serial-$VMName" }
+            }
+        } | Import-Module -Force
+        # The guest's end of COM1: it takes the reader, writes one line, then stays
+        # silent until released or for 45 s. It runs in a process of its own because
+        # .NET fixes the folder of a Unix pipe when a process first opens one, and
+        # the temp folder can move after this process has started (as it does when
+        # tools/_InvokeOneSuite.ps1 runs the suite directly), so only processes
+        # started after the move agree on where the pipe is.
+        $script:SilentGuest = {
+            param([string]$PipeName, [string]$ReadyPath, [string]$ReleasePath)
+            $server = [System.IO.Pipes.NamedPipeServerStream]::new($PipeName, [System.IO.Pipes.PipeDirection]::Out, 1,
+                [System.IO.Pipes.PipeTransmissionMode]::Byte, [System.IO.Pipes.PipeOptions]::Asynchronous)
+            try {
+                [System.IO.File]::WriteAllText($ReadyPath, "$PID")
+                $clock = [System.Diagnostics.Stopwatch]::StartNew()
+                $accept = $server.WaitForConnectionAsync()
+                while (-not $accept.Wait(200)) {
+                    if ([System.IO.File]::Exists($ReleasePath) -or $clock.Elapsed.TotalSeconds -ge 60) { return 'no reader' }
+                }
+                $line = [System.Text.Encoding]::ASCII.GetBytes("login:`n")
+                $server.Write($line, 0, $line.Length)
+                $server.Flush()
+                $clock.Restart()
+                while (-not [System.IO.File]::Exists($ReleasePath) -and $clock.Elapsed.TotalSeconds -lt 45) { Start-Sleep -Milliseconds 100 }
+                return 'released'
+            } finally { $server.Dispose() }
+        }
+        function Get-ChildProcessId {
+            return @(Get-Process | Where-Object { $_.Parent -and $_.Parent.Id -eq $PID } | ForEach-Object Id)
+        }
+        # Whether a process still runs, waiting a little for one that was just
+        # killed. A killed process whose exit nobody has collected yet is a
+        # zombie on Linux, which runs nothing.
+        function Test-ReaderProcessRunning {
+            param([int]$Id, [int]$WithinSeconds = 10)
+            $deadline = [DateTime]::UtcNow.AddSeconds($WithinSeconds)
+            while ($true) {
+                $running = (Get-Process -Id $Id -ErrorAction SilentlyContinue) -and
+                    -not ($IsLinux -and ([string](Get-Content -LiteralPath "/proc/$Id/stat" -Raw -ErrorAction SilentlyContinue)) -match '^\d+ \(.*\) Z ')
+                if (-not $running) { return $false }
+                if ([DateTime]::UtcNow -ge $deadline) { return $true }
+                Start-Sleep -Milliseconds 200
+            }
+        }
+        # The pid a stand-in reader wrote to its marker, once it has written it.
+        function Wait-MarkerProcessId {
+            param([string]$Path)
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            while ([DateTime]::UtcNow -lt $deadline) {
+                $id = 0
+                if ([int]::TryParse("$(Get-Content -Raw -LiteralPath $Path -ErrorAction SilentlyContinue)".Trim(), [ref]$id) -and $id -gt 0) { return $id }
+                Start-Sleep -Milliseconds 100
+            }
+            throw "no process id in $Path"
+        }
+    }
+    AfterAll {
+        # A killed reader's job reads Running until PowerShell's close timeout
+        # ends it, about a minute after the kill, and is removed once it has.
+        $leftover = @(Get-Job | Where-Object { $_.Name -like 'yuruna-serial-vm-mute-*' })
+        if ($leftover.Count -gt 0) {
+            $null = Wait-Job -Job $leftover -Timeout 90
+            $leftover | Where-Object { $_.Finished.WaitOne(0) } | Remove-Job
+        }
+        Remove-Module -Name 'Hyper-V' -Force -ErrorAction SilentlyContinue
+        Restore-YurunaTestEnvironment -Saved $script:PriorTemp
+    }
+    It 'ends a reader that a silent guest holds in a read at its deadline, killing its process and keeping what it read: <Path>' -ForEach @(
+        @{ Path = 'save' }
+        @{ Path = 'stop' }
+        @{ Path = 'rearm' }
+    ) {
+        $name = "vm-mute-$Path"
+        $jobName = "yuruna-serial-$name"
+        $ready = Join-Path $TestDrive "$name.ready"
+        $release = Join-Path $TestDrive "$name.release"
+        $guest = Start-Job -Name "guest-$name" -ScriptBlock $script:SilentGuest -ArgumentList $jobName, $ready, $release
+        try {
+            $null = Wait-MarkerProcessId -Path $ready
+            $before = Get-ChildProcessId
+            Start-VMSerialCapture -VMName $name | Should -Be $true
+            $first = @(Get-Job | Where-Object { $_.Name -eq $jobName })
+            $first.Count | Should -Be 1
+            # The reader saves its sidecar after the first bytes and then reads
+            # again, which a guest that writes nothing more never answers.
+            $statePath = Join-Path $env:TEMP "yuruna-serial-$name.state.json"
+            $deadline = [DateTime]::UtcNow.AddSeconds(60)
+            $bytesRead = 0
+            while ($bytesRead -eq 0 -and [DateTime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 200
+                try { $bytesRead = [long](Get-Content -Raw -LiteralPath $statePath -ErrorAction Stop | ConvertFrom-Json).bytesRead } catch { $bytesRead = 0 }
+            }
+            (Read-VMSerialCapture -VMName $name).Text | Should -Be "login:`n" -Because 'the reader must hold the guest''s pipe before the stop'
+            $reader = @(Get-ChildProcessId | Where-Object { $_ -notin $before })
+            $reader.Count | Should -Be 1 -Because 'the reader runs in a process of its own'
+            Start-Sleep -Milliseconds 300
+            $out = Join-Path $TestDrive "$name-out"
+            $clock = [System.Diagnostics.Stopwatch]::StartNew()
+            $result = switch ($Path) {
+                'save' { Save-VMSerialCapture -VMName $name -OutputDirectory $out }
+                'stop' { Stop-VMSerialCapture -VMName $name }
+                'rearm' { Start-VMSerialCapture -VMName $name }
+            }
+            $clock.Stop()
+            $result | Should -Be $true
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 15 -Because 'the stop ends the reader at its cap instead of waiting for the guest to write'
+            $guest.State | Should -Be 'Running' -Because 'the guest was still silent when the stop returned'
+            Test-ReaderProcessRunning -Id $reader[0] | Should -BeFalse -Because 'a reader that cannot see the stop request is killed'
+            if ($Path -eq 'save') {
+                [IO.File]::ReadAllText((Join-Path $out 'serial-console.log')) | Should -Be "login:`n" -Because 'what the reader read before the kill is kept'
+                Get-Content -Raw -LiteralPath (Join-Path $out 'serial-console.info.txt') | Should -Match '(?m)^connects: 1$'
+            }
+            if ($Path -eq 'rearm') {
+                @(Get-Job | Where-Object { $_.Name -eq $jobName -and $_.InstanceId -ne $first[0].InstanceId }).Count |
+                    Should -Be 1 -Because 'exactly one new reader is armed in place of the killed one'
+            } else {
+                Test-Path -LiteralPath (Join-Path $env:TEMP "yuruna-serial-$name.log") | Should -BeFalse
+                Test-Path -LiteralPath $statePath | Should -BeFalse
+            }
+        } finally {
+            [IO.File]::WriteAllText($release, '')
+            $null = Wait-Job -Job $guest -Timeout 50
+            Remove-Job -Job $guest -Force -ErrorAction SilentlyContinue
+            $null = Stop-VMSerialCapture -VMName $name
+        }
+    }
+    It 'returns at once from a stop by name of a reader an earlier stop killed, while its job still reads Running' {
+        $name = 'vm-mute-again'
+        $jobName = "yuruna-serial-$name"
+        $ready = Join-Path $TestDrive "$name.ready"
+        $release = Join-Path $TestDrive "$name.release"
+        $guest = Start-Job -Name "guest-$name" -ScriptBlock $script:SilentGuest -ArgumentList $jobName, $ready, $release
+        try {
+            $null = Wait-MarkerProcessId -Path $ready
+            Start-VMSerialCapture -VMName $name | Should -Be $true
+            $statePath = Join-Path $env:TEMP "yuruna-serial-$name.state.json"
+            $deadline = [DateTime]::UtcNow.AddSeconds(60)
+            $bytesRead = 0
+            while ($bytesRead -eq 0 -and [DateTime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 200
+                try { $bytesRead = [long](Get-Content -Raw -LiteralPath $statePath -ErrorAction Stop | ConvertFrom-Json).bytesRead } catch { $bytesRead = 0 }
+            }
+            $bytesRead | Should -BeGreaterThan 0 -Because 'the reader must hold the guest''s pipe before the first stop'
+            Start-Sleep -Milliseconds 300
+            Stop-VMSerialCapture -VMName $name | Should -Be $true
+            $killed = @(Get-Job | Where-Object { $_.Name -eq $jobName })
+            $killed.Count | Should -Be 1 -Because 'the killed reader''s job stays listed until PowerShell ends it'
+            $killed[0].Finished.WaitOne(0) | Should -BeFalse -Because 'the second stop must meet the job while it still reads Running'
+            # The teardown's Remove-VM after a failure's save, or a re-arm within
+            # the minute, stops the same reader by name again.
+            $clock = [System.Diagnostics.Stopwatch]::StartNew()
+            $result = Stop-VMSerialCapture -VMName $name
+            $clock.Stop()
+            $result | Should -Be $true -Because 'the process the job named is gone, so no reader is left running'
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan ($script:HyperVSerialReaderStopSeconds / 2) -Because 'a job whose process is already dead is not waited on'
+            if (-not $killed[0].Finished.WaitOne(0)) {
+                @(Get-Job | Where-Object { $_.Name -eq $jobName }).Count | Should -Be 1 -Because 'a job is removed only once it has ended, so a later stop by name finds it'
+            }
+        } finally {
+            [IO.File]::WriteAllText($release, '')
+            $null = Wait-Job -Job $guest -Timeout 50
+            Remove-Job -Job $guest -Force -ErrorAction SilentlyContinue
+        }
+    }
+    It 'leaves a reader that named no process running, keeps its job listed and reports that it could not end it' {
+        $name = 'vm-unnamed-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+        $marker = Join-Path $TestDrive "$name.pid"
+        $job = Start-Job -Name "yuruna-serial-$name" -ScriptBlock {
+            $self = [System.Diagnostics.Process]::GetCurrentProcess()
+            [System.IO.File]::WriteAllText($using:marker, "$($self.Id)")
+            [System.Threading.Thread]::Sleep(10000)
+        }
+        try {
+            $standIn = Wait-MarkerProcessId -Path $marker
+            $clock = [System.Diagnostics.Stopwatch]::StartNew()
+            Stop-VMSerialCapture -VMName $name | Should -Be $false -Because 'a reader the stop could not end is reported'
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 8 -Because 'the stop waits no longer than its cap for a reader it cannot end'
+            @(Get-Job | Where-Object { $_.Name -eq "yuruna-serial-$name" }).Count | Should -Be 1 -Because 'a job is removed only once it has ended, so the next stop by name finds it'
+            Test-ReaderProcessRunning -Id $standIn -WithinSeconds 0 | Should -BeTrue -Because 'a reader that named no process has no process the stop may kill'
+        } finally {
+            $null = Wait-Job -Job $job -Timeout 25
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        }
+    }
+    It 'never kills a process that holds the reader''s process id but started at another time' {
+        $name = 'vm-unnamed-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+        $marker = Join-Path $TestDrive "$name.pid"
+        # The identity of an earlier process whose id this one now holds.
+        $job = Start-Job -Name "yuruna-serial-$name" -ScriptBlock {
+            $self = [System.Diagnostics.Process]::GetCurrentProcess()
+            [System.IO.File]::WriteAllText($using:marker, "$($self.Id)")
+            [pscustomobject]@{ ProcessId = $self.Id; StartTimeUnixMs = [DateTimeOffset]::new($self.StartTime).ToUnixTimeMilliseconds() - 3600000 }
+            [System.Threading.Thread]::Sleep(10000)
+        }
+        try {
+            $holder = Wait-MarkerProcessId -Path $marker
+            $clock = [System.Diagnostics.Stopwatch]::StartNew()
+            Stop-VMSerialCapture -VMName $name | Should -Be $true -Because 'the process the reader named has ended, so no reader is left to end'
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 8 -Because 'the stop waits no longer than its cap for a job that has not ended'
+            Test-ReaderProcessRunning -Id $holder -WithinSeconds 0 | Should -BeTrue -Because 'a process id alone is never identity: the process holding it started at another time'
+            @(Get-Job | Where-Object { $_.Name -eq "yuruna-serial-$name" }).Count | Should -Be 1 -Because 'a job is removed only once it has ended'
+        } finally {
+            $null = Wait-Job -Job $job -Timeout 25
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

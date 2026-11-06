@@ -160,7 +160,7 @@ the host verified that repository's selected revision:
 |---|---|---|
 | `mirror.origin` | `mirror-confirmed` | The host accepted a signed mirror response confirming the selected commit against GitHub. Object fetches try the local mirror first and can fall back to the origin. |
 | `remote.origin` | `origin-direct` | The host successfully checked the requested ref directly against GitHub, the upstream origin. This can be a normal fallback when the mirror is unavailable, unsupported, still populating, or not trusted by that host; origin-first mode can also produce it. |
-| `mirror.stale` | `mirror-stale` | The mirror could not confirm its cached revision with GitHub, and the host's direct attempt also failed with a network error. The host accepted a signed cached revision within the configured age and rollback limits. Treat this as degraded connectivity; it does not confirm the latest upstream revision. |
+| `mirror.stale` | `mirror-stale` | The mirror's latest GitHub check failed, so the host ran the signed revision the mirror last confirmed, within the configured age and rollback limits, without contacting GitHub itself. Treat this as degraded mirror connectivity; it does not confirm the latest upstream revision. |
 | `mirror.fresh` | `mirror-fresh` | Legacy freshness terminology. Current hosts report `mirror.origin` for a revision confirmed through the mirror; this label is retained for records using the older wording. |
 | `not.applicable` | `not-applicable` | Mirror verification does not apply: mirroring is disabled or the repository URL is outside the supported GitHub mirror scope. |
 
@@ -300,6 +300,12 @@ The collapsed row under the timeline. Its panels share the dashboard time range:
   class to open its meaning and diagnostic guidance on yuruna.link.
 - **Recent step failures** -- the failing step's action, number, class, severity and
   reason per host/cycle, with deep-links into that host's full cycle artifacts.
+- **Host restarts and runner faults** -- `host_restart` and `runner_fault` events: a
+  host that booted after a cycle's last write (the aborted cycle, its last write, the
+  boot time and the seconds down), and a fault the outer runner published (failure
+  class, stage, message and the path of the attempt's record). The runner queues both
+  while no cycle is open, so each arrives with that host's next cycle, under its own
+  timestamp.
 - **Cycle event stream** -- every per-cycle NDJSON event tailed from each host; filter
   with the Grafana log search.
 - **Cycle status transitions** -- one line each time a host's cycle changes state,
@@ -458,7 +464,7 @@ Loki and Prometheus exactly as the collector would have, for the last 90 days:
 - every finished cycle's result: the Success%, Failed cycles and Total cycles tiles,
   the Pass and Fail columns of *Pool hosts*, and the status transitions log;
 - the per-step events of the last 7 days, which is as long as Loki keeps events: the
-  step-failure and event-stream panels;
+  step-failure, host-restart and runner-fault, and event-stream panels;
 - the per-host incidents the collector would have raised before it first saw the host;
 - the *Cycle outcome over time* row, wherever its live series has no samples.
 
@@ -539,6 +545,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

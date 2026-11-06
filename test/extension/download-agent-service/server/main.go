@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	"yuruna.com/test/extension/extension-sdk/servicecfg"
@@ -21,6 +22,7 @@ import (
 	"download-agent-service/internal/imagestore"
 	"download-agent-service/internal/state"
 	"yuruna.com/test/extension/extension-sdk/beacon"
+	"yuruna.com/test/extension/extension-sdk/hostcheck"
 )
 
 var version = "dev"
@@ -50,6 +52,7 @@ func run() error {
 	fidoScript := flag.String("fido-script", "", "path to the vendored, hash-pinned Fido.ps1 that mints the Windows 11 download URL (empty searches the standard install locations; nothing found leaves that family unavailable)")
 	language := flag.String("language", "auto", "Display language: auto or a supported locale")
 	allowPseudo := flag.Bool("allow-pseudo-locale", false, "Enable diagnostic pseudo locales")
+	allowedHostNames := flag.String("allowed-host-names", "", "comma-separated names the UI/API answers to in the Host header besides its addresses, this machine's host name and localhost; a request naming any other host is refused (421)")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
@@ -93,12 +96,14 @@ func run() error {
 		log.Fatalf("download-agent-service: image store: %v", err)
 	}
 
+	hostNames := hostcheck.ParseNames(*allowedHostNames)
 	ui := httpsrv.New(httpsrv.Options{
 		Language: *language, AllowPseudoLocale: *allowPseudo,
 		Addr: *httpAddr, Version: version, Store: store, Images: agent,
 		AuthToken:     authToken,
 		AggregatorURL: *aggregatorURL, HostID: *hostID,
 		PoolDir: *poolDir, StateDir: *stateDir,
+		AllowedHostNames: hostNames,
 	})
 
 	errCh := make(chan error, 1)
@@ -140,6 +145,7 @@ func run() error {
 
 	log.Printf("download-agent-service %s: http=%q pool=%q aggregator=%q area=%s scan=%s freshness=%s lead=%s autoSeed=%t",
 		version, *httpAddr, *poolDir, *aggregatorURL, config.PresenceArea, *scanInterval, *freshness, *prefetchLead, *autoSeed)
+	log.Printf("download-agent-service answers to any address, localhost, this machine's host name and the configured names [%s]; a request naming another host is refused", strings.Join(hostNames, ", "))
 	var serverErr error
 	select {
 	case <-ctx.Done():

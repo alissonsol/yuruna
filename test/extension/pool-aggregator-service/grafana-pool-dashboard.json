@@ -464,11 +464,23 @@
           "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
         },
         {
+          "id": 33,
+          "type": "logs",
+          "title": "Host restarts and runner faults across the pool",
+          "description": "host_restart and runner_fault events from each host's per-cycle NDJSON: a host that booted after a cycle's last write (the aborted cycle, its last write, the boot time and the seconds down) and a fault the outer runner published (failure class, stage, message and the path of the attempt's record). The runner queues both while no cycle is open, so each arrives with that host's next cycle, under its own timestamp. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 49 },
+          "datasource": { "type": "loki", "uid": "yuruna-loki" },
+          "targets": [
+            { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json | event=~\"host_restart|runner_fault\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+          ],
+          "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+        },
+        {
           "id": 11,
           "type": "logs",
           "title": "Cycle event stream across the pool (all steps)",
           "description": "Every per-cycle NDJSON event (cycle_start / step_end / step_failure / typed sub-events) tailed from each host. Use the Grafana log search to filter, e.g. cycleStartUtc=... or event=step_end. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
-          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 49 },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 58 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
             { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
@@ -480,7 +492,7 @@
           "type": "logs",
           "title": "Cycle status transitions across the pool (24h)",
           "description": "One line each time a host's cycle changes state (running -> pass/fail), from the status.json poll: hostId, cycleStartUtc, overallStatus and a baseUrl for drill-down. The cycle-level audit trail behind the table and timeline above. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
-          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 68 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
             { "refId": "A", "expr": "{pool=~\"$pool\"} | json | overallStatus=~\".+\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
@@ -492,7 +504,7 @@
           "type": "table",
           "title": "Incidents by failure class (window)",
           "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
-          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 77 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
             { "refId": "A", "expr": "sum by (dominantClass) (count_over_time({pool=~\"$pool\", src=\"incident\"} | json | event=\"incident_open\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }

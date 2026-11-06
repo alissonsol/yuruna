@@ -19,11 +19,14 @@ flowchart LR
     test-service["Service launchers"]
     test-lab["Lab administration"]
     install -->|macOS host settings| enable-test-automation-ps1
-    setup-ps1 --> enable-test-automation-ps1
+    %% optional: setup.runTests false skips host settings.
+    setup-ps1 -.-> enable-test-automation-ps1
     enable-test-automation-ps1 --> yuruna-host-setup-psm1
-    setup-ps1 --> new-local-lab-storage-ps1
+    %% optional: storage kind none prepares no shares.
+    setup-ps1 -.-> new-local-lab-storage-ps1
     setup-ps1 --> test-service
-    setup-ps1 -->|lab initialization| test-lab
+    %% optional: lab mode only.
+    setup-ps1 -.->|lab initialization| test-lab
     test-lab -->|Syzygy service controls| test-service
 ```
 
@@ -39,11 +42,15 @@ that restarts it explicitly after setup.
 The operator runs setup.ps1 separately: there is no bootstrap-to-setup
 invocation. Windows and Ubuntu print an Enable-TestAutomation command; macOS
 applies its host settings with -SkipPoolStorage and reports any remaining
-operator action. [setup.ps1](../../install/setup.ps1) creates or refreshes
-`test.config.yml` from its template, then orchestrates
+operator action. [setup.ps1](../../install/setup.ps1) creates `test.config.yml`
+from its template, refreshing an existing file only when the run supplies a
+project URL or NAS storage, then orchestrates
 [Enable-TestAutomation](../../test/lab/Enable-TestAutomation.ps1), storage
-preparation, [service VM launchers](../../test/service/), and the Test-Config
-gate. After the caching proxy starts, setup points `vmStart.cachingProxyIp` at
+preparation, the caching-proxy launcher, a wait for the pool aggregator, the
+stash launcher, and the Test-Config gate. The download-agent launcher and the lab
+steps follow the gate; all of them are
+[service VM launchers](../../test/service/) or lab scripts. After the caching
+proxy starts, setup points `vmStart.cachingProxyIp` at
 it and enrolls the proxy's Git mirror verification key under
 `repositories.mirror` through
 [Test.CachingProxyService](../../test/modules/Test.CachingProxyService.psm1),
@@ -74,11 +81,11 @@ service invokes the same pool scripts.
 Setup always brings up the cache, and the stash when storage is configured. The
 download agent defaults off in standalone mode and on in lab mode unless
 `downloadAgentService.enabled` says otherwise; lab mode also enrolls the lab
-token and adds a default pool and pool-control. A healthy stash, download-agent,
-or pool-control VM can be adopted; rebuilding applies changed provisioning
-settings. The caching-proxy launcher defaults to a full rebuild and
-authenticated pool CA trust recovery; `-RepairPoolCaTrust:$false` permits its
-healthy-VM adoption path. Recovery verifies the proxy's signed CA statement
+token and adds a default pool and pool-control. Setup adopts any healthy service
+VM, the caching proxy included, unless `-Rebuild` is set; rebuilding applies
+changed provisioning settings. Whenever it runs, the caching-proxy launcher
+defaults to a full rebuild and authenticated pool CA trust recovery;
+`-RepairPoolCaTrust:$false` permits its healthy-VM adoption path. Recovery verifies the proxy's signed CA statement
 before enrolling the builder's public mirror key through audience-bound host
 control. Existing CA pins remain until the next verified CA fetch. Unreachable
 hosts receive individual pending-enrollment diagnostics; an explicit
@@ -134,6 +141,10 @@ The workload module and validator share
 [Yuruna.DeploymentKind](../../automation/Yuruna.DeploymentKind.psm1), whose current
 built-ins are chart, kubectl, helm, and shell. Registry publication uses
 [Yuruna.Component.Registry](../../automation/Yuruna.Component.Registry.psm1).
+A retry skips a phase that passed before a later phase failed, when its input
+hash and outputs still hold, through the
+[deploy phase ledger](../../automation/Yuruna.DeployLedger.psm1); the last phase
+passing deletes the ledger.
 [yuruna.ps1](../../automation/yuruna.ps1) dispatches the same modules as one CLI,
 and [Start-McpServer.ps1](../../test/service/Start-McpServer.ps1) exposes the entry
 points as stdio MCP tools; neither adds a phase.
@@ -155,19 +166,20 @@ flowchart LR
     start-test-runner-ps1 --> test-pool
     start-test-runner-ps1 --> test-notify-psm1
     test-sequence-runner-psm1 -->|extension calls, probes| test-extension
-    start-test-runner-ps1 -->|Git source selection| test-extension
+    %% optional: mirror mode off or no enrolled keys uses no mirror.
+    start-test-runner-ps1 -.->|Git source selection| test-extension
 ```
 
 Sources and aggregate membership:
 
 | Box | Sources |
 | --- | --- |
-| Runner supervision | [Start-TestRunner](../../test/Start-TestRunner.ps1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Invoke-TestCycleRunner](../../test/modules/Invoke-TestCycleRunner.ps1), [Invoke-TestRunnerInnerLoop](../../test/modules/Invoke-TestRunnerInnerLoop.ps1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.ConfigPreflight](../../test/modules/Test.ConfigPreflight.psm1), [Test.RunnerAttemptHistory](../../test/modules/Test.RunnerAttemptHistory.psm1), [Test.SourceSelection](../../test/modules/Test.SourceSelection.psm1), [Test.HostGit](../../test/modules/Test.HostGit.psm1), [Test.PrivateStateRepair](../../test/modules/Test.PrivateStateRepair.psm1), the one-shot [Invoke-TestProject](../../test/Invoke-TestProject.ps1) and [Debug-TestSequence](../../test/Debug-TestSequence.ps1) entry points, and runner identity/recovery modules in [test/modules/](../../test/modules/). |
+| Runner supervision | [Start-TestRunner](../../test/Start-TestRunner.ps1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Invoke-TestCycleRunner](../../test/modules/Invoke-TestCycleRunner.ps1), [Invoke-TestRunnerInnerLoop](../../test/modules/Invoke-TestRunnerInnerLoop.ps1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.ConfigPreflight](../../test/modules/Test.ConfigPreflight.psm1), [Test.RunnerAttemptHistory](../../test/modules/Test.RunnerAttemptHistory.psm1), [Test.SourceSelection](../../test/modules/Test.SourceSelection.psm1), [Test.HostGit](../../test/modules/Test.HostGit.psm1), [Test.FrameworkRing](../../test/modules/Test.FrameworkRing.psm1), [Test.PrivateStateRepair](../../test/modules/Test.PrivateStateRepair.psm1), the one-shot [Invoke-TestProject](../../test/Invoke-TestProject.ps1) and [Debug-TestSequence](../../test/Debug-TestSequence.ps1) entry points, and runner identity/recovery modules in [test/modules/](../../test/modules/). |
 | Sequence execution | [Test.SequenceRunner](../../test/modules/Test.SequenceRunner.psm1), [Test.SequenceEngine](../../test/modules/Test.SequenceEngine.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1), [Test.SequencePlanner](../../test/modules/Test.SequencePlanner.psm1), [Test.Orchestrator](../../test/modules/Test.Orchestrator.psm1), [Test.Start-GuestOS](../../test/modules/Test.Start-GuestOS.psm1), [Test.Start-GuestWorkload](../../test/modules/Test.Start-GuestWorkload.psm1), [sequences/](../../test/sequences/), and [schemas/](../../test/schemas/). |
 | OCR and diagnostics | [Test.OcrEngine](../../test/modules/Test.OcrEngine.psm1), [Test.OcrMatch](../../test/modules/Test.OcrMatch.psm1), [Test.Tesseract](../../test/modules/Test.Tesseract.psm1), [Test.Diagnostic](../../test/modules/Test.Diagnostic.psm1), [Test.DiagnosticPreservation](../../test/modules/Test.DiagnosticPreservation.psm1), the [guest](../../test/Invoke-GuestDiagnosticWorker.ps1) and [host](../../test/modules/Invoke-HostDiagnosticWorker.ps1) diagnostic workers, [Get-SystemDiagnostic](../../automation/Get-SystemDiagnostic.ps1), and the [guest stall sampler](../../automation/guest-performance-snapshot.sh). |
-| Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), [Repair-PrivateState.py](../../test/service/Repair-PrivateState.py), the [host address beacon](../../test/modules/Invoke-HostAddressBeacon.ps1) sidecar and [Test.HostAddressBeacon](../../test/modules/Test.HostAddressBeacon.psm1), [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1), and [status/](../../test/status/). |
+| Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1) and its listener [Invoke-StatusServiceRuntime](../../test/service/Invoke-StatusServiceRuntime.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), [Repair-PrivateState.py](../../test/service/Repair-PrivateState.py), the [host address beacon](../../test/modules/Invoke-HostAddressBeacon.ps1) sidecar and [Test.HostAddressBeacon](../../test/modules/Test.HostAddressBeacon.psm1), [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1), and [status/](../../test/status/). |
 | Pool coordination | [Test.PoolWorker](../../test/modules/Test.PoolWorker.psm1), [Test.PoolSync](../../test/modules/Test.PoolSync.psm1), [Test.PoolPush](../../test/modules/Test.PoolPush.psm1), [Test.PoolStorage](../../test/modules/Test.PoolStorage.psm1), [Test.PoolPlanner](../../test/modules/Test.PoolPlanner.psm1), and [Test.PoolAdmin](../../test/modules/Test.PoolAdmin.psm1). |
-| Extension services | [extension/](../../test/extension/) holds authentication, digest, cache management/parser, download-agent, pool aggregator/control, stash, notification, and the shared SDK. The [caching-proxy extension](../../test/extension/caching-proxy-service/) also holds the Git mirror, and [Test.ServiceVm](../../test/modules/Test.ServiceVm.psm1) holds the start pipeline the service launchers share. |
+| Extension services | [extension/](../../test/extension/) holds authentication, digest, cache management/parser, download-agent, pool aggregator/control, stash, notification, and the shared SDK. The [caching-proxy extension](../../test/extension/caching-proxy-service/) also holds the Git mirror, and [Test.ServiceVm](../../test/modules/Test.ServiceVm.psm1) holds the start pipeline the service launchers share. The pool aggregator runs in the caching-proxy guest and splits polling, the Loki feed, rehydration, routes, extension merge, incidents, and pool state into [internal packages](../../test/extension/pool-aggregator-service/internal/). |
 | Notifications | [Test.Notify](../../test/modules/Test.Notify.psm1), [Test.PoolNotifier](../../test/modules/Test.PoolNotifier.psm1), and configured providers in [notification/](../../test/extension/notification/). |
 
 The outer runner supervises a fresh cycle process, which launches an inner
@@ -184,8 +196,14 @@ Test.SourceSelection, and the inner process checks out the pinned project
 commit from that handoff; while a network-only gate refusal holds the next
 cycle, the outer runner polls source access the same way. Test.HostGit
 accepts a caching-proxy Git mirror answer only with a receipt signed by an
-enrolled `repositories.mirror` key, and otherwise uses GitHub according to the
-configured mode. The runner and status service repair
+enrolled `repositories.mirror` key. A stale signed receipt within
+`repositories.mirror.mirrorOnlyMaxAgeSeconds` selects its retained pin without a
+GitHub check unless that pin would roll the host back; other mirror outcomes use
+GitHub according to the configured mode. A pool's `frameworkRing` block makes
+non-canary members followers: each installs only the newest framework revision
+the pool aggregator reports with enough canary passes, and otherwise stays where
+it is. Canaries and pools without the block install the tip. The runner and
+status service repair
 private startup state before they start. These are processes on the host, rather
 than additional network services. The watchdog follows the step heartbeat; OCR
 and guest diagnostics supply sequence evidence. Test.Diagnostic also reads the
@@ -221,7 +239,7 @@ aggregate here. Sequence steps call PowerShell extension methods through
 step boundaries; the Go daemons keep separate launch paths. The Git mirror
 runs inside the caching-proxy extension:
 [gitmirror.go](../../test/extension/caching-proxy-service/gitmirror.go) gives
-the same daemon worker, reader, and CGI roles, so
+the same daemon worker, reader, CGI, and credential roles, so
 [git-mirror-worker.service](../../test/extension/caching-proxy-service/git-mirror-worker.service)
 refreshes and signs the GitHub repositories,
 [git-mirror-reader.service](../../test/extension/caching-proxy-service/git-mirror-reader.service)
@@ -273,10 +291,14 @@ dot-sources, such as capture, lifecycle, screenshot, port-map, storage,
 virtualization-repair, and service-guest helpers. It dispatches per-guest image and VM builders and implements
 lifecycle, console input, screenshots, discovery, and networking. `Stop-VM` takes
 `-ShutdownTimeoutSeconds` and `-NoForce` on all three drivers, so a sequence can
-request a graceful shutdown and observe it through the host; Hyper-V also captures
-the COM1 serial console during a cycle through a reader job named after its
-pipe, so the driver re-import between the runner's `Start-VM` and a sequence's
-own `startVm` finds the connected reader instead of arming a second one. The KVM and Hyper-V drivers delete a VM
+request a graceful shutdown and observe it through the host. Hyper-V captures
+COM1 and UTM captures the guest UART's loopback port during a cycle, each through
+a reader job found by name (on Hyper-V, its pipe name), so the driver re-import
+between the runner's `Start-VM` and a sequence's own `startVm` finds the running
+reader instead of arming a second one. Hyper-V's `Start-VM` first stops the
+previous boot's reader, which would otherwise take the new boot's pipe; UTM arms
+its reader before power-on, because QEMU drops what the guest writes while no
+client is attached. The KVM and Hyper-V drivers delete a VM
 directory only when no registered VM uses a file in it, after first finishing a
 rename that stopped between the registration and the storage move; the KVM
 orphan sweep likewise skips referenced disks. The Hyper-V and UTM drivers also export
@@ -284,10 +306,23 @@ orphan sweep likewise skips referenced disks. The Hyper-V and UTM drivers also e
 independently of the screenshot path. The Hyper-V driver also exports
 `Read-VMSerialCapture` and `Get-VMCreationTime`, which give failure evidence
 the console text written since a step's mark and the age that bounds every
-timestamp an honest guest clock can print. Each provider folder also holds the
-Enable/Disable-TestAutomation, Sync-HostConfiguration, and
+timestamp an honest guest clock can print. UTM defines `Read-VMSerialCapture` but
+does not export it, so its waits never end on a kernel report. Each provider
+folder also holds the Enable/Disable-TestAutomation, Sync-HostConfiguration, and
 Remove-OrphanedVMFiles scripts that the [test/lab/](../../test/lab/) dispatchers
 select through [Yuruna.HostRedirect](../../automation/Yuruna.HostRedirect.psm1).
+
+The KVM provider also holds
+[Enable-DeepDiagnostics](../../host/ubuntu.kvm/Enable-DeepDiagnostics.ps1) and
+[Disable-DeepDiagnostics](../../host/ubuntu.kvm/Disable-DeepDiagnostics.ps1), run
+directly on a host under investigation, with
+[Yuruna.Host.DeepDiagnostics](../../host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1)
+and [deep-diagnostics/](../../host/ubuntu.kvm/deep-diagnostics/). They make a hard
+freeze leave evidence and record every prior value for restoration.
+[Receive-Netconsole](../../test/lab/Receive-Netconsole.ps1) receives the optional
+kernel stream on another machine, and
+[Test.Recovery](../../test/modules/Test.Recovery.psm1) copies the boot bundles
+into host-restart evidence.
 
 VM configuration groups the [host/vmconfig/](../../host/vmconfig/) cloud-init
 seeds for guests and services (base user-data plus per-hypervisor overlays), the
@@ -313,7 +348,13 @@ manifest of the sources it builds, and the Linux guest and service seeds name
 the proxy CA's fingerprint in `host.env`. The Ubuntu base seed installs
 `yuruna-ssh-hostkeys.service`, a oneshot `ssh-keygen -A` ordered before
 `ssh.service`, so a guest whose cold restart emptied the host keys that
-cloud-init had just written still starts its SSH daemon. The stash, download-agent, and
+cloud-init had just written still starts its SSH daemon. The Hyper-V and UTM Ubuntu
+overlays install `yuruna-serial-journal.service`, which copies the journal to the
+UART in its own process, so a stalled UART costs serial output rather than
+blocking journald, `sudo`, and `sshd`. The UTM overlay ends the install with
+`shutdown: poweroff`, and the `start.guest.ubuntu.server.*.macos.utm.yml` sequences
+wait for that stop with `startVm` `installPowerOff: true`, then cold-start the
+installed system. The stash, download-agent, and
 pool-control seeds carry configuration-service client certificates and
 [yuruna-nas-credential.sh](../../automation/yuruna-nas-credential.sh) instead of
 a NAS password.
@@ -334,8 +375,10 @@ the caching-proxy Git mirror first if the guest has the proxy address, then
 GitHub.
 Caching-proxy, stash, download-agent, and pool-control builders live under each
 provider and reuse the shared seeds; the stash, download-agent, and pool-control
-seeds run their ubuntu.server.26 service scripts, while the caching-proxy seed is
-self-contained. The network
+seeds run their ubuntu.server.26 service scripts, while the caching-proxy seed
+carries its own setup in runcmd and has no guest service script. It fetches
+extension sources from the building host's status service, or GitHub when that
+host is unreachable, and builds only files matching the seeded manifest. The network
 differences are expanded in [Deployment](06-deployment.md).
 
 ## Project data
@@ -502,6 +545,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 [Architecture](../architecture.md) | [Design overview](README.md)

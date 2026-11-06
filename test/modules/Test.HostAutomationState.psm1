@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4292f906-bf44-485f-9134-f35f5dced880
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -277,8 +277,9 @@ function Get-LinuxPreAutomationState {
 .DESCRIPTION
     Covers the gsettings idle/lock/dim set, the NTP state, and -- only on the
     standalone Enable path -- the libvirtd/virtlogd enabled-state. Group
-    membership and the $HOME ACL are captured as "was the host already in this
-    state", so Disable removes only what Enable actually added.
+    membership (libvirt, kvm, systemd-journal) and the $HOME ACL are captured
+    as "was the host already in this state", so Disable removes only what
+    Enable actually added.
 #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -316,7 +317,7 @@ function Get-LinuxPreAutomationState {
         }.GetNewClosure()
     }
 
-    foreach ($grp in @('libvirt', 'kvm')) {
+    foreach ($grp in @('libvirt', 'kvm', 'systemd-journal')) {
         $knobs["group/$grp"] = Invoke-CaptureRead -Name "membership of $grp" -Reader {
             $line = & getent group $grp 2>$null
             if (-not $line) { return 'no-such-group' }

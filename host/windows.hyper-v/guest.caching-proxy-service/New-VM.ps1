@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4242f187-1ce6-46a5-a5a4-7c2435ed1ac1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -184,6 +184,12 @@ $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
 # for when the pinned release cannot sync the lab's images.
 try { $zotOverride = Resolve-CachingProxyZotOverride -Config $tc }
 catch { Write-Error $_.Exception.Message; exit 1 }
+# The names the VM answers to besides its addresses, from the same file. Read in
+# the plan, while the working proxy is still in place, because a malformed
+# vmStart.serviceHostNames entry refuses the build.
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.ExtensionService.psm1') -DisableNameChecking -Verbose:$false
+try { $serviceHostNames = Get-ExtensionServiceHostNameSeed -Config $tc }
+catch { Write-Error $_.Exception.Message; exit 1 }
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 
 # --- REGION: Report seed values baked empty
@@ -201,7 +207,7 @@ if ($PlanOnly) {
 # One VHDX backs every extension service on this host; this VM grows its own
 # copy below (host/modules/Yuruna.Image.psm1).
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
-$downloadDir = (Get-VMHost).VirtualHardDiskPath
+$downloadDir = (Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VMHost').VirtualHardDiskPath
 $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'windows.hyper-v').BaseImageFile
 
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
@@ -386,6 +392,13 @@ $gitMirrorSeed = Get-CachingProxyGitMirrorSeedSetting -RepoRoot $_repoRootForExt
 $proxyCaStatement = ConvertTo-YurunaProxyCaStatement -SigningKeyBase64 ([string]$gitMirrorSeed.SigningKeyBase64) -CaPem $bumpCa.CertPem
 $proxyCaStatementB64 = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($proxyCaStatement))
 
+# --- REGION: Grafana admin password
+# See https://yuruna.link/42f6b05f-0041
+# A new password for every build. It is recorded in the vault only after the seed
+# that carries it has rendered, so a refused render leaves the record matching the
+# previous build's VM.
+$grafanaAdminPassword = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLowerInvariant()
+
 # --- REGION: Render user-data / meta-data
 # Render user-data from the shared base + Hyper-V overlay (host/vmconfig/
 # caching-proxy-service.*). New-CloudInitUserData resolves placeholders with literal
@@ -401,6 +414,7 @@ $UserData = New-CloudInitUserData `
         SQUID_CACHE_MEM_PLACEHOLDER    = $SquidCacheMem
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $SshAuthorizedKey
         PASSWORD_PLACEHOLDER           = $AdminPassword
+        YURUNA_GRAFANA_ADMIN_PASSWORD_PLACEHOLDER = $grafanaAdminPassword
         YURUNA_STATUS_SERVICE_IP_PLACEHOLDER     = $YurunaHostIp
         YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
         YPOOL_NAS_REPLICATE_PLACEHOLDER     = $ypoolNasReplicate
@@ -427,9 +441,17 @@ $UserData = New-CloudInitUserData `
         YURUNA_GIT_MIRROR_BUILD_COMMIT_PLACEHOLDER = $gitMirrorSeed.BuildCommit
         YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER = $zotOverride.Version
         YURUNA_ZOT_OVERRIDE_SHA256_PLACEHOLDER  = $zotOverride.Sha256
+        YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER   = $serviceHostNames
     } `
     -AllowedUnresolved 'AGGREGATOR_BASE_PLACEHOLDER' `
     -Confirm:$false
+# Recorded before this builder removes the old VM, so a failed write ends the
+# build first. Run on its own, the builder then leaves that VM running;
+# test/service/Start-CachingProxyServiceVM.ps1 has already removed it in its
+# Step 1, before the builder runs. -ErrorAction Stop because the vault module
+# does not see this script's preference when the builder runs in-process. The
+# vault keeps the value this replaces as previousPassword.
+Set-Password -Username 'caching-proxy-grafana-admin' -NewPassword $grafanaAdminPassword -ErrorAction Stop
 
 # --- REGION: Remove existing VM
 # See https://yuruna.link/42e220c4-0004
@@ -498,7 +520,7 @@ try {
     # --- REGION: Create and configure the Hyper-V VM
     New-HyperVServiceGuest -VMName $VMName -SwitchName $switchName -DiskPath $vhdxFile -SeedPath $SeedIso -HostCores $hostCores -MemoryMb $MemoryMb -MacAddress $MacAddress -Confirm:$false
 
-    $createdVm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
+    $createdVm = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VM' -Parameter @{ Name = $VMName }
     Grant-SeedMediaVmRead -Path $SeedIso -VMId $createdVm.Id -Confirm:$false
 
 } finally {
@@ -508,7 +530,7 @@ try {
 
 # --- REGION: Start the VM
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_44a010f47f51d941' -Arguments @{ vMName = "$VMName" })
-Hyper-V\Start-VM -Name $VMName
+$null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Start-VM' -Parameter @{ Name = $VMName }
 
 # --- REGION: Wait for VM IP
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
@@ -521,7 +543,7 @@ $cacheIp = $null
 $cacheCandidateIps = @()
 
 # See https://yuruna.link/42e220c4-0004
-$switchIsExternal = ((Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue).SwitchType -eq 'External')
+$switchIsExternal = ((Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VMSwitch' -Parameter @{ Name = $switchName } -Optional).SwitchType -eq 'External')
 
 # See https://yuruna.link/42e220c4-0004
 $uplinkVerdict = 'unknown'
@@ -674,7 +696,7 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
     $totalBudgetSeconds = 900  # 15 minutes
     $elapsed = [int]((Get-Date) - $portStartTime).TotalSeconds
     $pct     = [math]::Min(100, [math]::Round(($elapsed / $totalBudgetSeconds) * 100))
-    $cpu     = (Get-VM -Name $VMName -ErrorAction SilentlyContinue).CPUUsage
+    $cpu     = (Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Get-VM' -Parameter @{ Name = $VMName } -Optional).CPUUsage
     if ($null -eq $cpu) { $cpu = 0 }
     $sizeMB  = [math]::Round((Get-Item $vhdxFile).Length / 1MB, 0)
     $deltaMB = $sizeMB - $baselineSizeMB

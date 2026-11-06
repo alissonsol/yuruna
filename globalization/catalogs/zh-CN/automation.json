@@ -143,6 +143,11 @@
       "origin": "machine",
       "message": "（本次启动没有systemd-networkd条目）"
     },
+    "automation.system_diagnostic_networkmanager_dhcp_none": {
+      "sourceHash": "2489ade7e3501fa6862563e2be10a971d31c1924197af26cb9749220de1ee1c3",
+      "origin": "machine",
+      "message": "（本次启动没有NetworkManager的dhcp4条目）"
+    },
     "automation.operator_0708e3afbc3562b5": {
       "sourceHash": "90a545e9083f6e77cebcb3bf905c849bc9febb22b60b697b82797f24894b201f",
       "origin": "machine",
@@ -2287,6 +2292,11 @@
       "origin": "machine",
       "message": "提交 : 已占用 {charged}（上限 {limit}），未占用 {uncharged}（虚拟机启动按此上限计费，而非按空闲物理内存）"
     },
+    "automation.memory_commit_outside_processes": {
+      "sourceHash": "a9010810421a77adb6c62ee1e48a3e15c8ed8c2a4089ab6af7f40a4ef909e788",
+      "origin": "machine",
+      "message": "进程外提交 : 已占用的 {charged} 中有 {outside} 不在任何进程的私有字节中（{processes} 个进程共 {private}）。共享内存节、分页池和其他内核分配计入此处，TOP PROCESSES 下的私有字节表中没有任何一行显示它们。"
+    },
     "automation.operator_bf1c637eb978cee4": {
       "sourceHash": "c315ded28236f22804403f1bf0c378f55336cedf6364453291259b5305689e50",
       "origin": "machine",
@@ -3609,6 +3619,101 @@
       "sourceHash": "5021d832dd7c0b0e3371c426f543c23e9e64938b5ffacba06105c9ea5a68b7dd",
       "origin": "machine",
       "message": "删除过期的 Yuruna 临时条目"
+    },
+    "automation.system_diagnostic_journal_access": {
+      "sourceHash": "2af20fbdc405e4a827768c3d83e15847853584b8739e614f592fd6b7423a2687",
+      "origin": "machine",
+      "message": "系统日志访问权限"
+    },
+    "automation.system_diagnostic_journal_readable": {
+      "sourceHash": "c84207e57df83907f613fc95f14d3b870d704195973cc96da69e0327022457a3",
+      "origin": "machine",
+      "message": "此处可以读取系统日志：journalctl --system已正常响应。"
+    },
+    "automation.system_diagnostic_journal_unreadable": {
+      "sourceHash": "caa63cf3d5125c1790f149c3a64c7ad9bb98e001ac89b9ae2b6f18ae79c62d9c",
+      "origin": "machine",
+      "message": "{user}无法读取系统日志（journalctl --system: {detail}）。journalctl改为返回此账户自己的日志，因此本报告的所有日志部分都缺少内核日志、之前各次启动的记录以及其他单元的条目。"
+    },
+    "automation.system_diagnostic_journal_session_stale": {
+      "sourceHash": "aa4b7ea9d4502ea534297db44a059376457f292eece76ef89f7c464e46273205",
+      "origin": "machine",
+      "message": "组数据库显示{user}已属于'systemd-journal'组，但此进程在该成员关系生效之前就已启动：请从新的登录会话重新启动测试运行器。"
+    },
+    "automation.system_diagnostic_journal_grant": {
+      "sourceHash": "974528f12a3d87173c1be787660f09bfb79d02d8d62ec20e2d8892459b4fe08a",
+      "origin": "machine",
+      "message": "若要使其可读，请运行'sudo usermod -aG systemd-journal {user}'，然后从新的登录会话重新启动测试运行器。在Ubuntu KVM宿主机上，host/ubuntu.kvm/Enable-TestAutomation.ps1会添加此组成员关系。"
+    },
+    "automation.system_diagnostic_kernel_log_journal": {
+      "sourceHash": "bae51871c217056155b00cbac65f85c3b5294fc729683d0f2f21a12b9c796797",
+      "origin": "machine",
+      "message": "（此处无法读取dmesg，因此改为从系统日志读取内核日志：journalctl -k -b 0，扫描本次启动最新的{count}条记录，显示最后100条）"
+    },
+    "automation.system_diagnostic_kernel_log_unavailable": {
+      "sourceHash": "e5b7dae3f0071b8ff4c197c7d9d72af2b1256caadf15bfe8d4d969fa2f57de18",
+      "origin": "machine",
+      "message": "（无内核日志：此处无法读取dmesg，且journalctl -k -b 0未返回任何记录；请参阅RECENT SYSTEM EVENTS下的“系统日志访问权限”）"
+    },
+    "automation.system_diagnostic_kernel_journal_oom": {
+      "sourceHash": "82fae68d07b0518e458cee4e10158dec2388ee469040d00fb70bd3ceb4cb5e90",
+      "origin": "machine",
+      "message": "LINUX：本次启动的内核日志显示{count}次OOM-killer事件——内存压力已导致进程被终止。请查看journalctl -k -b 0了解详情。"
+    },
+    "automation.system_diagnostic_kernel_journal_hardware": {
+      "sourceHash": "9a44b36bfa6b2e06b4505576212bd54bc89415a4287c90a462ecf75b7ee1d4d3",
+      "origin": "machine",
+      "message": "LINUX：本次启动的内核日志显示{count}行硬件/驱动程序错误（I/O error、MCE、EDAC等）。"
+    },
+    "automation.system_diagnostic_lockup_settings": {
+      "sourceHash": "b73bff03996f8d47d5aae25fc58fe6f180c9a98540d69b6b2fdebae9c2858ba8",
+      "origin": "machine",
+      "message": "锁死检测与崩溃证据设置"
+    },
+    "automation.system_diagnostic_watchdog_none": {
+      "sourceHash": "f8337fe79cb07a161c3592d3945ba64f55f19efce4992d90f0e26b2b5b296805",
+      "origin": "machine",
+      "message": "（{path}下没有硬件看门狗设备）"
+    },
+    "automation.system_diagnostic_journal_persistent": {
+      "sourceHash": "26288420c867aa017607c00dd49efbe30c7ab0dcf6d3ecd64666b1ad9f9c56e7",
+      "origin": "machine",
+      "message": "{path}存在：即使某次启动中发生死机，该次启动的日志也会在重启后保留。"
+    },
+    "automation.system_diagnostic_journal_volatile": {
+      "sourceHash": "847e31c3197248e689852e3ef86c4cb649a2feef5f2e510c70a9547e97b9c7e3",
+      "origin": "machine",
+      "message": "{path}不存在：日志仅保存在内存中，因此一旦死机，死机那次启动的日志就会丢失。"
+    },
+    "automation.system_diagnostic_deep_mode": {
+      "sourceHash": "b59546183c66ffa62e68d0f04d7104ac5955b7860592f808d4fb4e528ab34687",
+      "origin": "machine",
+      "message": "深度诊断模式"
+    },
+    "automation.system_diagnostic_deep_mode_off": {
+      "sourceHash": "009c146ee632a03048830739904db75c40dcf808df93613d1ece98982686a725",
+      "origin": "machine",
+      "message": "深度诊断模式未启用（{path}不存在）。"
+    },
+    "automation.system_diagnostic_deep_mode_on": {
+      "sourceHash": "853f1fe8553db5e5189d6477f70050e1d7417d66fcb209688da8b89c87a04e10",
+      "origin": "machine",
+      "message": "深度诊断模式自{enabledAtUtc}起已启用。"
+    },
+    "automation.system_diagnostic_deep_mode_unreadable": {
+      "sourceHash": "7a163d807f8dc70dfec9f41d8de67d0b10ab95b394a6943a0c26947002a8b2a4",
+      "origin": "machine",
+      "message": "深度诊断模式：{path}不是不超过64 KiB的普通文件，因此未读取。"
+    },
+    "automation.system_diagnostic_deep_mode_malformed": {
+      "sourceHash": "19d8bd63da2f9ecaee28435b4dd39a84260fbefcc226e390276e02d557599601",
+      "origin": "machine",
+      "message": "深度诊断模式：{path}的内容不是JSON对象（{message}）；不显示其中的任何内容。"
+    },
+    "automation.system_diagnostic_journal_not_on_disk": {
+      "sourceHash": "2575ba4799431c3407c90c2367fe23bb0d7e3be33e04a2826f4c8788c9103fa3",
+      "origin": "machine",
+      "message": "journald设置为Storage={storage}，无论{path}是否存在都不会在磁盘上保留日志，因此一旦死机，死机那次启动的日志就会丢失。"
     }
   }
 }

@@ -17,11 +17,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yuruna.com/test/extension/extension-sdk/controlproof"
 )
 
 // sharedVectors reads the one vector file the aggregator, hostctl, the host's
-// PowerShell verifier and the refresh proof all pin. This gate verifies the
-// legacy control proof too, so it must agree with that file byte for byte.
+// PowerShell verifier and the refresh proof all pin. This gate refuses the
+// legacy control proof, so it must agree with that file on what that proof is.
 func sharedVectors(t *testing.T) (legacyToken, legacyWire string, legacyExpiry, verifyAt int64, refreshWire string) {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "hostrefresh", "testdata", "vectors.json"))
@@ -45,10 +47,11 @@ func sharedVectors(t *testing.T) (legacyToken, legacyWire string, legacyExpiry, 
 	return v.Legacy.Token, v.Legacy.Wire, v.Legacy.ExpiryUnix, v.Legacy.VerifyAtUnix, v.Versioned.Wire
 }
 
-// The legacy vector is literally what this package's verifier accepts, inside
-// its window, and what its own HMAC rule produces.
-func TestLegacyControlProofGolden(t *testing.T) {
-	token, wire, expiry, verifyAt, _ := sharedVectors(t)
+// The legacy vector is still what its HMAC rule produces, and this gate refuses
+// it by its shape: a proof that names no audience never reaches a verifier and
+// buys no session.
+func TestTheLegacyControlProofIsRefused(t *testing.T) {
+	token, wire, expiry, _, _ := sharedVectors(t)
 	if wire != "1900000000.0l+y7qrGppfHhBxHwLiLx702JdmA5KuxcFOmENJnZDs=" {
 		t.Fatalf("the shared legacy vector moved: %q", wire)
 	}
@@ -57,29 +60,38 @@ func TestLegacyControlProofGolden(t *testing.T) {
 	if got := strconv.FormatInt(expiry, 10) + "." + base64.StdEncoding.EncodeToString(mac.Sum(nil)); got != wire {
 		t.Fatalf("legacy rule drifted:\n got  %s\n want %s", got, wire)
 	}
-	if !verifyControlProof(token, wire, time.Unix(verifyAt, 0), ControlProofMaxTTL) {
-		t.Fatal("the legacy golden proof must verify inside its window")
+	if controlProofRE.MatchString(wire) {
+		t.Error("the local shape check accepted the legacy golden proof")
 	}
-	if verifyControlProof(token, wire, time.Unix(expiry+1, 0), ControlProofMaxTTL) {
-		t.Fatal("the legacy golden proof verified after its expiry")
+	g := New(Options{BearerToken: token})
+	body, _ := json.Marshal(map[string]string{"proof": controlproof.Mint(token, time.Minute)})
+	w := httptest.NewRecorder()
+	g.HandleProofUnlock(w, httptest.NewRequest(http.MethodPost, "/api/unlock-proof", strings.NewReader(string(body))))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("unlock with a fresh legacy proof = %d, want 400", w.Code)
 	}
-	if !controlProofRE.MatchString(wire) {
-		t.Fatal("the legacy golden proof fails the local shape check")
+	var reply map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &reply)
+	if reply["code"] != "auth.proof_shape" {
+		t.Errorf("refusal code = %v, want auth.proof_shape", reply["code"])
+	}
+	if len(w.Result().Cookies()) != 0 {
+		t.Fatal("a legacy proof bought a session cookie")
 	}
 }
 
-// A refresh proof is never a legacy proof: the legacy verifier refuses it
-// under the very token that derived its key.
+// A refresh proof is never a control proof: the control-proof verifier refuses
+// it under the very token that derived its key.
 func TestRefreshWireIsNotALegacyProof(t *testing.T) {
 	token, _, _, verifyAt, refreshWire := sharedVectors(t)
 	if !strings.HasPrefix(refreshWire, "yhr1.") {
 		t.Fatalf("unexpected shared refresh vector %q", refreshWire)
 	}
-	if verifyControlProof(token, refreshWire, time.Unix(verifyAt, 0), ControlProofMaxTTL) {
-		t.Fatal("the legacy verifier accepted a refresh proof")
+	if controlproof.VerifyFor(token, refreshWire, "", time.Unix(verifyAt, 0), ControlProofMaxTTL) {
+		t.Fatal("the control-proof verifier accepted a refresh proof")
 	}
 	if controlProofRE.MatchString(refreshWire) {
-		t.Fatal("the legacy shape check accepted a refresh proof")
+		t.Fatal("the local shape check accepted a refresh proof")
 	}
 }
 

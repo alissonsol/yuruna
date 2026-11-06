@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 423d0447-f082-4bcc-aa8c-feb1b6cfab81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,10 +29,12 @@
     a LoginCommand return $null, and the capability-matrix snapshot's promise
     not to leak the Authenticator scriptblock.
 
-    No test shells out: the Authenticator under test is a stub registered over
-    an existing provider Type, so nothing needs az / aws / gcloud / docker on
-    PATH. The built-in registrations are restored by a -Force re-import in
-    AfterAll.
+    No test shells out to a registry: the Authenticator under test is a stub
+    registered over an existing provider Type, so nothing needs az / aws /
+    gcloud / docker on PATH. The deadline cases are the exception: they run
+    the built-in Authenticators against stand-ins for those CLIs, one of which
+    starts a real child process that never answers. The built-in registrations
+    are restored by a -Force re-import in AfterAll.
 
     Throw-based assertions (no Should), so the file runs standalone.
     Run: pwsh -NoProfile -File test/modules/Test.CredentialProvider.Tests.ps1
@@ -58,32 +60,10 @@ function Restore-CredentialRegistry {
     Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.CredentialProvider.psm1') -Force -DisableNameChecking
 }
 
-function Get-CredentialEnvSnapshot {
-    <#
-    .SYNOPSIS
-        Capture the credential-bearing env vars so a test can set them and
-        put them back exactly as they were (including "was not set").
-    #>
-    [CmdletBinding()] [OutputType([hashtable])] param()
-    $snap = @{}
-    foreach ($name in @('YURUNA_DOCKER_HUB_USERNAME','YURUNA_DOCKER_HUB_PASSWORD','YURUNA_REGISTRY_USERNAME','YURUNA_REGISTRY_PASSWORD')) {
-        $snap[$name] = [Environment]::GetEnvironmentVariable($name)
-    }
-    return $snap
-}
-
-function Restore-CredentialEnv {
-    <#
-    .SYNOPSIS
-        Put the credential env vars back the way Get-CredentialEnvSnapshot
-        found them.
-    #>
-    [CmdletBinding()] [OutputType([void])] param([Parameter(Mandatory)][hashtable]$Snapshot)
-    foreach ($name in $Snapshot.Keys) {
-        if ($null -eq $Snapshot[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
-        else { [Environment]::SetEnvironmentVariable($name, [string]$Snapshot[$name]) }
-    }
-}
+# The credential-bearing environment entries a test sets; each test saves them
+# through the shared fixture helpers before it changes them and restores them
+# in its own teardown, absent entries included.
+$script:credentialEnvironmentName = @('YURUNA_DOCKER_HUB_USERNAME', 'YURUNA_DOCKER_HUB_PASSWORD', 'YURUNA_REGISTRY_USERNAME', 'YURUNA_REGISTRY_PASSWORD')
 
 }
 
@@ -174,7 +154,7 @@ Describe 'LoginCommand: the batch-pipeline surface' {
         Assert-True ($cmd -match '^gcloud auth print-access-token \| docker login -u oauth2accesstoken --password-stdin https://us-central1-docker\.pkg\.dev$') "GAR login command wrong: $cmd"
     }
     It 'skips the Docker Hub login step when the credentials are not in the environment' {
-        $snap = Get-CredentialEnvSnapshot
+        $saved = Save-YurunaTestEnvironment -Name $script:credentialEnvironmentName
         try {
             [Environment]::SetEnvironmentVariable('YURUNA_DOCKER_HUB_USERNAME', $null)
             [Environment]::SetEnvironmentVariable('YURUNA_DOCKER_HUB_PASSWORD', $null)
@@ -190,10 +170,10 @@ Describe 'LoginCommand: the batch-pipeline surface' {
             Assert-True ($cmd -is [string] -and $cmd.Length -gt 0) 'both vars set must produce a login command'
             Assert-True ($cmd -notmatch 'hunter2') 'the command must reference the env var, never inline the secret'
             Assert-True ($cmd -match 'YURUNA_DOCKER_HUB_PASSWORD') "expected an env-var reference: $cmd"
-        } finally { Restore-CredentialEnv -Snapshot $snap }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
     It 'gates the generic docker login on YURUNA_REGISTRY_USERNAME / _PASSWORD' {
-        $snap = Get-CredentialEnvSnapshot
+        $saved = Save-YurunaTestEnvironment -Name $script:credentialEnvironmentName
         try {
             [Environment]::SetEnvironmentVariable('YURUNA_REGISTRY_USERNAME', $null)
             [Environment]::SetEnvironmentVariable('YURUNA_REGISTRY_PASSWORD', $null)
@@ -206,7 +186,7 @@ Describe 'LoginCommand: the batch-pipeline surface' {
             $cmd = & $p.LoginCommand 'harbor.example.com/team/img'
             Assert-True ($cmd -match 'docker login --username \$env:YURUNA_REGISTRY_USERNAME --password-stdin harbor\.example\.com$') "generic login command wrong: $cmd"
             Assert-True ($cmd -notmatch 's3cr3t') 'the password must stay in the env var'
-        } finally { Restore-CredentialEnv -Snapshot $snap }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
     }
 }
 
@@ -288,6 +268,92 @@ Describe 'Repair-Credential' {
         $m = Get-CredentialProviderMatrix
         Assert-Equal -Expected ($script:builtInType -join ',') -Actual (@($m.Keys) -join ',') `
             -Because 'replacing a provider must not push it behind the catch-all'
+    }
+}
+
+Describe 'a registry login under the deadline' {
+    # A login reaches a registry or an identity service, so it is held to the
+    # deploy tools' deadline. The CLI that never answers is a real child
+    # process (a pwsh that sleeps for a minute) started by a stand-in for it,
+    # so the case exercises the kill, not a mock of it; a case that fails to
+    # stop the child fails by its own duration check. The bound is lowered in
+    # the module for the run and comes back with the re-import in AfterAll.
+    BeforeAll {
+        $pwsh = (Get-Process -Id $PID).Path
+        $script:hangingTool = [scriptblock]::Create("& '$pwsh' -NoProfile -NonInteractive -Command 'Start-Sleep -Seconds 60'")
+        $script:answeringTool = { 'fixture-token'; $global:LASTEXITCODE = 0 }
+        & (Get-Module Yuruna.CredentialProvider) { $script:RegistryLoginTimeoutSeconds = 2 }
+    }
+    AfterAll { Restore-CredentialRegistry }
+    BeforeEach { $script:savedCredentialEnvironment = Save-YurunaTestEnvironment -Name $script:credentialEnvironmentName }
+    AfterEach {
+        Restore-YurunaTestEnvironment -Saved $script:savedCredentialEnvironment
+        foreach ($name in 'az', 'aws', 'gcloud', 'docker') { Remove-Item -Path "Function:\$name" -ErrorAction SilentlyContinue }
+    }
+
+    It 'stops a <Type> login when <Hangs> never answers at the deadline and reports it failed' -ForEach @(
+        @{ Type = 'azurecr'; Target = 'yuruna.azurecr.io/web:1'; Hangs = 'az'; Answers = @() }
+        @{ Type = 'ecr'; Target = '123456789012.dkr.ecr.us-east-1.amazonaws.com/app:tag'; Hangs = 'aws'; Answers = @('docker') }
+        @{ Type = 'ecr'; Target = '123456789012.dkr.ecr.us-east-1.amazonaws.com/app:tag'; Hangs = 'docker'; Answers = @('aws') }
+        @{ Type = 'gar'; Target = 'us-central1-docker.pkg.dev/proj/repo/img'; Hangs = 'gcloud'; Answers = @('docker') }
+        @{ Type = 'gar'; Target = 'us-central1-docker.pkg.dev/proj/repo/img'; Hangs = 'docker'; Answers = @('gcloud') }
+        @{ Type = 'dockerhub'; Target = 'docker.io/library/app'; Hangs = 'docker'; Answers = @() }
+        @{ Type = 'docker-generic'; Target = 'harbor.example.test/team/img'; Hangs = 'docker'; Answers = @() }
+    ) {
+        $env:YURUNA_DOCKER_HUB_USERNAME = 'hub-user'
+        $env:YURUNA_DOCKER_HUB_PASSWORD = 'hub-secret'
+        $env:YURUNA_REGISTRY_USERNAME = 'registry-user'
+        $env:YURUNA_REGISTRY_PASSWORD = 'registry-secret'
+        foreach ($name in $Answers) { Set-Item -Path "Function:global:$name" -Value $script:answeringTool }
+        Set-Item -Path "Function:global:$Hangs" -Value $script:hangingTool
+        Assert-Equal -Expected $Type -Actual (Get-CredentialProvider -Target $Target).Type -Because 'precondition: the built-in provider claims the target'
+        $warnings = @()
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        $ok = Repair-Credential -Target $Target -Confirm:$false -WarningVariable warnings -WarningAction SilentlyContinue 3>$null
+        $elapsed = $watch.Elapsed.TotalSeconds
+        Assert-Equal -Expected $false -Actual $ok -Because 'a login stopped at its deadline has not repaired the credential'
+        Assert-True ($elapsed -lt 30) "the $Hangs child was killed at the deadline, not waited out ($elapsed s)"
+        Assert-Equal -Expected 124 -Actual $global:LASTEXITCODE -Because 'the stopped call reports exit 124'
+        Assert-True (@($warnings | ForEach-Object { "$_" }) -match 'did not finish within 2 seconds') "the stopped login is named in a warning: $($warnings -join ' | ')"
+    }
+
+    It 'preserves successful and refused <Type> login outcomes inside the deadline' -ForEach @(
+        @{ Type = 'azurecr'; Target = 'yuruna.azurecr.io/web:1'; LoginTool = 'az'; TokenTool = '' }
+        @{ Type = 'ecr'; Target = '123456789012.dkr.ecr.us-east-1.amazonaws.com/app:tag'; LoginTool = 'docker'; TokenTool = 'aws' }
+        @{ Type = 'gar'; Target = 'us-central1-docker.pkg.dev/proj/repo/img'; LoginTool = 'docker'; TokenTool = 'gcloud' }
+        @{ Type = 'dockerhub'; Target = 'docker.io/library/app'; LoginTool = 'docker'; TokenTool = '' }
+        @{ Type = 'docker-generic'; Target = 'harbor.example.test/team/img'; LoginTool = 'docker'; TokenTool = '' }
+    ) {
+        $env:YURUNA_DOCKER_HUB_USERNAME = 'hub-user'
+        $env:YURUNA_DOCKER_HUB_PASSWORD = 'hub-secret'
+        $env:YURUNA_REGISTRY_USERNAME = 'registry-user'
+        $env:YURUNA_REGISTRY_PASSWORD = 'registry-secret'
+        if ($TokenTool) { Set-Item -Path "Function:global:$TokenTool" -Value $script:answeringTool }
+        Set-Item -Path "Function:global:$LoginTool" -Value {
+            $script:registryLoginCalls++
+            $global:LASTEXITCODE = $script:registryLoginExitCode
+        }
+        foreach ($exitCode in 0, 7) {
+            $script:registryLoginExitCode = $exitCode
+            $script:registryLoginCalls = 0
+            $ok = Repair-Credential -Target $Target -Confirm:$false -WarningAction SilentlyContinue
+            Assert-Equal ($exitCode -eq 0) $ok "the $Type login's exit $exitCode determines whether it repaired the credential"
+            Assert-Equal 1 $script:registryLoginCalls 'the login is attempted once'
+            Assert-Equal $exitCode $global:LASTEXITCODE 'the deadline preserves the CLI exit code'
+        }
+    }
+
+    It 'refuses <Type> repair without attempting docker login when the token exchange fails' -ForEach @(
+        @{ Type = 'ecr'; Target = '123456789012.dkr.ecr.us-east-1.amazonaws.com/app:tag'; TokenTool = 'aws' }
+        @{ Type = 'gar'; Target = 'us-central1-docker.pkg.dev/proj/repo/img'; TokenTool = 'gcloud' }
+    ) {
+        Set-Item -Path "Function:global:$TokenTool" -Value { 'fixture-token'; $global:LASTEXITCODE = 7 }
+        $script:registryLoginCalls = 0
+        Set-Item -Path 'Function:global:docker' -Value { $script:registryLoginCalls++; $global:LASTEXITCODE = 0 }
+        $ok = Repair-Credential -Target $Target -Confirm:$false -WarningAction SilentlyContinue
+        Assert-False $ok 'a token the identity service refused cannot repair the credential'
+        Assert-Equal 0 $script:registryLoginCalls 'docker never receives a failed token exchange'
+        Assert-Equal 7 $global:LASTEXITCODE 'the token failure remains visible'
     }
 }
 

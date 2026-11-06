@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a18897-339a-0499-216e-65f73137ab64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -194,7 +194,7 @@
     'aggregator.help_drop_a_host_from_the_pool_view_this_long_after_last_co_58ed8eb1' = 'drop a host from the pool view this long after last contact; its per-cycle dedup state is kept an hour longer so a re-appearing host cannot double-count, and dashboard deep links resolve over at least 24h regardless. Cumulative pass/fail counters are not expired by this -- use POST /api/v1/forget-host'
     'aggregator.help_file_holding_the_shared_bearer_token_that_gates_post_i_bd4b1952' = 'file containing the shared bearer token required for POST /ingest, POST /api/v1/forget-host, POST /api/v1/handover-host, and GET /api/v1/host-history; an empty path, absent file, or empty file disables these operations (no unauthenticated control route)'
     'aggregator.help_framework_ring_state_file' = 'file that keeps the framework revision each host''s completed cycles ran, so the canary ring survives a restart (empty keeps it in memory)'
-    'aggregator.help_loki_outbox_dir' = 'folder that keeps Loki lines until Loki accepts them (empty keeps them in memory, lost on restart)'
+    'aggregator.help_loki_outbox_dir' = 'folder that keeps Loki lines until Loki accepts them (empty keeps them in memory, at most 64 MiB, lost on restart)'
     'aggregator.help_loki_push_api_url_c89d9321' = 'Loki push API URL'
     'aggregator.help_on_startup_restore_cycle_counts_from_loki_over_this_tr_36b6bc4f' = 'on startup, restore cycle counts from Loki over this trailing window (0 to disable)'
     'aggregator.help_open_an_incident_after_this_many_failed_cycles_within__fb192ccc' = 'open an incident after this many failed cycles within -incident-window'
@@ -213,6 +213,7 @@
     'aggregator.host_not_known_to_the_pool' = 'host not known to the pool'
     'aggregator.hostid_must_be_a_42_prefixed_32_hex_id' = 'hostId must be a 42-prefixed 32-hex id'
     'aggregator.ingest_disabled' = 'ingest disabled'
+    'aggregator.ingest_not_recorded' = 'the collector could not record these lines; retry'
     'aggregator.ingest_queue_full' = 'the collector cannot hold these lines now; try again later'
     'aggregator.invalid_control_scope' = 'invalid control scope'
     'aggregator.invalid_hostid' = 'invalid hostId'

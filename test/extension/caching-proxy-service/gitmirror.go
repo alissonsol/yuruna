@@ -24,7 +24,7 @@ func mirrorFlags() *mirrorOptions {
 	o := &mirrorOptions{Limits: defaultMirrorLimits(), Now: time.Now, NoUpstreamPath: noUpstreamConfPath}
 	flag.StringVar(&o.Role, "mirror-role", "management", "management, worker, reader, cgi or credential")
 	flag.StringVar(&o.Root, "mirror-root", "/var/lib/yuruna/git", "published bare repositories")
-	flag.StringVar(&o.StateRoot, "mirror-state-root", "/var/lib/yuruna/git-mirror", "mirror metadata and staging")
+	flag.StringVar(&o.StateRoot, "mirror-state-root", "/var/lib/yuruna/git-mirror", "mirror metadata")
 	flag.StringVar(&o.RuntimeRoot, "mirror-runtime-root", "/run/yuruna/git-mirror", "private worker runtime directory")
 	flag.StringVar(&o.ReaderRoot, "mirror-reader-root", "/run/yuruna/git-mirror-readers", "reader barriers and use records")
 	flag.StringVar(&o.RepositoriesFile, "mirror-repositories", "/etc/yuruna/git-mirror/repositories.yml", "JSON-encoded immutable repository list")

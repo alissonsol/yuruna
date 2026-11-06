@@ -82,8 +82,9 @@ project checkout is input to the harness and deploy engine.
 [Test.SourceSelection](../../test/modules/Test.SourceSelection.psm1) resolves the
 framework and project revisions once per cycle gate. Under `repositories.mirror`
 it tries an enrolled Git mirror on the caching proxy before GitHub (`prefer`),
-after GitHub (`fallback`), or not at all (`off`); a host with no verification
-keys uses no mirror. The mirror runs inside the
+after GitHub (`fallback`), or not at all (`off`); a signed stale answer within
+`mirrorOnlyMaxAgeSeconds` can select its retained pin without a GitHub check, and
+a host with no verification keys uses no mirror. The mirror runs inside the
 [caching-proxy extension](../../test/extension/caching-proxy-service/), so it
 adds no boundary and no external edge.
 
@@ -108,6 +109,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 [Architecture](../architecture.md) | [Design overview](README.md)

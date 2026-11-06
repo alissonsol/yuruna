@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42f816f3-f8fb-4c0a-84b9-8070c8990937
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,7 +134,7 @@ Describe 'Read-CycleOutcomeRecord' {
 Describe 'Invoke-OuterCycleDispatch scores a cycle only from a valid outcome record' {
     BeforeEach {
         $script:Dir = New-YurunaTestTempDir -Prefix 'outdisp'
-        $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $script:SavedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'OUTREC_FIXTURE_TEXT', 'OUTREC_FIXTURE_EXIT'
         $env:YURUNA_RUNTIME_DIR = $script:Dir
         $script:CycleScript = Join-Path $script:Dir 'cycle.ps1'
         Set-Content -LiteralPath $script:CycleScript -Value '# fixture' -Encoding utf8
@@ -156,7 +156,6 @@ Describe 'Invoke-OuterCycleDispatch scores a cycle only from a valid outcome rec
         $script:State = @{ CycleScript = $script:CycleScript; PwshExe = 'pwsh'; ShutdownState = @{ Requested = $false }; CycleGeneration = $script:Generation }
     }
     AfterEach {
-        Remove-Item Env:OUTREC_FIXTURE_TEXT, Env:OUTREC_FIXTURE_EXIT -ErrorAction SilentlyContinue
         Restore-YurunaTestEnvironment -Saved $script:SavedRuntime
         Remove-YurunaTestTempDir $script:Dir
     }

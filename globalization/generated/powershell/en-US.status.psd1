@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 429cc804-7b62-2db1-9091-f5ab5410d797
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1378,7 +1378,7 @@
             'trust' = 'external'
         }
     )
-    'status.runner_attempts_description' = 'Failures from the latest 20 runner attempts remain here after recovery. Preflight failures occur before a new test cycle starts.'
+    'status.runner_attempts_description' = 'Failures from the latest 20 runner attempts remain here after recovery, and so do up to 30 older failures that a later attempt passed after. Preflight failures occur before a new test cycle starts.'
     'status.runner_attempts_empty' = 'No retained runner attempt failures.'
     'status.runner_attempts_title' = 'Runner attempt failures'
     'status.runner_attempts_unavailable' = 'Runner attempt history is unavailable.'
@@ -1392,6 +1392,22 @@
             'trust' = 'external'
         }
     )
+    'status.runner_resident' = @(
+        'Resident runner: commit '
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', started '
+        @{
+            'arg' = 'startedAt'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'status.runner_resident_unreported' = 'The resident runner has not reported its commit and start time. A runner started before that report existed reports them after its next restart.'
     'status.save' = 'Save'
     'status.save_and_start_cycle' = 'Save and start cycle'
     'status.save_and_start_cycle_failed_value1' = @(

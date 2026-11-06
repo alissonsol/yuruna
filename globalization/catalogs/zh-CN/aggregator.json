@@ -554,9 +554,9 @@
       "message": "控制范围无效"
     },
     "aggregator.help_loki_outbox_dir": {
-      "sourceHash": "a2562c2b091e6d72fc712853ba36018f425f1e6d774ce0e2b358d0385f88b668",
+      "sourceHash": "057723b2ab99365b7755cd2da73cb341090df00c27cda99fa77daa5a9fa15439",
       "origin": "machine",
-      "message": "在 Loki 接受之前保存 Loki 日志行的文件夹（为空则保存在内存中，重启后丢失）"
+      "message": "保存 Loki 日志行直到 Loki 接收它们的文件夹（留空则保存在内存中，最多 64 MiB，重启后丢失）"
     },
     "aggregator.log_loki_not_ready": {
       "sourceHash": "926f883a8bcea884879ca48a04be9878b66d573d2507152edb1d95a213242aa3",
@@ -617,6 +617,11 @@
       "sourceHash": "41063595a20922a8731b9cc7e85eddc935ca0b80fa0844b5cc2005e40c5d8768",
       "origin": "machine",
       "message": "框架环：无法写入 {path}（{reason}）；修订版本保留在内存中，直到写入成功"
+    },
+    "aggregator.ingest_not_recorded": {
+      "sourceHash": "a2ba4c33cf58fef8e691017c7c74cbf84b3d1f5ced848ce23c62754800085811",
+      "origin": "machine",
+      "message": "收集器无法记录这些日志行；请重试"
     }
   }
 }

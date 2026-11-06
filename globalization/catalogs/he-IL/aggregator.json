@@ -554,9 +554,9 @@
       "message": "היקף בקרה לא חוקי"
     },
     "aggregator.help_loki_outbox_dir": {
-      "sourceHash": "a2562c2b091e6d72fc712853ba36018f425f1e6d774ce0e2b358d0385f88b668",
+      "sourceHash": "057723b2ab99365b7755cd2da73cb341090df00c27cda99fa77daa5a9fa15439",
       "origin": "machine",
-      "message": "תיקייה ששומרת שורות Loki עד ש-Loki מקבל אותן (ריק שומר אותן בזיכרון, והן אובדות באתחול)"
+      "message": "תיקייה ששומרת שורות Loki עד ש-Loki מקבל אותן (ריק שומר אותן בזיכרון, עד 64 MiB, והן אובדות באתחול)"
     },
     "aggregator.log_loki_not_ready": {
       "sourceHash": "926f883a8bcea884879ca48a04be9878b66d573d2507152edb1d95a213242aa3",
@@ -617,6 +617,11 @@
       "sourceHash": "41063595a20922a8731b9cc7e85eddc935ca0b80fa0844b5cc2005e40c5d8768",
       "origin": "machine",
       "message": "טבעת ה-framework: לא ניתן לכתוב את {path} ({reason}); הגרסאות נשארות בזיכרון עד שכתיבה תצליח"
+    },
+    "aggregator.ingest_not_recorded": {
+      "sourceHash": "a2ba4c33cf58fef8e691017c7c74cbf84b3d1f5ced848ce23c62754800085811",
+      "origin": "machine",
+      "message": "האוסף לא הצליח לרשום את השורות האלה; נסו שוב"
     }
   }
 }

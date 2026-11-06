@@ -3766,9 +3766,11 @@ the script. A mismatch deletes the download, so a retried unit fetches afresh.
 `amisad.dev/poc/test/ubuntu.server.24/ubuntu.server.24.amisad-core.db.sh`
 
 AmisAd POC - create the amisad database, load the schema, and open the
-instance to in-cluster pods: role 'amisad' (fixed lab password, rides in
-DATABASE_URL - see poc/test.md), listen_addresses '*', pg_hba for the pod
-and node networks. The role gets NO UPDATE/DELETE on ledger tables - the
+instance to in-cluster pods: role 'amisad', created without a password (the
+deploy step sets a new one on every build and publishes it only as the
+Kubernetes Secret the pods build DATABASE_URL from - see poc/test.md),
+listen_addresses '*', pg_hba for the pod and node networks.
+The role gets NO UPDATE/DELETE on ledger tables - the
 database itself enforces append-only. The schema is fetched from the host
 status service into a private directory and fed to psql on stdin, because the
 postgres user cannot read the login user's 0750 home and a world-readable

@@ -1603,7 +1603,7 @@ write_files:
               echo "  nothing is being kept warm and a guest pulling now meets a cold cache."
           elif [ "$PW_HAVE" = 1 ]; then
               echo "Warm sets, last warmed ${YURUNA_PREWARM_LAST_RUN:-never} (versions resolved via ${YURUNA_PREWARM_RESOLVE_SRC:-unknown}):"
-              echo "  Workload support image set (mirror.gcr.io/library/registry:2):"
+              echo "  Workload support image set (mirror.gcr.io/library/registry:2.8.3):"
               if [ "$WORKLOAD_COLD_LEFT" -gt 0 ]; then
                   echo "    resident                 : ${WORKLOAD_HELD} of ${WORKLOAD_TOTAL} held   <-- an example workload pays ${WORKLOAD_COLD_LEFT} cold sync(s)"
               else
@@ -1771,7 +1771,7 @@ write_files:
       ZOT_ROOT=/var/lib/zot
       # mirror.gcr.io deliberately has no /v2/_catalog, so zot cannot poll it.
       # Ask for the one fixed workload support image directly instead.
-      WORKLOAD_REFS='mirror.gcr.io/library/registry:2'
+      WORKLOAD_REFS='mirror.gcr.io/library/registry:2.8.3'
 
       install -d -m 0755 "$STATE_DIR" 2>/dev/null
       command -v jq >/dev/null 2>&1 || \
@@ -1790,7 +1790,10 @@ write_files:
       # See https://yuruna.link/429f3d06-004c
       YR_BASE="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"
       YR_SRC="github"
-      # Safe to source: host.env is host-baked IP/PORT only, never operator free text.
+      # Safe to source: host.env holds only host-baked keys (the host id, the status
+      # service and caching-proxy addresses and port, the CA hash, the framework
+      # repository and ref), written from validated values and never from operator
+      # free text, so sourcing it cannot run a command.
       if [ -r /etc/yuruna/host.env ]; then
           . /etc/yuruna/host.env
           YR_H="${YURUNA_STATUS_SERVICE_IP:-}"
@@ -2530,6 +2533,14 @@ write_files:
       [Service]
       Environment=GF_AUTH_ANONYMOUS_ENABLED=true
       Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      EnvironmentFile=/etc/yuruna/grafana-admin.env
+  # The admin password this build generated. systemd reads it as root, so it stays
+  # out of the world-readable drop-in; Grafana applies it when it creates its database.
+  - path: /etc/yuruna/grafana-admin.env
+    permissions: '0600'
+    owner: root:root
+    content: |
+      GF_SECURITY_ADMIN_PASSWORD=YURUNA_GRAFANA_ADMIN_PASSWORD_PLACEHOLDER
   # --- REGION: https://yuruna.link/429f3d06-004f
   - path: /etc/grafana/provisioning/datasources/yuruna.yaml
     permissions: '0644'
@@ -2841,6 +2852,14 @@ write_files:
     owner: root:root
     content: |
       YURUNA_GUEST_CHANNEL_KEY_PLACEHOLDER
+  # Names the management daemon answers to besides its addresses, host name
+  # and localhost, from the building host's configuration. Read with sed by
+  # the build below, never sourced.
+  - path: /etc/yuruna/service-host-names.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_SERVICE_HOST_NAMES='YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER'
   # --- REGION: https://yuruna.link/429f3d06-002a
   # See https://yuruna.link/429f3d06-0054
   # This VM is provisioned once and runs for weeks, so it accumulates host
@@ -2943,8 +2962,10 @@ write_files:
       set -u
       NAME="${1:-stash}"
       CDIR=/etc/yuruna/host-config
-      # host.env holds only host-baked coordinates (no operator free-text), so sourcing
-      # is safe; operator-supplied env files must instead be sed-extracted.
+      # host.env holds only host-baked keys (the host id, the status service and
+      # caching-proxy addresses and port, the CA hash, the framework repository and
+      # ref), written from validated values and never from operator free text, so
+      # sourcing is safe; operator-supplied env files must instead be sed-extracted.
       [ -r /etc/yuruna/host.env ] && . /etc/yuruna/host.env
       [ -r "$CDIR/config.env" ] && . "$CDIR/config.env"
       HOST_IP="${YURUNA_STATUS_SERVICE_IP:-}"
@@ -3642,11 +3663,23 @@ write_files:
                 "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
               },
               {
+                "id": 33,
+                "type": "logs",
+                "title": "Host restarts and runner faults across the pool",
+                "description": "host_restart and runner_fault events from each host's per-cycle NDJSON: a host that booted after a cycle's last write (the aborted cycle, its last write, the boot time and the seconds down) and a fault the outer runner published (failure class, stage, message and the path of the attempt's record). The runner queues both while no cycle is open, so each arrives with that host's next cycle, under its own timestamp. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+                "gridPos": { "h": 9, "w": 24, "x": 0, "y": 49 },
+                "datasource": { "type": "loki", "uid": "yuruna-loki" },
+                "targets": [
+                  { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json | event=~\"host_restart|runner_fault\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                ],
+                "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
+              },
+              {
                 "id": 11,
                 "type": "logs",
                 "title": "Cycle event stream across the pool (all steps)",
                 "description": "Every per-cycle NDJSON event (cycle_start / step_end / step_failure / typed sub-events) tailed from each host. Use the Grafana log search to filter, e.g. cycleStartUtc=... or event=step_end. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
-                "gridPos": { "h": 10, "w": 24, "x": 0, "y": 49 },
+                "gridPos": { "h": 10, "w": 24, "x": 0, "y": 58 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
                   { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
@@ -3658,7 +3691,7 @@ write_files:
                 "type": "logs",
                 "title": "Cycle status transitions across the pool (24h)",
                 "description": "One line each time a host's cycle changes state (running -> pass/fail), from the status.json poll: hostId, cycleStartUtc, overallStatus and a baseUrl for drill-down. The cycle-level audit trail behind the table and timeline above. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
-                "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
+                "gridPos": { "h": 9, "w": 24, "x": 0, "y": 68 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
                   { "refId": "A", "expr": "{pool=~\"$pool\"} | json | overallStatus=~\".+\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
@@ -3670,7 +3703,7 @@ write_files:
                 "type": "table",
                 "title": "Incidents by failure class (window)",
                 "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
-                "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
+                "gridPos": { "h": 8, "w": 24, "x": 0, "y": 77 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
                   { "refId": "A", "expr": "sum by (dominantClass) (count_over_time({pool=~\"$pool\", src=\"incident\"} | json | event=\"incident_open\" [$__range]))", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
@@ -5567,7 +5600,10 @@ runcmd:
     YR_FLAGS=""
     YR_SRC="github"
     YR_BUILD_SOURCE=github
-    # Safe to source: host.env is host-baked IP/PORT only, never operator free-text -- so it cannot abort this runcmd phase.
+    # Safe to source: host.env holds only host-baked keys (the host id, the status service
+    # and caching-proxy addresses and port, the CA hash, the framework repository and ref),
+    # written from validated values and never from operator free text, so sourcing it
+    # cannot run a command or abort this runcmd phase.
     if [ -r /etc/yuruna/host.env ]; then
       . /etc/yuruna/host.env
       YR_HOST="${YURUNA_STATUS_SERVICE_IP:-}"
@@ -5599,10 +5635,10 @@ runcmd:
       fi
     }
     # --- REGION: https://yuruna.link/429f3d06-0070
-    mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/pool-aggregator-service/internal/loki /opt/pool-aggregator-service/internal/httpserve /opt/pool-aggregator-service/internal/hostpoll /opt/pool-aggregator-service/internal/incident /opt/pool-aggregator-service/internal/poolstate /opt/extension-sdk/beacon /opt/extension-sdk/controlproof /opt/extension-sdk/hostinfo /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n /opt/extension-sdk/servicecfg /opt/extension-sdk/internal/gatethrottle /opt/extension-sdk/jsonbody
+    mkdir -p /opt/pool-aggregator-service/internal/catalog /opt/pool-aggregator-service/internal/loki /opt/pool-aggregator-service/internal/httpserve /opt/pool-aggregator-service/internal/hostpoll /opt/pool-aggregator-service/internal/incident /opt/pool-aggregator-service/internal/poolstate /opt/pool-aggregator-service/internal/metrics /opt/pool-aggregator-service/internal/localization /opt/pool-aggregator-service/internal/extensions /opt/pool-aggregator-service/internal/feed /opt/pool-aggregator-service/internal/poll /opt/pool-aggregator-service/internal/rehydrate /opt/pool-aggregator-service/internal/routes /opt/extension-sdk/beacon /opt/extension-sdk/controlproof /opt/extension-sdk/hostinfo /opt/extension-sdk/hostcheck /opt/extension-sdk/labgate /opt/extension-sdk/internal/catalog /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n /opt/extension-sdk/servicecfg /opt/extension-sdk/internal/gatethrottle /opt/extension-sdk/jsonbody
     cd /opt/pool-aggregator-service
     PA_OK=1
-    for f in go.mod beacon/beacon.go controlproof/controlproof.go hostinfo/addresses.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go servicecfg/config.go internal/gatethrottle/throttle.go jsonbody/decode.go; do
+    for f in go.mod beacon/beacon.go controlproof/controlproof.go hostinfo/addresses.go hostcheck/hostcheck.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go servicecfg/config.go internal/gatethrottle/throttle.go jsonbody/decode.go; do
       yr_fetch "test/extension/extension-sdk/$f" "/opt/extension-sdk/$f" || PA_OK=0
       if [ ! -s "/opt/extension-sdk/$f" ]; then PA_OK=0; echo "== YURUNA: extension-sdk source '$f' empty/missing from ${YR_BASE}test/extension/extension-sdk/$f (source=${YR_SRC}) =="; fi
     done
@@ -5623,7 +5659,7 @@ runcmd:
         echo "== YURUNA: caching-proxy-parser-service build failed -- Recent 100 requests view will be unavailable =="
     fi
     cd /opt/pool-aggregator-service
-    for f in main.go handover.go framework_ring.go mcp.go localization.go backfill.go backfill_index.go backfill_loki.go backfill_prom.go backfill_record.go backfill_source.go backfill_state.go internal/catalog/registry.go internal/loki/client.go internal/loki/outbox.go internal/httpserve/httpserve.go internal/hostpoll/hostpoll.go internal/incident/incident.go internal/poolstate/poolstate.go internal/poolstate/views.go internal/poolstate/cycles.go internal/poolstate/addresses.go internal/poolstate/labcodes.go internal/poolstate/aliases.go go.mod pool-aggregator-service.service pool-history-backfill.service; do
+    for f in main.go handover.go framework_ring.go mcp.go backfill.go backfill_index.go backfill_loki.go backfill_prom.go backfill_record.go backfill_source.go backfill_state.go internal/catalog/registry.go internal/localization/localization.go internal/loki/client.go internal/loki/outbox.go internal/httpserve/httpserve.go internal/hostpoll/hostpoll.go internal/incident/incident.go internal/poolstate/poolstate.go internal/poolstate/views.go internal/poolstate/cycles.go internal/poolstate/addresses.go internal/poolstate/labcodes.go internal/poolstate/aliases.go internal/poolstate/hosts.go internal/poolstate/incidents.go internal/poolstate/announces.go internal/poolstate/ring.go internal/metrics/metrics.go internal/extensions/extensions.go internal/feed/feed.go internal/poll/poll.go internal/poll/events.go internal/rehydrate/rehydrate.go internal/routes/routes.go internal/routes/stats.go internal/routes/deeplinks.go internal/routes/labtoken.go internal/routes/ingest.go go.mod pool-aggregator-service.service pool-history-backfill.service; do
       yr_fetch "test/extension/pool-aggregator-service/$f" "$f" || PA_OK=0
       # An empty file (404 from the chosen source, or a stale/incomplete mirror)
       # is caught here so the cause is obvious in /var/log/cloud-init-output.log
@@ -5654,7 +5690,7 @@ runcmd:
     id yuruna-git-worker >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin --gid yuruna-git-readers yuruna-git-worker
     id yuruna-git-reader >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin --gid yuruna-git-readers yuruna-git-reader
     usermod -a -G yuruna-git-readers www-data
-    install -d -o yuruna-git-worker -g yuruna-git-readers -m 0750 /var/lib/yuruna/git /var/lib/yuruna/git-mirror /var/lib/yuruna/git-mirror/state /var/lib/yuruna/git-mirror/staging
+    install -d -o yuruna-git-worker -g yuruna-git-readers -m 0750 /var/lib/yuruna/git /var/lib/yuruna/git-mirror /var/lib/yuruna/git-mirror/state
     install -d -o root -g yuruna-git-readers -m 0750 /var/lib/yuruna/git-mirror/registrations
     # Redirection must create secrets privately, before chown or chmod can run.
     (
@@ -5690,7 +5726,7 @@ runcmd:
       if [ ! -s "$f" ]; then CPS_OK=0; echo "== YURUNA: caching-proxy-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-service/$f (source=${YR_SRC}) =="; fi
     done
     # The SDK was staged by the aggregator block above, which runs first.
-    for f in go.mod beacon/beacon.go controlproof/controlproof.go hostinfo/addresses.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go servicecfg/config.go internal/gatethrottle/throttle.go jsonbody/decode.go; do
+    for f in go.mod beacon/beacon.go controlproof/controlproof.go hostinfo/addresses.go hostcheck/hostcheck.go labgate/labgate.go labgate/localization.go internal/catalog/registry.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go i18n/page.go servicecfg/config.go internal/gatethrottle/throttle.go jsonbody/decode.go; do
       if [ ! -s "/opt/extension-sdk/$f" ]; then CPS_OK=0; echo "== YURUNA: extension-sdk source '$f' was not staged; the aggregator block above should have fetched it =="; fi
     done
     # VERSION_STR the way every other service derives it: first line, whitespace
@@ -5717,6 +5753,7 @@ runcmd:
         CPS_AGG=""
         [ -n "$CPS_LAN_IP" ] && CPS_AGG="https://${CPS_LAN_IP}:9400"
         CPS_HOST_ID="$(sed -nE "s/^YURUNA_HOST_ID='?([^']*)'?$/\1/p" /etc/yuruna/host.env 2>/dev/null | head -1 || true)"
+        CPS_HOST_NAMES="$(sed -nE "s/^YURUNA_SERVICE_HOST_NAMES='(.*)'\$/\1/p" /etc/yuruna/service-host-names.env 2>/dev/null | head -1 || true)"
         install -m 0644 /dev/null /etc/yuruna/caching-proxy-service.env
         cat > /etc/yuruna/caching-proxy-service.env << EOF
     # Local mode reads squid on loopback and applies switches; remote mode uses --mode=remote with a non-loopback --squid-addr.
@@ -5732,6 +5769,8 @@ runcmd:
     CACHING_PROXY_AUTH_TOKEN_FILE=/etc/yuruna/internal-auth.key
     # Query the colocated parser on loopback to republish caching_proxy_recent_requests.
     CACHING_PROXY_PARSER_URL=http://127.0.0.1:9302
+    # Names a request may carry in Host besides this VM's addresses, host name and localhost.
+    CACHING_PROXY_ALLOWED_HOST_NAMES=$CPS_HOST_NAMES
     EOF
         echo "yuruna: caching-proxy-service ($CPS_VERSION) built and installed at /usr/local/bin/caching-proxy-service"
     else

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4241a322-99ef-c7cf-96e0-a7d07ed683f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,511 @@
         ' לא נכתבו עבורה זקיף או רשומת מקור.'
     )
     'host.clock_service_description' = 'שירות הזמן של Windows (W32Time)'
+    'host.deep_diagnostics_applying' = @(
+        'החלת '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ')...'
+    )
+    'host.deep_diagnostics_change' = @(
+        '    '
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'previous'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -> '
+        @{
+            'arg' = 'new'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_component_failed' = @(
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' לא הוחל: '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_dependencies_kept' = @(
+        'החבילות שההתקנה של '
+        @{
+            'arg' = 'package'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' משכה איתה, ש-apt סימן כמותקנות אוטומטית, נשארות כי תוכנה אחרת עשויה להשתמש בהן; /var/log/apt/history.log מפרט אותן תחת אותה התקנה. כדי להסיר גם אותן: sudo apt-get purge <החבילות האלה>. apt-get autoremove היה מסיר גם כל חבילה אחרת ש-apt כבר לא צריך, ובהן ליבות ישנות'
+    )
+    'host.deep_diagnostics_enable_incomplete' = @(
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' רכיבים נכשלו והשאר הוחלו; תקנו את הגורם והריצו שוב את Enable-DeepDiagnostics.ps1.'
+    )
+    'host.deep_diagnostics_evidence_kept' = @(
+        'חבילות הראיות נשארות ב-'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '; האפשרות -RemoveEvidence מוחקת אותן'
+    )
+    'host.deep_diagnostics_existing_unreadable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' קיים אך לא ניתן לקרוא אותו, ולכן לא יהיה אפשר לשחזר אותו בהמשך; הוא נשאר כפי שהוא'
+    )
+    'host.deep_diagnostics_journal_directory_created' = @(
+        'התיקייה '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' נוצרה בזמן שמצב האבחון המעמיק היה מופעל, ו-journald שומר יומן בדיסק כל עוד היא קיימת. כדי לחזור ליומן בזיכרון בלבד: sudo rm -rf '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' && sudo systemctl restart systemd-journald'
+    )
+    'host.deep_diagnostics_key_netconsole' = 'יעד netconsole'
+    'host.deep_diagnostics_key_pstore_backend' = 'מנגנון האחסון של pstore'
+    'host.deep_diagnostics_module_in_use' = @(
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' נשאר טעון משום שמשהו עדיין משתמש בו'
+    )
+    'host.deep_diagnostics_netconsole_how_to' = 'כדי לשלוח את יומן הליבה למחשב אחר בזמן אמת, הריצו באותו מחשב את pwsh test/lab/Receive-Netconsole.ps1, ולאחר מכן הריצו את הסקריפט הזה שוב עם -NetconsoleTarget <כתובת IPv4 של אותו מחשב>[:port].'
+    'host.deep_diagnostics_netconsole_no_dispatcher' = 'NetworkManager אינו מותקן, ולכן היעד מוגדר רק בעת האתחול ואינו מוגדר מחדש כאשר הכתובת של מארח זה משתנה'
+    'host.deep_diagnostics_netconsole_no_target' = 'לא צוין -NetconsoleTarget'
+    'host.deep_diagnostics_netconsole_not_enabled' = 'יעד netconsole לא הופעל; ראו: journalctl -t yuruna-netconsole'
+    'host.deep_diagnostics_not_enabled' = @(
+        'מצב האבחון המעמיק אינו מופעל במארח זה: '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' אינו קיים.'
+    )
+    'host.deep_diagnostics_nothing_to_change' = 'מצב האבחון המעמיק כבר מוגדר במארח זה; דבר לא השתנה.'
+    'host.deep_diagnostics_plan_apply' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): יוחל'
+    )
+    'host.deep_diagnostics_plan_current' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): כבר מוגדר'
+    )
+    'host.deep_diagnostics_plan_header' = @(
+        'מצב אבחון מעמיק ב-'
+        @{
+            'arg' = 'hostName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': שינויים מתוכננים'
+    )
+    'host.deep_diagnostics_plan_note' = @(
+        '    הערה: '
+        @{
+            'arg' = 'note'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_plan_skip' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): ידולג -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_pstore_backend' = @(
+        'pstore כבר משתמש במנגנון האחסון '
+        @{
+            'arg' = 'backend'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_pstore_legacy_bios' = 'מארח זה אותחל במצב BIOS מדור קודם, ו-efi-pstore דורש UEFI'
+    'host.deep_diagnostics_pstore_no_backend' = @(
+        'efi_pstore נטען, אך pstore עדיין מדווח שאין מנגנון אחסון ('
+        @{
+            'arg' = 'backend'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.deep_diagnostics_pstore_unit_masked' = 'היחידה systemd-pstore.service חסומה (masked); בטלו את החסימה (unmask) כדי לשמור בארכיון רשומות קריסה בעת האתחול'
+    'host.deep_diagnostics_pstore_unsupported' = 'ליבה זו אינה תומכת ב-pstore'
+    'host.deep_diagnostics_reason_declined' = 'לא אושר'
+    'host.deep_diagnostics_reason_interrupted' = 'הסקריפט Enable-DeepDiagnostics.ps1 נעצר לפני שהרכיב הזה הוחל'
+    'host.deep_diagnostics_receiver_command' = @(
+        'השאירו את המקלט פועל במחשב היעד: pwsh test/lab/Receive-Netconsole.ps1 -Port '
+        @{
+            'arg' = 'port'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_requires_linux' = 'מצב האבחון המעמיק מיועד למארח Ubuntu KVM, ומארח זה אינו מריץ Linux. דבר לא שונה.'
+    'host.deep_diagnostics_requires_systemd' = 'מצב האבחון המעמיק דורש את systemd כמערכת ה-init הפועלת, ו-/run/systemd/system אינו קיים במארח זה. דבר לא שונה.'
+    'host.deep_diagnostics_restore_done' = @(
+        'מצב האבחון המעמיק כבוי; '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שינויים בוטלו.'
+    )
+    'host.deep_diagnostics_restore_failed' = @(
+        @{
+            'arg' = 'item'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' לא שוחזר: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_restore_header' = @(
+        'מצב אבחון מעמיק, שהופעל ב-'
+        @{
+            'arg' = 'enabledAtUtc'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' על ידי '
+        @{
+            'arg' = 'enabledBy'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': שחזור מתוכנן'
+    )
+    'host.deep_diagnostics_restore_incomplete' = @(
+        'לא ניתן היה לבטל '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שינויים; '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' נשמר, ולכן הרצה חוזרת של Disable-DeepDiagnostics.ps1 תשלים את השחזור.'
+    )
+    'host.deep_diagnostics_setting_overridden' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' מגדיר '
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '='
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ונקרא אחרי קובץ התצורה המשלים של מצב האבחון המעמיק, ולכן הערך שלו גובר בעת האתחול.'
+    )
+    'host.deep_diagnostics_should_apply' = 'החילו'
+    'host.deep_diagnostics_should_record' = 'תעדו את הערכים הנוכחיים והחילו את מצב האבחון המעמיק'
+    'host.deep_diagnostics_should_restore' = 'שחזרו את הערכים שתועדו לפני הפעלת מצב האבחון המעמיק'
+    'host.deep_diagnostics_state_record' = @(
+        'כל הערכים שלעיל מתועדים ב-'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' לפני השינוי הראשון; Disable-DeepDiagnostics.ps1 משחזר את המארח לפי רשומה זו.'
+    )
+    'host.deep_diagnostics_state_unreadable' = @(
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' קיים אך אינו קובץ מצב של אבחון מעמיק ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). דבר לא שונה; שחזרו את הקובץ או העבירו אותו למקום אחר לפני הרצה חוזרת.'
+    )
+    'host.deep_diagnostics_step_failed' = @(
+        @{
+            'arg' = 'command'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' נכשל (קוד יציאה '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '): '
+        @{
+            'arg' = 'output'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_sudo_unavailable' = 'מצב האבחון המעמיק משנה הגדרות שבבעלות root, ו-sudo לא הריץ פקודה בלי לבקש סיסמה. דבר לא שונה. הריצו שוב את הסקריפט ממסוף שבו תוכלו להזין את סיסמת sudo, או בתור root.'
+    'host.deep_diagnostics_summary_applied' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': הוחל'
+    )
+    'host.deep_diagnostics_summary_failed' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': נכשל -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_summary_header' = 'מצב אבחון מעמיק:'
+    'host.deep_diagnostics_summary_skipped' = @(
+        '  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': דולג -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.deep_diagnostics_sysctl_not_exposed' = @(
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' אינו זמין בליבה זו, ולכן הוא מושמט.'
+    )
+    'host.deep_diagnostics_target_invalid' = @(
+        'הערך '''
+        @{
+            'arg' = 'target'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' של -NetconsoleTarget אינו כתובת IPv4 עם יציאה אופציונלית, כגון 192.168.1.20 או 192.168.1.20:6666. דבר לא שונה.'
+    )
+    'host.deep_diagnostics_title_boot_evidence' = 'חבילת ראיות בכל אתחול'
+    'host.deep_diagnostics_title_journald' = 'יומן שנשמר בדיסק ומסונכרן כל 10 שניות'
+    'host.deep_diagnostics_title_netconsole' = 'שליחת יומן הליבה למחשב אחר'
+    'host.deep_diagnostics_title_pstore' = 'רשומות קריסה באחסון UEFI'
+    'host.deep_diagnostics_title_rasdaemon' = 'יומן שגיאות חומרה'
+    'host.deep_diagnostics_title_sysctl' = 'panic ואתחול מחדש בעת היתקעויות ואירועי oops'
+    'host.deep_diagnostics_title_vitals' = 'מדדים חיוניים של המארח ביומן הליבה כל 10 שניות'
+    'host.deep_diagnostics_title_watchdog' = 'איפוס באמצעות watchdog חומרתי'
+    'host.deep_diagnostics_value_absent' = 'לא קיים'
+    'host.deep_diagnostics_value_evidence' = 'חבילות הראיות'
+    'host.deep_diagnostics_value_installed' = 'מותקן'
+    'host.deep_diagnostics_value_loaded' = 'טעון'
+    'host.deep_diagnostics_value_none' = 'ללא'
+    'host.deep_diagnostics_value_not_installed' = 'לא מותקן'
+    'host.deep_diagnostics_value_not_loaded' = 'לא טעון'
+    'host.deep_diagnostics_value_removed' = 'הוסר'
+    'host.deep_diagnostics_value_restored_content' = @(
+        'התוכן הקודם שנשמר ב-'
+        @{
+            'arg' = 'statePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_value_saved_content' = @(
+        'תוכן אחר, שנשמר ב-'
+        @{
+            'arg' = 'statePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'host.deep_diagnostics_value_yuruna_file' = 'הגרסה של מצב האבחון המעמיק'
+    'host.deep_diagnostics_verify' = 'כדי לבדוק את המסלול מקצה לקצה, הריצו: echo ''<5>yuruna-deep-diagnostics: check'' | sudo tee /dev/kmsg -- השורה מופיעה כאן ב-''journalctl -k -n 5'', וכאשר netconsole פעיל, גם ביומן של המקלט.'
+    'host.deep_diagnostics_watchdog_daemon' = @(
+        @{
+            'arg' = 'unit'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' פועל ומחזיק את התקן ה-watchdog; עצרו והשביתו אותו כדי לאפשר ל-systemd להשתמש בהתקן'
+    )
+    'host.deep_diagnostics_watchdog_held' = @(
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' פתוח בידי תהליך אחר, והתקן watchdog משרת משתמש אחד בלבד בכל פעם; עצרו את התהליך הזה כדי לאפשר ל-systemd להשתמש בו'
+    )
+    'host.deep_diagnostics_watchdog_no_device' = @(
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' נטען אך לא רשם watchdog חומרתי, מה שבדרך כלל אומר שהקושחה השביתה אותו (ראו: sudo dmesg | grep -i '
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.deep_diagnostics_watchdog_no_driver' = @(
+        'לא רשום watchdog חומרתי ולא ידוע מנהל התקן עבור יצרן המעבד '''
+        @{
+            'arg' = 'vendor'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''; לא נעשה שימוש ב-softdog משום שאינו יכול לפעול בקפיאה מוחלטת'
+    )
+    'host.deep_diagnostics_watchdog_nowayout' = @(
+        'ב-'
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' מוגדר nowayout: לאחר שהוא נדרך, לא ניתן לעצור אותו ללא אתחול מחדש, ולכן Disable-DeepDiagnostics.ps1 לא יוכל לשחזר את המארח הזה'
+    )
+    'host.deep_diagnostics_watchdog_provider_unknown' = @(
+        'לא ניתן היה לזהות את מודול הליבה שמספק את '
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ('''
+        @{
+            'arg' = 'identity'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''') (מנהלי התקן watchdog טעונים: '
+        @{
+            'arg' = 'drivers'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), ולכן דבר לא יטען אותו באתחול הבא וה-watchdog ייעלם אחרי אתחול מחדש; כשטעון בדיוק מנהל התקן אחד של watchdog חומרתי, הריצו זאת שוב'
+    )
+    'host.deep_diagnostics_watchdog_softdog' = @(
+        'רק softdog רשום ('
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). softdog פועל על אותם מעבדים שקופאים, ולכן אינו יכול לפעול בקפיאה מוחלטת, ומנהל התקן חומרה לא יירשם כ-watchdog0 כל עוד softdog טעון; פרקו אותו (sudo modprobe -r softdog) והריצו שוב'
+    )
     'host.download_incomplete' = @(
         'ההורדה של '
         @{
@@ -83,10 +588,10 @@
         ' בזמן שהוקצב; קובץ מזהה התהליך נשמר ולא נשלח שום אות.'
     )
     'host.hyperv_bounded_call_no_answer' = @(
-        'הקריאה ל-⁦Hyper-V⁩ הסתיימה בלי להחזיר תשובה (מצב המשימה: ⁦'
+        'הקריאה ל-⁦Hyper-V⁩ הסתיימה בלי להחזיר תשובה (קוד היציאה של תהליך הבן: ⁦'
         @{
-            'arg' = 'state'
-            'type' = 'token'
+            'arg' = 'exitCode'
+            'type' = 'detail'
             'trust' = 'internal'
         }
         '⁩; סיבה: ⁦'
@@ -262,6 +767,44 @@
         }
         ''' קיימת; דבר לא שונה.'
     )
+    'host.hyperv_worker_lookup_failed' = @(
+        '  החיפוש אחר תהליך העבודה ⁦vmwp.exe⁩ של המכונה הווירטואלית '
+        @{
+            'arg' = 'vmId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' נכשל; יתבצע ניסיון חוזר של ⁦Stop-VM⁩. שגיאה: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.hyperv_worker_lookup_unanswered' = @(
+        '  החיפוש אחר תהליך העבודה ⁦vmwp.exe⁩ של המכונה הווירטואלית '
+        @{
+            'arg' = 'vmId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' לא ענה בתוך '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות; יתבצע ניסיון חוזר של ⁦Stop-VM⁩.'
+    )
+    'host.kvm_config_port_firewall' = @(
+        '  חומת אש של שירות התצורה: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.kvm_config_port_rule_delete' = 'מחקו את כלל שירות התצורה שהוסיף Yuruna'
     'host.kvm_force_stop_pid_unverified' = @(
         '⁦Stop-VMForce⁩: התהליך '
         @{
@@ -307,6 +850,8 @@
         }
         '''; התקינו כלל sudoers עבור ⁦/bin/kill⁩ או עצרו את התחום ידנית.'
     )
+    'host.kvm_journal_group_missing' = 'הקבוצה ''systemd-journal'' אינה קיימת, ולכן האבחון של מריץ הבדיקות אינו יכול לקרוא את יומן המערכת או את יומן הליבה של האתחול הקודם. systemd יוצר אותה מתוך sysusers.d; הפקודה ''sudo systemd-sysusers'' משחזרת אותה, ולאחר מכן הריצו שוב את הסקריפט הזה.'
+    'host.kvm_journal_group_session_stale' = '  החברות בקבוצה ''systemd-journal'' רשומה ב-/etc/group; קבוצות המעטפת הנוכחית אינן מעודכנות. התנתקו והתחברו מחדש, ואז הפעילו את מריץ הבדיקות מההפעלה החדשה כדי שהאבחון שלו יוכל לקרוא את יומן המערכת.'
     'host.kvm_rename_destination_dir_exists' = @(
         'לא ניתן לשנות את השם ל-''⁦'
         @{
@@ -5685,7 +6230,7 @@
         }
         '  (המפתח של מערך הבדיקות מורשה)'
     )
-    'host.operator_a0e97dcbb626019f' = 'רק כלל status-port של ufw יוסר -- ניתן להוכיח שהוא שלנו. החברות בקבוצות, רשימת בקרת הגישה של $HOME, ‏libvirtd⁦/virtlogd⁩ והמפתחות של GNOME יישארו בדיוק כפי שהם, וידווחו.'
+    'host.operator_a0e97dcbb626019f' = 'רק כללי ufw ש-Yuruna סימן כשלו יוסרו. החברות בקבוצות, רשימת בקרת הגישה של $HOME, ‏libvirtd⁦/virtlogd⁩ והמפתחות של GNOME יישארו בדיוק כפי שהם, וידווחו.'
     'host.operator_a127790ebde6e4ff' = 'מכונה וירטואלית של מטמון עליו), או הגדירו אותו ידנית -- ראו'
     'host.operator_a19074ac4867746e' = '  כניסה דרך המסוף⁦/SSH⁩:'
     'host.operator_a1a6059aaacffcb8' = @(

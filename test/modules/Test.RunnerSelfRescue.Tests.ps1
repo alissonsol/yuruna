@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b2fd46-f55d-409b-bf93-6b7dbb5f5595
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -263,6 +263,7 @@ Describe 'Invoke-OuterFrameworkRescue reports what the pull did' {
         @{ Pulled = $false; After = 'old1'; Expected = 'failed' }
     ) {
         param($Pulled, $After, $Expected)
+        $savedRescue = Save-YurunaTestEnvironment -Name 'RESCUE_PULLED', 'RESCUE_AFTER'
         $env:RESCUE_PULLED = "$Pulled"; $env:RESCUE_AFTER = $After
         try {
             Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterGitPull { $env:RESCUE_PULLED -eq 'True' }
@@ -270,7 +271,7 @@ Describe 'Invoke-OuterFrameworkRescue reports what the pull did' {
             Mock -ModuleName Test.RunnerOuterLoop Get-LastOuterPullFailure { 'fetch timed out' }
             Invoke-OuterFrameworkRescue -State $script:State -Health $script:Health -Outcome 'outcome-unrecorded' -Confirm:$false | Should -Be $Expected
             Should -Invoke -ModuleName Test.RunnerOuterLoop Write-OuterLog -ParameterFilter { $Message -match "none" -and $Message -match 'old1' }
-        } finally { Remove-Item Env:RESCUE_PULLED, Env:RESCUE_AFTER -ErrorAction SilentlyContinue }
+        } finally { Restore-YurunaTestEnvironment -Saved $savedRescue }
     }
 }
 

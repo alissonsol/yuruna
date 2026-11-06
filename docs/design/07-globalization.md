@@ -32,12 +32,24 @@ The seven boxes group generated PowerShell, Go, and browser formats; service
 catalog copies; and browser consumers. The embedder writes the kernel, locale
 data, and default tables into the shared runtimes, service-only tables into
 service scripts whose pages already load the shared runtime, and one catalog
-asset per non-default locale. It also writes the Go SDK's locale data and, into
-each Go service module, that service's catalog tables plus a registry carrying
-the browser kernel and tables for self-contained pages. The caching-proxy and
-parser modules also receive a generated request adapter for those pages.
-PowerShell reads generated `.psd1` catalogs directly rather than receiving a
-service-local copy.
+asset per non-default locale for each runtime except the SDK's. It also writes
+the Go SDK's locale data and one generated `registry.go` into each Go module,
+inlining that module's catalog tables. Stash, download-agent, caching-proxy,
+parser, and aggregator registries add the browser kernel block; caching-proxy,
+parser, and aggregator also add browser tables. The caching-proxy and parser
+modules also receive a generated `requestadapter.go`, which gives those pages a
+bounded request helper and a local-time formatter; its timeout error text is an
+uncataloged English literal. PowerShell reads generated `.psd1` catalogs directly
+rather than receiving a service-local copy.
+
+The embedder also copies the
+[readiness marker](../../globalization/kernel/yuruna.first-usable.js) into the
+shared runtimes and the kernel block. Application renderers call `hold`,
+`release`, and `mark`; `YurunaFirstUsable` becomes ready only after every hold is
+released, a `data`, `empty`, `error`, or `static` state is marked, and `<html>`
+declares `lang` and a valid `dir`. It makes no request and times renders only when
+`YurunaMeasureRenders` is true. The performance baseline's browser budgets use
+this marker.
 
 Sources: [locale manifest](../../globalization/locale-manifest.json),
 [source catalogs](../../globalization/catalogs/),
@@ -120,18 +132,21 @@ Sources: [PowerShell resolver](../../test/modules/Test.Locale.psm1),
 | PowerShell status request | Reads the configuration language at the request boundary, combines it with `Accept-Language`, and explicitly disables process-culture fallback. |
 | Go service request | Uses its startup language option and `Accept-Language`, with no process-culture fallback. Negotiation is restricted to catalogs the binary carries. Provisioning writes the lab language to `/etc/yuruna/globalization.env`, so a later configuration edit does not reach a running service. |
 | Browser page | Initializes from the server's HTML `lang`, requested language, and decision source. The page context is then sealed. |
-| Provisioned guest page | Marked static pages, such as the caching proxy's Squid error template, render once at VM provisioning from the seeded language; with `auto`, the provisioning host's UI culture applies. No request negotiates them. |
+| Provisioned guest page | Marked static pages, such as the caching proxy's Squid error template, render once at VM provisioning from the seeded language; with `auto`, the provisioning host's UI culture applies. No request negotiates them. A malformed configured tag stops provisioning; a well-formed unsupported tag renders the default. |
 
 Sources: [operator adapter](../../automation/Yuruna.Globalization.psm1),
-[status adapter](../../test/service/Start-StatusService.ps1),
+[status adapter](../../test/service/Invoke-StatusServiceRuntime.ps1),
 [Go HTTP adapter](../../test/extension/extension-sdk/i18n/http.go),
 [pool resolver wiring](../../test/extension/pool-control-service/server/internal/httpsrv/i18nwire.go),
 [browser initialization](../../globalization/kernel/yuruna.i18n.js), and
 [seed template rendering](../../automation/Yuruna.CloudInitTemplate.psm1).
-The [service seed](../../host/vmconfig/caching-proxy-service.base.user-data)
-writes the language environment file; the
-[service unit](../../test/extension/caching-proxy-service/caching-proxy-service.service)
-passes it as startup options.
+The service seeds, such as the
+[caching-proxy seed](../../host/vmconfig/caching-proxy-service.base.user-data),
+write the language environment file. The caching-proxy, parser, and aggregator
+units, such as the
+[caching-proxy unit](../../test/extension/caching-proxy-service/caching-proxy-service.service),
+read it directly; the stash, download-agent, and pool-control guest scripts copy
+its values into their own environment before passing startup options.
 Status opens diagnostic locales with `YURUNA_ALLOW_PSEUDO_LOCALE`; Go services
 use `--allow-pseudo-locale`. Ordinary negotiation excludes them. No Yuruna
 boundary reads a language query parameter or cookie, and the browser runtimes
@@ -187,8 +202,9 @@ decision metadata, and sends UTF-8 HTML with escaped catalog text. Its ETag
 hashes those localized bytes, so a matching `If-None-Match` from one language
 cannot suppress another language's page. English
 catalog data is already in the runtime; another selected locale requires its
-generated catalog asset. Status refuses to send a selected non-English runtime
-page when that asset is missing.
+generated catalog asset. When that asset is missing for a page that loads the
+status runtime, the handler logs the failure and aborts the connection instead of
+sending the page.
 
 The browser reads the HTML decision and uses the selected catalog for dynamic
 labels. It does not independently negotiate against browser preferences.
@@ -198,7 +214,7 @@ loaded browser page retains its context until reload. Stable API fields and
 message codes retain their machine meaning alongside localized error text.
 
 Sources: [status HTML](../../test/status/index.html),
-[status request handling](../../test/service/Start-StatusService.ps1),
+[status request handling](../../test/service/Invoke-StatusServiceRuntime.ps1),
 [HTML catalog renderer](../../test/modules/Test.Catalog.psm1),
 [browser runtime](../../test/status/yuruna.common.js), and
 [browser kernel](../../globalization/kernel/yuruna.i18n.js).
@@ -244,7 +260,7 @@ supported locale set at startup.
 | --- | --- |
 | Status, pool-control, stash, download-agent | Default catalog rides the existing runtime; another selected locale loads a hashed catalog script. |
 | Caching-proxy, parser | The prepared HTML embeds the runtime and selected catalog, preserving their self-contained page behavior. |
-| Pool aggregator | Uses the SDK catalog/negotiator for HTTP and JSON diagnostics; its operator messages also support configured language and process locale inputs. |
+| Pool aggregator | Uses the SDK catalog/negotiator for HTTP and JSON diagnostics; its operator messages also support `--language` or `YURUNA_LANGUAGE`, then `LC_ALL`, `LC_MESSAGES`, or `LANG`. |
 
 Sources: [SDK page store](../../test/extension/extension-sdk/i18n/page.go),
 [pool page assets](../../test/extension/pool-control-service/server/internal/httpsrv/assets.go),
@@ -252,7 +268,7 @@ Sources: [SDK page store](../../test/extension/extension-sdk/i18n/page.go),
 [download pages](../../test/extension/download-agent-service/server/internal/httpsrv/localization.go),
 [caching-proxy page](../../test/extension/caching-proxy-service/localization.go),
 [parser page](../../test/extension/caching-proxy-parser-service/localization.go), and
-[aggregator diagnostics](../../test/extension/pool-aggregator-service/localization.go).
+[aggregator diagnostics](../../test/extension/pool-aggregator-service/internal/localization/localization.go).
 
 Negotiated representations carry `Content-Language` and `Vary: Accept-Language`.
 Their ETags identify the final localized bytes, and a 304 response repeats
@@ -264,13 +280,14 @@ scripts and styles carry none. The caching-proxy landing page is the exception
 to prepared pages: it is assembled per request with `no-store`, carrying locale
 headers but no ETag. See
 [HTTP headers](../../test/extension/extension-sdk/i18n/http.go),
-[page serving](../../test/extension/extension-sdk/i18n/page.go), and the status
-request handler.
+[page serving](../../test/extension/extension-sdk/i18n/page.go), and the
+[status request handler](../../test/service/Invoke-StatusServiceRuntime.ps1).
 
 | Response | `Cache-Control` | Validator | Locale headers |
 | --- | --- | --- | --- |
 | Status HTML page | `public, max-age=60, must-revalidate`, with `Last-Modified` | Localized-byte ETag; 304 on match | Yes |
 | Status hashed catalog | `public,max-age=31536000,immutable` | Content-hash ETag; 304 on match | No |
+| Status script or style | `no-cache` | Content-hash ETag; 304 on match | No |
 | Page-store page | `public, max-age=0, must-revalidate` | Localized-byte ETag; 304 on match | Yes |
 | Page-store catalog `locale.<hash>.js` | `public, max-age=31536000, immutable` | Content-hash ETag; 304 on match | No |
 | Pool-control page | None; `Vary` also names `Accept-Encoding` | Per-encoding ETag; 304 on match | Yes |
@@ -278,12 +295,12 @@ request handler.
 | Caching-proxy landing page | `no-store` | None | Yes |
 | Localized messages and errors | `no-store` | Status file errors carry an ETag but never answer 304 | Yes |
 
-Sources: [status request handler](../../test/service/Start-StatusService.ps1),
+Sources: [status request handler](../../test/service/Invoke-StatusServiceRuntime.ps1),
 [SDK page store](../../test/extension/extension-sdk/i18n/page.go),
 [pool page serving](../../test/extension/pool-control-service/server/internal/httpsrv/handlers.go),
 [pool page assets](../../test/extension/pool-control-service/server/internal/httpsrv/assets.go),
 [caching-proxy landing](../../test/extension/caching-proxy-service/landing.go), and
-[aggregator diagnostics](../../test/extension/pool-aggregator-service/localization.go).
+[aggregator diagnostics](../../test/extension/pool-aggregator-service/internal/localization/localization.go).
 
 Status validates a catalog URL against its current file hash and serves the
 same captured bytes used to calculate that hash. A concurrent catalog update
@@ -360,8 +377,9 @@ The public [exchange module](../../test/modules/Test.LocalizationExchange.psm1)
 reads and writes JSON, CSV, and XLIFF 2.0 tables. Entries carry stable IDs,
 English source, and translated text; an earlier translation is context rather
 than a new answer. Rows cover glossary, style, message, document, and
-project-scalar text; a request digest binds each answer, and an answer that
-alters its English is rejected. The XLIFF reader requires version `2.0` and
+project-scalar text. The module computes a request digest over each row's
+identity, kind, source digest, and English; its answer reader rejects an
+unrequested or duplicate row and an answer that alters its English. The XLIFF reader requires version `2.0` and
 prohibits DTD processing and external XML resolution. The versioned
 [ontology](../ontology/README.md) defines the English concepts translators work
 from; glossary rows come from
@@ -370,12 +388,13 @@ from; glossary rows come from
 The [tooling decision](../../globalization/manifests/tooling-decision.json)
 records a provisional requirement for translator interchange and names the
 booked native translator's answer as its replacement. Its rationale mentions
-XLIFF 2.1; the implemented public codec currently reads and writes 2.0. After
-translated source is placed, [Publish-Localization.ps1](../../tools/Publish-Localization.ps1)
-regenerates catalogs and embeddings and re-checks each, refreshes the domain
-inventory, then runs the UTF-8, terminology, document-translation, project
-locale-map, reference-fixture, and full cross-repository gates, stopping at the
-first failure. The project locale-map gate validates each project label map
+XLIFF 2.1; the implemented public codec reads and writes 2.0. After translated
+source is placed, [Publish-Localization.ps1](../../tools/Publish-Localization.ps1)
+regenerates catalogs, embeddings, and the domain inventory, re-checking each,
+then runs the UTF-8, terminology, document-translation, project locale-map,
+reference-fixture, and full cross-repository gates. A failing step stops the run;
+a missing tool is recorded as a failure and the run continues. `-SkipGate` omits
+the cross-repository gate. The project locale-map gate validates each project label map
 against the companion repository's source hashes.
 
 ---
@@ -384,6 +403,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 [Architecture](../architecture.md) | [Design overview](README.md)

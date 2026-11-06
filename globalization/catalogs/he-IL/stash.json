@@ -685,6 +685,11 @@
       "origin": "machine",
       "message": "טקסט גדול אחר נשמר כעת; נסו שוב בעוד רגע"
     },
+    "stash.api_uploads_busy": {
+      "sourceHash": "0361168126d227eae7f9f67e68d9b48690f7d054e54b4fc21452aa9be162fe07",
+      "origin": "machine",
+      "message": "יותר מדי העלאות מתקבלות בו-זמנית; נסו שוב בעוד רגע"
+    },
     "stash.api_search_failed": {
       "sourceHash": "401ccc2451aa0f517dd77acc93ce5e007910ad541f16b460c95195d58fdec474",
       "origin": "machine",

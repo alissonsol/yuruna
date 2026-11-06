@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 428fd107-ddcf-4d18-a2a8-6763e5534b41
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -130,7 +130,7 @@ if ($networkName -eq 'default') {
     # --- REGION: Bridge-uplink preflight
     # See https://yuruna.link/42e220c4-0004
     # Reject a confirmed dead bridge; leave network repair to the caching-proxy launcher.
-    $netXml = (& virsh --connect $virshUri net-dumpxml $networkName 2>$null) -join "`n"
+    $netXml = (Invoke-Virsh -VirshArgs @('net-dumpxml', $networkName)) -join "`n"
     if ($netXml -match "<forward\s+mode='bridge'" -and $netXml -match "<bridge\s+name='([^']+)'") {
         $extBridge = $Matches[1]
         $brifDir   = "/sys/class/net/$extBridge/brif"
@@ -160,6 +160,12 @@ $tc = $_statusSeed.Config
 $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $ystashNas = Get-YurunaStashSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
+# The names the VM answers to besides its addresses, from this host's
+# test.config.yml. Read in the plan, while the working VM is still advertised,
+# because a malformed vmStart.serviceHostNames entry refuses the build.
+Import-Module (Join-Path $repoRoot 'test/modules/Test.ExtensionService.psm1') -DisableNameChecking -Verbose:$false
+try { $serviceHostNames = Get-ExtensionServiceHostNameSeed -Config $tc }
+catch { Write-Error $_.Exception.Message; exit 1 }
 
 # --- REGION: Report seed values baked empty
 # The build goes on without them, because the guest can still serve, but it
@@ -221,6 +227,7 @@ $userData = New-CloudInitUserData `
         YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER  = $configSeed.ClientKeyBase64
         YSTASH_NAS_HOST_ID_PLACEHOLDER       = $ystashNas.HostId
         YURUNA_AGGREGATOR_URL_PLACEHOLDER    = $aggregatorSeedUrl
+        YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER = $serviceHostNames
     } -Confirm:$false
 $metaData = (Get-Content -Raw -LiteralPath $metaDataTemplate)
 

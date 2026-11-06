@@ -559,8 +559,11 @@ its App Nap and last-window settings. macOS privacy grants remain manual.
 reader in the harness. pwsh 7 does NOT ship it, and `test/Invoke-TestProject.ps1`
 preflight fails fast with "powershell-yaml is not installed" if the
 module is missing -- the friction of every fresh-host bootstrap. Each
-installer installs `powershell-yaml` (CurrentUser scope,
-`-Force -AllowClobber` to auto-trust PSGallery on a fresh box).
+installer installs `powershell-yaml` at a pinned version (CurrentUser
+scope): it downloads that version's package from the PowerShell Gallery and
+refuses it unless its SHA-512 matches the hash the gallery publishes for it.
+Every installer and `Test.HostGit.psm1` carry the same pin, and
+`Test.HostGitInstall` keeps the copies equal.
 `Install-PowerShellYamlIfMissing` (defined in
 [test/modules/Test.HostGit.psm1](../test/modules/Test.HostGit.psm1)
 and re-exported via `Test.HostContract`) is still called from
@@ -582,8 +585,10 @@ selected: `tools/Invoke-TestSuite.ps1` and `tools/_InvokeOneSuite.ps1` import
 the newest 6.x by its resolved path. A bare `Invoke-Pester` loads the newest
 installed copy, whichever line it is on, so run the suites through the runner.
 
-PSScriptAnalyzer is installed alongside them when it is absent. A failure reaches
-the installer's closing summary, and the installer keeps going.
+PSScriptAnalyzer is installed alongside them when it is absent, at its pinned
+version and after the same SHA-512 check against the gallery's published hash;
+an installed copy stays whatever version it is. A failure reaches the
+installer's closing summary, and the installer keeps going.
 
 A commit that stages a test file is refused from a host that has `pwsh` but no
 Pester 6.x. The refusal names the command that installs the documented version
@@ -1247,6 +1252,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

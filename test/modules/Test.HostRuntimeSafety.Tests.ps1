@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 424882ac-09a5-499f-af1e-64e5b6e9bf94
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,7 @@ BeforeAll {
     foreach ($name in @('Test.HostAutomationState','Test.SingleInstance','Test.ServiceVm','Test.InnerSpawn','Test.HostMetricsExporter')) {
         Import-Module (Join-Path $PSScriptRoot ($name + '.psm1')) -Force -Global -DisableNameChecking
     }
+    Import-Module (Join-Path $PSScriptRoot 'Test.ServiceStartSource.psm1') -Force -DisableNameChecking
     function Get-RuntimeSafetyAst {
         param([string]$Path)
         $errors = $null
@@ -131,11 +132,21 @@ Describe 'native service invocation preserves failure and argument boundaries' {
         & (Get-Module Test.HostMetricsExporter) { Invoke-YurunaWingetInstall -WingetPath 'C:\Program Files\winget.exe' -PackageId fixture -TimeoutSec 10 -LogPath 'C:\Users\Test User\install log.txt' -Confirm:$false } | Out-Null
         Should -Invoke Start-Process -ModuleName Test.HostMetricsExporter -Times 1 -Exactly -ParameterFilter { $ArgumentList -match '"C:\\Users\\Test User\\install log.txt"' }
     }
-    It 'waits for a VM address before configuring the shared NAT forwarder' {
-        # The pool-control start's address and forwarding phases are its readiness part.
-        $ast = Get-RuntimeSafetyAst "$script:TestRoot/service/Start-ExtensionService.pool-control.ps1"
-        $wait = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Wait-VMIp' }, $true)
+    It 'waits for a VM address before configuring the shared NAT forwarder in <Name>' -ForEach @(
+        @{ Name = 'Start-PoolControlServiceVM.ps1' }
+        @{ Name = 'Start-DownloadAgentServiceVM.ps1' }
+    ) {
+        # What the start runs: the shared pipeline, whose address step holds the
+        # wait, with the service's part, which runs that step, in place.
+        $ast = Get-YurunaServiceStartAst -Path "$script:TestRoot/service/$Name"
+        $step = $ast.Find({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$resolveServiceVmAddress' }, $true)
+        $step | Should -Not -BeNullOrEmpty
+        $wait = $step.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Wait-VMIp' }, $true)
+        $wait | Should -Not -BeNullOrEmpty
+        $run = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.InvocationOperator -eq 'Dot' -and $node.CommandElements[0].Extent.Text -eq '$resolveServiceVmAddress' }, $true)
+        $run | Should -Not -BeNullOrEmpty
         $forward = $ast.Find({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Add-PortMap' }, $true)
-        $wait.Extent.EndOffset | Should -BeLessThan $forward.Extent.StartOffset
+        $forward | Should -Not -BeNullOrEmpty
+        $run.Extent.EndOffset | Should -BeLessThan $forward.Extent.StartOffset
     }
 }

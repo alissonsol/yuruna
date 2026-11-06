@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42eaea7b-b54f-495c-bbdc-838c8758fced
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,9 +185,18 @@ function Invoke-ComponentListPublish {
         return (Protect-YurunaSecretText -Text $Text)
     }
 
+    # A phase stopped at commandTimeoutSeconds ends as tool_timeout, which the
+    # host routes like a hang the step watchdog ends; one that failed on its own
+    # ends as tool_failed.
+    function Get-ComponentPhaseFailureClass {
+        if ($phaseTail.timedOut) { return 'tool_timeout' }
+        return 'tool_failed'
+    }
+
     # The redacted end of the last phase's output, which decides whether a
-    # failed build attempt is worth another (buildRetry).
-    $phaseTail = @{ text = '' }
+    # failed build attempt is worth another (buildRetry), and whether that
+    # phase was stopped at commandTimeoutSeconds.
+    $phaseTail = @{ text = ''; timedOut = $false }
 
     function Invoke-ComponentCommand {
         # Each phase has its own supervised process so a stuck native child is
@@ -196,6 +205,7 @@ function Invoke-ComponentListPublish {
         param([string]$Phase, [string]$Command, [switch]$Sensitive)
         $phaseWatch = [Diagnostics.Stopwatch]::StartNew()
         $phaseTail.text = ''
+        $phaseTail.timedOut = $false
         $secrets = Get-YurunaSecretValue
         function Protect-ComponentText {
             param([string]$Text)
@@ -313,6 +323,10 @@ exit $code
                 -Environment @{ YURUNA_COMPONENT_COMMAND = $Command; YURUNA_COMPONENT_STATE = $stateFile } `
                 -MaxCapturedChars 1048576 -OutputHandler $handler
             $rc = $native.ExitCode
+            # Only a kill issued at the cap counts. A drain that did not finish
+            # (a read fault, or a descendant holding the pipes after the tool
+            # exited) did not stop the tool, so it stays a tool failure.
+            $phaseTail.timedOut = [bool]$native.TimedOut
             $outcome = if (-not $native.Started) { 'launch_failed' } elseif ($native.KillFailed) { 'kill_failed' } elseif ($native.TimedOut) { 'timed_out' } elseif ($native.DrainTimedOut) { 'drain_incomplete' } else { 'completed' }
             foreach ($stream in 'stdout', 'stderr') {
                 Send-ComponentOutput -Stream $stream -Final
@@ -421,7 +435,7 @@ exit $code
                 # detail. Deriving success from the ambient $ErrorActionPreference
                 # instead would let a failed build/tag/push masquerade as a pass
                 # at the framework defaults (EAP stays 'Continue').
-                return (New-YurunaResultManifest -Success $false -ErrorMessage "preProcessor[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "preProcessor[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass (Get-ComponentPhaseFailureClass) -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
 
@@ -443,7 +457,7 @@ exit $code
         }
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_04b616b009d4b902' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$displayCommand" })
-            return (New-YurunaResultManifest -Success $false -ErrorMessage "build[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+            return (New-YurunaResultManifest -Success $false -ErrorMessage "build[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass (Get-ComponentPhaseFailureClass) -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
 
         $postProcessor = $componentVars['postProcessor']
@@ -455,7 +469,7 @@ exit $code
             Invoke-ComponentCommand -Phase "postProcessor[$projectName]" -Command $executionCommand
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_1976f6226f942cc8' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$displayCommand" })
-                return (New-YurunaResultManifest -Success $false -ErrorMessage "postProcessor[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "postProcessor[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass (Get-ComponentPhaseFailureClass) -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
         }
@@ -475,7 +489,7 @@ exit $code
         Invoke-ComponentCommand -Phase "tag[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_134bb283b64fa9b9' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$displayCommand" })
-            return (New-YurunaResultManifest -Success $false -ErrorMessage "tag[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+            return (New-YurunaResultManifest -Success $false -ErrorMessage "tag[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass (Get-ComponentPhaseFailureClass) -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
 
         # Registry login dispatched through Yuruna.Component.Registry
@@ -493,7 +507,7 @@ exit $code
             Invoke-ComponentCommand -Phase "registryLogin[$projectName]" -Command $executionCommand -Sensitive | Write-Verbose
             if (-Not (0 -eq $LASTEXITCODE)) {
                 Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_0966db03993b9bcb' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = '<command withheld>' })
-                return (New-YurunaResultManifest -Success $false -ErrorMessage "registryLogin[$projectName] exit ${LASTEXITCODE}: <command withheld>" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+                return (New-YurunaResultManifest -Success $false -ErrorMessage "registryLogin[$projectName] exit ${LASTEXITCODE}: <command withheld>" -FailureClass (Get-ComponentPhaseFailureClass) -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
             }
         }
 
@@ -503,7 +517,7 @@ exit $code
         Invoke-ComponentCommand -Phase "push[$projectName]" -Command $executionCommand
         if (-Not (0 -eq $LASTEXITCODE)) {
             Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_a15f59ef0d1479f4' -Arguments @{ lASTEXITCODE = "$LASTEXITCODE"; executionCommand = "$displayCommand" })
-            return (New-YurunaResultManifest -Success $false -ErrorMessage "push[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass 'tool_failed' -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
+            return (New-YurunaResultManifest -Success $false -ErrorMessage "push[$projectName] exit ${LASTEXITCODE}: $displayCommand" -FailureClass (Get-ComponentPhaseFailureClass) -ExitCode $LASTEXITCODE -DurationMs $sw.ElapsedMilliseconds);
         }
         $PushedImage.Add([string](Get-ComponentPushedImage -Text $phaseTail.text))
     }

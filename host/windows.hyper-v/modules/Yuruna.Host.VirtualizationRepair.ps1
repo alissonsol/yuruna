@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 424c4d3c-cf14-4b3d-b338-493cb7892bac
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -838,7 +838,10 @@ function Disable-HyperVHeartbeatForLinuxGuest {
     }
     if (-not $PSCmdlet.ShouldProcess($VMName, (Format-YurunaOperatorMessage -Key 'host.operator_ce28ce6cce0e7f70'))) { return $false }
     try {
-        Disable-VMIntegrationService -VMName $VMName -Name 'Heartbeat' -ErrorAction Stop
+        $null = Invoke-HyperVLifecycleCmdlet -Verb 'Disable-VMIntegrationService' -VMName $VMName -ArgumentList @($VMName) -ScriptBlock {
+            param($Name)
+            Disable-VMIntegrationService -VMName $Name -Name 'Heartbeat' -ErrorAction Stop
+        }
         Write-Verbose "Heartbeat integration service disabled for '$VMName' (ARM64 Linux guest boot workaround)."
         return $true
     } catch {
@@ -923,8 +926,11 @@ function Set-HyperVArm64LinuxGuestProcessorCount {
         return $false
     }
     try {
-        Hyper-V\Set-VMProcessor -VMName $VMName -Count $Count -ErrorAction Stop
-        $processor = Hyper-V\Get-VMProcessor -VMName $VMName -ErrorAction Stop
+        $processor = Invoke-HyperVLifecycleCmdlet -Verb 'Set-VMProcessor' -VMName $VMName -ArgumentList @($VMName, $Count) -ScriptBlock {
+            param($VMName, $Count)
+            Hyper-V\Set-VMProcessor -VMName $VMName -Count $Count -ErrorAction Stop
+            Hyper-V\Get-VMProcessor -VMName $VMName -ErrorAction Stop
+        } | Select-Object -First 1
         return ([int]$processor.Count -eq $Count)
     } catch {
         Write-Verbose "Set-HyperVArm64LinuxGuestProcessorCount: $($_.Exception.Message)"

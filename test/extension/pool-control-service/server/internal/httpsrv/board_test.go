@@ -464,22 +464,32 @@ func TestTheBearerOpensThePoolConfigWrites(t *testing.T) {
 // An operator who reached this UI by clicking it out of the Yuruna hosts
 // dashboard arrives holding a control proof in the URL fragment instead of a
 // code, and the page spends it on /api/unlock-proof. What is covered here is the
-// wiring -- that the route is mounted and its session opens the same writes; the
+// wiring -- that the route is mounted, takes the proof bound to this service and
+// refuses the unbound form, and that its session opens the same writes; the
 // proof's own rules (window, ceiling, forgery, who verifies it) live in the SDK.
 func TestAControlProofFromTheDashboardOpensThePoolConfigWrites(t *testing.T) {
 	const internalAuthKey = "shared-internal-auth-key"
 	s := New(&boardConfiguration{doc: configurationTwoPools}, Options{AuthToken: internalAuthKey})
 
+	sign := func(data string) string {
+		mac := hmac.New(sha256.New, []byte(internalAuthKey))
+		mac.Write([]byte(data))
+		return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	}
+	unlock := func(proof string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/unlock-proof",
+			strings.NewReader(`{"proof":`+strconv.Quote(proof)+`}`)))
+		return rec
+	}
 	expiry := strconv.FormatInt(time.Now().Add(15*time.Minute).Unix(), 10)
-	mac := hmac.New(sha256.New, []byte(internalAuthKey))
-	mac.Write([]byte("yuruna-control|proof|" + expiry))
-	proof := expiry + "." + base64.StdEncoding.EncodeToString(mac.Sum(nil))
-
-	rec := httptest.NewRecorder()
-	s.routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/unlock-proof",
-		strings.NewReader(`{"proof":`+strconv.Quote(proof)+`}`)))
+	if rec := unlock(expiry + "." + sign("yuruna-control|proof|"+expiry)); rec.Code != http.StatusBadRequest || len(rec.Result().Cookies()) != 0 {
+		t.Errorf("unlock with an unbound proof = %d with %d cookie(s), want 400 and none", rec.Code, len(rec.Result().Cookies()))
+	}
+	const audience = "svc-pool-control-service"
+	rec := unlock(expiry + "." + audience + "." + sign("yuruna-control|proof|v2|"+audience+"|"+expiry))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("unlock with a fresh proof = %d, want 200", rec.Code)
+		t.Fatalf("unlock with a fresh proof bound to this service = %d, want 200", rec.Code)
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/pool/move-host", strings.NewReader("{}"))

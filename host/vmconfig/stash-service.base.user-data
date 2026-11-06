@@ -135,6 +135,14 @@ write_files:
     owner: root:root
     content: |
       YURUNA_AGGREGATOR_URL='YURUNA_AGGREGATOR_URL_PLACEHOLDER'
+  # Names the UI answers to besides its addresses, host name and localhost,
+  # from the building host's configuration. Read with sed by the bring-up
+  # script, never sourced.
+  - path: /etc/yuruna/service-host-names.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_SERVICE_HOST_NAMES='YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER'
   # --- REGION: https://yuruna.link/429f3d06-0087
   - path: /usr/local/lib/yuruna/stash-bringup.sh
     permissions: '0755'

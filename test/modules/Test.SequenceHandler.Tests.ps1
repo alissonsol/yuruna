@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -218,6 +218,20 @@ Describe 'recoverFromSnapshot log interpolates the failed-step number correctly'
 }
 
 Describe 'waitForTextWithNudge preserves one OCR deadline' {
+    It 'forwards the step''s blank-console expectation to Wait-ForText on both pure waits' {
+        # A login wait that follows an install reboot or a cold restart starts
+        # on a console that shows nothing until getty prints; the step declares
+        # that, and the engine's no-text self-heal reads the declaration off
+        # the same parameter path as the other wait options.
+        foreach ($name in @('waitForText', 'waitForTextWithNudge')) {
+            $t = (Get-HandlerScriptBlockAst -Path $script:modulePath -Name $name).Extent.Text
+            Assert-True ($t -match '-ExpectBlankConsole:\$p\.expectBlankConsole') "$name must hand the step's expectBlankConsole to Wait-ForText"
+        }
+        $src = Get-Content -Raw -LiteralPath $script:modulePath
+        Assert-True ($src -match 'expectBlankConsole\s*=\s*\$step\.expectBlankConsole\s+-eq\s+\$true') `
+            'the shared step-parameter resolver must read the boolean the way it reads the other wait options'
+    }
+
     It 'forwards the normal wait parameters and the periodic nudge controls to Wait-ForText' {
         $handler = Get-HandlerScriptBlockAst -Path $script:modulePath -Name 'waitForTextWithNudge'
         $t = $handler.Extent.Text
@@ -1187,6 +1201,73 @@ Describe 'stopVm requests the shutdown through the host and observes it' {
     }
 }
 
+# See https://yuruna.link/42885ada-0014
+Describe 'startVm waits for an install''s own power-off' {
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking -Global
+        $script:startStub = @{ State = 'running'; Calls = [Collections.Generic.List[string]]::new() }
+        # Dot-sourced into the module, as the stopVm stubs above are, so they
+        # shadow the host contract for this module only.
+        . (Get-Module Test.SequenceHandler) {
+            function Get-VMState {
+                param([string]$VMName)
+                $null = $VMName
+                return $script:StartStub.State
+            }
+            function Start-VM {
+                [CmdletBinding(SupportsShouldProcess)]
+                [OutputType([hashtable])]
+                param([string]$VMName)
+                if (-not $PSCmdlet.ShouldProcess($VMName, 'stub start')) { return @{ success = $false } }
+                $script:StartStub.Calls.Add('start')
+                return @{ success = $true; errorMessage = $null }
+            }
+        }
+        & (Get-Module Test.SequenceHandler) { $script:StartStub = $args[0] } $script:startStub
+        $script:startHandler = (Get-SequenceAction -Name startVm).Handler
+        $script:startContext = @{
+            Step = @{}
+            StepNum = 2; StepCount = 20; Description = 'Wait for the install to power off, then cold-start the installed system'
+            VMName = 'test-vm'; HostType = 'host.macos.utm'; GuestKey = 'guest.ubuntu.server.26'
+            LogDir = $TestDrive; ScreenshotDir = $TestDrive
+            ExpandVariable = { param($v) $v }; Vars = @{}
+        }
+    }
+    BeforeEach {
+        $script:startStub.State = 'running'; $script:startStub.Calls.Clear()
+        $script:startContext.Step = @{ timeoutSeconds = 1; frameIntervalSeconds = 0; installPowerOff = $true }
+        $state = Get-SequenceFailureState
+        $state.StepVmNotStopped = $null; $state.FirstGuestSilenceUtc = $null; $state.FirstGuestSilenceSource = $null
+    }
+    AfterAll { Remove-Module Test.SequenceHandler -Force }
+
+    It 'files an install that never powered off without calling the guest silent' {
+        (& $script:startHandler $script:startContext) | Should -BeFalse
+        $script:startStub.Calls.Count | Should -Be 0 -Because 'a VM still installing must not be started again'
+        $state = Get-SequenceFailureState
+        $state.StepVmNotStopped.installPowerOff | Should -BeTrue -Because 'the failure filing reads this to keep the start verb''s provisioning_failure'
+        $state.StepVmNotStopped.action | Should -BeExactly 'startVm'
+        $state.StepVmNotStopped.observedState | Should -BeExactly 'running'
+        [int]$state.StepVmNotStopped.waitedSeconds | Should -BeGreaterOrEqual 1
+        $state.FirstGuestSilenceUtc | Should -BeNullOrEmpty -Because 'an installer still drawing its own screen is not a guest that stopped answering'
+        $state.FirstGuestSilenceSource | Should -BeNullOrEmpty
+    }
+    It 'cold-starts the VM once the install powered itself off' {
+        $script:startStub.State = 'stopped'
+        (& $script:startHandler $script:startContext) | Should -BeTrue
+        ($script:startStub.Calls -join ',') | Should -BeExactly 'start'
+        (Get-SequenceFailureState).StepVmNotStopped | Should -BeNullOrEmpty
+    }
+    It 'still marks a guest that ignored a requested shutdown as silent' {
+        $script:startContext.Step = @{ timeoutSeconds = 1; frameIntervalSeconds = 0 }
+        (& $script:startHandler $script:startContext) | Should -BeFalse
+        $state = Get-SequenceFailureState
+        $state.StepVmNotStopped.Contains('installPowerOff') | Should -BeFalse -Because 'a step that requested the shutdown is filed as a guest that ignored it'
+        $state.FirstGuestSilenceUtc | Should -Not -BeNullOrEmpty
+        $state.FirstGuestSilenceSource | Should -Match '^startVm:'
+    }
+}
+
 Describe 'saveDiskSnapshot carries the guest''s SSH host key pin to its new name' {
     # The save renames the working VM to the snapshot id. The guest keeps its
     # host keys, so its pin has to follow it: the pin left under the id by a
@@ -1439,5 +1520,60 @@ Describe 'retry stops on a send the host can never make' {
         Assert-False (& $script:InputRetryHandler $script:InputContext) 'the retry must fail'
         Assert-Equal -Expected 3 -Actual $script:InputAttempts
         Assert-Equal -Expected 'host_io_blocked' -Actual $script:Fail.LastInnerFailureClass
+    }
+}
+
+Describe 'the sequence schema types the blank-console expectation on the pure waits' {
+    # The declaration is a step key the engine honors, so the schema carries it
+    # as a boolean on the verbs that forward it: a misspelled value is a schema
+    # violation, not an accepted key the engine then reads as false.
+    BeforeAll {
+        Import-Module powershell-yaml -ErrorAction Stop
+        $schemaPath = Join-Path (Split-Path -Parent $here) 'schemas/sequence.schema.yml'
+        $script:schemaJson = Get-Content -Raw -LiteralPath $schemaPath | ConvertFrom-Yaml -Ordered | ConvertTo-Json -Depth 32
+        function ConvertTo-WaitSequenceJson {
+            param([string]$Action, $ExpectBlankConsole)
+            $step = [ordered]@{ action = $Action; pattern = 'login:'; expectBlankConsole = $ExpectBlankConsole }
+            if ($Action -eq 'waitForTextWithNudge') { $step.nudgeKey = 'Enter'; $step.nudgeIntervalSeconds = 60 }
+            return ([ordered]@{
+                description = 'schema probe'; keystrokeMechanism = 'gui'
+                resource = [ordered]@{ 'ubuntu.server.26' = @('start.guest.ubuntu.server.26') }
+                component = @($step)
+            } | ConvertTo-Json -Depth 32)
+        }
+    }
+    It 'accepts expectBlankConsole: true on <Action> and rejects a non-boolean value' -TestCases @(
+        @{ Action = 'waitForText' }, @{ Action = 'waitForTextWithNudge' }
+    ) {
+        param($Action)
+        Assert-True (Test-Json -Json (ConvertTo-WaitSequenceJson -Action $Action -ExpectBlankConsole $true) -Schema $script:schemaJson -ErrorAction SilentlyContinue) `
+            "a $Action step may declare expectBlankConsole: true"
+        Assert-False (Test-Json -Json (ConvertTo-WaitSequenceJson -Action $Action -ExpectBlankConsole 'yes') -Schema $script:schemaJson -ErrorAction SilentlyContinue) `
+            "a $Action step with a non-boolean expectBlankConsole is a schema violation"
+    }
+}
+
+Describe 'the sequence schema types the install power-off wait on startVm' {
+    # The UTM Ubuntu start sequences opt into the install's own power-off with
+    # this key; the engine reads it as a boolean, so a misspelled value is a
+    # schema violation rather than an opt-in the engine then reads as false.
+    BeforeAll {
+        Import-Module powershell-yaml -ErrorAction Stop
+        $schemaPath = Join-Path (Split-Path -Parent $here) 'schemas/sequence.schema.yml'
+        $script:startSchemaJson = Get-Content -Raw -LiteralPath $schemaPath | ConvertFrom-Yaml -Ordered | ConvertTo-Json -Depth 32
+        function ConvertTo-StartVmSequenceJson {
+            param($InstallPowerOff)
+            return ([ordered]@{
+                description = 'schema probe'; keystrokeMechanism = 'gui'
+                resource = [ordered]@{ 'ubuntu.server.26' = @('start.guest.ubuntu.server.26') }
+                component = @([ordered]@{ action = 'startVm'; timeoutSeconds = 2400; frameIntervalSeconds = 30; installPowerOff = $InstallPowerOff })
+            } | ConvertTo-Json -Depth 32)
+        }
+    }
+    It 'types installPowerOff on startVm as a boolean' {
+        Assert-True (Test-Json -Json (ConvertTo-StartVmSequenceJson -InstallPowerOff $true) -Schema $script:startSchemaJson -ErrorAction SilentlyContinue) `
+            'a startVm step may declare installPowerOff: true'
+        Assert-False (Test-Json -Json (ConvertTo-StartVmSequenceJson -InstallPowerOff 'yes') -Schema $script:startSchemaJson -ErrorAction SilentlyContinue) `
+            'a startVm step with a non-boolean installPowerOff is a schema violation'
     }
 }

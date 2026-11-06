@@ -45,6 +45,7 @@ stop and unregister the test VMs *and* sweep, use
 | `Clear-LocalLabStorage.ps1` | withdraw those shares and accounts (leaves the data) |
 | `Set-LabToken.ps1` | enroll this host: redeem the dashboard's 6-character Lab token for the internal authentication key |
 | `Lab-Diag.ps1` | show where a Lab token exchange stops, step by step, when `Set-LabToken.ps1` fails |
+| `Receive-Netconsole.ps1` | receive kernel messages over UDP from a host in deep diagnostics mode (`host/ubuntu.kvm/Enable-DeepDiagnostics.ps1 -NetconsoleTarget`): one log per sender and UTC day under `~/yuruna/netconsole`, each line stamped with its UTC arrival time; runs in the foreground until Ctrl+C or `-DurationSeconds`; this machine's firewall must accept the UDP port, because one that drops it gives no sign ([how to open and check it](../../host/ubuntu.kvm/README.md#run-the-receiver)) -- see [Ubuntu KVM deep diagnostics mode](../../host/ubuntu.kvm/README.md#deep-diagnostics-mode) |
 | `Invoke-HostRefresh.ps1` | repair a wedged hypervisor within a bounded budget: probe and reclaim owned runner processes on all three hosts, and start a stopped hypervisor on Hyper-V or KVM when the rung is available, then restore the service VMs and runner it disrupted. It never reclaims the runner that called it. `-WhatIf` previews with no lock, request or mutation; `-Resume` finishes an interrupted repair; `-DisposeObligation` records that the operator took over one it could not finish. Exit `0` healthy or repaired, `1` refused or failed before changing anything, `2` needs attention |
 | `Set-HostRefreshCredential.ps1` | provision remote host-refresh secrets: `-NewAuthority` creates the signing authority and operator credential for pool-control's `/etc/yuruna/host-refresh/`, `-ExportHostKey -HostId -OutputPath` writes one host's verifier key, `-InstallHostKey -KeyPath` (or `-AuthorityDirectory`) installs it on that host, `-RemoveHostKey` withdraws it, and no switch reports the state; never prompts and never prints a secret -- see [remote host refresh](../../docs/pool-admin.md#remote-host-refresh) |
 
@@ -84,6 +85,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../../README.md)

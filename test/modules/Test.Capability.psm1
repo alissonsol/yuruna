@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a4a080-e1cd-4a2a-98ba-ffdbe804c002
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -190,13 +190,20 @@ function Get-SequenceActionsUsed {
         (centralized parser + caching); falls back to a direct
         ConvertFrom-Yaml read so the function is usable from contexts
         that load this module without the engine.
+    .PARAMETER StepList
+        Optional list that receives one record per step, in plan order:
+        sequence (the file name without its extension), step and action.
+        step is the 1-based position in the sequence's flat step list, the
+        number a failure record carries; a step nested in a retry block
+        records the step that holds it.
     .OUTPUTS
         [string[]] sorted unique action names.
     #>
     [CmdletBinding()]
     [OutputType([string[]], [object[]])]
     param(
-        [Parameter(Mandatory)][string[]]$SequencePath
+        [Parameter(Mandatory)][string[]]$SequencePath,
+        [System.Collections.Generic.List[object]]$StepList
     )
     $verbs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($path in $SequencePath) {
@@ -216,7 +223,8 @@ function Get-SequenceActionsUsed {
             continue
         }
         if (-not $cfg -or -not $cfg.steps) { continue }
-        Add-SequenceActionFromStep -Steps $cfg.steps -Verbs $verbs
+        Add-SequenceActionFromStep -Steps $cfg.steps -Verbs $verbs -StepList $StepList `
+            -Sequence ([System.IO.Path]::GetFileNameWithoutExtension($path))
     }
     return @($verbs | Sort-Object)
 }
@@ -228,20 +236,31 @@ function Add-SequenceActionFromStep {
     #
     # $Verbs is not Mandatory because an empty HashSet trips the binder's
     # empty-collection check. Missing or empty input exits before .Add().
+    # A nested step goes into $StepList under $OuterStep, the step holding it.
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
-        '', Justification = 'Mutates the caller-supplied HashSet only; no externally observable state.')]
+        '', Justification = 'Mutates the caller-supplied collections only; no externally observable state.')]
     param(
         $Steps,
-        [System.Collections.Generic.HashSet[string]]$Verbs
+        [System.Collections.Generic.HashSet[string]]$Verbs,
+        [System.Collections.Generic.List[object]]$StepList,
+        [string]$Sequence,
+        [int]$OuterStep
     )
     if (-not $Steps -or -not $Verbs) { return }
+    $position = 0
     foreach ($step in $Steps) {
+        $position++
         if ($step -is [System.Collections.IDictionary] -and $step.Contains('action')) {
             [void]$Verbs.Add([string]$step.action)
+            $stepNumber = if ($OuterStep) { $OuterStep } else { $position }
+            if ($null -ne $StepList) {
+                $StepList.Add([ordered]@{ sequence = $Sequence; step = $stepNumber; action = [string]$step.action })
+            }
             foreach ($nestedStepKey in 'steps', 'stepsAfterVmRestart') {
                 if ($step.Contains($nestedStepKey) -and $step[$nestedStepKey]) {
-                    Add-SequenceActionFromStep -Steps $step[$nestedStepKey] -Verbs $Verbs
+                    Add-SequenceActionFromStep -Steps $step[$nestedStepKey] -Verbs $Verbs -StepList $StepList `
+                        -Sequence $Sequence -OuterStep $stepNumber
                 }
             }
         }
@@ -266,6 +285,8 @@ function Test-CyclePlanCapability {
           actionsUsed  = @(...)        # all verbs found in the plan
           unknownActions = @(...)      # not in the requirement table (likely typo or new verb)
           missingHostIO  = @(...)      # required by some action, not registered on this host
+          missingHostCommand = @(...)  # host commands a step's handler runs that this host lacks,
+                                       # each @{ command; steps = @(@{ sequence; step; action }) }
           ocrRequired    = $true | $false
           ocrAvailable   = $true | $false
         }
@@ -279,10 +300,13 @@ function Test-CyclePlanCapability {
     if (-not $HostType) {
         if (Get-Command Get-HostType -ErrorAction SilentlyContinue) { $HostType = Get-HostType }
     }
-    $verbs = Get-SequenceActionsUsed -SequencePath $SequencePath
+    $steps = [System.Collections.Generic.List[object]]::new()
+    $verbs = Get-SequenceActionsUsed -SequencePath $SequencePath -StepList $steps
     $reqMap = Get-CapabilityActionRequirement
     $unknown    = New-Object System.Collections.Generic.List[string]
     $hostIOReq  = New-Object System.Collections.Generic.HashSet[string]
+    # Host command -> the verbs whose handlers run it.
+    $hostCommandReq = @{}
     $ocrReq     = $false
     foreach ($v in $verbs) {
         if (-not $reqMap.Contains($v)) {
@@ -291,6 +315,10 @@ function Test-CyclePlanCapability {
         }
         $req = $reqMap[$v]
         foreach ($a in $req.HostIO) { [void]$hostIOReq.Add($a) }
+        foreach ($command in $req.HostCommand) {
+            if (-not $hostCommandReq.ContainsKey($command)) { $hostCommandReq[$command] = [System.Collections.Generic.List[string]]::new() }
+            $hostCommandReq[$command].Add($v)
+        }
         if ($req.OcrRequired) { $ocrReq = $true }
     }
     $missingHostIO = @()
@@ -299,17 +327,29 @@ function Test-CyclePlanCapability {
             $missingHostIO += $action
         }
     }
+    # Looked up the way Invoke-BoundedNativeCommand finds what a handler
+    # launches, so the plan and the step agree on what this host has; the
+    # command itself never runs here.
+    $missingHostCommand = @(foreach ($command in @($hostCommandReq.Keys | Sort-Object)) {
+        if (-not (Get-Command -Name $command -CommandType Application -ErrorAction SilentlyContinue)) {
+            [ordered]@{
+                command = $command
+                steps   = @($steps | Where-Object { $hostCommandReq[$command] -contains $_.action })
+            }
+        }
+    })
     $ocrAvailable = $false
     if (Get-Command Get-EnabledOcrProvider -ErrorAction SilentlyContinue) {
         $ocrAvailable = @(Get-EnabledOcrProvider).Count -gt 0
     }
-    $supported = ($missingHostIO.Count -eq 0) -and (-not ($ocrReq -and -not $ocrAvailable))
+    $supported = ($missingHostIO.Count -eq 0) -and ($missingHostCommand.Count -eq 0) -and (-not ($ocrReq -and -not $ocrAvailable))
     return @{
         supported      = $supported
         hostType       = $HostType
         actionsUsed    = $verbs
         unknownActions = @($unknown | Sort-Object)
         missingHostIO  = @($missingHostIO | Sort-Object)
+        missingHostCommand = $missingHostCommand
         ocrRequired    = $ocrReq
         ocrAvailable   = $ocrAvailable
     }
@@ -372,7 +412,7 @@ function Test-CyclePlanCapabilityFromPlan {
     if (-not $paths -or $paths.Count -eq 0) {
         # No paths means an empty plan; treat as supported so the cycle
         # falls through to whatever Get-GuestList-based legacy path exists.
-        return @{ supported = $true; hostType = $HostType; actionsUsed = @(); unknownActions = @(); missingHostIO = @(); ocrRequired = $false; ocrAvailable = $false }
+        return @{ supported = $true; hostType = $HostType; actionsUsed = @(); unknownActions = @(); missingHostIO = @(); missingHostCommand = @(); ocrRequired = $false; ocrAvailable = $false }
     }
     return (Test-CyclePlanCapability -SequencePath $paths -HostType $HostType)
 }

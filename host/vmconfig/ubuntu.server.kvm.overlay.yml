@@ -28,6 +28,7 @@
         dhcp-identifier: mac
         # netplan renders this as networkd KeepConfiguration=, which installs the DHCP address with an infinite kernel lifetime so a guest clock anomaly cannot expire it while the lease is valid.
         critical: true
+# === YURUNA_OVERLAY_SHUTDOWN ===
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
   # --- REGION: early-commands
   early-commands:

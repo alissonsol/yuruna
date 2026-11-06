@@ -351,6 +351,9 @@ starts a hypervisor service only on positive evidence that it is stopped).
 `Test.HostDriverContractParity` checks that all three drivers define, export and
 declare every contract verb, and `Test.KvmStartIfStopped` and
 `Test.HyperVVirtualizationResponsive` cover the two verbs on KVM and Hyper-V.
+At load, each driver hands its exports to `Assert-YurunaHostContractCoverage`,
+which refuses the import with one message naming every missing verb, so a
+driver never loads with part of the contract.
 Per-host notes for the contracts that
 diverge in operationally significant ways (snapshot + rename, screen
 I/O):
@@ -622,8 +625,16 @@ A suite that fails in the parallel run runs once more, alone, after it (up to
 ten suites; not under `-FailFast` or a throttle of 1). Its row records `alone`
 as `passed` or `failed`, its problem line says which, and a suite that passed
 alone is listed under `loadSensitive`: its timing margins do not hold under the
-load of a parallel run. The verdict is the first run's either way, and the alone
-run's result is kept beside it as `nunit-<suite>.alone.xml`.
+load of a parallel run. A suite whose process the host ended before it wrote a
+result file runs alone the same way: a signal death on Linux and macOS (exit
+129 to 159, such as 134 for SIGABRT and 139 for SIGSEGV) or an exception
+status on Windows (`0xC0000005`, `0xC00000FD`), never a code the shim, pwsh or
+the runner assigns (0 to 2, 124 to 126). Its row records `alone` as
+`load-crash` when it then passes and it is listed under `loadSensitive` with
+the others; a crash that repeats is `failed`, and a process that ended on its
+own account with no result file (a script error) is not rerun. The verdict is
+the first run's either way, and the alone run's result is kept beside it as
+`nunit-<suite>.alone.xml`.
 
 A process a suite left running after its own process exited is stopped, printed
 as a warning and listed under `leftovers` in `suite-results.json` (and on the
@@ -707,7 +718,13 @@ an empty one empty; the hand copies cleared the entry or dropped the outer value
 so seven suites left `YURUNA_RUNTIME_DIR`, and one `YURUNA_LOG_DIR`, pointing at a
 fixture folder or unset for whatever ran next in the process. A test whose
 subject sets entries it cannot name in advance saves them all with `-All` and
-restores with `-RemoveOthers`, which also removes what was added. A uniquely
+restores with `-RemoveOthers`, which also removes what was added. The guard
+reads a hand restore wherever a teardown reaches it: in the `finally`,
+`AfterEach` or `AfterAll` block itself and in any suite-local function such a
+block calls, in the list form `Remove-Item Env:A, Env:B` as much as in the
+single one; and it holds every entry a suite sets by a literal name to a
+`Save-YurunaTestEnvironment` that names it (or saves `-All`), because an entry
+set and never put back leaks to whatever runs next in the process. A uniquely
 named fixture folder comes from `New-YurunaTestTempDir` and goes with
 `Remove-YurunaTestTempDir`; a file or a path that must not exist yet goes under
 such a folder. A loopback listener comes from `New-YurunaTestTcpListener` (on
@@ -831,9 +848,10 @@ what the harness can do on the current host -- which OCR engines are
 available, which host I/O actions are wired, which extensions are
 active in each area. The same matrix is cross-referenced against the
 per-cycle sequence plan: cycles that reference an unimplemented host
-I/O action fail before any VM is touched, with a message naming the
-missing backend instead of failing late inside a step with
-"Unknown host: ...".
+I/O action, or a step whose handler runs a host command this host does
+not have, fail before any VM is touched, with a message naming the
+missing backend or command instead of failing late inside a step with
+"Unknown host: ..." or a command that cannot start.
 
 Implementation:
 [`test/modules/Test.Capability.psm1`](../test/modules/Test.Capability.psm1).
@@ -872,13 +890,16 @@ After printing the banner the inner calls
 `Test-CyclePlanCapabilityFromPlan`, which:
 
 1. Walks every sequence in the cycle plan (including nested `retry`
-   blocks) and collects the action verbs used.
+   blocks) and collects the action verbs used and the steps that use them.
 2. For each verb, looks up its requirements via
    [`Test.SequenceAction\Get-SequenceActionRequirementMap`](../test/modules/Test.SequenceAction.psm1) --
-   each verb declares which host I/O actions it needs and whether OCR
-   is required.
+   each verb declares which host I/O actions it needs, which host
+   commands its handler runs, and whether OCR is required.
 3. Cross-references the requirements against the live
-   `Test.HostIO`/`Test.OcrEngine` matrices.
+   `Test.HostIO`/`Test.OcrEngine` matrices, and looks each host command
+   up the way the handlers launch it (`Get-Command -CommandType Application`,
+   so on Windows `ssh` is the OpenSSH client's `ssh.exe`). The command
+   itself never runs.
 
 When a required host I/O action is missing the cycle aborts with:
 
@@ -900,11 +921,25 @@ parallel:
   Install tesseract or wire a per-host provider via Register-OcrProvider.
 ```
 
+A step whose handler runs a host command this host does not have names
+the command and every step that runs it, by sequence and step number
+(the number a failure record carries):
+
+```
+  Sequences run host commands this host does not have:
+    - ssh
+        workload.guest.ubuntu.server.24.ssh, step 1: sshWaitReady
+        workload.guest.ubuntu.server.24.ssh, step 2: sshExec
+  Install the missing commands on this host, or drop the steps that run them from the cycle's sequence YAMLs.
+```
+
 The cycle does NOT spin up a VM after a capability-gate failure;
 `$GuestList` is emptied so the per-guest loop runs zero iterations,
 and the cycle finalizes with `$OverallPassed=false`. This bumps
 `ConsecutiveFailures` and fires notifications on the same threshold
-as any other failure.
+as any other failure. The failure record is `plan_invalid` from the
+`Test-CyclePlanCapability` stage, and its message lists every gap the
+gate found, each missing host command with the steps that run it.
 
 <a id="42d38664-0012"></a>
 
@@ -925,20 +960,25 @@ before the slow path.
 Today (see the `Register-SequenceAction` calls in
 [`Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1)):
 
-| Verb                     | HostIO required           | OCR required |
-|--------------------------|---------------------------|--------------|
-| `pressKey`               | `Send-Key`                | no           |
-| `inputText`              | `Send-Text`               | no           |
-| `inputTextAndEnter`      | `Send-Text`, `Send-Key`   | no           |
-| `tapOn`                  | `Send-Click`              | yes          |
-| `waitForText`            | _(none)_                  | yes          |
-| `waitForTextWithNudge`   | `Send-Key`                | yes          |
-| `waitForAndEnter`        | `Send-Text`, `Send-Key`   | yes          |
-| `passwdPrompt`           | `Send-Text`, `Send-Key`   | yes          |
-| `fetchAndExecute`        | `Send-Text`, `Send-Key`   | yes          |
-| `networkRelease`         | `Send-Text`, `Send-Key`   | no           |
-| `sshExec` / `sshFetchAndExecute` / `sshWaitReady` | _(none)_ | no |
-| `startVm` / `stopVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(none)_ | no |
+| Verb                     | HostIO required           | Host commands       | OCR required |
+|--------------------------|---------------------------|---------------------|--------------|
+| `pressKey`               | `Send-Key`                | _(none)_            | no           |
+| `inputText`              | `Send-Text`               | _(none)_            | no           |
+| `inputTextAndEnter`      | `Send-Text`, `Send-Key`   | _(none)_            | no           |
+| `tapOn`                  | `Send-Click`              | _(none)_            | yes          |
+| `waitForText`            | _(none)_                  | _(none)_            | yes          |
+| `waitForTextWithNudge`   | `Send-Key`                | _(none)_            | yes          |
+| `waitForAndEnter`        | `Send-Text`, `Send-Key`   | _(none)_            | yes          |
+| `passwdPrompt`           | `Send-Text`, `Send-Key`   | _(none)_            | yes          |
+| `fetchAndExecute`        | `Send-Text`, `Send-Key`   | _(none)_            | yes          |
+| `networkRelease`         | `Send-Text`, `Send-Key`   | _(none)_            | no           |
+| `sshExec` / `sshFetchAndExecute` / `sshWaitReady` | _(none)_ | `ssh`, `ssh-keygen` | no |
+| `startVm` / `stopVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(none)_ | _(none)_ | no |
+
+The ssh verbs run `ssh-keygen` through the harness key check on the first
+ssh call of each runner process. `fetchAndExecute` and `saveSystemDiagnostic`
+use ssh when the host has it but do not need it: the first types its command
+on the console, and the second's diagnostic ladder goes on without it.
 
 Adding a new verb means one `Register-SequenceAction` call that
 declares its capabilities -- the gate picks it up on the next cycle.
@@ -1347,6 +1387,19 @@ Reported but never touched: nftables/iptables without ufw, and the macOS
 application firewall (application-scoped, not port-scoped -- the port is
 not blocked by default).
 
+The config service port (`configService.port`, 8443 by default) goes
+through the same helper: service guests fetch their NAS credential from
+`test/service/Start-ConfigService.ps1` on it. On Ubuntu KVM,
+`host/ubuntu.kvm/Enable-TestAutomation.ps1` adds its ufw rule beside the
+status port's, with the port the runner starts the service on, and
+`host/ubuntu.kvm/Disable-TestAutomation.ps1` removes both when they carry
+the comment the helper adds them with; a rule added by hand, or by a version
+older than that comment, stays. The launcher
+also tries the rule at each launch, without a sudo prompt, and warns,
+naming the config service, whenever it cannot confirm the port is open:
+ufw absent, ufw unreadable, the allow refused, or an error inside the
+helper.
+
 <a id="42d38664-0022"></a>
 
 ## Per-cycle diagnostic capture
@@ -1440,9 +1493,12 @@ call. Each sample replaces
 5 MiB cap also apply here. Each POST has a 6-second limit plus kill grace;
 failed uploads remain visible in the next sample and local `status` file. The
 final upload marks the recorder stopped. Local samples remain in the private
-`/tmp/yuruna-fae-recorder.*` directory named in the execution log until the
-next invocation on that guest removes the directory and profile the previous
-log names, or until guest cleanup. Without a status endpoint, local recording still works.
+`/tmp/yuruna-fae-recorder.*` directory named in the execution log until a
+later invocation on that guest removes the directory and profile the previous
+log names, once the invocation that owns them has exited, or until guest
+cleanup. An invocation started from a running invocation's payload keeps that
+outer invocation's directory and profile, and names them on `# retained:`
+lines of its own log. Without a status endpoint, local recording still works.
 
 After a slow or failed invocation, `fetch-and-execute.<id>.evidence.json` and the
 `step_end` execution evidence record distinguish SSH timeout, missing trace,
@@ -1542,6 +1598,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

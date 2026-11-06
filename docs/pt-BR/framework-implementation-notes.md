@@ -4152,7 +4152,7 @@ gravado ao lado da exibição da configuração mais adiante no ciclo.
 
 <a id="4213a0b3-00ed"></a>
 
-## test/modules/Test.RunnerInnerLoop.psm1: Start-CycleHostDiagnostic
+## test/modules/Test.RunnerInnerLoop.psm1: Save-CycleHostDiagnostic
 
 O filho também grava um arquivo irmão legível por máquina ao lado do
 relatório em prosa (<OutFile>.json, esquema yuruna.diagnostic.problems/v1), cujas
@@ -6685,6 +6685,14 @@ do arquivo de status (Enter/Exit-StatusLock) -- o proprietário relê `nested` a
 relê o documento inteiro antes de tocar em seu nó. Nenhum pode perder a seção do
 outro. O único sinal "estou aninhado?" é o identificador herdado
 $env:YURUNA_CYCLE_CONTEXT; sua ausência == proprietário independente.
+
+O mesmo bloqueio cobre todos os outros escritores do documento inteiro:
+as rotas de pausa do serviço de status e o worker de início de ciclo
+(Update-StatusDocumentField), a marcação de falha do executor externo
+(Update-RunnerFaultStatus), a limpeza de falha pelo bloqueio de configuração
+(Write-ConfigGateArtifact) e a regravação de `repoUrl` na inicialização do
+serviço (Start-StatusService.ps1, por Update-StatusDocumentField), para que
+uma marcação e uma rota não percam os campos uma da outra.
 
 <a id="4213a0b3-0181"></a>
 

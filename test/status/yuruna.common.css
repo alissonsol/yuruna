@@ -2,7 +2,7 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
   GUID: 427b88d4-4d56-450c-83da-be82e70cf397
-  Version: 2026.10.31
+  Version: 2026.11.05
   See https://yuruna.link/42fa6f45-0018
   See https://yuruna.link/42fa6f45-001d
   See https://yuruna.link/42fa6f45-0019
@@ -459,6 +459,21 @@ button {
      comfortable touch target rather than a 28 px sliver. */
   padding: .5rem 1rem;
 }
+
+/* Yuruna.explain's inline forms: a value that becomes a disclosure (a span
+   with a button role, .explain-target) and the "?" toggle beside a link or a
+   control. These pages draw only the region form today; the floor every button
+   above gets is written down here so a page that adopts either form starts at
+   the touch minimum. A span takes a min-height only with a display that has
+   one, and the toggle is named because a class rule outranks `button`. */
+.explain-target, .explain-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--touch-min);
+  min-width:  var(--touch-min);
+}
+.explain-target { cursor: pointer; text-decoration: underline dotted; }
+.explain-details { display: block; max-width: 28rem; font-size: .8rem; overflow-wrap: anywhere; }
+.explain-details[hidden] { display: none; }
 
 /* Cycle / status banner shared by index, test.config, perf, hostinfo.
    Page-specific sub-elements (#banner-dash-row, #banner-user-row,

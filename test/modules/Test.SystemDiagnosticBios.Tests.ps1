@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42696ce9-89fb-43d5-ab5b-3d4eda2725cd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,10 @@
     pin the platform/unavailable markers without executing the full diagnostic
     or reading the machine running this suite.
 
+    On Linux the section prints the world-readable DMI fields and the CPU
+    microcode revision instead, rendered the same way; those rows are driven
+    against fixture DMI and cpuinfo files.
+
     Throw-based assertions use Test.Assert.psm1. Run:
       Invoke-Pester -Path test/modules/Test.SystemDiagnosticBios.Tests.ps1
 #>
@@ -50,7 +54,8 @@ BeforeAll {
     # Get-SystemDiagnostic is a top-to-bottom executable script, so dot-sourcing
     # it would run every host/network/container probe. Lift only the pure helper
     # bodies from the shipped AST, in dependency order.
-    foreach ($name in 'Get-BiosPropertyOrder', 'Format-BiosDiagnosticValue', 'Get-BiosDiagnosticLine', 'Invoke-Tool') {
+    foreach ($name in 'Get-BiosPropertyOrder', 'Format-BiosDiagnosticValue', 'Get-BiosDiagnosticLine', 'Invoke-Tool',
+            'Read-DiagnosticAttribute', 'Get-LinuxBiosDiagnosticLine') {
         $definition = Get-YurunaTestFunctionAst -Path $script:DiagPath -Name $name
         if (-not $definition) {
             throw "Test.SystemDiagnosticBios.Tests.ps1: helper '$name' was not found in $($script:DiagPath)."
@@ -333,6 +338,122 @@ Describe 'Get-SystemDiagnostic BIOS section wiring' {
         Assert-Match '-FormatValues \(\$_.Exception.Message\) -FormatBindings' $biosText
         Assert-Match 'if\s*\(\s*-not\s+\$IsWindows\s*\)' $biosText
         Assert-Match '(?s)try\s*\{.*Get-ComputerInfo.*\}\s*catch\s*\{' $biosText
+    }
+}
+
+Describe 'Get-SystemDiagnostic Linux BIOS rows' {
+    # A fixture DMI directory and cpuinfo stand in for the machine running the
+    # suite. The serial and UUID files hold a marker that must never reach a row.
+    BeforeAll {
+        $script:DmiFields = @('sys_vendor', 'product_name', 'product_version', 'board_vendor', 'board_name',
+            'board_version', 'bios_vendor', 'bios_version', 'bios_date', 'bios_release')
+
+        function New-DmiFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes files under TestDrive, which Pester removes.')]
+            param([hashtable]$Value)
+            $dir = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Path $dir
+            foreach ($name in $Value.Keys) { [IO.File]::WriteAllText((Join-Path $dir $name), $Value[$name]) }
+            foreach ($secret in 'product_serial', 'product_uuid', 'board_serial', 'chassis_serial') {
+                [IO.File]::WriteAllText((Join-Path $dir $secret), "NEVER-READ-$secret`n")
+            }
+            return $dir
+        }
+
+        function New-CpuInfoFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes a file under TestDrive, which Pester removes.')]
+            param([string[]]$Revision)
+            $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.cpuinfo')
+            $text = for ($cpu = 0; $cpu -lt $Revision.Count; $cpu++) {
+                "processor`t: $cpu"
+                "model name`t: Fixture CPU"
+                if ($Revision[$cpu]) { "microcode`t: $($Revision[$cpu])" }
+                ''
+            }
+            [IO.File]::WriteAllText($path, ($text -join "`n") + "`n")
+            return $path
+        }
+
+        $script:FullDmi = @{
+            sys_vendor = "Advanced Micro Devices, Inc.(AMD)`n"; product_name = "RAH-001`n"; product_version = "1`n"
+            board_vendor = "Compal Electronics, Inc.`n"; board_name = "AMD Ryzen AI Halo`n"; board_version = "1`n"
+            bios_vendor = "AMD`n"; bios_version = "04.01`n"; bios_date = "09/24/2026`n"; bios_release = "4.1`n"
+        }
+    }
+
+    It 'lists the ten world-readable DMI fields in a fixed order, then the microcode revision' {
+        $dmi = New-DmiFixture -Value $script:FullDmi
+        $lines = @(Get-LinuxBiosDiagnosticLine -DmiDirectory $dmi -CpuInfoPath (New-CpuInfoFixture -Revision '0xb70003e', '0xb70003e'))
+        $expected = @(foreach ($field in $script:DmiFields) { '{0,-36} : {1}' -f (Join-Path $dmi $field), (ConvertTo-Json -InputObject $script:FullDmi[$field].Trim() -Compress) })
+        $lines.Count | Should -Be 11
+        ($lines[0..9] -join "`n") | Should -BeExactly ($expected -join "`n")
+        $lines[10] | Should -Match '^\S+:microcode\s+: "0xb70003e"$'
+    }
+
+    It 'never reads a serial number or UUID' {
+        $dmi = New-DmiFixture -Value $script:FullDmi
+        $text = @(Get-LinuxBiosDiagnosticLine -DmiDirectory $dmi -CpuInfoPath (New-CpuInfoFixture -Revision '0x1')) -join "`n"
+        $text | Should -Not -Match 'NEVER-READ' -Because 'these fields identify one machine rather than a model or firmware build'
+        $text | Should -Not -Match 'serial|uuid'
+    }
+
+    It 'marks a field the firmware does not publish as not reported and keeps an empty one empty' {
+        $partial = @{} + $script:FullDmi
+        $partial.Remove('bios_release')
+        $partial['product_version'] = "`n"
+        $dmi = New-DmiFixture -Value $partial
+        $lines = @(Get-LinuxBiosDiagnosticLine -DmiDirectory $dmi -CpuInfoPath (New-CpuInfoFixture -Revision '0x1'))
+        $lines | Should -Contain ('{0,-36} : {1}' -f (Join-Path $dmi 'bios_release'), '(not reported)')
+        $lines | Should -Contain ('{0,-36} : {1}' -f (Join-Path $dmi 'product_version'), '""')
+    }
+
+    It 'raises no error record for a field the firmware does not publish, so the -OutFile transcript stays clean' {
+        # A virtual machine's firmware can publish no board fields at all. A
+        # caught terminating error is still recorded in $Error, and a running
+        # transcript prints each one as a PS>TerminatingError line among the rows.
+        $absent = @('board_vendor', 'board_name', 'board_version')
+        $partial = @{} + $script:FullDmi
+        foreach ($field in $absent) { $partial.Remove($field) }
+        $dmi = New-DmiFixture -Value $partial
+        $cpuInfo = New-CpuInfoFixture -Revision '0x1'
+        $transcript = Join-Path $TestDrive 'linux-bios-rows.transcript.txt'
+        $earlier = @($Error)
+        Start-Transcript -LiteralPath $transcript -Force | Out-Null
+        try {
+            $lines = @(Get-LinuxBiosDiagnosticLine -DmiDirectory $dmi -CpuInfoPath $cpuInfo)
+        } finally {
+            Stop-Transcript | Out-Null
+        }
+        foreach ($field in $absent) { $lines | Should -Contain ('{0,-36} : {1}' -f (Join-Path $dmi $field), '(not reported)') }
+        @(Get-Content -LiteralPath $transcript) -match 'TerminatingError' | Should -BeNullOrEmpty
+        @($Error | Where-Object { $earlier -notcontains $_ }) | Should -BeNullOrEmpty -Because 'an absent field is tested for, not caught'
+    }
+
+    It 'keeps every distinct microcode revision when the CPUs disagree, in CPU order' {
+        $lines = @(Get-LinuxBiosDiagnosticLine -DmiDirectory (New-DmiFixture -Value $script:FullDmi) `
+                -CpuInfoPath (New-CpuInfoFixture -Revision '0xa704104', '0xa704104', '0xa704103', '0xa704104'))
+        $lines[10] | Should -Match ':microcode\s+: \["0xa704104", "0xa704103"\]$'
+    }
+
+    It 'reports no microcode revision for a processor that lists none, or an unreadable cpuinfo' {
+        $dmi = New-DmiFixture -Value $script:FullDmi
+        @(Get-LinuxBiosDiagnosticLine -DmiDirectory $dmi -CpuInfoPath (New-CpuInfoFixture -Revision '', ''))[10] |
+            Should -Match ':microcode\s+: \(not reported\)$'
+        @(Get-LinuxBiosDiagnosticLine -DmiDirectory $dmi -CpuInfoPath (Join-Path $TestDrive 'missing.cpuinfo'))[10] |
+            Should -Match ':microcode\s+: \(not reported\)$'
+    }
+
+    It 'still lists every field, each not reported, where the kernel publishes no DMI table' {
+        $lines = @(Get-LinuxBiosDiagnosticLine -DmiDirectory (Join-Path $TestDrive 'no-dmi') -CpuInfoPath (New-CpuInfoFixture -Revision '0x1'))
+        $lines.Count | Should -Be 11
+        @($lines[0..9] | Where-Object { $_ -notmatch ' : \(not reported\)$' }) | Should -BeNullOrEmpty
+    }
+
+    It 'is what the BIOS section prints on Linux, ahead of the Windows-only marker' {
+        $biosText = @(Get-DiagnosticSectionCall -Title 'BIOS')[0].Extent.Text
+        $biosText | Should -Match '(?s)if\s*\(\s*\$IsLinux\s*\)\s*\{\s*Get-LinuxBiosDiagnosticLine\b.*\}\s*elseif\s*\(\s*-not\s+\$IsWindows\s*\)'
     }
 }
 

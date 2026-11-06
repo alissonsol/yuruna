@@ -76,6 +76,14 @@ derives a unique display number from the VM name:
 Adding a new QEMU+VNC guest = copy the `-vnc 127.0.0.1:__VNC_DISPLAY__`
 template line; producer and consumer pick up the port automatically.
 
+The Ubuntu Server templates also put the guest's serial console at the VNC
+port plus 1000 and QEMU's monitor at plus 2000 (`__SERIAL_PORT__` and
+`__MONITOR_PORT__`, from `Get-UtmConsolePortForDisplay`).
+`Set-VncDisplayInBundle` moves them with the display, and
+`Find-FreeVncDisplay` hands out a display only when all three ports bind.
+What reads them is in
+[docs/host-macos.md](../../docs/host-macos.md#42885ada-0011).
+
 ### Running across macOS Spaces (desktops)
 
 QEMU+VNC guests are Space-independent end-to-end: capture and
@@ -137,6 +145,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../../README.md)

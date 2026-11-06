@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42d688a7-5a4c-4a38-bf7b-1bde823ce93b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -117,6 +117,39 @@ BeforeAll {
             moveLogsToPoolStorage = $false
         }; repositories = @{ projectUrl = 'file:///operator/project' } }
     }
+    # Another process holds the config's write lock, keeps the bytes it read,
+    # and writes them back with one edit before releasing. A writer that does
+    # not wait for the lock loses its own change to that write.
+    $script:LockModule = Join-Path $PSScriptRoot 'Test.SingleFlightLock.psm1'
+    function Start-ConfigLockHolderJob {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseUsingScopeModifierInNewRunspaces', '',
+            Justification = 'The arguments arrive through -ArgumentList into the job param() block; the analyzer does not follow that path.')]
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+            Justification = 'Test fixture: starts a disposable lock holder against a TestDrive path.')]
+        param([string]$ConfigPath, [string]$ReadyPath, [string]$Find, [string]$Replace, [int]$HoldSeconds)
+        return Start-Job -ScriptBlock {
+            param([string]$LockModule, [string]$ConfigPath, [string]$ReadyPath, [string]$Find, [string]$Replace, [int]$HoldSeconds)
+            Import-Module $LockModule -DisableNameChecking
+            $lock = Enter-YurunaSingleFlightLock -Path ([IO.Path]::GetFullPath($ConfigPath) + '.lock') -WaitMilliseconds 0
+            if (-not $lock.Held) { return "lock not held: $($lock.Reason)" }
+            try {
+                $edited = [IO.File]::ReadAllText($ConfigPath).Replace($Find, $Replace)
+                [IO.File]::WriteAllText($ReadyPath, 'held')
+                Start-Sleep -Seconds $HoldSeconds
+                [IO.File]::WriteAllText($ConfigPath, $edited)
+                return $edited
+            } finally { Exit-YurunaSingleFlightLock -Lock $lock }
+        } -ArgumentList $script:LockModule, $ConfigPath, $ReadyPath, $Find, $Replace, $HoldSeconds
+    }
+    function Wait-ConfigLockHolderReady {
+        param($Job, [string]$ReadyPath)
+        $deadline = [DateTime]::UtcNow.AddSeconds(60)
+        while (-not (Test-Path -LiteralPath $ReadyPath)) {
+            if ($Job.State -notin @('NotStarted', 'Running')) { throw "the lock holder ended before taking the lock: $(($Job | Receive-Job) -join "`n")" }
+            if ([DateTime]::UtcNow -gt $deadline) { throw 'the lock holder did not take the lock within 60 s' }
+            Start-Sleep -Milliseconds 100
+        }
+    }
 }
 
 Describe 'NAS storage coordinates' {
@@ -210,6 +243,27 @@ Describe 'NAS storage coordinates' {
         $null = Set-SetupNasStorageConfig -ConfigPath $path -Tier $script:Tier -WhatIf
         Assert-Equal $original ([IO.File]::ReadAllText($path))
         Assert-False (Test-Path -LiteralPath "$path.setup-storage.backup")
+    }
+    It 'applies the coordinates to the file as another process left it while waiting for the config lock, and journals what it replaces' {
+        $path = Join-Path $TestDrive 'locked.yml'
+        [IO.File]::WriteAllText($path, (ConvertTo-Yaml $script:Config))
+        $ready = Join-Path $TestDrive 'locked.ready'
+        $job = Start-ConfigLockHolderJob -ConfigPath $path -ReadyPath $ready -Find 'file:///operator/project' -Replace 'file:///operator/edited' -HoldSeconds 4
+        try {
+            Wait-ConfigLockHolderReady -Job $job -ReadyPath $ready
+            $tier = @(Resolve-SetupNasStorageTier -Config $script:Config -HostType 'host.ubuntu.kvm' -NetworkPath '//new/pool')
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            $null = Set-SetupNasStorageConfig -ConfigPath $path -Tier $tier
+            $watch.Stop()
+            $edited = [string]($job | Wait-Job -Timeout 60 | Receive-Job)
+        } finally { $job | Remove-Job -Force -ErrorAction SilentlyContinue }
+        Assert-True ($watch.Elapsed.TotalSeconds -ge 3) "the writer waited for the lock holder (took $($watch.Elapsed.TotalSeconds) s)"
+        $doc = ConvertFrom-Yaml ([IO.File]::ReadAllText($path))
+        Assert-Equal '//new/pool' $doc.networkStorage.poolStorageNetworkPath 'this writer''s change landed'
+        Assert-Equal 'file:///operator/edited' $doc.repositories.projectUrl 'the other process''s edit survives'
+        $entries = @(Get-ChildItem -LiteralPath "$path.journal" -Filter '*-setup-storage.backup' -File -ErrorAction SilentlyContinue)
+        Assert-Equal 1 $entries.Count 'one journal entry under the writer''s name'
+        Assert-Equal $edited ([IO.File]::ReadAllText($entries[0].FullName)) 'the entry holds the bytes read after the holder released the lock'
     }
 }
 

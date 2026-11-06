@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,11 +106,16 @@ $script:DefaultScreenHistorySize = 20
 # See https://yuruna.link/428e4df6-001c
 $script:DisplayInactivePattern = 'Display output is not active'
 $script:DisplayInactiveLivelockSeconds = 300
-# A processor the guest kernel stopped servicing for this long, with the
-# kernel's own fault report on the serial console, ends a wait that ends on a
-# livelock. Healthy guests on the ARM64 lab host showed a silent run of one or
-# two sampler intervals at most.
+# A wait that ends on a livelock also ends on the kernel's own fault report on
+# the serial console once a processor has serviced no interrupt for this long,
+# or once the guest's console output and its recorder uploads have both stopped
+# for this long. Healthy guests on the ARM64 lab host showed a silent processor
+# for one or two sampler intervals at most, and a healthy guest's recorder
+# reaches the host at least once a minute.
 $script:KernelStallSilentSeconds = 180
+# How often such a wait reads the host recording. The recording advances once
+# per sampler interval, so asking more often buys nothing but parsing.
+$script:GuestLivelockCheckSeconds = 60
 
 # Exponential-backoff helper for filesystem-state poll loops is
 # centralized in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
@@ -1200,42 +1205,80 @@ function Get-GuestKernelStallEnd {
         rest of a step's budget or never come. A processor that has serviced
         no interrupt for KernelStallSilentSeconds, while the kernel's own
         fault report reached the serial console after the mark, is a kernel
-        the payload cannot finish on. Neither reading is enough alone: an
-        RCU stall or hung task can pass, and the silent-processor reading is
-        the host's inference from counters. Only the Hyper-V driver keeps a
-        serial capture and the per-processor interrupt counters, so other
-        hosts never end a wait this way. Evidence gathering must never fail
-        the wait, so a source that cannot be read ends nothing.
+        the payload cannot finish on. A kernel can also wedge with every
+        processor still servicing interrupts, its hung tasks holding what the
+        payload and the guest's own recorder need: the same report from a
+        guest whose console output and recorder uploads have both stopped for
+        KernelStallSilentSeconds is the same verdict. No reading is enough
+        alone: an RCU stall or hung task can pass, the silent-processor
+        reading is the host's inference from counters, a payload can print
+        nothing for minutes, and an upload can fail on its way to the host. A
+        busy guest, however quiet its payload, keeps its recorder reaching the
+        host. Both rules read the serial console live, which only the
+        Hyper-V driver offers (Read-VMSerialCapture), so other hosts never
+        end a wait this way. Evidence gathering must never fail the wait, so
+        a source that cannot be read ends nothing.
     .PARAMETER LivelockVerdict
         Get-GuestLivelockVerdict's reading, whose ProcessorWindow holds each
         processor's NoInterruptsServicedSeconds.
     .PARAMETER SerialMark
         Where the serial capture ended when the wait began.
+    .PARAMETER OutputStaticSeconds
+        How long the console's text has gone unchanged, as the wait measured
+        it; $null when the last frame carried no text.
+    .PARAMETER RecorderPath
+        The file the guest's step recorder uploads to on this host. Without
+        one, or before the first upload, the guest's silence is not measured.
     .OUTPUTS
-        [ordered] processors, noInterruptsServicedSeconds,
-        noInterruptsServicedSinceUtc and kinds; $null when either reading is
-        missing.
+        [ordered] basis ('no-interrupts-serviced' or 'guest-silent'),
+        processors, noInterruptsServicedSeconds, noInterruptsServicedSinceUtc,
+        kinds, outputStaticSeconds and recorderUploadAgeSeconds; $null when
+        neither rule holds.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
     param(
         [AllowEmptyString()][string]$VMName,
         $LivelockVerdict,
-        [Nullable[long]]$SerialMark
+        [Nullable[long]]$SerialMark,
+        [Nullable[int]]$OutputStaticSeconds,
+        [AllowEmptyString()][string]$RecorderPath
     )
-    if ($null -eq $SerialMark -or -not $LivelockVerdict -or -not $LivelockVerdict.ProcessorWindow) { return $null }
-    $silent = @(@($LivelockVerdict.ProcessorWindow.Processors) | Where-Object {
-        $_ -and $null -ne $_.NoInterruptsServicedSeconds -and [int]$_.NoInterruptsServicedSeconds -ge $script:KernelStallSilentSeconds })
-    if ($silent.Count -eq 0) { return $null }
+    if ($null -eq $SerialMark) { return $null }
+    $silent = @()
+    if ($LivelockVerdict -and $LivelockVerdict.ProcessorWindow) {
+        $silent = @(@($LivelockVerdict.ProcessorWindow.Processors) | Where-Object {
+            $_ -and $null -ne $_.NoInterruptsServicedSeconds -and [int]$_.NoInterruptsServicedSeconds -ge $script:KernelStallSilentSeconds })
+    }
+    # The status service replaces the file as each upload arrives, so its last
+    # write is the host's clock at the guest's latest upload. The guest's own
+    # heartbeat inside it is read on the guest's clock, which can jump.
+    $uploadAge = $null
+    if ($RecorderPath) {
+        try {
+            $upload = [IO.FileInfo]::new($RecorderPath)
+            if ($upload.Exists) { $uploadAge = [int][math]::Max(0, ([DateTime]::UtcNow - $upload.LastWriteTimeUtc).TotalSeconds) }
+        } catch {
+            Write-Verbose "      Guest recorder upload unreadable for '$VMName': $($_.Exception.Message)"
+        }
+    }
+    $guestSilent = $null -ne $OutputStaticSeconds -and $OutputStaticSeconds -ge $script:KernelStallSilentSeconds -and
+        $null -ne $uploadAge -and $uploadAge -ge $script:KernelStallSilentSeconds
+    if ($silent.Count -eq 0 -and -not $guestSilent) { return $null }
     $reading = Get-StepGuestKernelFault -VMName $VMName -SerialMark $SerialMark
     $serial = if ($reading) { $reading.serial } else { $null }
     if (-not $serial -or [int]$serial.faultRecords -lt 1) { return $null }
+    # A processor that stopped is the host's direct reading, so it names the
+    # basis whenever it holds; the silence readings are kept either way.
     $longest = $silent | Sort-Object -Property { [int]$_.NoInterruptsServicedSeconds } -Descending | Select-Object -First 1
     return [ordered]@{
+        basis                        = if ($longest) { 'no-interrupts-serviced' } else { 'guest-silent' }
         processors                   = [string[]]@($silent | ForEach-Object { [string]$_.Processor })
-        noInterruptsServicedSeconds  = [int]$longest.NoInterruptsServicedSeconds
-        noInterruptsServicedSinceUtc = [string]$longest.NoInterruptsServicedSinceUtc
+        noInterruptsServicedSeconds  = if ($longest) { [int]$longest.NoInterruptsServicedSeconds } else { $null }
+        noInterruptsServicedSinceUtc = if ($longest) { [string]$longest.NoInterruptsServicedSinceUtc } else { $null }
         kinds                        = [string[]]@($serial.kinds)
+        outputStaticSeconds          = $OutputStaticSeconds
+        recorderUploadAgeSeconds     = $uploadAge
     }
 }
 
@@ -1330,6 +1373,12 @@ function Wait-ForText {
         [switch]$NoSegmentMatch,
         # See https://yuruna.link/4213a0b3-0123
         [bool]$SinceStepStart = $false,
+        # The step waits across a guest (re)boot: the console shows nothing
+        # until the kernel and getty print, so a run of blank captures is the
+        # expected run-up, not a stale capture feed. The no-text self-heal (a
+        # VNC handle reset that can earn deadline grace) stays off for this
+        # wait; the timeout record still names how long the console was blank.
+        [switch]$ExpectBlankConsole,
         # Optional periodic console nudge. This stays inside the same wall-clock
         # deadline as the OCR wait: it is for one-shot prompts (notably agetty's
         # login prompt) that can be scrolled off a live console and redrawn with
@@ -1345,17 +1394,21 @@ function Wait-ForText {
         [int]$EarlyFailureSeconds = 0,
         # End the wait as soon as the host recording shows the guest livelocked
         # (see Get-YurunaVmLivelockVerdict), or its kernel wedged with one
-        # processor silent (see Get-GuestKernelStallEnd). Callers can then
-        # diagnose or cold restart at a safe boundary; a partially executed
-        # payload must not be replayed merely because its completion wait
-        # ended early.
+        # processor or the whole guest silent (see Get-GuestKernelStallEnd).
+        # Callers can then diagnose or cold restart at a safe boundary; a
+        # partially executed payload must not be replayed merely because its
+        # completion wait ended early.
         [switch]$EndOnGuestLivelock,
         # Where a wait that ends on a livelock starts judging the verdict, for the
         # early end and for the verdict it records on timeout alike: a cold restart
         # just before the wait must not hand it the previous boot's run. Defaults
         # to this call's start; a step that waits in several calls passes its own
         # start so every call judges the same stretch of one boot.
-        [datetime]$GuestLivelockSinceUtc = [datetime]::MinValue
+        [datetime]$GuestLivelockSinceUtc = [datetime]::MinValue,
+        # The file the guest's step recorder uploads to on this host. A wait
+        # that ends on a livelock reads how long the guest has not reached the
+        # host from it; without one, a silent guest never ends the wait early.
+        [string]$GuestRecorderPath = ''
     )
     # Reset the cross-function signals so a prior call can't leak into the next
     # Wait-ForText invocation. Like WaitForTextMatchedFailurePattern, the cause
@@ -1513,8 +1566,6 @@ function Wait-ForText {
     # so a console that went black would otherwise leave no trace in the
     # failure record, which then reads like a wait that compared nothing.
     $blankSinceUtc = $null
-    # The host recording advances once per sampler interval, so asking more
-    # than once a minute buys nothing but parsing.
     $nextLivelockCheckUtc = $startUtc
     $livelockVerdict = $null
     $endedOnLivelock = $false
@@ -1552,15 +1603,18 @@ function Wait-ForText {
 
             # Checked before the capture so a feed that stopped delivering
             # frames cannot postpone the verdict: the hypervisor's view does
-            # not depend on the console path at all.
+            # not depend on the console path at all. A silent guest is judged
+            # on the console as the last pass read it, a reading that does not
+            # grow while no frame arrives.
             if ($EndOnGuestLivelock -and [DateTime]::UtcNow -ge $nextLivelockCheckUtc) {
-                $nextLivelockCheckUtc = [DateTime]::UtcNow.AddSeconds(60)
+                $nextLivelockCheckUtc = [DateTime]::UtcNow.AddSeconds($script:GuestLivelockCheckSeconds)
                 $livelockVerdict = Get-GuestLivelockVerdict -VMName $VMName -Since $livelockSinceUtc
                 if ($livelockVerdict -and $livelockVerdict.Verdict -eq 'livelocked') {
                     $endedOnLivelock = $true
                     break
                 }
-                $kernelStallEnd = Get-GuestKernelStallEnd -VMName $VMName -LivelockVerdict $livelockVerdict -SerialMark $kernelStallMark
+                $kernelStallEnd = Get-GuestKernelStallEnd -VMName $VMName -LivelockVerdict $livelockVerdict -SerialMark $kernelStallMark `
+                    -OutputStaticSeconds $progressStaticSeconds -RecorderPath $GuestRecorderPath
                 if ($kernelStallEnd) { break }
             }
 
@@ -1746,7 +1800,15 @@ function Wait-ForText {
                 } else {
                     if (-not $blankSinceUtc) { $blankSinceUtc = [DateTime]::UtcNow }
                     $noTextPolls++
-                    if ($noTextPolls -ge 4 -and $ringRepairs -lt 2) {
+                    if ($noTextPolls -ge 4 -and $ExpectBlankConsole) {
+                        # The step declared a boot's blank run-up: there is no feed
+                        # to repair and no degradation to report. A feed that is
+                        # dead shows in the record as a wait that stayed blank to
+                        # its timeout, instead of behind a repair that ran on every
+                        # healthy boot as well.
+                        $noTextPolls = 0
+                        Write-Verbose "      Wait-ForText: no OCR text for 4 polls while seeking '$patternLabel'; the step expects a blank console, so the capture feed is not repaired."
+                    } elseif ($noTextPolls -ge 4 -and $ringRepairs -lt 2) {
                         $noTextPolls = 0
                         # Only count a repair when a primitive exists and reset something.
                         # The grace waits for a later frame to differ, so a feed the
@@ -1997,6 +2059,9 @@ function Wait-ForText {
         if ($endedOnLivelock) {
             $waited = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_6d4042dbe6943c27' -Arguments @{ patternLabel = "$patternLabel"; waited = "${waited}"; timeoutSeconds = "${TimeoutSeconds}"; detail = "$($livelockVerdict.Detail)" })
+        } elseif ($kernelStallEnd -and $kernelStallEnd.basis -eq 'guest-silent') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.wait_ended_on_silent_guest' -Arguments @{ patternLabel = "$patternLabel"; waited = "$($kernelStallEnd.waitedSeconds)"; timeoutSeconds = "${TimeoutSeconds}"
+                outputStaticSeconds = "$($kernelStallEnd.outputStaticSeconds)"; uploadAgeSeconds = "$($kernelStallEnd.recorderUploadAgeSeconds)"; kinds = "$($kernelStallEnd.kinds -join ', ')" })
         } elseif ($kernelStallEnd) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.wait_ended_on_kernel_stall' -Arguments @{ patternLabel = "$patternLabel"; waited = "$($kernelStallEnd.waitedSeconds)"; timeoutSeconds = "${TimeoutSeconds}"
                 processors = "$($kernelStallEnd.processors -join ', ')"; silentSeconds = "$($kernelStallEnd.noInterruptsServicedSeconds)"; kinds = "$($kernelStallEnd.kinds -join ', ')" })

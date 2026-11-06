@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4253ddeb-5580-1ecb-1ae9-590969e1bd2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1462,7 +1462,7 @@
             'trust' = 'external'
         }
     )
-    'status.runner_attempts_description' = 'As falhas das últimas 20 tentativas do executor permanecem aqui após a recuperação. As falhas na verificação prévia ocorrem antes do início de um novo ciclo de testes.'
+    'status.runner_attempts_description' = 'As falhas das últimas 20 tentativas do executor permanecem aqui após a recuperação, assim como até 30 falhas mais antigas seguidas por uma tentativa posterior que passou. As falhas na verificação prévia ocorrem antes do início de um novo ciclo de testes.'
     'status.runner_attempts_empty' = 'Nenhuma falha de tentativa do executor retida.'
     'status.runner_attempts_title' = 'Falhas nas tentativas do executor'
     'status.runner_attempts_unavailable' = 'O histórico de tentativas do executor está indisponível.'
@@ -1476,6 +1476,22 @@
             'trust' = 'external'
         }
     )
+    'status.runner_resident' = @(
+        'Executor residente: commit '
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', iniciado em '
+        @{
+            'arg' = 'startedAt'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'status.runner_resident_unreported' = 'O executor residente não informou seu commit e seu horário de início. Um executor iniciado antes de esse relatório existir passa a informá-los após o próximo reinício.'
     'status.save' = 'Gravar'
     'status.save_and_start_cycle' = 'Salvar e iniciar o ciclo'
     'status.save_and_start_cycle_failed_value1' = @(

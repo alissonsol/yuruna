@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.31
+# Version: 2026.11.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 422627df-cd08-4fa3-84f7-b73848bfdc46
@@ -343,6 +343,82 @@ git --version
 # --- REGION: Resolve framework and project URLs
 # See https://yuruna.link/42fa6f45-000c
 echo -e "\e[1;32m==== Resolve framework and project URLs ====\e[0m"
+# Sets FRAMEWORK_URL and PROJECT_URL from the host's /control/test-config. With
+# the guest-channel key it asks with a fresh nonce and takes the two URLs only
+# from an answer that proves the key over them for this guest's host; any other
+# answer sets nothing and says why. Without the key -- a guest built before it
+# existed, or a macOS guest -- the answer is read as served. macOS runs this
+# under bash 3.2, so it keeps to constructs that release has.
+yuruna_read_repository_urls() {
+    local key_file key='' nonce='' CFG_URL answer verdict program tab=$'\t'
+    key_file="${YURUNA_GUEST_CHANNEL_KEY_FILE:-/etc/yuruna/guest-channel.key}"
+    if [ -r "$key_file" ]; then
+        key="$(head -n 1 "$key_file" 2>/dev/null | tr -d '[:space:]')"
+    fi
+    CFG_URL="http://${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-}/control/test-config"
+    if [[ "$key" =~ ^[0-9a-f]{64}$ ]]; then
+        nonce="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+        [[ "$nonce" =~ ^[0-9a-f]{32}$ ]] || return 1
+        CFG_URL="${CFG_URL}?nonce=${nonce}"
+    else
+        key_file=''
+    fi
+    if command -v wget >/dev/null 2>&1; then
+        answer="$(wget --no-proxy --no-cache --tries=1 --timeout=5 -qO- "$CFG_URL" 2>/dev/null)" || return 1
+    else
+        answer="$(curl -fsS --noproxy '*' --max-time 5 "$CFG_URL" 2>/dev/null)" || return 1
+    fi
+    # The key is read from its file, never passed on a command line. An answer
+    # is printed as "<framework URL><tab><project URL>"; a refusal prints its
+    # reason and exits 1.
+    IFS= read -r -d '' program <<'YURUNA_TEST_CONFIG' || true
+import hashlib, hmac, json, re, sys
+key_file, nonce, host_id = sys.argv[1:4]
+
+def refuse(reason):
+    print(reason)
+    sys.exit(1)
+
+def shown(value):
+    return re.sub("[^A-Za-z0-9_-]", "", value)
+
+try:
+    answer = json.loads(sys.stdin.buffer.read())
+except ValueError:
+    answer = None
+if not isinstance(answer, dict):
+    refuse("answered with no configuration")
+repositories = answer.get("repositories")
+if not isinstance(repositories, dict):
+    repositories = {}
+urls = [repositories.get(name) for name in ("frameworkUrl", "projectUrl")]
+urls = [url if isinstance(url, str) else "" for url in urls]
+if key_file:
+    with open(key_file, encoding="ascii") as handle:
+        key = handle.readline().strip()
+    channel = answer.get("guestChannel")
+    if not isinstance(channel, dict):
+        channel = {}
+    answer_host, proof = channel.get("hostId"), channel.get("proof")
+    if not isinstance(answer_host, str) or not isinstance(proof, str) or not re.fullmatch("[0-9a-f]{64}", proof):
+        refuse("answered without proving this host's guest-channel key")
+    if host_id and answer_host != host_id:
+        refuse("speaks for host '%s', not this guest's host '%s'" % (shown(answer_host), shown(host_id)))
+    message = "\n".join(["yuruna-test-config/1", answer_host, nonce] + urls)
+    expected = hmac.new(key.encode("ascii"), message.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, proof):
+        refuse("did not prove this host's guest-channel key")
+if any(mark in url for url in urls for mark in "\t\r\n"):
+    refuse("answered a clone URL with a tab or line break")
+print("\t".join(urls))
+YURUNA_TEST_CONFIG
+    if ! verdict="$(printf '%s' "$answer" | python3 -c "$program" "$key_file" "$nonce" "${YURUNA_HOST_ID:-}" 2>/dev/null)"; then
+        echo "yuruna: /control/test-config at ${YURUNA_STATUS_SERVICE_IP:-}:${YURUNA_STATUS_SERVICE_PORT:-} ${verdict:-could not be checked}; using the clone URLs seeded in host.env when available."
+        return 1
+    fi
+    FRAMEWORK_URL=${verdict%%"$tab"*}
+    PROJECT_URL=${verdict#*"$tab"}
+}
 FRAMEWORK_URL=""
 PROJECT_URL=""
 if [ -r /etc/yuruna/host.env ]; then
@@ -350,14 +426,11 @@ if [ -r /etc/yuruna/host.env ]; then
   . /etc/yuruna/host.env
 fi
 if yuruna_host_env; then
-  CFG_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/control/test-config"
-  if cfg_body=$(wget --no-proxy --no-cache --tries=1 --timeout=5 -qO- "$CFG_URL" 2>/dev/null); then
-    FRAMEWORK_URL=$(printf '%s' "$cfg_body" | python3 -c $'import json,sys\ntry: print((json.load(sys.stdin).get("repositories") or {}).get("frameworkUrl",""))\nexcept Exception: print("")' 2>/dev/null || true)
-    PROJECT_URL=$(printf '%s' "$cfg_body" | python3 -c $'import json,sys\ntry: print((json.load(sys.stdin).get("repositories") or {}).get("projectUrl",""))\nexcept Exception: print("")' 2>/dev/null || true)
-  fi
+  yuruna_read_repository_urls || true
 fi
 
-# host.env keeps clone URLs available while the status service is unreachable.
+# host.env keeps clone URLs available while the status service is unreachable
+# or its answer is not proven.
 : "${FRAMEWORK_URL:=${YURUNA_FRAMEWORK_URL:-}}"
 : "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"
 

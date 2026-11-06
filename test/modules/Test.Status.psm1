@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,6 +85,90 @@ function Save-StatusCycleCounter {
     return [bool](Write-YurunaStateFile -Path "$StatusFilePath.cycle" -Content "$Cycle" -WarnOnFailure -Confirm:$false)
 }
 
+function Get-StatusRunnerResident {
+<#
+.SYNOPSIS
+    The resident runner's report in a status document -- the framework commit
+    it loaded and when it started -- as { commitSha, startedAtUtc }, or $null
+    when the document carries none.
+.DESCRIPTION
+    Takes the document as ConvertFrom-Json returns it, with or without
+    -AsHashtable. ConvertFrom-Json reads ISO-8601 text as a [datetime], which a
+    [string] cast renders in the invariant short form, so a [datetime] start
+    comes back as ISO-8601 round-trip text.
+#>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([AllowNull()]$Document)
+    $read = {
+        param($Node, [string]$Name)
+        if ($Node -is [System.Collections.IDictionary]) { return $Node[$Name] }
+        if ($null -ne $Node -and $Node.PSObject.Properties[$Name]) { return $Node.$Name }
+        return $null
+    }
+    $report = & $read $Document 'runnerResident'
+    if ($null -eq $report) { return $null }
+    $commit = [string](& $read $report 'commitSha')
+    $started = & $read $report 'startedAtUtc'
+    $startedText = if ($started -is [datetime]) { $started.ToUniversalTime().ToString('o', [Globalization.CultureInfo]::InvariantCulture) } else { [string]$started }
+    if (-not $commit -and -not $startedText) { return $null }
+    return [ordered]@{ commitSha = $commit; startedAtUtc = $startedText }
+}
+
+function Set-StatusRunnerResident {
+<#
+.SYNOPSIS
+    Publish the resident runner's framework commit and start time in
+    status.json as runnerResident; $true when written.
+.DESCRIPTION
+    A runner keeps the modules it imported when it started until it exits, and
+    a host pull changes only what each later cycle process loads, so this is
+    the record of which code the runner itself runs. A report, not a gate.
+
+    A whole-document read-modify-write under the shared status-file lock, read
+    with ISO-8601 text kept as text, so every other field keeps what it was
+    written with. A runner on a new host finds no document and creates a
+    minimal one with no verdict, which the page reads as idle, as the first
+    cycle start would; a document that does not parse is left for the cycle
+    start to move aside, and nothing is written.
+.PARAMETER ExistingOnly
+    Write into an existing document only. A runner resumed by a host refresh
+    runs a preflight first, and a preflight writes no new status document.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$StatusPath,
+        [AllowEmptyString()][string]$CommitSha,
+        [Parameter(Mandatory)][datetime]$StartedAtUtc,
+        [switch]$ExistingOnly
+    )
+    if (-not $PSCmdlet.ShouldProcess($StatusPath)) { return $false }
+    $jsonOption = @{}
+    if ((Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $jsonOption.DateKind = 'String' }
+    $lock = Enter-StatusLock -Path $StatusPath
+    try {
+        if (Test-Path -LiteralPath $StatusPath -PathType Leaf) {
+            try {
+                $doc = [IO.File]::ReadAllText($StatusPath) | ConvertFrom-Json -AsHashtable @jsonOption -ErrorAction Stop
+            } catch {
+                Write-Verbose "Set-StatusRunnerResident: $StatusPath does not parse; the report waits for the next runner start: $($_.Exception.Message)"
+                return $false
+            }
+            if ($doc -isnot [System.Collections.IDictionary]) { return $false }
+        } elseif ($ExistingOnly) {
+            return $false
+        } else {
+            $doc = [ordered]@{ schemaVersion = 1; guests = @(); gitCommits = @(); history = @(); lastFailure = $null }
+        }
+        $doc['runnerResident'] = [ordered]@{
+            commitSha    = [string]$CommitSha
+            startedAtUtc = $StartedAtUtc.ToUniversalTime().ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+        }
+        return [bool](Write-YurunaStateFileJson -Path $StatusPath -InputObject $doc -Depth 20 -Compress:$false -Confirm:$false)
+    } finally { Exit-StatusLock -Lock $lock }
+}
+
 <#
 .SYNOPSIS
     Writes a minimal "running" status.json at the very start of a cycle so the
@@ -93,7 +177,8 @@ function Save-StatusCycleCounter {
     cycle-plan resolution run before Initialize-StatusDocument.
 .DESCRIPTION
     Preserves only the fields that genuinely span cycles -- history,
-    lastGetImageAt, cycle counter, repoUrl, host, hostname. Everything else
+    lastGetImageAt, cycle counter, repoUrl, host, hostname, and the resident
+    runner's report (runnerResident). Everything else
     (overallStatus, guests[], cycleStartUtc, startedAt, finishedAt, gitCommit,
     pause flags) is cycle-specific and would otherwise leak forward. Sets
     overallStatus="running" and an interim cycleStartUtc/startedAt so the banner
@@ -112,6 +197,7 @@ function Reset-StatusDocumentForCycleStart {
     $cycle          = 0
     $hostType       = $null
     $hostnameValue  = $null
+    $runnerResident = $null
     if (Test-Path $StatusFilePath) {
         try {
             $prev = Get-Content -Raw $StatusFilePath | ConvertFrom-Json
@@ -120,6 +206,7 @@ function Reset-StatusDocumentForCycleStart {
             if ($prev.repoUrl)        { $repoUrl        = $prev.repoUrl }
             if ($prev.host)           { $hostType       = $prev.host }
             if ($prev.hostname)       { $hostnameValue  = $prev.hostname }
+            $runnerResident = Get-StatusRunnerResident -Document $prev
         } catch {
             # See https://yuruna.link/4213a0b3-017c
             $reasonMsg = $_.Exception.Message
@@ -170,6 +257,9 @@ function Reset-StatusDocumentForCycleStart {
         host           = $hostType
         hostname       = $hostnameValue
         hostId         = $hostIdValue
+        # The resident runner's own report (Set-StatusRunnerResident), which
+        # only a runner start writes; every cycle carries it forward.
+        runnerResident = $runnerResident
         cycleStartUtc        = $now
         startedAt      = $now
         finishedAt     = $null
@@ -219,9 +309,9 @@ function Reset-StatusDocumentForCycleStart {
 .DESCRIPTION
     Creates a new status document with the provided parameters. StepNames controls
     which steps are tracked per guest (allows the caller to add Start-GuestWorkload
-    when extension scripts are present). Preserves history, cycle count, and
-    lastGetImageAt from the previous status file if present. Returns the cycleStartUtc
-    string.
+    when extension scripts are present). Preserves history, cycle count,
+    lastGetImageAt and the resident runner's report from the previous status
+    file if present. Returns the cycleStartUtc string.
 
 .PARAMETER GitCommits
     Array of @{ sha = '...'; repoUrl = '...' } hashtables, one per repo
@@ -269,12 +359,14 @@ function Initialize-StatusDocument {
     $lastGetImageAt = $null
     $repoUrl = $RepoUrl
     $cycle = 0
+    $runnerResident = $null
     if (Test-Path $StatusFilePath) {
         try {
             $prev = Get-Content -Raw $StatusFilePath | ConvertFrom-Json
             if ($prev.history) { $history = @($prev.history) }
             if ($prev.lastGetImageAt) { $lastGetImageAt = $prev.lastGetImageAt }
             if (-not $repoUrl -and $prev.repoUrl) { $repoUrl = $prev.repoUrl }
+            $runnerResident = Get-StatusRunnerResident -Document $prev
         } catch { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2d58523ab00f9192' -Arguments @{ value = "$_" }) }
     }
     $cycle = Read-StatusCycleCounter -StatusFilePath $StatusFilePath
@@ -348,6 +440,8 @@ function Initialize-StatusDocument {
         host           = $HostType
         hostname       = $Hostname
         hostId         = $hostIdValue
+        # Carried forward like history: only a runner start writes it.
+        runnerResident = $runnerResident
         cycleStartUtc        = $cycleStartUtc
         startedAt      = $cycleStartUtc
         finishedAt     = $null
@@ -1332,4 +1426,4 @@ function Set-NestedRunStatus {
     } finally { Exit-StatusLock -Lock $lock }
 }
 
-Export-ModuleMember -Function Get-PauseFlagStamp, Read-StatusCycleCounter, Save-StatusCycleCounter, Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-GuestQuarantine, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, New-CycleHistoryEntry, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime, Get-CycleContext, Publish-CycleContext, Clear-CycleContext, Enter-StatusLock, Exit-StatusLock, Read-StatusDocFromDisk, Update-StatusDocumentField, Register-NestedRunNode, Set-NestedRunStep, Set-NestedRunStatus
+Export-ModuleMember -Function Get-PauseFlagStamp, Read-StatusCycleCounter, Save-StatusCycleCounter, Get-StatusRunnerResident, Set-StatusRunnerResident, Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-GuestQuarantine, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, New-CycleHistoryEntry, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime, Get-CycleContext, Publish-CycleContext, Clear-CycleContext, Enter-StatusLock, Exit-StatusLock, Read-StatusDocFromDisk, Update-StatusDocumentField, Register-NestedRunNode, Set-NestedRunStep, Set-NestedRunStatus

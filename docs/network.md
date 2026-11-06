@@ -395,6 +395,21 @@ its digest, and Amazon Linux reaches NodeSource through a repository file whose
 signing key is checked against a pinned fingerprint (dnf then verifies every
 package). Apt repository keys are pinned the same way, by fingerprint.
 
+**What floats.** Besides what the verified installers fetch in turn (above),
+these lines take the newest version their source serves at install time, and
+no pin in this file governs them. The powershell-yaml module: every guest path
+that installs it (the Ubuntu, Amazon Linux 2023 and macOS update scripts, the
+pool-control service guest, and the Windows update and k8s workloads) runs
+`Install-Module` with no version. The Windows update workload's `winget
+upgrade --all` and its PSWindowsUpdate module, also an unversioned
+`Install-Module`. Every Windows winget install, which carries no `--version`:
+PowerShell and Git on the update workload; Git, the Azure, AWS and Google
+Cloud CLIs, Docker Desktop, kubectl, Helm, OpenTofu, Graphviz, the GitHub CLI
+and mkcert on the k8s workload, where the Linux path pins Helm, OpenTofu and
+mkcert by SHA-256; Git, Visual Studio Code, PowerShell and the GitHub CLI on
+the code workload. The Windows code workload's Temurin JDK, resolved as the
+newest LTS from the Adoptium API and downloaded as that release's latest MSI.
+
 The flannel pin also decides which images the caching proxy warms: its warm
 job reads `YURUNA_FLANNEL_VERSION` from the host's copy of this file, so the
 warm set and the manifest a guest applies stay the same release.
@@ -1640,6 +1655,19 @@ like no pin at all from the address log; only the pair separates "nobody pinned
 it" (fix it here) from "it is pinned and the server does not care" (no pin will
 help -- reserve or go static).
 
+A third shape is read apart from those two. A client renews its lease at half
+its length and rebinds before it ends, so a pinned host whose moves come one
+lease length apart is one whose renewals never took effect: each lease ran out
+and the next was a fresh allocation, whichever side dropped the renewals. On a
+NetworkManager bridge the report reads the lease length (`dhcp_lease_time`)
+from NetworkManager, and when the moves come within a tenth of it, it says the
+renewals are not taking effect instead of blaming the server's handling of the
+pin, and points at NetworkManager's `dhcp4` journal lines, which the host
+diagnostic prints in its early-boot timeline section
+([system-diagnostic.md](system-diagnostic.md#423ef7f5-000b)). Where the lease
+length cannot be read (a systemd-networkd bridge, no nmcli, or a lease that
+names no length), the pinned reading above stands.
+
 <a id="4220a755-0027"></a>
 
 ### Pinning the host address
@@ -2873,6 +2901,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

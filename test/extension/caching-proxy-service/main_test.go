@@ -639,3 +639,41 @@ func TestACrossSiteUnsafeRequestIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// A page whose own name was made to resolve to this VM (DNS rebinding) is
+// same-origin with it, so the cross-origin check passes it; the name it
+// carries is what refuses it. Apache on this VM forwards the browser's Host
+// and appends it to X-Forwarded-Host, and the test client is on loopback the
+// way Apache is, so the forwarded name is judged too.
+func TestARequestNamingAnotherHostIsRefused(t *testing.T) {
+	srv, _ := newDaemon(t, modeLocal)
+	send := func(method, path, host, forwarded string) *http.Response {
+		t.Helper()
+		req, err := http.NewRequest(method, srv.URL+path, strings.NewReader(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = host
+		req.Header.Set("Content-Type", "application/json")
+		if forwarded != "" {
+			req.Header.Set("X-Forwarded-Host", forwarded)
+		}
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, path, err)
+		}
+		t.Cleanup(func() { _ = resp.Body.Close() })
+		return resp
+	}
+	if r := send(http.MethodGet, "/api/status", "rebind.example", ""); r.StatusCode != http.StatusMisdirectedRequest {
+		t.Errorf("GET /api/status naming rebind.example = %d, want 421", r.StatusCode)
+	} else if body := decode(t, r); body["code"] != "auth.host_not_served" {
+		t.Errorf("refusal = %v, want code auth.host_not_served", body)
+	}
+	if r := send(http.MethodPost, "/git-mirror/v1/resolve", "127.0.0.1", "rebind.example"); r.StatusCode != http.StatusMisdirectedRequest {
+		t.Errorf("a resolve Apache forwarded for rebind.example = %d, want 421", r.StatusCode)
+	}
+	if r := send(http.MethodPost, "/git-mirror/v1/resolve", "127.0.0.1", ""); r.StatusCode == http.StatusMisdirectedRequest {
+		t.Error("a resolve naming this VM's address was refused as another host")
+	}
+}

@@ -140,11 +140,15 @@ registry lookup described by `registryName` below.
 | `components[].buildPath` | Resolves under project `components/`; defaults to the expanded `project` value when omitted. The folder must contain `Dockerfile`, `dockerfile`, or `<project>-dockerfile`. |
 | Component commands | `buildCommand`, `tagCommand`, and `pushCommand` prefer entry values and fall back to document globals. `preProcessor` and `postProcessor` come from the merged variables. |
 | `components[].commandTimeoutSeconds` | Read from the entry, overriding `globalVariables.commandTimeoutSeconds`; the default is 600 seconds. The publisher requires integers from 1 through 3600. Each supervised command phase, including registry login, receives this bound. |
-| `resources[].commandTimeoutSeconds`, `deployments[].commandTimeoutSeconds` | Read from the entry, overriding the file's `globalVariables.commandTimeoutSeconds`; the publisher requires integers from 1 through 3600. The value bounds every tofu call for the resource, or every helm call of a chart and the command of a `kubectl`, `helm` or `shell` deployment, in place of each call's built-in bound ([deploy tool call bounds](../architecture.md#42e568c8-000f)). |
+| `resources[].commandTimeoutSeconds`, `deployments[].commandTimeoutSeconds` | Read from the entry, overriding the file's `globalVariables.commandTimeoutSeconds`; the publisher requires integers from 1 through 3600. The value bounds every tofu call of a resource's publish, or every helm call of a chart and the command of a `kubectl`, `helm` or `shell` deployment, in place of each call's built-in bound ([deploy tool call bounds](../architecture.md#42e568c8-000f)). Cleanup's `tofu destroy` keeps its built-in bound, and the `kubectl config` calls around a context read only the document's `globalVariables` value. |
 | `components[].buildRetry` | Read from the entry, overriding `globalVariables.buildRetry`; the default is 1. The publisher requires integers from 1 through 10. It is the number of build attempts, and another attempt starts only when the failed one's output matches the shared transient-failure classifier, under the shared backoff ([retry policy](../architecture.md#42e568c8-000c)). |
 | `workloads[].context` | Selects an existing kubeconfig context; the operator's original context is restored afterward. Raw and expanded duplicate contexts are rejected. The publisher sets `contextName` and `workFolder` before expanding workload variables. |
 | `deployments[].chart` | Resolves under project `workloads/`. `variables.installName` is required and must be unique within the expanded context. |
 | `deployments[].kubectl`, `.helm`, `.shell` | `kubectl` and `helm` hold arguments that the kind catalog prefixes with the tool name; `shell` holds a PowerShell command. Each runs from `.yuruna/<config>/workloads/<context>/` with the merged variables in the environment. `chart` wins when several keys are present; otherwise the last of `kubectl`, `helm`, `shell` wins. |
+
+Validation expands names against the environment at validation time, before the
+document's own `globalVariables` are exported, so a collision that appears only
+through those values is not detected.
 
 Variable precedence follows the enclosing record scopes. Later layers replace
 matching keys:
@@ -153,7 +157,7 @@ matching keys:
 | --- | --- |
 | Resource inputs | Resource-document `globalVariables`, then resource `variables`. |
 | Component inputs | Resource-output globals and qualified outputs, component-document `globalVariables`, component `variables`, then the publisher's `project`, `buildPath`, and `dockerfile` values. |
-| Workload inputs | Resource-output globals and qualified outputs, workload-document `globalVariables`, workload `variables`, then deployment `variables`. |
+| Workload inputs | Resource-output globals and qualified outputs, workload-document `globalVariables`, workload `variables`, deployment `variables`, then the publisher's `contextName`; a tool deployment also receives the publisher's `workFolder` in its environment. |
 
 Configured expressions expand at the publisher's phase-specific expansion
 points. Resource outputs are already produced data and enter component and
@@ -178,7 +182,7 @@ and [workloads.yml](https://github.com/alissonsol/yuruna-project/blob/main/examp
 | Artifact | Stored data and consumer |
 | --- | --- |
 | `.yuruna/<config>/resources/<name>/terraform.tfvars.json` | Expanded resource inputs serialized as JSON strings for OpenTofu. Project templates take precedence over the [framework templates](../../global/resources/). |
-| `.yuruna/<config>/resources/<name>/tofu.planfile` | The initialization pass's saved plan, consumed by the apply pass when present. Resource work folders also preserve Terraform state. |
+| `.yuruna/<config>/resources/<name>/tofu.planfile` | The initialization pass's saved plan, consumed by the apply pass when present. Resource work folders also preserve Terraform state. `.workfolder.complete` proves staging finished, and `<name>.new` and `<name>.old` are the staging and rollback folders. Providers cache under `.yuruna/tofu-plugin-cache/` unless `TF_PLUGIN_CACHE_DIR` is set. |
 | `config/<config>/resources.output.yml` | Expanded `globalVariables` plus mappings keyed by resource name. Normal OpenTofu leaves retain `value`, `type`, and `sensitive`. |
 | `.yuruna/<config>/workloads/<context>/<installName>/values.yaml` | Merged deployment variables plus `contextName`, passed to Helm with the copied project chart. |
 | `.yuruna/<config>/` phase folders | Timestamped input backups (newest 20 per phase), tool logs, and exit-code sidecars read by diagnostics. |
@@ -194,9 +198,12 @@ The expansion helper exports each output value as
 Components read `resources.output.yml` from the selected configuration when it
 exists. Workloads first try the same location, then
 `config/<config_subfolder>/../resources.output.yml` when the selected file is
-absent. [Cleanup](../../automation/Yuruna.Clear.psm1) reads only the
-`resources.output.yml` keys and the resource work folders; it does not infer
-ownership from a successful component build. It destroys each listed resource
+absent. [Cleanup](../../automation/Yuruna.Clear.psm1) takes the resources to
+destroy from the `resources.output.yml` keys other than `globalVariables` and from
+the resource work folders, restoring a `<name>.old` folder left by an interrupted
+swap; it does not infer ownership from a successful component build. It validates
+`resources.yml` but only warns on failure, and exports the output globals without
+expansion. It destroys each listed resource
 that still has a work folder, deletes the folder on success, and retains it with
 its state on failure. Cleanup does not edit `resources.output.yml`, so the next
 apply preserves its mappings. A template that produces no outputs fails the
@@ -284,7 +291,10 @@ the host's `repositories.mirror` policy, which a pool assignment never changes;
 
 The companion [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml)
 lists top-level sequence names. The harness reads this file from its `project/`
-checkout and resolves project sequences before framework `test/sequences/`.
+checkout and resolves project sequences before framework `test/sequences/`. A
+missing file or empty `sequences` list is an error. A planner-fatal failure runs
+no guests; a cycle without a plan reads the `guestSequence` list from
+`test/test.config.yml`.
 Any directory named `test` under that checkout supplies sequences, including
 `example/*/test/`, `book/test/`, and `example/nested.host/test/`; the latter two
 are not project roots. A name found in two of them stops planning. Entries drop
@@ -294,7 +304,15 @@ Guest sequences require `description`, `keystrokeMechanism`, and `resource`
 under the schema. The normalizer supplies `gui` for an omitted mechanism;
 explicit mechanisms are `gui` or `ssh`. The `resource` mapping names ordered
 prerequisites by guest, followed by `component` and then `workload` actions.
-Orchestration and host sequences have separate shapes.
+The harness does not validate sequence files against this schema at run time; a
+file without `resource` is treated as an orchestration or host sequence. A step
+can be `{ snippet: <name> }`, spliced from `_snippets.yml` in framework
+`test/sequences/` or a project `test` directory. A project name overrides a
+framework name; the same name in two project libraries stops planning.
+An orchestration sequence has `name`, optional `continueOnError`, and `steps`
+whose entries are `action: InvokeTestSequence` with a `sequence` name. A host
+sequence has a `host` block with `script` or `scripts`, optional `arguments`, and
+`elevated`.
 
 The optional `descriptionLocalized` map adds labels by locale while retaining
 `description` as the fallback. The `variables` mapping supplies scalar step
@@ -309,10 +327,17 @@ are separate from the deployment YAML despite their shared phase names.
 
 Identity mappings live at `test/status/extension/authentication/users.yml`,
 bootstrapped from the committed `users.yml.template`. Secrets live beside them
-in `vault.yml`. An existing `users.yml` later gains new credential-free template
-entries. A sequence names its logical user in `variables.username`; along a
-prerequisite chain the top-level value wins. That logical username can resolve
-to `localOsUser` and to corporate `domain`/`sam` or `upn` login text.
+in `vault.yml`. A lab adds `lab.<lab-name>.vault.yml` in the same folder: a
+plain-text file with `schemaVersion`, `lab`, and `users` entries shaped like the
+vault's, written when the lab is created and copied to each host that joins. An
+existing `users.yml` later gains new credential-free template entries. A sequence
+names its logical user in `variables.username`; along a prerequisite chain the
+top-level value wins. That logical username can resolve to `localOsUser` and to
+corporate `domain`/`sam` or `upn` login text. The planner also projects `hostname`,
+`memoryStartupBytes`, `cores`, and `exposeVirtualizationExtensions` from the same
+cascade, which ignores blank values. `domain` with `sam` wins over `upn`, a `sam`
+alone is used as is, and a `domain` without `sam` fails the pre-cycle check in
+either strict mode.
 
 | Mapping | Secret lookup |
 | --- | --- |
@@ -368,6 +393,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 [Architecture](../architecture.md) | [Design overview](README.md)

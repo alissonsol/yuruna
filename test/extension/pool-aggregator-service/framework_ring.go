@@ -43,7 +43,8 @@ const (
 
 var ringRevisionRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-// ringRow is one completed cycle as the ring reads it.
+// ringRow is one completed cycle as the ring reads it off a status.json body;
+// the view records it as a poolstate.RingRow.
 type ringRow struct {
 	cycle    string // cycleStartUtc, RFC 3339 UTC
 	revision string // full framework commit
@@ -53,6 +54,9 @@ type ringRow struct {
 // ringFacts is the pool view's record of each host's completed cycles,
 // revision -> hostId -> cycleStartUtc -> passed.
 type ringFacts = poolstate.RingFacts
+
+// ringLimits are the bounds the view keeps the facts within.
+var ringLimits = poolstate.RingLimits{CyclesPerHost: ringMaxCyclesPerHost, Revisions: ringMaxRevisions}
 
 type ringStateDoc struct {
 	Version   int       `json:"version"`
@@ -134,82 +138,11 @@ func ringSkippedGuest(summary map[string]json.RawMessage) bool {
 // recordRingRows merges one host's completed cycles into the locked view.
 // Returns true when anything new was recorded.
 func (s *poolState) recordRingRows(view *poolstate.View, hostID string, rows []ringRow) bool {
-	if len(rows) == 0 {
-		return false
-	}
-	if view.Ring == nil {
-		view.Ring = ringFacts{}
-	}
-	changed := false
+	facts := make([]poolstate.RingRow, 0, len(rows))
 	for _, row := range rows {
-		hosts := view.Ring[row.revision]
-		if hosts == nil {
-			hosts = map[string]map[string]bool{}
-			view.Ring[row.revision] = hosts
-		}
-		cycles := hosts[hostID]
-		if cycles == nil {
-			cycles = map[string]bool{}
-			hosts[hostID] = cycles
-		}
-		if prev, known := cycles[row.cycle]; known && prev == row.passed {
-			continue
-		}
-		cycles[row.cycle] = row.passed
-		changed = true
-		trimRingCycles(cycles)
+		facts = append(facts, poolstate.RingRow{Cycle: row.cycle, Revision: row.revision, Passed: row.passed})
 	}
-	if changed {
-		trimRingRevisions(view.Ring)
-	}
-	return changed
-}
-
-// trimRingCycles keeps a host's newest cycles at one revision.
-func trimRingCycles(cycles map[string]bool) {
-	if len(cycles) <= ringMaxCyclesPerHost {
-		return
-	}
-	keys := make([]string, 0, len(cycles))
-	for k := range cycles {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys) // RFC 3339 UTC sorts chronologically
-	for _, k := range keys[:len(keys)-ringMaxCyclesPerHost] {
-		delete(cycles, k)
-	}
-}
-
-// trimRingRevisions drops the revisions whose newest cycle is oldest.
-func trimRingRevisions(facts ringFacts) {
-	if len(facts) <= ringMaxRevisions {
-		return
-	}
-	type aged struct {
-		revision string
-		newest   string
-	}
-	all := make([]aged, 0, len(facts))
-	for revision, hosts := range facts {
-		newest := ""
-		for _, cycles := range hosts {
-			for cycle := range cycles {
-				if cycle > newest {
-					newest = cycle
-				}
-			}
-		}
-		all = append(all, aged{revision, newest})
-	}
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].newest != all[j].newest {
-			return all[i].newest < all[j].newest
-		}
-		return all[i].revision < all[j].revision
-	})
-	for _, a := range all[:len(all)-ringMaxRevisions] {
-		delete(facts, a.revision)
-	}
+	return view.RecordRingCycles(hostID, facts, ringLimits)
 }
 
 // ringCandidate is one revision as the canaries saw it.
@@ -377,13 +310,9 @@ func (s *poolState) loadRingState() {
 				}
 				facts[revision][hostID][cycle] = passed
 			}
-			if cycles := facts[revision][hostID]; cycles != nil {
-				trimRingCycles(cycles)
-			}
 		}
 	}
-	trimRingRevisions(facts)
-	s.st.Do(func(view *poolstate.View) { view.Ring = facts })
+	s.st.Do(func(view *poolstate.View) { view.SetRingFacts(facts, ringLimits) })
 }
 
 // ringStateSnapshot encodes the locked view's facts for persistRingState, so

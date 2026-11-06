@@ -553,10 +553,10 @@ pwsh ./New-VM.ps1
 ### Workload registry pull-through
 
 The example workload scripts start a local Docker registry from
-`registry:2` (Docker Hub canonical, i.e. `docker.io/library/registry:2`),
-but they never name it that way.
+`registry:2.8.3` (Docker Hub canonical, i.e.
+`docker.io/library/registry:2.8.3`), but they never name it that way.
 
-A bare `registry:2` is a docker.io reference, and dockerd resolves those
+A bare `registry:2.8.3` is a docker.io reference, and dockerd resolves those
 through the `registry-mirrors` entry in `/etc/docker/daemon.json` (set by
 `guest/<GUEST>/<GUEST>.k8s.sh` at provision time). That entry is a
 *mirror*: dockerd abandons it once it is slower than dockerd's own
@@ -568,21 +568,29 @@ and the direct pull then egresses from the lab's shared IP and earns a
 point it is no longer in the path.
 
 So the scripts take the image from the guest's local docker store first,
-and otherwise pull `${CACHE_HOST}:5000/library/registry:2` -- the cache
+and otherwise pull `${CACHE_HOST}:5000/library/registry:2.8.3` -- the cache
 addressed **by name**, with the `library/` prefix spelled out (only the
 docker.io mirror protocol lets it be elided). An explicit reference has no
 upstream to fall back to, so a slow cache stays a slow pull instead of
 turning into a hard failure. The image is then re-tagged to the bare
-`registry:2` that `docker run` names, so the container starts from the
+`registry:2.8.3` that `docker run` names, so the container starts from the
 store without resolving anything over the network.
 
-Pinning `public.ecr.aws/docker/library/registry:2` to dodge Docker Hub's
-anonymous limit is unreliable -- that mirror has itself returned 400 across
-multiple test hosts simultaneously; addressing the zot pull-through
-directly is the durable fix.
+The tag is one exact release, written once as `REGISTRY_TAG` in the
+project's `tools/example-workload.sh`. The caching proxy's warm set
+(`WORKLOAD_REFS` in `zot-prewarm.sh`) names the same tag, so the image a
+guest pulls is the one the cache keeps resident. Another release changes
+both and reaches the cache with a caching-proxy rebuild. The project
+workload parity case in `test/modules/Test.SourceConsistency.Tests.ps1`
+fails while the two differ.
+
+Taking the image from `public.ecr.aws/docker/library/registry` to dodge
+Docker Hub's anonymous limit is unreliable -- that mirror has itself
+returned 400 across multiple test hosts simultaneously; addressing the zot
+pull-through directly is the durable fix.
 
 Transient egress blips surface here as `network is unreachable`,
-connection resets, or DNS hiccups while pulling `registry:2` -- e.g. a
+connection resets, or DNS hiccups while pulling the registry image -- e.g. a
 host-side DHCP re-lease that momentarily blackholes the guest's NAT
 route, or TLS jitter to the cache. These are not rate limits and clear
 within seconds, so the scripts retry with backoff (mirroring the
@@ -660,7 +668,7 @@ against a remote registry:
    mid-stream wedge is not a blip, so a retry would burn another full
    bound with no better odds.
 2. The images are tagged and pushed into the guest-local
-   `localhost:5000` distribution registry -- the same `registry:2`
+   `localhost:5000` distribution registry -- the same `registry:2.8.3`
    container the built app image is pushed to.
 3. The build runs with `--build-arg REGISTRY=localhost:5000/`, so
    `FROM` metadata and base layers resolve over loopback only, with no
@@ -754,8 +762,9 @@ later; `systemctl start yuruna-brand-dashboards.service` re-stamps on
 demand. A missing banner means the VM was built without a resolvable
 repository name -- the dashboards are otherwise unaffected.
 
-Edit dashboards with `admin`/`admin` (unrotated; VM is on private
-switch). Datasource UIDs: `yuruna-prometheus`, `yuruna-loki`. Grafana
+Edit dashboards as `admin`, with the password the proxy's build generated
+([Email for each failed test cycle](alerts.md) says where to read it).
+Datasource UIDs: `yuruna-prometheus`, `yuruna-loki`. Grafana
 is the OSS build from `apt.grafana.com stable main`.
 
 **Prometheus** -- loopback-only. SSH in then
@@ -936,8 +945,9 @@ Retry budgets differ by whether a client is blocked on the path:
 `mirror.gcr.io` does not implement `/v2/_catalog`, which zot must enumerate
 before every periodic sync even when `content` names one exact repository.
 The mirror therefore has an on-demand entry only. The explicit warm set asks
-for `mirror.gcr.io/library/registry:2`, the one Docker Hub image the workloads
-depend on, and follows its `linux/amd64` and `linux/arm64` children. Kubernetes
+for `mirror.gcr.io/library/registry:2.8.3`, the one Docker Hub image the
+workloads depend on, at the release the example workload helper pins, and
+follows its `linux/amd64` and `linux/arm64` children. Kubernetes
 and flannel tags also stay in that warm set, which resolves the exact versions
 in use instead of polling broad, floating prefixes.
 
@@ -1019,7 +1029,7 @@ contract; the dynamic guest versions are resolved instead of pinned here:
 
 | Set | Resolved from |
 |---|---|
-| Workload support | fixed cache route `mirror.gcr.io/library/registry:2`; direct requests are required because that upstream has no catalog |
+| Workload support | fixed cache route `mirror.gcr.io/library/registry:2.8.3`, the release the project's `tools/example-workload.sh` pins; direct requests are required because that upstream has no catalog |
 | Kubernetes control plane | `YURUNA_K8S_MINOR` fetched from `automation/yuruna-versions.sh` -> `dl.k8s.io/release/stable-<minor>.txt` -> `kubeadm config images list` run from the matching release binary |
 | CNI (flannel) | `YURUNA_FLANNEL_VERSION` fetched from `automation/yuruna-versions.sh` (the `releases/latest` redirect only for a versions file without that pin), then the `image:` names in the `kube-flannel.yml` that tag publishes |
 
@@ -1039,7 +1049,7 @@ the live resolver and will differ by run):
 
 ```
 Warm sets, last warmed <UTC timestamp> (versions resolved via local host status service):
-  Workload support image set (mirror.gcr.io/library/registry:2):
+  Workload support image set (mirror.gcr.io/library/registry:2.8.3):
     resident                 : 1 of 1 held
       answered from storage  : 1
       copied in by that run  : 0
@@ -1364,7 +1374,7 @@ carry different retry budgets and cannot be collapsed into one.
 1. `onDemand: true` + `library/**` -- takes Docker Hub's official-image
    namespace off the metered catch-all. Same paths as Hub, so nothing is
    rewritten.
-2. The separate `zot-prewarm` warm set requests `library/registry:2` directly.
+2. The separate `zot-prewarm` warm set requests `library/registry:2.8.3` directly.
    A second `registries[]` entry with `pollInterval` cannot do this job because
    zot starts a poll by listing `/v2/_catalog`, which this upstream answers
    with HTTP 405.
@@ -1746,8 +1756,16 @@ curl -s http://<cache-ip>:9310/api/switches   # just the switch state
 ```
 
 Reads are open on the trusted LAN, like every other Yuruna service's read
-surface. The two switches are the write surface and take the internal
-authentication key as a bearer:
+surface, to a request that names the VM in its `Host` header by an address, its
+hostname, `localhost` or a name the building host configured (its
+[`vmStart.serviceHostNames`](test-config.md#42b11c32-0015) and the names in its
+`vmStart.cachingProxyIp`, `repositories.mirror.url` and
+`pool.configurationGitUrl`). Any other name is refused with `421`, including on
+the routes Apache forwards here from port 80 with the caller's own `Host`
+(`/landing` and the git mirror's), so a host that reaches the proxy by a name
+the building host did not list loses the mirror's resolve route and falls back
+as its `repositories.mirror.mode` says. The two switches are the write surface
+and take the internal authentication key as a bearer:
 
 ```
 curl -s -X POST http://<cache-ip>:9310/api/switches/offline \
@@ -2210,6 +2228,17 @@ Order of operations in every caching-proxy-service `New-VM.ps1`:
 2. `Get-Password 'caching-proxy-service-admin'` returns either the rehydrated value or a fresh
    random one (first-ever install).
 3. Write the value back to the runtime state file (idempotent on rebuild).
+
+The Grafana `admin` password does not persist. Each build mints a new one and
+seeds it in `/etc/yuruna/grafana-admin.env` (mode 0600, root), which the
+`grafana-server` unit reads through `EnvironmentFile=`; Grafana applies it when
+it creates its database at first start. The builder records it with
+`Set-Password 'caching-proxy-grafana-admin'` after the seed renders and before
+it removes the old VM, and a failed write stops the build there. Run on its own,
+the builder then leaves the old VM running. A rebuild through
+`test/service/Start-CachingProxyServiceVM.ps1` does not: that script removes the
+VM in its Step 1, before the builder runs. The vault keeps the value the write
+replaces as `previousPassword`.
 
 <a id="42f6b05f-0042"></a>
 
@@ -3054,6 +3083,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

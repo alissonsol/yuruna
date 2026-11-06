@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -489,10 +489,11 @@ Describe 'the presence beacon cadence' {
         # address. Beacon slower than the grace and the pool holds neither the
         # refused old address nor the unannounced new one, for the difference --
         # an area that resolves to nothing while the service is up the whole time.
-        $mainGo = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', 'pool-aggregator-service', 'main.go')
-        $grace = ConvertFrom-GoConstDuration -Text (Get-Content -Raw -LiteralPath $mainGo) `
-            -Pattern 'extensionHealthGrace\s*=\s*([0-9]+)\s*\*\s*time\.([A-Za-z]+)' `
-            -Site "extensionHealthGrace in $mainGo"
+        $extensionsGo = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', 'pool-aggregator-service',
+            'internal', 'extensions', 'extensions.go')
+        $grace = ConvertFrom-GoConstDuration -Text (Get-Content -Raw -LiteralPath $extensionsGo) `
+            -Pattern 'HealthGrace\s*=\s*([0-9]+)\s*\*\s*time\.([A-Za-z]+)' `
+            -Site "HealthGrace in $extensionsGo"
         Assert-True ($grace -gt 0) 'the aggregator declares a health grace'
         foreach ($site in (Get-BeaconCadenceSite -RepoRoot $script:RepoRoot)) {
             Assert-True ($site.Seconds -lt $grace) `
@@ -513,6 +514,27 @@ Describe 'the presence beacon cadence' {
 }
 
 Describe 'the caching-proxy seed fetches the sources it builds' {
+    It 'creates every nested source directory before fetching into it' {
+        $seed = Get-Content (Join-Path $script:RepoRoot 'host/vmconfig/caching-proxy-service.base.user-data') -Raw
+        $loops = [regex]::Matches($seed,
+            'for f in (?<files>[^;]+); do\s+yr_fetch "test/extension/(?<area>[A-Za-z0-9._-]+)/\$f"')
+        Assert-True ($loops.Count -ge 2) 'expected the per-service source fetch loops'
+
+        foreach ($loop in $loops) {
+            $area = $loop.Groups['area'].Value
+            $directories = @([regex]::Matches($seed.Substring(0, $loop.Index),
+                    '(?m)^\s*mkdir -p (?<directories>[^\r\n]+)') |
+                    ForEach-Object { $_.Groups['directories'].Value -split '\s+' })
+            foreach ($name in ($loop.Groups['files'].Value -split '\s+')) {
+                $slash = $name.LastIndexOf('/')
+                if ($slash -lt 0) { continue }
+                $directory = '/opt/' + $area + '/' + $name.Substring(0, $slash)
+                Assert-True ($directories -contains $directory) `
+                    "$area : the seed fetches '$name' before creating '$directory'"
+            }
+        }
+    }
+
     It 'keeps the installed source manifest, fetch loop and runtime files identical' {
         $dir = Join-Path $script:RepoRoot 'test/extension/caching-proxy-service'
         $module = Import-Module (Join-Path $dir 'default.psm1') -Force -PassThru -DisableNameChecking
@@ -686,6 +708,96 @@ Describe 'the caching-proxy management daemon ships runnable' {
             'the caching-proxy VM has no pool.env; deriving the aggregator URL from it yields an empty value and kills the beacon'
         Assert-False ($text -match 'CACHING_PROXY_AGGREGATOR_URL=[^\n]*127\.0\.0\.1') `
             'the announce handler refuses a loopback source address, so a loopback aggregator URL beacons into a rejection'
+    }
+}
+
+Describe 'the names a service VM answers to' {
+    It 'collects the names a service VM answers to besides its own' {
+        $config = [ordered]@{
+            vmStart      = [ordered]@{ serviceHostNames = @('Stash.Lab', 'cache.lab.', ' '); cachingProxyIp = 'cache.lab' }
+            repositories = [ordered]@{ mirror = [ordered]@{ url = 'http://mirror.lab/' } }
+            pool         = [ordered]@{ configurationGitUrl = 'http://cache.lab/pool-configuration.git' }
+        }
+        Assert-Equal 'cache.lab,mirror.lab,stash.lab' (Get-ExtensionServiceHostNameSeed -Config $config)
+        # Every address is served without an entry, so an address adds nothing.
+        $addresses = [ordered]@{
+            vmStart      = [ordered]@{ serviceHostNames = @('192.168.7.42'); cachingProxyIp = '192.168.7.42' }
+            repositories = [ordered]@{ mirror = [ordered]@{ url = 'http://[fd00::1]/' } }
+            pool         = [ordered]@{ configurationGitUrl = 'http://192.168.7.42/pool-configuration.git' }
+        }
+        Assert-Equal '' (Get-ExtensionServiceHostNameSeed -Config $addresses)
+        Assert-Equal '' (Get-ExtensionServiceHostNameSeed -Config $null)
+        Assert-Equal '' (Get-ExtensionServiceHostNameSeed -RepoRoot (Join-Path $TestDrive 'no-config'))
+    }
+
+    It 'refuses an entry that is neither a host name nor an address' {
+        foreach ($bad in @('bad name', 'a/b', "x'y", '-lead')) {
+            $config = [ordered]@{ vmStart = [ordered]@{ serviceHostNames = @('cache.lab', $bad) } }
+            Assert-Throw { Get-ExtensionServiceHostNameSeed -Config $config } -Match '^service-host-name-invalid: vmStart\.serviceHostNames$' `
+                -Because "'$bad' is no name a request can carry"
+        }
+    }
+
+    It 'bakes the names into the three service seeds and hands them to each daemon' {
+        $readsSeed = 'YURUNA_SERVICE_HOST_NAMES=''\(\.\*\)''.*/etc/yuruna/service-host-names\.env'
+        foreach ($area in 'stash-service', 'download-agent-service', 'caching-proxy-service') {
+            $seed = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot "host/vmconfig/$area.base.user-data")
+            Assert-Match '(?ms)^\s*- path: /etc/yuruna/service-host-names\.env\s*$((?!^\s*- path:).)*?^\s*YURUNA_SERVICE_HOST_NAMES=''YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER''\s*$' $seed `
+                "the $area seed writes the names this host configured"
+        }
+        $stash = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh')
+        Assert-Match "(?m)^ALLOWED_HOST_NAMES=.*$readsSeed" $stash 'the stash bring-up reads the seeded names'
+        Assert-Match '(?m)^ALLOWED_HOST_NAMES=\$ALLOWED_HOST_NAMES$' $stash 'the stash environment file carries them'
+        Assert-Match '(?m)^ExecStart=/usr/local/bin/stash-service .*--allowed-host-names=\\\$\{ALLOWED_HOST_NAMES\}' $stash 'the stash unit passes them'
+        $agent = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh')
+        Assert-Match "(?m)^ALLOWED_HOST_NAMES=.*$readsSeed" $agent 'the download-agent bring-up reads the seeded names'
+        Assert-Match '(?m)^DOWNLOAD_AGENT_ALLOWED_HOST_NAMES=\$ALLOWED_HOST_NAMES$' $agent 'the download-agent environment file carries them'
+        Assert-Match '(?m)^ExecStart=/usr/local/bin/download-agent-service .*--allowed-host-names=\\\$\{DOWNLOAD_AGENT_ALLOWED_HOST_NAMES\}' $agent 'the download-agent unit passes them'
+        $unit = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'test/extension/caching-proxy-service/caching-proxy-service.service')
+        Assert-Match '(?m)^\s*--allowed-host-names=\$\{CACHING_PROXY_ALLOWED_HOST_NAMES\}' $unit 'the caching-proxy unit passes them'
+        $proxy = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'host/vmconfig/caching-proxy-service.base.user-data')
+        Assert-Match "(?m)^\s*CPS_HOST_NAMES=.*$readsSeed" $proxy 'the caching-proxy build reads the seeded names'
+        Assert-Match '(?m)^\s*CACHING_PROXY_ALLOWED_HOST_NAMES=\$CPS_HOST_NAMES\s*$' $proxy 'the caching-proxy environment file carries them'
+        # The management daemon's build re-checks the SDK files the aggregator
+        # block staged; a package left off that list is never checked there.
+        $fetch = [regex]::Match($proxy, 'for f in (?<files>[^;]+); do\s+yr_fetch "test/extension/extension-sdk/\$f"')
+        $recheck = [regex]::Match($proxy, 'for f in (?<files>[^;]+); do\s+if \[ ! -s "/opt/extension-sdk/\$f" \]')
+        Assert-True ($fetch.Success -and $recheck.Success) 'the caching-proxy seed fetches and re-checks the SDK'
+        Assert-Equal (@($fetch.Groups['files'].Value -split '\s+' | Where-Object { $_ } | Sort-Object) -join ' ') `
+            (@($recheck.Groups['files'].Value -split '\s+' | Where-Object { $_ } | Sort-Object) -join ' ') `
+            'the re-check loop names every SDK file the fetch loop stages'
+    }
+
+    It 'fills the names from this host''s configuration when a seed asks for them' {
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force -DisableNameChecking
+        $stash = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'host/vmconfig/stash-service.base.user-data')
+        $item = [regex]::Match($stash, '(?ms)^  - path: /etc/yuruna/service-host-names\.env\s*$.*?^      YURUNA_SERVICE_HOST_NAMES=''YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER''[ \t]*$')
+        Assert-True $item.Success 'the stash seed carries the names item'
+        $base = Join-Path $TestDrive 'stash.base.user-data'
+        $overlay = Join-Path $TestDrive 'stash.overlay.yml'
+        Set-Content -LiteralPath $base -Value ("#cloud-config`nwrite_files:`n" + $item.Value + "`n") -NoNewline
+        Set-Content -LiteralPath $overlay -Value '' -NoNewline
+        Mock -ModuleName Yuruna.CloudInitTemplate Get-ExtensionServiceHostNameSeed { 'stash.lab' }
+        $rendered = New-CloudInitUserData -BasePath $base -OverlayPath $overlay -RepoRoot $script:RepoRoot -Replacement @{} -Confirm:$false
+        Assert-Match '(?m)^\s*YURUNA_SERVICE_HOST_NAMES=''stash\.lab''\s*$' $rendered 'the render fills the names this host configured'
+        Should -Invoke -ModuleName Yuruna.CloudInitTemplate Get-ExtensionServiceHostNameSeed -Times 1 -Exactly
+        $explicit = New-CloudInitUserData -BasePath $base -OverlayPath $overlay -RepoRoot $script:RepoRoot `
+            -Replacement @{ YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER = 'mine.lab' } -Confirm:$false
+        Assert-Match '(?m)^\s*YURUNA_SERVICE_HOST_NAMES=''mine\.lab''\s*$' $explicit 'a caller''s own value wins'
+        Should -Invoke -ModuleName Yuruna.CloudInitTemplate Get-ExtensionServiceHostNameSeed -Times 1 -Exactly
+    }
+
+    It 'the runner template seeds an empty service-name list and reconciliation keeps an operator''s' {
+        Import-Module powershell-yaml -ErrorAction Stop
+        Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.ConfigSync.psm1') -DisableNameChecking
+        $template = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'test/test.config.yml.template') | ConvertFrom-Yaml -Ordered
+        Assert-True ($template.vmStart.Contains('serviceHostNames')) 'the template carries vmStart.serviceHostNames'
+        $seeded = $template.vmStart['serviceHostNames']
+        Assert-True ($null -ne $seeded -and $seeded -isnot [string] -and @($seeded).Count -eq 0) 'the template seeds an empty list'
+        $added = ConvertTo-MergedHashtable -Template $template -Current ([ordered]@{ vmStart = [ordered]@{ bootDelaySeconds = 30 } })
+        Assert-True ($added.vmStart.Contains('serviceHostNames') -and @($added.vmStart['serviceHostNames']).Count -eq 0) 'reconciliation adds the empty list'
+        $kept = ConvertTo-MergedHashtable -Template $template -Current ([ordered]@{ vmStart = [ordered]@{ serviceHostNames = @('cache.lab') } })
+        Assert-Equal 'cache.lab' (@($kept.vmStart['serviceHostNames']) -join ',') 'reconciliation keeps the operator''s names'
     }
 }
 

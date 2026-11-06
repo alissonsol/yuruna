@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1422,17 +1422,107 @@ execution policy. Reinstall it for all users, from an elevated prompt:
 }
 
 # --- REGION: PowerShell modules
+# PSGallery modules this installer puts in place itself, pinned by version and
+# by the SHA-512 the gallery publishes for the package (its OData PackageHash,
+# base64): the bytes are checked before anything is unpacked, so a new upload,
+# or anything that answers for the gallery, cannot change the code every runner
+# imports. The same pin lives in test/modules/Test.HostGit.psm1, which installs
+# it on a host set up without this script, and in the other host installers;
+# Test.HostGitInstall keeps every copy equal. To move a pin, read the new
+# version's PackageHash from
+#   https://www.powershellgallery.com/api/v2/Packages(Id='<name>',Version='<version>')
+# and compare it with the SHA-512 of the downloaded .nupkg.
+$script:YurunaGalleryModulePin = @{
+    'powershell-yaml' = @{ Version = '0.4.12'; Sha512 = 'Vc5DLyw7hLsCL6yFlSvzsdUUWmgfqoM35XmRavtKOz37GHBg3p+vWxaO/9wS8MbptzWspdUBcVRGSqAdlJmtUg==' }
+}
+
+# This function also lives in tools/Install-TestModule.ps1, which installs the
+# test modules the same way once the checkout exists; the standalone installer
+# keeps its own copy because it runs before any checkout.
+function Install-YurunaPinnedGalleryModule {
+    <#
+    .SYNOPSIS
+        Install one gallery package named in the pin table, refusing any download whose SHA-512 differs from the pin.
+    .DESCRIPTION
+        Lays the module out the way PowerShellGet does (<root>/<Name>/<Version>/...),
+        without the NuGet packaging entries. The files land in a sibling staging
+        directory first and move into place in one rename, so an interrupted
+        install never leaves a half module that Get-Module -ListAvailable would
+        report as installed. Any failure is thrown for the caller to report in
+        its own way.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        # PowerShell's CurrentUser module directory unless a caller names another:
+        # Documents on Windows, the XDG data directory elsewhere.
+        [string]$ModuleRoot
+    )
+    $pin = $script:YurunaGalleryModulePin[$Name]
+    if (-not $pin) { throw "$Name has no pinned version" }
+    if (-not $ModuleRoot) {
+        if ($IsWindows) {
+            $ModuleRoot = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell/Modules'
+        } else {
+            $data = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { Join-Path $HOME '.local/share' }
+            $ModuleRoot = Join-Path $data 'powershell/Modules'
+        }
+    }
+    $package = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-$Name-$($pin.Version)-" + [guid]::NewGuid().ToString('N') + '.nupkg')
+    $staging = ''
+    try {
+        $uri = "https://www.powershellgallery.com/api/v2/package/$([uri]::EscapeDataString($Name))/$([uri]::EscapeDataString($pin.Version))"
+        Invoke-WebRequest -Uri $uri -OutFile $package -TimeoutSec 300 -MaximumRedirection 5 -ErrorAction Stop | Out-Null
+        $sha = [Security.Cryptography.SHA512]::Create()
+        try { $actual = [Convert]::ToBase64String($sha.ComputeHash([IO.File]::ReadAllBytes($package))) } finally { $sha.Dispose() }
+        if ($actual -cne $pin.Sha512) { throw "the package SHA-512 $actual does not match the pinned $($pin.Sha512)" }
+        $nameDir = Join-Path $ModuleRoot $Name
+        [void][IO.Directory]::CreateDirectory($nameDir)
+        $staging = Join-Path $nameDir (".$($pin.Version)." + [guid]::NewGuid().ToString('N') + '.staging')
+        $stagingFull = [IO.Path]::GetFullPath($staging) + [IO.Path]::DirectorySeparatorChar
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $zip = [IO.Compression.ZipFile]::OpenRead($package)
+        try {
+            foreach ($entry in $zip.Entries) {
+                $relative = [uri]::UnescapeDataString($entry.FullName)
+                if (-not $entry.Name) { continue }
+                if ($relative -eq '[Content_Types].xml' -or $relative -like '_rels/*' -or $relative -like 'package/*' -or
+                    ($relative -notmatch '/' -and $relative -like '*.nuspec')) { continue }
+                $destination = [IO.Path]::GetFullPath((Join-Path $staging $relative))
+                if (-not $destination.StartsWith($stagingFull, [StringComparison]::Ordinal)) {
+                    throw "package entry $($entry.FullName) escapes the module directory"
+                }
+                [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination))
+                [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destination, $false)
+            }
+        } finally { $zip.Dispose() }
+        if (-not (Test-Path -LiteralPath (Join-Path $staging "$Name.psd1") -PathType Leaf)) {
+            throw "package carries no $Name.psd1 manifest"
+        }
+        $target = Join-Path $nameDir $pin.Version
+        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+        [IO.Directory]::Move($staging, $target)
+    } catch {
+        if ($staging) { Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue }
+        throw
+    } finally {
+        Remove-Item -LiteralPath $package -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Write-Step 'Installing required PowerShell modules'
 if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue) {
     Write-Step '  powershell-yaml already installed'
 } else {
-    Write-Step '  installing powershell-yaml (CurrentUser scope)'
+    $yamlVersion = $script:YurunaGalleryModulePin['powershell-yaml'].Version
+    Write-Step "  installing powershell-yaml $yamlVersion (CurrentUser scope)"
     try {
-        Install-Module -Name powershell-yaml -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+        Install-YurunaPinnedGalleryModule -Name 'powershell-yaml'
     } catch {
-        Add-InstallIssue "Install-Module powershell-yaml failed: $($_.Exception.Message)"
+        Add-InstallIssue "Installing powershell-yaml $yamlVersion failed: $($_.Exception.Message)"
         Write-Warn "  Invoke-TestProject.ps1 will refuse to run until this is fixed."
-        Write-Warn "  Try manually: Install-Module powershell-yaml -Scope CurrentUser"
+        Write-Warn "  Try manually: Install-Module powershell-yaml -RequiredVersion $yamlVersion -Scope CurrentUser"
     }
 }
 

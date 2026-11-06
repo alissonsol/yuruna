@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a07001-0b1b-e8af-74b4-0c25e481f7c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,28 @@
         }
         '⁩; לא ייכלל CA בזרע עד שיתוקן או יוסר.'
     )
+    'runner.capability_gate_host_command_missing' = '  הרצפים מריצים פקודות מארח שאינן קיימות במארח זה:'
+    'runner.capability_gate_host_command_remedy' = '  התקינו במארח זה את הפקודות החסרות, או הסירו את השלבים שמריצים אותן מקובצי YAML של רצפי המחזור.'
+    'runner.capability_gate_host_command_step' = @(
+        '        '
+        @{
+            'arg' = 'sequence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', שלב '
+        @{
+            'arg' = 'step'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
     'runner.config_gate_attempt_failed' = @(
         'ניסיון ההרצה הסתיים עם הקוד '
         @{
@@ -94,6 +116,20 @@
         'גיבוי התצורה אל '
         @{
             'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.config_port_firewall_unconfirmed' = @(
+        'שירות התצורה לא הצליח לאשר שתעבורת TCP נכנסת ביציאה :'
+        @{
+            'arg' = 'port'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' פתוחה לאורחי השירות, שמביאים ממנה את פרטי ההזדהות שלהם עבור NAS: '
+        @{
+            'arg' = 'detail'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -728,6 +764,40 @@
             'trust' = 'external'
         }
     )
+    'runner.host_address_lease_expiry_churn' = @(
+        'המארח הזה החליף כתובת '
+        @{
+            'arg' = 'changes'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' פעמים במהלך '
+        @{
+            'arg' = 'lookbackHours'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        'h האחרונות, ל-'
+        @{
+            'arg' = 'distinctAddresses'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' כתובות שונות, שינוי אחד כל '
+        @{
+            'arg' = 'medianIntervalMinutes'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' min -- בערך פעם אחת לכל חכירה, ששרת DHCP הקצה ל-'
+        @{
+            'arg' = 'leaseSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' s. זהות DHCP של הגשר אכן מקובעת, והמעברים מתרחשים כשחכירה פוקעת ולא בעת חידוש: החידושים אינם נכנסים לתוקף, ולכן כל חכירה פוקעת והבאה אחריה היא הקצאה חדשה. כתובת שמשתנה במרווחים קבועים שוברת כל אורח שמאחוריה בכל פעם שהיא זזה.'
+    )
+    'runner.host_address_lease_expiry_remedy' = 'קראו את שורות dhcp4 של NetworkManager סביב מעבר (journalctl -b 0 -u NetworkManager --grep dhcp4, מודפסות גם באבחון המארח) כדי לבדוק אם כל חכירה הוארכה בעת חידוש או פקעה, ובדקו שחומת האש של המארח מאפשרת לתשובות השרת להגיע ליציאת UDP 68; לכידת תעבורה בגשר לאורך החידוש שבמחצית החכירה (tcpdump -ni yuruna-br0 ''udp port 67 or udp port 68'') מראה אם הבקשה נשלחה ונענתה, גם כאשר חומת האש של המארח חוסמת את התשובה לאחר מכן; שריון DHCP לכתובת MAC של הגשר, או כתובת סטטית, מייצבים את הכתובת בכל מקרה -- עיינו בקובץ ⁦docs/network.md⁩, בסעיף ''Pinning the host address''.'
     'runner.host_condition_probe_unanswered' = @(
         'לא ניתן היה לקרוא את '
         @{
@@ -2395,6 +2465,79 @@
             'trust' = 'internal'
         }
         '); כשלים מאוחרים יותר ברצף זה עשויים לנבוע מכך.'
+    )
+    'runner.netconsole_receiver_bind_failed' = @(
+        'לא ניתן היה לפתוח את יציאת UDP '
+        @{
+            'arg' = 'port'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.netconsole_receiver_listening' = @(
+        'מאזין ל-netconsole ביציאת UDP '
+        @{
+            'arg' = 'port'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '; יומן אחד לכל מארח שולח ולכל יום UTC נכתב אל '
+        @{
+            'arg' = 'directory'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. לחצו על Ctrl+C כדי לעצור.'
+    )
+    'runner.netconsole_receiver_small_buffer' = @(
+        'המערכת הקצתה מאגר קליטה של UDP בגודל '
+        @{
+            'arg' = 'granted'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        ' בתים, פחות מ-'
+        @{
+            'arg' = 'requested'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' הבתים שהתבקשו, ולכן פרץ של הודעות ליבה, כמו עקבות המחסנית שמארח שולח לפני panic, עלול לגלוש ממנו ולאבד שורות. ב-Linux, הגדילו את המגבלה באמצעות ''sudo sysctl -w net.core.rmem_max='
+        @{
+            'arg' = 'requested'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ''' והפעילו את המקלט מחדש.'
+    )
+    'runner.netconsole_receiver_stopped' = @(
+        'נעצר לאחר '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' דאטגרמות.'
+    )
+    'runner.netconsole_receiver_write_failed' = @(
+        'לא ניתן היה לכתוב שורה שהתקבלה תחת '
+        @{
+            'arg' = 'directory'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.no_other_runner_refresh_active' = @(
         @{
@@ -4079,7 +4222,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        'h האחרונות, ללא מרווח קבוע -- התנהגות התואמת אתחולים או אירועי קישור ולא חידוש שאינו מכובד. מנגנון הגילוי מטפל בכך.'
+        'h האחרונות, ללא מרווח קבוע -- התנהגות התואמת אתחולים או אירועי קישור. מנגנון הגילוי מטפל בכך.'
     )
     'runner.operator_13c098483d4f4c49' = 'powershell-yaml אינו מותקן: ⁦users.yml⁩ ייבדק בסריקת טקסט'
     'runner.operator_13eefd852d733d69' = '    מנהל המכונות הווירטואליות פועל בחשבון שלכם ואינו יכול לגשת אליהם, ולכן הם תופסים מקום ללא תועלת.'
@@ -5447,7 +5590,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '⁦/tcp⁩ כדי שלקוחות ברשת LAN יוכלו להגיע אל status service.'
+        '⁦/tcp⁩ כדי שלקוחות ברשת LAN יוכלו להגיע למארח זה דרך TCP ביציאה :'
+        @{
+            'arg' = 'port'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
     )
     'runner.operator_26ae0718f0a53461' = @(
         'מדדי מארח: '
@@ -19325,7 +19474,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); מצב חומת האש עבור יציאת המצב אינו ידוע. אם :'
+        '); מצב חומת האש עבור TCP ביציאה :'
+        @{
+            'arg' = 'port'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' אינו ידוע. אם :'
         @{
             'arg' = 'port'
             'type' = 'detail'
@@ -24985,6 +25140,33 @@
         '.'
     )
     'runner.transcript_title' = 'יומן מריץ הבדיקות של Yuruna'
+    'runner.ufw_port_rule_left' = @(
+        'כלל ה-ufw הקיים עבור TCP ביציאה :'
+        @{
+            'arg' = 'port'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נשאר כפי שהוא, כי Yuruna אינו מחליף כלל שלא הוסיף: '
+        @{
+            'arg' = 'rule'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. אם לקוחות ברשת המקומית צריכים להגיע למארח הזה ב-:'
+        @{
+            'arg' = 'port'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', שנו את הכלל הזה בעצמכם, לדוגמה: sudo ufw allow '
+        @{
+            'arg' = 'port'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '⁦/tcp⁩'
+    )
     'runner.vault_retired_entries' = @(
         'הוסרו '
         @{
@@ -25068,6 +25250,44 @@
         ' במשך '
         @{
             'arg' = 'silentSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's, והקונסולה הטורית שלו דיווחה על '
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.wait_ended_on_silent_guest' = @(
+        'ההמתנה לטקסט '''
+        @{
+            'arg' = 'patternLabel'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' הסתיימה אחרי ~'
+        @{
+            'arg' = 'waited'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's מתוך '
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's: פלט המסוף של האורח לא השתנה במשך '
+        @{
+            'arg' = 'outputStaticSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's, ההעלאות של רכיב התיעוד שלו לא הגיעו למארח במשך '
+        @{
+            'arg' = 'uploadAgeSeconds'
             'type' = 'detail'
             'trust' = 'external'
         }

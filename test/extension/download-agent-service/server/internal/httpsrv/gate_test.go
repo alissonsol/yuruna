@@ -103,7 +103,8 @@ func login(t *testing.T, srv *httptest.Server, code string) *http.Response {
 // An operator who reached this UI by clicking it out of the Yuruna hosts
 // dashboard arrives holding a control proof in the URL fragment instead of a
 // code, and the page spends it on /api/unlock-proof. What this covers is the
-// wiring -- that the route is mounted and reaches the gate; the proof's own
+// wiring -- that the route is mounted and reaches the gate, which takes the
+// proof bound to this service and refuses the unbound form; the proof's own
 // rules (window, ceiling, forgery, who verifies it) live in the labgate suite.
 func TestAControlProofFromTheDashboardUnlocksTheGatedRoutes(t *testing.T) {
 	const internalAuthKey = "internal-auth-key-for-the-whole-pool"
@@ -112,16 +113,25 @@ func TestAControlProofFromTheDashboardUnlocksTheGatedRoutes(t *testing.T) {
 	if r := post(t, srv, imgPath+"/refresh"+imgQuery, "", nil); r.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("no session = %d, want 401", r.StatusCode)
 	}
-	expiry := strconv.FormatInt(time.Now().Add(15*time.Minute).Unix(), 10)
-	proof := expiry + "." + hmacB64(internalAuthKey, "yuruna-control|proof|"+expiry)
-	resp, err := srv.Client().Post(srv.URL+"/api/unlock-proof", "application/json",
-		strings.NewReader(`{"proof":`+strconv.Quote(proof)+`}`))
-	if err != nil {
-		t.Fatalf("POST /api/unlock-proof: %v", err)
+	unlock := func(proof string) *http.Response {
+		t.Helper()
+		resp, err := srv.Client().Post(srv.URL+"/api/unlock-proof", "application/json",
+			strings.NewReader(`{"proof":`+strconv.Quote(proof)+`}`))
+		if err != nil {
+			t.Fatalf("POST /api/unlock-proof: %v", err)
+		}
+		t.Cleanup(func() { resp.Body.Close() })
+		return resp
 	}
-	defer resp.Body.Close()
+	expiry := strconv.FormatInt(time.Now().Add(15*time.Minute).Unix(), 10)
+	unbound := expiry + "." + hmacB64(internalAuthKey, "yuruna-control|proof|"+expiry)
+	if r := unlock(unbound); r.StatusCode != http.StatusBadRequest || len(r.Cookies()) != 0 {
+		t.Errorf("unlock with an unbound proof = %d with %d cookie(s), want 400 and none", r.StatusCode, len(r.Cookies()))
+	}
+	const audience = "svc-download-agent-service"
+	resp := unlock(expiry + "." + audience + "." + hmacB64(internalAuthKey, "yuruna-control|proof|v2|"+audience+"|"+expiry))
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("unlock with a fresh proof = %d, want 200", resp.StatusCode)
+		t.Fatalf("unlock with a fresh proof bound to this service = %d, want 200", resp.StatusCode)
 	}
 	if r := post(t, srv, imgPath+"/refresh"+imgQuery, "", resp.Cookies()); r.StatusCode != http.StatusAccepted {
 		t.Fatalf("with the proof session = %d, want 202", r.StatusCode)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42270c23-bc4d-b72a-aa6d-221c47193049
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,535 @@
         ' Ñó šéñţíñéļ óř óříğíñ řéçóřď ŵáš ŵříţţéñ ƒóř íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'host.clock_service_description' = '[Ŵíñďóŵš Ţíɱé šéřṽíçé (Ŵ32Ţíɱé) ~~~~~~~~~~~~]'
+    'host.deep_diagnostics_applying' = @(
+        '[Áƥƥļýíñğ '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ')... ~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_change' = @(
+        '[    '
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'previous'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -> '
+        @{
+            'arg' = 'new'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_component_failed' = @(
+        '['
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ŵáš ñóţ áƥƥļíéď: '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_dependencies_kept' = @(
+        '[ţħé ƥáçķáğéš ţħé íñšţáļļ óƒ '
+        @{
+            'arg' = 'package'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ƥúļļéď íñ, ŵħíçħ áƥţ ɱářķéď áš áúţóɱáţíçáļļý íñšţáļļéď, šţáý ƀéçáúšé óţħéř šóƒţŵářé ɱáý úšé ţħéɱ; /var/log/apt/history.log ļíšţš ţħéɱ úñďéř ţħáţ íñšţáļļ. Ţó řéɱóṽé ţħéɱ áš ŵéļļ: šúďó áƥţ-ğéţ ƥúřğé <those packages>. áƥţ-ğéţ áúţóřéɱóṽé ŵóúļď áļšó řéɱóṽé éṽéřý óţħéř ƥáçķáğé áƥţ ñó ļóñğéř ñééďš, óļď ķéřñéļš áɱóñğ ţħéɱ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_enable_incomplete' = @(
+        '['
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' çóɱƥóñéñţ(š) ƒáíļéď áñď ţħé óţħéřš ářé íñ ƥļáçé; ƒíẋ ţħé çáúšé áñď řúñ Enable-DeepDiagnostics.ps1 áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_evidence_kept' = @(
+        '[ţħé éṽíďéñçé ƀúñďļéš šţáý íñ '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '; -ŘéɱóṽéÉṽíďéñçé ďéļéţéš ţħéɱ ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_existing_unreadable' = @(
+        '['
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' éẋíšţš ƀúţ çáññóţ ƀé řéáď, šó íţ çóúļď ñóţ ƀé ƥúţ ƀáçķ ļáţéř; íţ ŵáš ļéƒţ áš íţ íš ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_journal_directory_created' = @(
+        '['
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ŵáš çřéáţéď ŵħíļé ďééƥ ďíáğñóšţíçš ɱóďé ŵáš óñ, áñď ĵóúřñáļď ķééƥš á ƥéřšíšţéñţ ĵóúřñáļ ŵħíļé íţ éẋíšţš. Ţó řéţúřñ ţó á ṽóļáţíļé ĵóúřñáļ: šúďó řɱ -řƒ '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' && šúďó šýšţéɱçţļ řéšţářţ šýšţéɱď-ĵóúřñáļď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_key_netconsole' = '[ñéţçóñšóļé ţářğéţ ~~~~~~~]'
+    'host.deep_diagnostics_key_pstore_backend' = '[ƥšţóřé ƀáçķéñď ~~~~~~]'
+    'host.deep_diagnostics_module_in_use' = @(
+        '['
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' šţáýš ļóáďéď ƀéçáúšé šóɱéţħíñğ šţíļļ úšéš íţ ~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_netconsole_how_to' = '[Ţó šéñď ţħé ķéřñéļ ļóğ ţó áñóţħéř ɱáçħíñé áš íţ ħáƥƥéñš, řúñ ƥŵšħ ţéšţ/lab/Receive-Netconsole.ps1 ţħéřé, ţħéñ řúñ ţħíš áğáíñ ŵíţħ -ÑéţçóñšóļéŢářğéţ <IPv4 of that machine>[:ƥóřţ]. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_netconsole_no_dispatcher' = '[ÑéţŵóřķⱮáñáğéř íš ñóţ íñšţáļļéď, šó ţħé ţářğéţ íš šéţ áţ ƀóóţ óñļý áñď ñóţ áğáíñ ŵħéñ ţħíš ħóšţ''š áďďřéšš çħáñğéš ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_netconsole_no_target' = '[ñó -ÑéţçóñšóļéŢářğéţ ŵáš ğíṽéñ ~~~~~~~~~~~~]'
+    'host.deep_diagnostics_netconsole_not_enabled' = '[ţħé ñéţçóñšóļé ţářğéţ ďíď ñóţ çóɱé úƥ; šéé: ĵóúřñáļçţļ -ţ ýúřúñá-ñéţçóñšóļé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_not_enabled' = @(
+        '[Ďééƥ ďíáğñóšţíçš ɱóďé íš ñóţ éñáƀļéď óñ ţħíš ħóšţ: '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ďóéš ñóţ éẋíšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_nothing_to_change' = '[Ďééƥ ďíáğñóšţíçš ɱóďé íš áļřéáďý íñ ƥļáçé óñ ţħíš ħóšţ; ñóţħíñğ çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_plan_apply' = @(
+        '[  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): ŵíļļ ƀé áƥƥļíéď ~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_plan_current' = @(
+        '[  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): áļřéáďý íñ ƥļáçé ~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_plan_header' = @(
+        '[Ďééƥ ďíáğñóšţíçš ɱóďé óñ '
+        @{
+            'arg' = 'hostName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': ƥļáññéď çħáñğéš ~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_plan_note' = @(
+        '[    ñóţé: '
+        @{
+            'arg' = 'note'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~]'
+    )
+    'host.deep_diagnostics_plan_skip' = @(
+        '[  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'title'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '): šķíƥƥéď -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_pstore_backend' = @(
+        '[ƥšţóřé áļřéáďý úšéš ţħé '
+        @{
+            'arg' = 'backend'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ƀáçķéñď ~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_pstore_legacy_bios' = '[ţħíš ħóšţ ƀóóţéď ŵíţħ ļéğáçý ɃÍÓŠ, áñď éƒí-ƥšţóřé ñééďš ÚÉƑÍ ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_pstore_no_backend' = @(
+        '[éƒí_ƥšţóřé ļóáďéď, ƀúţ ƥšţóřé šţíļļ řéƥóřţš ñó ƀáçķéñď ('
+        @{
+            'arg' = 'backend'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ') ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_pstore_unit_masked' = '[systemd-pstore.service íš ɱášķéď; úñɱášķ íţ ţó ářçħíṽé çřášħ řéçóřďš áţ ƀóóţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_pstore_unsupported' = '[ţħíš ķéřñéļ ħáš ñó ƥšţóřé šúƥƥóřţ ~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_reason_declined' = '[ñóţ çóñƒířɱéď ~~~~~~]'
+    'host.deep_diagnostics_reason_interrupted' = '[Enable-DeepDiagnostics.ps1 šţóƥƥéď ƀéƒóřé ţħíš çóɱƥóñéñţ ŵáš íñ ƥļáçé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_receiver_command' = @(
+        '[Ķééƥ ţħé řéçéíṽéř řúññíñğ óñ ţħé ţářğéţ ɱáçħíñé: ƥŵšħ ţéšţ/lab/Receive-Netconsole.ps1 -Ƥóřţ '
+        @{
+            'arg' = 'port'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_requires_linux' = '[Ďééƥ ďíáğñóšţíçš ɱóďé íš ƒóř áñ Úƀúñţú ĶṼⱮ ħóšţ, áñď ţħíš ħóšţ íš ñóţ řúññíñğ Ļíñúẋ. Ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_requires_systemd' = '[Ďééƥ ďíáğñóšţíçš ɱóďé ñééďš šýšţéɱď áš ţħé řúññíñğ íñíţ šýšţéɱ, áñď /run/systemd/system ďóéš ñóţ éẋíšţ óñ ţħíš ħóšţ. Ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_restore_done' = @(
+        '[Ďééƥ ďíáğñóšţíçš ɱóďé íš óƒƒ; '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' çħáñğé(š) řéṽéřţéď. ~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_restore_failed' = @(
+        '['
+        @{
+            'arg' = 'item'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ŵáš ñóţ řéšţóřéď: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_restore_header' = @(
+        '[Ďééƥ ďíáğñóšţíçš ɱóďé, éñáƀļéď '
+        @{
+            'arg' = 'enabledAtUtc'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ƀý '
+        @{
+            'arg' = 'enabledBy'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': ƥļáññéď řéšţóřé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_restore_incomplete' = @(
+        '['
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' çħáñğé(š) çóúļď ñóţ ƀé řéṽéřţéď; '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' íš ķéƥţ, šó řúññíñğ Disable-DeepDiagnostics.ps1 áğáíñ ƒíñíšħéš ţħé řéšţóřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_setting_overridden' = @(
+        '['
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' šéţš '
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '='
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' áñď íš řéáď áƒţéř ţħé ďééƥ ďíáğñóšţíçš ďřóƥ-íñ, šó íţš ṽáļúé ŵíñš áţ ƀóóţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_should_apply' = '[Áƥƥļý ~~]'
+    'host.deep_diagnostics_should_record' = '[Řéçóřď ţħé çúřřéñţ ṽáļúéš áñď áƥƥļý ďééƥ ďíáğñóšţíçš ɱóďé ~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_should_restore' = '[Řéšţóřé ţħé ṽáļúéš řéçóřďéď ƀéƒóřé ďééƥ ďíáğñóšţíçš ɱóďé ~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_state_record' = @(
+        '[Éṽéřý ṽáļúé áƀóṽé íš řéçóřďéď íñ '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ƀéƒóřé ţħé ƒířšţ çħáñğé; Disable-DeepDiagnostics.ps1 řéšţóřéš ţħé ħóšţ ƒřóɱ ţħáţ řéçóřď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_state_unreadable' = @(
+        '['
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' éẋíšţš ƀúţ íš ñóţ á ďééƥ ďíáğñóšţíçš šţáţé ƒíļé ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Ñóţħíñğ ŵáš çħáñğéď; řéšţóřé ţħé ƒíļé óř ɱóṽé íţ ášíďé ƀéƒóřé řúññíñğ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_step_failed' = @(
+        '['
+        @{
+            'arg' = 'command'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ƒáíļéď (éẋíţ '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '): '
+        @{
+            'arg' = 'output'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_sudo_unavailable' = '[Ďééƥ ďíáğñóšţíçš ɱóďé çħáñğéš řóóţ-óŵñéď šéţţíñğš, áñď šúďó ďíď ñóţ řúñ á çóɱɱáñď ŵíţħóúţ ášķíñğ ƒóř á ƥáššŵóřď. Ñóţħíñğ ŵáš çħáñğéď. Řúñ ţħé šçříƥţ áğáíñ ƒřóɱ á ţéřɱíñáļ ŵħéřé ýóú çáñ éñţéř ţħé šúďó ƥáššŵóřď, óř áš řóóţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_summary_applied' = @(
+        '[  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': áƥƥļíéď ~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_summary_failed' = @(
+        '[  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': ƒáíļéď -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_summary_header' = '[Ďééƥ ďíáğñóšţíçš ɱóďé: ~~~~~~~~~]'
+    'host.deep_diagnostics_summary_skipped' = @(
+        '[  '
+        @{
+            'arg' = 'component'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ': šķíƥƥéď -- '
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_sysctl_not_exposed' = @(
+        '['
+        @{
+            'arg' = 'key'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' íš ñóţ éẋƥóšéď ƀý ţħíš ķéřñéļ, šó íţ íš ļéƒţ óúţ. ~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_target_invalid' = @(
+        '[-ÑéţçóñšóļéŢářğéţ '''
+        @{
+            'arg' = 'target'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' íš ñóţ áñ ÍƤṽ4 áďďřéšš ŵíţħ áñ óƥţíóñáļ ƥóřţ, šúçħ áš 192.168.1.20 óř 192.168.1.20:6666. Ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_title_boot_evidence' = '[éṽíďéñçé ƀúñďļé áţ éṽéřý ƀóóţ ~~~~~~~~~~~~]'
+    'host.deep_diagnostics_title_journald' = '[ƥéřšíšţéñţ ĵóúřñáļ šýñçéď éṽéřý 10 šéçóñďš ~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_title_netconsole' = '[ķéřñéļ ļóğ šéñţ ţó áñóţħéř ɱáçħíñé ~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_title_pstore' = '[çřášħ řéçóřďš íñ ÚÉƑÍ šţóřáğé ~~~~~~~~~~~~]'
+    'host.deep_diagnostics_title_rasdaemon' = '[ħářďŵářé éřřóř ļóğ ~~~~~~~~]'
+    'host.deep_diagnostics_title_sysctl' = '[ƥáñíç áñď řéƀóóţ óñ ļóçķúƥš áñď óóƥšéš ~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_title_vitals' = '[ħóšţ ṽíţáļš íñ ţħé ķéřñéļ ļóğ éṽéřý 10 šéçóñďš ~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_title_watchdog' = '[ħářďŵářé ŵáţçħďóğ řéšéţ ~~~~~~~~~~]'
+    'host.deep_diagnostics_value_absent' = '[áƀšéñţ ~~~]'
+    'host.deep_diagnostics_value_evidence' = '[ţħé éṽíďéñçé ƀúñďļéš ~~~~~~~~]'
+    'host.deep_diagnostics_value_installed' = '[íñšţáļļéď ~~~~]'
+    'host.deep_diagnostics_value_loaded' = '[ļóáďéď ~~~]'
+    'host.deep_diagnostics_value_none' = '[ñóñé ~~]'
+    'host.deep_diagnostics_value_not_installed' = '[ñóţ íñšţáļļéď ~~~~~~]'
+    'host.deep_diagnostics_value_not_loaded' = '[ñóţ ļóáďéď ~~~~]'
+    'host.deep_diagnostics_value_removed' = '[řéɱóṽéď ~~~]'
+    'host.deep_diagnostics_value_restored_content' = @(
+        '[ţħé éářļíéř çóñţéñţ ķéƥţ íñ '
+        @{
+            'arg' = 'statePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_value_saved_content' = @(
+        '[óţħéř çóñţéñţ, ķéƥţ íñ '
+        @{
+            'arg' = 'statePath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_value_yuruna_file' = '[ţħé ďééƥ ďíáğñóšţíçš ṽéřšíóñ ~~~~~~~~~~~~]'
+    'host.deep_diagnostics_verify' = '[Ţó çħéçķ ţħé ƥáţħ éñď ţó éñď, řúñ: éçħó ''<5>ýúřúñá-ďééƥ-ďíáğñóšţíçš: çħéçķ'' | šúďó ţéé /dev/kmsg -- ţħé ļíñé áƥƥéářš íñ ''ĵóúřñáļçţļ -ķ -ñ 5'' ħéřé áñď, ŵíţħ ñéţçóñšóļé, íñ ţħé řéçéíṽéř''š ļóğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.deep_diagnostics_watchdog_daemon' = @(
+        '['
+        @{
+            'arg' = 'unit'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' íš řúññíñğ áñď ħóļďš ţħé ŵáţçħďóğ ďéṽíçé; šţóƥ áñď ďíšáƀļé íţ ţó ļéţ šýšţéɱď úšé ţħé ďéṽíçé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_watchdog_held' = @(
+        '['
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' íš óƥéñ ƀý áñóţħéř ƥřóçéšš, áñď á ŵáţçħďóğ ďéṽíçé ţáķéš óñé úšéř áţ á ţíɱé; šţóƥ ţħáţ ƥřóçéšš ţó ļéţ šýšţéɱď úšé íţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_watchdog_no_device' = @(
+        '['
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ļóáďéď ƀúţ řéğíšţéřéď ñó ħářďŵářé ŵáţçħďóğ, ŵħíçħ úšúáļļý ɱéáñš ţħé ƒířɱŵářé ďíšáƀļéď íţ (šéé: šúďó ďɱéšğ | ğřéƥ -í '
+        @{
+            'arg' = 'module'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ') ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_watchdog_no_driver' = @(
+        '[ñó ħářďŵářé ŵáţçħďóğ íš řéğíšţéřéď áñď ñó ďříṽéř íš ķñóŵñ ƒóř ÇƤÚ ṽéñďóř '''
+        @{
+            'arg' = 'vendor'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''; šóƒţďóğ íš ñóţ úšéď ƀéçáúšé íţ çáññóţ ƒířé óñ á ħářď ƒřééžé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_watchdog_nowayout' = @(
+        '['
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ħáš ñóŵáýóúţ šéţ: óñçé ářɱéď íţ çáññóţ ƀé šţóƥƥéď ŵíţħóúţ á řéƀóóţ, šó Disable-DeepDiagnostics.ps1 çóúļď ñóţ řéšţóřé ţħíš ħóšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_watchdog_provider_unknown' = @(
+        '[ţħé ķéřñéļ ɱóďúļé ţħáţ ƥřóṽíďéš '
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ('''
+        @{
+            'arg' = 'identity'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''') çóúļď ñóţ ƀé íďéñţíƒíéď (ļóáďéď ŵáţçħďóğ ďříṽéřš: '
+        @{
+            'arg' = 'drivers'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), šó ñóţħíñğ ŵóúļď ļóáď íţ áţ ţħé ñéẋţ ƀóóţ áñď ţħé ŵáţçħďóğ ŵóúļď ƀé ğóñé áƒţéř á řéƀóóţ; ŵíţħ éẋáçţļý óñé ħářďŵářé ŵáţçħďóğ ďříṽéř ļóáďéď, řúñ ţħíš áğáíñ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.deep_diagnostics_watchdog_softdog' = @(
+        '[óñļý šóƒţďóğ íš řéğíšţéřéď ('
+        @{
+            'arg' = 'device'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). šóƒţďóğ řúñš óñ ţħé ƥřóçéššóřš ţħáţ ƒřééžé, šó íţ çáññóţ ƒířé óñ á ħářď ƒřééžé, áñď á ħářďŵářé ďříṽéř ŵóúļď ñóţ řéğíšţéř áš ŵáţçħďóğ0 ŵħíļé íţ íš ļóáďéď; úñļóáď íţ (šúďó ɱóďƥřóƀé -ř šóƒţďóğ) áñď řúñ áğáíñ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'host.download_incomplete' = @(
         '[Ţħé ďóŵñļóáď óƒ '
         @{
@@ -84,10 +613,10 @@
         ' çóúļď ñóţ ƀé řéáď ŵíţħíñ ţħé ţíɱé ļíɱíţ; ţħé ƥíďƒíļé ŵáš ķéƥţ áñď ñóţħíñğ ŵáš šíğñáļéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'host.hyperv_bounded_call_no_answer' = @(
-        '[Ţħé Ħýƥéř-Ṽ çáļļ éñďéď ŵíţħóúţ řéţúřñíñğ áñ áñšŵéř (ĵóƀ šţáţé: '
+        '[Ţħé Ħýƥéř-Ṽ çáļļ éñďéď ŵíţħóúţ řéţúřñíñğ áñ áñšŵéř (çħíļď ƥřóçéšš éẋíţ çóďé: '
         @{
-            'arg' = 'state'
-            'type' = 'token'
+            'arg' = 'exitCode'
+            'type' = 'detail'
             'trust' = 'internal'
         }
         '; řéášóñ: '
@@ -96,7 +625,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'host.hyperv_checkpoint_listing_lagged' = @(
         '[Šáṽé-ṼⱮĎíšķŠñáƥšħóţ: Ħýƥéř-Ṽ ħóļďš çħéçķƥóíñţ '''
@@ -264,6 +793,46 @@
         }
         ''' éẋíšţš; ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'host.hyperv_worker_lookup_failed' = @(
+        '[  Ţħé vmwp.exe ŵóřķéř ļóóķúƥ ƒóř ṼⱮ '
+        @{
+            'arg' = 'vmId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ƒáíļéď; ŵíļļ řéţřý Šţóƥ-ṼⱮ. Éřřóř: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.hyperv_worker_lookup_unanswered' = @(
+        '[  Ţħé vmwp.exe ŵóřķéř ļóóķúƥ ƒóř ṼⱮ '
+        @{
+            'arg' = 'vmId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ďíď ñóţ áñšŵéř ŵíţħíñ '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' šéçóñďš; ŵíļļ řéţřý Šţóƥ-ṼⱮ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'host.kvm_config_port_firewall' = @(
+        '[  çóñƒíğ šéřṽíçé ƒířéŵáļļ: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~]'
+    )
+    'host.kvm_config_port_rule_delete' = '[Ďéļéţé ţħé çóñƒíğ-šéřṽíçé řúļé Ýúřúñá áďďéď ~~~~~~~~~~~~~~~~~~]'
     'host.kvm_force_stop_pid_unverified' = @(
         '[Šţóƥ-ṼⱮƑóřçé: ƥřóçéšš '
         @{
@@ -309,6 +878,8 @@
         }
         '''; íñšţáļļ á šúďóéřš řúļé ƒóř /bin/kill óř šţóƥ ţħé ďóɱáíñ ƀý ħáñď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'host.kvm_journal_group_missing' = '[ğřóúƥ ''šýšţéɱď-ĵóúřñáļ'' ďóéš ñóţ éẋíšţ, šó ţħé ţéšţ řúññéř''š ďíáğñóšţíçš çáññóţ řéáď ţħé šýšţéɱ ĵóúřñáļ óř ţħé ƥřéṽíóúš ƀóóţ''š ķéřñéļ ļóğ. šýšţéɱď çřéáţéš íţ ƒřóɱ sysusers.d; ''šúďó šýšţéɱď-šýšúšéřš'' řéšţóřéš íţ, ţħéñ řé-řúñ ţħíš šçříƥţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.kvm_journal_group_session_stale' = '[  ''šýšţéɱď-ĵóúřñáļ'' ɱéɱƀéřšħíƥ íš íñ /etc/group; ţħíš šħéļļ''š ğřóúƥ šéţ íš šţáļé. Ļóğ óúţ áñď ƀáçķ íñ, ţħéñ šţářţ ţħé ţéšţ řúññéř ƒřóɱ ţħáţ ñéŵ šéššíóñ šó íţš ďíáğñóšţíçš çáñ řéáď ţħé šýšţéɱ ĵóúřñáļ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'host.kvm_rename_destination_dir_exists' = @(
         '[Çáññóţ řéñáɱé ţó '''
         @{
@@ -5830,7 +6401,7 @@
         }
         '  (ħářñéšš ķéý áúţħóřížéď) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'host.operator_a0e97dcbb626019f' = '[Óñļý ţħé úƒŵ šţáţúš-ƥóřţ řúļé ŵíļļ ƀé řéɱóṽéď -- íţ íš ƥřóṽáƀļý óúřš. Ğřóúƥ ɱéɱƀéřšħíƥ, ţħé $ĦÓⱮÉ ÁÇĻ, ļíƀṽířţď/virtlogd áñď ţħé ĞÑÓⱮÉ ķéýš ářé ļéƒţ éẋáçţļý áš ţħéý ářé, áñď řéƥóřţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'host.operator_a0e97dcbb626019f' = '[Óñļý ţħé úƒŵ řúļéš Ýúřúñá ɱářķéď áš íţš óŵñ ŵíļļ ƀé řéɱóṽéď. Ğřóúƥ ɱéɱƀéřšħíƥ, ţħé $ĦÓⱮÉ ÁÇĻ, ļíƀṽířţď/virtlogd áñď ţħé ĞÑÓⱮÉ ķéýš ářé ļéƒţ éẋáçţļý áš ţħéý ářé, áñď řéƥóřţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'host.operator_a127790ebde6e4ff' = '[çáçħé ṼⱮ óñ íţ), óř ďéƒíñé íţ ƀý ħáñď -- šéé ~~~~~~~~~~~~~~~~~~]'
     'host.operator_a19074ac4867746e' = '[  Çóñšóļé/SSH ļóğíñ: ~~~~~~~~]'
     'host.operator_a1a6059aaacffcb8' = @(

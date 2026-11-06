@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 423d6743-1531-4ed7-b6b3-7d5bf06035c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -949,6 +949,8 @@ function Stop-YurunaTestBrowserProfile {
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Stops only browsers running on a profile directory this module created for one test.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingCmdletAliases', '',
+        Justification = 'The POSIX branch calls native ps; the Windows branch uses CIM and never invokes the Windows ps alias.')]
     [CmdletBinding()]
     [OutputType([int])]
     param([Parameter(Mandatory)][string]$Browser, [Parameter(Mandatory)][string]$ProfileDir)

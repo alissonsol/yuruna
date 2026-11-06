@@ -43,7 +43,8 @@ Sources: [Start-TestRunner](../../test/Start-TestRunner.ps1),
 The outer, cycle, and inner runners are host processes. The selected driver
 controls the guest through its native hypervisor interface, including console
 input, screenshots, and the VM state used to observe shutdown; Hyper-V also
-captures COM1 through a named pipe. The status service is another host process,
+captures COM1 through a named pipe, and UTM the guest's UART through a loopback
+TCP port. The status service is another host process,
 serving operator pages, controls, runtime evidence, repository script fetches,
 and bounded guest diagnostic and log uploads. A file under its runtime directory
 is served only when it is one of the allow-listed status records, whichever path
@@ -161,12 +162,13 @@ pinned release at build time.
 | --- | --- |
 | [Hyper-V](../../host/windows.hyper-v/modules/Yuruna.Host.psm1) | Uses an External vSwitch on a wired PCI uplink. A Wi-Fi or USB-Ethernet uplink, or no External switch, builds on the Default Switch (NAT and DHCP); the cache launcher then installs `netsh portproxy` forwarders, and other service VMs get none. |
 | [KVM](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1) | Prefers the external bridge and can fall back to libvirt NAT. It checks the VM's actual interface and named network forwarding mode; a host-only fallback does not by itself expose the guest to the LAN. On the NAT fallback the cache launcher installs `systemd-socket-proxyd` forwarders, which re-originate connections, so the aggregator sees one client and the pool view needs a bridged cache. |
-| [UTM](../../host/macos.utm/modules/Yuruna.Host.psm1) | Chooses Bridged networking on a bridgeable uplink, or Shared NAT on Wi-Fi. Shared NAT uses host TCP forwarders: the cache maps 80, 3000, and 8022 to 22, with 3128 and 3129 carried to 3138 and 3139 with PROXY headers; stash maps 2222, download-agent 8082, and pool-control 8081. |
+| [UTM](../../host/macos.utm/modules/Yuruna.Host.psm1) | Chooses Bridged networking on a bridgeable uplink, or Shared NAT on Wi-Fi. Shared NAT uses host TCP forwarders: the cache launcher maps 80, 3000, 9302, 9400, 3128, 3129, and 8022 to 22 without PROXY headers; the status service and runner then carry 3128 and 3129 to 3138 and 3139 with PROXY headers and leave the other forwarders running; stash maps 2222 to 22, download-agent 8082 to 80, and pool-control 8081 to 80. |
 
 The [cache launcher](../../test/service/Start-CachingProxyServiceVM.ps1) checks
 the built VM's attachment before deciding whether port maps are needed. Hyper-V
-and KVM cache forwarders carry 80, 3000, 9302, 9400, 3128, 3129, and 8022 to 22;
-Zot 5000 and management 9310 are not forwarded, so peers on other machines cannot
+and KVM cache forwarders, and the UTM launcher's, carry 80, 3000, 9302, 9400, 3128,
+3129, and 8022 to 22; Zot 5000 and management 9310 are not forwarded on any
+provider, so peers on other machines cannot
 reach a NAT-attached cache's Zot through the host address.
 The [UTM forwarder](../../host/macos.utm/Start-CachingProxyServiceForwarder.ps1)
 can preserve the original proxy client address using PROXY headers and the
@@ -195,6 +197,8 @@ flowchart LR
     extension-service-vms -->|HTTP archive 8080| start-status-service-ps1
     caching-proxy-service -->|HTTP build source 8080| start-status-service-ps1
     caching-proxy-service -->|HTTPS mirror refresh 443| github
+    %% optional: build source fallback when the status service does not answer.
+    caching-proxy-service -.->|HTTPS raw source 443| github
     %% optional: pinned LAN mirror fallback when the status service does not answer.
     guest -.->|HTTP Git, git-raw 80| caching-proxy-service
     extension-service-vms -.->|HTTP Git fetch 80| caching-proxy-service
@@ -231,8 +235,12 @@ forwarder carries these paths as well.
 Host updates read `repositories.mirror`, whose URL defaults to
 `http://<caching proxy>`. The default `prefer` mode asks `/git-mirror/v1/resolve`
 for a receipt, verifies it with an enrolled public key, and fetches the selected
-commit from `/git/`. Without an enrolled key, an answering mirror, or a ready
-receipt, the host fetches from GitHub. `fallback` mode asks GitHub first and uses
+commit from `/git/`. Without an enrolled key or an answering mirror, the host
+fetches from GitHub. A verified stale receipt no older than
+`repositories.mirror.mirrorOnlyMaxAgeSeconds` (default seven days) selects the
+mirror's last confirmed pin with no GitHub call, unless that would roll back the
+installed revision. Any other receipt that is not ready falls through to GitHub.
+`fallback` mode asks GitHub first and uses
 the mirror only after a network timeout; `off` uses the configured origin.
 Setup enrolls the key of the host's own cache, and configuration sync asks the
 operator before accepting a reference host's key.
@@ -268,6 +276,8 @@ flowchart LR
     end
     subgraph host["Runner host"]
     end
+    subgraph guest["Workload guest VM"]
+    end
     subgraph caching-proxy-service["Caching proxy VM"]
     end
     subgraph pool-control-service["Pool control VM"]
@@ -277,15 +287,18 @@ flowchart LR
     subgraph stash-service["Stash VM"]
     end
     operator-host -->|HTTP dashboards 3000| caching-proxy-service
+    operator-host -->|HTTP deep links 9400| caching-proxy-service
     operator-host -->|HTTP control UI 80| pool-control-service
     operator-host -->|HTTP image UI 80| download-agent-service
-    host -->|HTTPS events 9400| caching-proxy-service
+    host -->|HTTPS events, enrollment 9400| caching-proxy-service
     caching-proxy-service -->|HTTP status 8080| host
     host -->|HTTP configuration Git 80| caching-proxy-service
     pool-control-service -->|HTTPS pool facts 9400| caching-proxy-service
-    download-agent-service -->|HTTPS presence 9400| caching-proxy-service
-    stash-service -->|HTTPS presence 9400| caching-proxy-service
+    download-agent-service -->|HTTPS presence, checks 9400| caching-proxy-service
+    stash-service -->|HTTPS presence, checks 9400| caching-proxy-service
     pool-control-service -->|HTTP scan, control 8080| host
+    %% optional: guests ask for a new host address when the saved one stops answering.
+    guest -.->|HTTP host lookup 9400| caching-proxy-service
     %% optional: remote refresh requires configured authority and operator credentials.
     pool-control-service -.->|signed refresh 8080| host
     %% optional: windows_exporter on Windows hosts; status-listener memory metrics on Ubuntu and macOS hosts.
@@ -316,6 +329,16 @@ hosts, and memory gauges at `/metrics` on the status listener for Ubuntu and
 macOS hosts; see [Test.HostMetricsExporter](../../test/modules/Test.HostMetricsExporter.psm1)
 and [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1).
 
+A guest or service VM whose saved host address stops answering asks the
+aggregator's `/api/v1/host-address`, then `/api/v1/pool-status`, over plain HTTP
+on port 9400; the workload guest box stands for both. These read-only routes carry
+no proof. `Set-LabToken` exchanges the rotating dashboard code at
+`/api/v1/lab-token`, trying HTTPS and then HTTP, and receives the internal
+authentication key sealed under that code. Service write gates redeem submitted
+codes at the same route. Browser links also use `/go/cycle`, `/go/host-event`, and
+`/go/cycle-share`, and `/archive/` serves committed cycles from the pool share.
+Pool-control's auto-enrollment sweep ships disabled and adds no network link.
+
 Pool-control sweeps for hosts every 15 minutes by default, reads their status and
 host facts, and sends pause and resume controls, each carrying a control proof
 bound to the host it targets and scoped to its pause and resume routes:
@@ -332,8 +355,9 @@ boundary. Hosts verify the binding through
 [Test.ConfigServiceSync](../../test/modules/Test.ConfigServiceSync.psm1) and
 services through the SDK's
 [controlproof](../../test/extension/extension-sdk/controlproof/controlproof.go)
-package; both still accept unbound proofs from an aggregator that predates
-audiences.
+package; both refuse an unbound proof, which names no target. A service that holds
+no internal authentication key posts the proof to the aggregator's
+`/api/v1/control-proof`, which verifies it and mints nothing.
 
 Pool-control's remote refresh path is optional. Its separate authority and
 operator credential checks are implemented in
@@ -377,8 +401,9 @@ server is its own node. With local storage, New-LocalLabStorage exports the
 shares from the hypervisor host, so the SMB server and that host share one
 machine. Pool paths hold host archives, monitoring replicas, images, control
 state, the configuration repository, and the pool-alert spool; the stash path
-holds uploaded files. The cache mounts the pool share when replication is
-enabled; its aggregator and history backfill also read host archives there. Exact
+holds uploaded files. The cache mounts the pool share whenever the host serves its
+credential; replication is a separate option. Its aggregator and history backfill
+also read host archives there. Exact
 path ownership is expanded in [Data flows](03-data-flows.md).
 
 Stash buffers uploads locally when its configured share is unavailable. A
@@ -415,7 +440,10 @@ Sources: the [cache seed](../../host/vmconfig/caching-proxy-service.base.user-da
 [aggregator unit](../../test/extension/pool-aggregator-service/pool-aggregator-service.service),
 and the [qualified Zot release](../../host/vmconfig/caching-proxy-service.zot-qualified.json).
 
-One VM frame and six child families total seven boxes. The first family groups
+One VM frame and six child families total seven boxes. The aggregator family
+includes `pool-history-backfill.service`, the same binary in backfill mode, which
+reads host archives from the pool share and writes past samples and events to
+Prometheus and Loki. The first family groups
 Squid, Zot, the Zot prewarm, `zot-sync-selftest.py`, and
 `yuruna-apt-index-selftest.py`, which every 30 minutes reads each probe
 repository's apt metadata pair through the local Squid and reports any pair that
@@ -451,7 +479,7 @@ processes communicate locally inside this VM.
 | Management 9310 | Go management API and Git mirror relay; Apache proxies its landing page and mirror status and resolution. |
 | Mirror reader 9311 | Loopback-only pinned file reads behind Apache's `/git-raw/`. |
 | Parser 9302 | Recent Squid requests held in memory. |
-| Aggregator 9400 | Pool facts, discovery, event ingestion, and controls. |
+| Aggregator 9400 | Pool facts, discovery, event ingestion, controls, dashboard redirects, the `/archive/` browser, host address lookup, lab-token exchange, control-proof verification, and MCP. |
 | Grafana 3000 | Dashboards querying metrics and logs. |
 
 A responding dashboard does not establish the health of an independent
@@ -470,7 +498,7 @@ flowchart LR
         test-config-yml["Host configuration"]
         authentication["Authentication vault"]
     end
-    %% optional: enabled ConfigService and configured pool replication.
+    %% optional: enabled ConfigService and configured pool storage.
     caching-proxy-service -.->|mutual TLS 8443| start-config-service-ps1
     %% optional: enabled ConfigService and configured stash or pool storage.
     extension-service-vms -.->|mutual TLS 8443| start-config-service-ps1
@@ -492,15 +520,17 @@ The configuration listener is a host process distinct from the HTTP status
 service. ConfigService is enabled in the template, and each provider's service
 builders bake the host CA and a client certificate for the VM they build. The
 shared service-VM start pipeline ensures the listener before it builds a stash,
-download-agent, or pool-control guest. When pool replication is configured, the
-cache seed fetches /v1/nas/pool at boot and before replication, then rewrites its
-root-only CIFS credential and remounts on a credential version change. The
-service-VM frame aggregates the stash, download-agent, and pool-control VMs: the
-stash fetches /v1/nas/stash and the other two fetch /v1/nas/pool once at first
-boot through `yuruna-nas-credential.sh`, which writes the 0600 CIFS credentials
-file their share mount reads. Their seeds carry no NAS password, so a later
-password rotation reaches them only through a rebuild or a re-run of that
-helper. The listener rereads current host settings and resolves the current
+download-agent, or pool-control guest. When pool storage is configured, a cache
+timer fetches /v1/nas/pool 30 seconds after boot and hourly, and enabled
+replication fetches it again before each run. The fetch rewrites its root-only
+CIFS credential and remounts on a credential version change. The service-VM frame
+aggregates the stash, download-agent, and pool-control VMs: the stash fetches
+/v1/nas/stash and the other two fetch /v1/nas/pool at first boot through
+`yuruna-nas-credential.sh`, which writes the 0600 CIFS credentials file their share
+mount reads. Their seeds carry no NAS password. A refresh timer reruns the helper
+every 30 minutes and remounts a mounted share in place when the credential changed
+or the share stopped answering; a share that is not mounted stays unmounted. The
+listener rereads current host settings and resolves the current
 vault password for each request. Its configuration and vault edges are local
 reads.
 
@@ -517,6 +547,27 @@ status service at `/control/vault-credential`; the route is gated by the
 internal authentication key and returns the password encrypted with a key
 derived from it. See
 [Test.ConfigServiceSync](../../test/modules/Test.ConfigServiceSync.psm1).
+
+## Deep diagnostics netconsole
+
+```mermaid
+flowchart LR
+    subgraph host["KVM hypervisor host"]
+    end
+    subgraph netconsole-receiver["Netconsole receiver machine"]
+    end
+    %% optional: only when deep diagnostics names a netconsole target.
+    host -.->|UDP kernel messages 6666| netconsole-receiver
+```
+
+Sources: [Enable-DeepDiagnostics](../../host/ubuntu.kvm/Enable-DeepDiagnostics.ps1),
+[Yuruna.Host.DeepDiagnostics](../../host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1),
+and [Receive-Netconsole](../../test/lab/Receive-Netconsole.ps1).
+
+With `-NetconsoleTarget <IPv4>[:port]`, a KVM host sends kernel messages over UDP,
+port 6666 by default, to a receiver that should run on another always-on machine.
+Lines sent before a freeze survive there. The receiver's firewall must allow the
+port.
 
 ## Local deployment target
 
@@ -540,12 +591,13 @@ the companion [example helper](https://github.com/alissonsol/yuruna-project/blob
 and [localhost resources](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/resources.yml).
 
 This four-box view is the Ubuntu website test's placement: its guest runs the
-deployment client, a kubeadm Kubernetes node, and registry:2 on port 5000. The
-Kubernetes installer removes the control-plane taint and renames its context to
-docker-desktop; that context name does not imply another Docker Desktop machine.
+deployment client, a kubeadm Kubernetes node, and a registry:2.8.3 container on
+port 5000. The Kubernetes installer removes the control-plane taint and renames
+its context to docker-desktop; that context name does not imply another Docker
+Desktop machine.
 After Set-Resource, the website test renames that context to
 `localhost-<clusterDnsPrefix>`. The project helper starts the registry before
-Set-Resource and, when a cache is configured, pulls `registry:2` and base images
+Set-Resource and, when a cache is configured, pulls `registry:2.8.3` and base images
 through the cache's Zot on port 5000. The localhost
 resource templates verify this existing registry and copy the existing context;
 they do not create another cluster or registry VM. Other callers can select an
@@ -657,6 +709,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 [Architecture](../architecture.md) | [Design overview](README.md)

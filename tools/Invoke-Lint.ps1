@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42bd51d4-c3b9-4fa3-ae75-af2ab0905275
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -234,6 +234,9 @@ function Test-IsGeneratedCatalogBomConflict {
         $normalized -cmatch '^globalization/generated/powershell/[^/]+\.psd1$'
 }
 
+# The workers below inherit this location, and they need it: the settings name
+# their custom rule by a path that PSScriptAnalyzer resolves against the
+# current location, not against the settings file.
 Push-Location $RepoRoot
 try {
     # Tracked + untracked-but-not-ignored, restricted to PowerShell files. This

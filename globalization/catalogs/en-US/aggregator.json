@@ -995,7 +995,7 @@
       "lifecycle": "active"
     },
     "aggregator.help_loki_outbox_dir": {
-      "message": "folder that keeps Loki lines until Loki accepts them (empty keeps them in memory, lost on restart)",
+      "message": "folder that keeps Loki lines until Loki accepts them (empty keeps them in memory, at most 64 MiB, lost on restart)",
       "description": "Aggregator operator command help.",
       "lifecycle": "active"
     },
@@ -1085,6 +1085,11 @@
           "example": "value"
         }
       }
+    },
+    "aggregator.ingest_not_recorded": {
+      "message": "the collector could not record these lines; retry",
+      "description": "Operator-facing HTTP failure from pool-aggregator. HTTP status and X-Yuruna-Message-Code remain stable; error text is display only.",
+      "lifecycle": "active"
     },
     "aggregator.ingest_queue_full": {
       "message": "the collector cannot hold these lines now; try again later",

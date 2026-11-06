@@ -433,7 +433,10 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
    actionable in both themes without introducing a token of its own. */
 .badge.rekeyed { border-color: var(--err); color: var(--err); }
 /* Y.explain: hover-only text shown inline on demand; a target or "?" toggle
-   stays 24px square, and the details wrap inside the cell. */
+   stays 24px square for a pointer device, and the details wrap inside the
+   cell. The phone blocks below lift both to the touch minimum by class: the
+   target is a span, so no control floor reaches it, and the toggle's own class
+   rule outranks the bare `button` floor. */
 .explain-target { display: inline-block; min-width: 24px; min-height: 24px; line-height: 24px; cursor: pointer; text-decoration: underline dotted; }
 .explain-toggle { min-width: 24px; min-height: 24px; margin-inline-start: .25rem; border: 1px solid var(--control-edge); border-radius: 999px; background: var(--btn-bg); color: var(--fg); font: inherit; cursor: pointer; }
 .explain-details { display: block; max-width: 28rem; font-size: .8rem; overflow-wrap: anywhere; }
@@ -449,6 +452,11 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
      matching the touch minimum the status and stash UIs share; mis-tapping it
      drops a host from a pool with no confirmation. */
   button { min-width: var(--touch-min); }
+  /* The explain target and toggle, which the control floors above miss (see
+     their base rule). inline-flex centers the target's one line of text in the
+     taller box; a button centers its own. */
+  .explain-target, .explain-toggle { min-height: var(--touch-min); min-width: var(--touch-min); }
+  .explain-target { display: inline-flex; align-items: center; justify-content: center; }
   /* The 16px bump also widens the size="40" URL inputs past the content box of a
      375px phone, and a flex item's automatic minimum stops them shrinking, so the
      page scrolls sideways. min-width: 0 lets flex-shrink do its job. */
@@ -550,10 +558,10 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 /* A touch pointer can coexist with a mouse on a wide viewport. */
 @media (any-pointer: coarse) {
   button, input, .row > input, select, textarea, .id-toggle,
-  th > button.sort, #footer-bar .linkish {
+  th > button.sort, #footer-bar .linkish, .explain-target, .explain-toggle {
     min-height: 44px; min-width: 44px;
   }
-  #footer-bar .linkish {
+  #footer-bar .linkish, .explain-target {
     display: inline-flex; align-items: center; justify-content: center;
   }
 }

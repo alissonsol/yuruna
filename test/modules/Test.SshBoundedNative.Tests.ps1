@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42f71118-c871-4ce5-99f5-744301324e82
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -377,6 +377,38 @@ Describe 'Invoke-GuestSsh bounded result contract' {
         $r.output | Should -Not -Match 'unfinished'
         ($r.output -match 'later-partial') | Should -Be $Preserve
         Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.Ssh -Times 2 -Exactly
+    }
+
+    It 'reports a re-attach its own cap ended before the supervisor answered as a lost transport' {
+        $script:AttachCalls = 0
+        Mock Get-GuestAddress -ModuleName Test.Ssh { '127.0.0.1' }
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.Ssh {
+            $script:AttachCalls++
+            if ($script:AttachCalls -eq 1) {
+                return @{ Started=$true; ExitCode=255; StdOut=''; StdErr='Timeout, server 127.0.0.1 not responding.' }
+            }
+            return @{ Started=$true; ExitCode=-1; StdOut=''; StdErr=''; TimedOut=$true }
+        }
+        $r = Invoke-GuestSsh @script:SshArguments -DetachToken fixture-token -WarningAction SilentlyContinue
+        $r.success | Should -BeFalse
+        $r.timedOut | Should -BeTrue
+        $r.transportLost | Should -BeTrue
+        Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.Ssh -Times 2 -Exactly
+    }
+
+    It 'keeps a re-attached run still streaming at its cap as a timeout, not a lost transport' {
+        $script:AttachCalls = 0
+        Mock Get-GuestAddress -ModuleName Test.Ssh { '127.0.0.1' }
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.Ssh {
+            $script:AttachCalls++
+            if ($script:AttachCalls -eq 1) {
+                return @{ Started=$true; ExitCode=255; StdOut=''; StdErr='Timeout, server 127.0.0.1 not responding.' }
+            }
+            return @{ Started=$true; ExitCode=-1; StdOut=''; StdErr='YURUNA_RUN_ATTACH token=fixture-token boot=fixture-boot from=0'; TimedOut=$true }
+        }
+        $r = Invoke-GuestSsh @script:SshArguments -DetachToken fixture-token -WarningAction SilentlyContinue
+        $r.timedOut | Should -BeTrue
+        $r.transportLost | Should -BeFalse
     }
 
     It 'reports launch failure independently from a timeout and retains the external detail' {

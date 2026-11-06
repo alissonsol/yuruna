@@ -75,16 +75,17 @@ const (
 // told so.
 var ErrNoProof = errors.New("no control proof")
 
-// Proof is the deterministic core of the control proof: the exact wire string
-// "<expiry>.<base64 HMAC>" a host accepts on its mutating /control/* routes,
-// where HMAC = HMAC-SHA256(internal authentication key, "yuruna-control|proof|<expiry>").
+// Proof is the retired unbound control proof "<expiry>.<base64 HMAC>", where
+// HMAC = HMAC-SHA256(internal authentication key, "yuruna-control|proof|<expiry>").
+// No host accepts it: it names no target, so it would open every host that
+// shares the key.
 func Proof(token string, expiry int64) string {
 	return controlproof.Proof(token, expiry)
 }
 
-// Mint returns a proof valid for ttl from now, or "" when no token is held --
-// the caller then has no local way to prove control and must obtain one from
-// the aggregator.
+// Mint returns the unbound form valid for ttl from now, or "" when no token is
+// held. Only that answer is used: whether this service holds a key decides
+// between minting each member's bound proof locally and asking the aggregator.
 func Mint(token string, ttl time.Duration) string {
 	return controlproof.Mint(token, ttl)
 }
@@ -112,8 +113,8 @@ func MintPause(token, hostID string, ttl time.Duration) string {
 }
 
 // Bound reports whether a proof names the host it is for, scoped or not. An
-// aggregator that predates audiences hands out unbound proofs, one of which
-// opens every host.
+// aggregator that predates audiences hands out unbound proofs, which every
+// host refuses.
 func Bound(proof string) bool {
 	n := strings.Count(proof, ".")
 	return n == 2 || n == 3

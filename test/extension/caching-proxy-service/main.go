@@ -26,6 +26,7 @@ import (
 	"yuruna.com/test/extension/extension-sdk/jsonbody"
 
 	"yuruna.com/test/extension/extension-sdk/beacon"
+	"yuruna.com/test/extension/extension-sdk/hostcheck"
 	"yuruna.com/test/extension/extension-sdk/hostinfo"
 	"yuruna.com/test/extension/extension-sdk/i18n"
 	"yuruna.com/test/extension/extension-sdk/labgate"
@@ -92,6 +93,9 @@ type daemon struct {
 	grafanaURL    string
 	poolClient    *pool.Client
 	mirror        *mirrorRelay
+	// hostNames are the names, besides its addresses, host name and
+	// localhost, that requests may carry in Host to reach this daemon.
+	hostNames []string
 }
 
 func main() {
@@ -110,6 +114,7 @@ func main() {
 	squidBinary := flag.String("squid-binary", "squid", "squid binary used for `-k reconfigure`")
 	parserURL := flag.String("parser-url", "http://127.0.0.1:9302", "base URL of the caching-proxy-parser-service on this VM, whose recent-request tail this service republishes; empty disables it")
 	grafanaURL := flag.String("grafana-url", "http://127.0.0.1:3000", "base URL of Grafana on this VM, asked which dashboards exist for the landing page; empty lists them all as unavailable")
+	allowedHostNames := flag.String("allowed-host-names", "", "comma-separated names the management API answers to in the Host header besides its addresses, this VM's host name and localhost; a request naming any other host is refused (421)")
 	flag.Parse()
 	if mirrorOptions.Role != "management" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -132,6 +137,7 @@ func main() {
 		aggregatorURL:    strings.TrimRight(*aggregatorURL, "/"),
 		grafanaURL:       strings.TrimRight(*grafanaURL, "/"),
 		mirror:           newMirrorRelay(*mirrorOptions),
+		hostNames:        hostcheck.ParseNames(*allowedHostNames),
 	}
 	// The same read client the other services use, so the landing page resolves
 	// an extension area exactly the way the dashboard's Extension hosts cell
@@ -181,6 +187,7 @@ func main() {
 		MaxHeaderBytes:    1 << 20,
 	}
 	log.Printf("caching-proxy-service %s (%s mode) listening on %s, squid at %s", version, d.mode, *httpAddr, *squidAddr)
+	log.Printf("caching-proxy-service answers to any address, localhost, this VM's host name and the configured names [%s]; a request naming another host is refused", strings.Join(d.hostNames, ", "))
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -254,8 +261,11 @@ func (d *daemon) routes() http.Handler {
 	// Any page an operator opens can make the browser POST here, so a
 	// cross-site unsafe request is refused on top of the session cookie's
 	// SameSite rule. Hosts, guests and scripts send neither Origin nor
-	// Sec-Fetch-Site and pass; this service's own pages are same-origin.
-	return http.NewCrossOriginProtection().Handler(mux)
+	// Sec-Fetch-Site and pass; this service's own pages are same-origin. A
+	// page whose own name resolves here is same-origin too, which is why the
+	// Host check runs first, on the names Apache forwards as well.
+	check := hostcheck.New(hostcheck.Options{Language: *pageLanguage, AllowPseudoLocale: *pageAllowPseudo, Names: d.hostNames})
+	return check.Handler(http.NewCrossOriginProtection().Handler(mux))
 }
 
 func (d *daemon) handleHealth(w http.ResponseWriter, _ *http.Request) {

@@ -2983,8 +2983,8 @@
         },
         {
           "id": "4213a0b3-00ed",
-          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Start-CycleHostDiagnostic",
-          "slug": "testmodulestestrunnerinnerlooppsm1-start-cyclehostdiagnostic"
+          "heading": "test/modules/Test.RunnerInnerLoop.psm1: Save-CycleHostDiagnostic",
+          "slug": "testmodulestestrunnerinnerlooppsm1-save-cyclehostdiagnostic"
         },
         {
           "id": "4213a0b3-00ee",
@@ -4842,6 +4842,11 @@
           "slug": "utmctl-list-answers-but-every-start-stop-and-delete-times-out"
         },
         {
+          "id": "42885ada-0014",
+          "heading": "Ubuntu installs end with a power-off and a cold start",
+          "slug": "ubuntu-installs-end-with-a-power-off-and-a-cold-start"
+        },
+        {
           "id": "42885ada-0013",
           "heading": "Why the UTM dialog watchdog is narrowly scoped",
           "slug": "why-the-utm-dialog-watchdog-is-narrowly-scoped"
@@ -5003,6 +5008,11 @@
           "id": "42f52e37-0019",
           "heading": "test/service/Start-StatusService.ps1: Detached server launch",
           "slug": "testservicestart-statusserviceps1-detached-server-launch"
+        },
+        {
+          "id": "42f52e37-0021",
+          "heading": "host/windows.hyper-v/modules/Yuruna.Host.psm1: Rename-VM destination check",
+          "slug": "hostwindowshyper-vmodulesyurunahostpsm1-rename-vm-destination-check"
         },
         {
           "id": "42f52e37-0020",
@@ -6545,6 +6555,29 @@
       ]
     },
     {
+      "id": "420edacb",
+      "repo": "yuruna",
+      "source": "docs/ontology/2026/11/README.md",
+      "translations": {},
+      "anchors": [
+        {
+          "id": "420edacb-0001",
+          "heading": "Yuruna ontology",
+          "slug": "yuruna-ontology"
+        },
+        {
+          "id": "420edacb-0002",
+          "heading": "Open and explore it",
+          "slug": "open-and-explore-it"
+        },
+        {
+          "id": "420edacb-0003",
+          "heading": "Reading a concept",
+          "slug": "reading-a-concept"
+        }
+      ]
+    },
+    {
       "id": "425aed30",
       "repo": "yuruna",
       "source": "docs/ontology/README.md",
@@ -7095,6 +7128,101 @@
           "id": "42c29d04-0011",
           "heading": "The pool view and its lock",
           "slug": "the-pool-view-and-its-lock"
+        },
+        {
+          "id": "42c29d04-0012",
+          "heading": "Dashed host ids",
+          "slug": "dashed-host-ids"
+        },
+        {
+          "id": "42c29d04-0013",
+          "heading": "Seeding a host from Loki",
+          "slug": "seeding-a-host-from-loki"
+        },
+        {
+          "id": "42c29d04-0014",
+          "heading": "The host_info series",
+          "slug": "the-host_info-series"
+        },
+        {
+          "id": "42c29d04-0015",
+          "heading": "Address footprint gauges",
+          "slug": "address-footprint-gauges"
+        },
+        {
+          "id": "42c29d04-0016",
+          "heading": "The collector's HTTP client",
+          "slug": "the-collectors-http-client"
+        },
+        {
+          "id": "42c29d04-0017",
+          "heading": "Host registration reads",
+          "slug": "host-registration-reads"
+        },
+        {
+          "id": "42c29d04-0018",
+          "heading": "The event tail",
+          "slug": "the-event-tail"
+        },
+        {
+          "id": "42c29d04-0019",
+          "heading": "Best-effort and durable Loki lines",
+          "slug": "best-effort-and-durable-loki-lines"
+        },
+        {
+          "id": "42c29d04-001a",
+          "heading": "Restoring state at startup",
+          "slug": "restoring-state-at-startup"
+        },
+        {
+          "id": "42c29d04-001b",
+          "heading": "Pool statistics",
+          "slug": "pool-statistics"
+        },
+        {
+          "id": "42c29d04-001c",
+          "heading": "Control proofs for extension services",
+          "slug": "control-proofs-for-extension-services"
+        },
+        {
+          "id": "42c29d04-001d",
+          "heading": "The lab connection token",
+          "slug": "the-lab-connection-token"
+        },
+        {
+          "id": "42c29d04-001e",
+          "heading": "The archive route",
+          "slug": "the-archive-route"
+        },
+        {
+          "id": "42c29d04-001f",
+          "heading": "Metrics stay on this machine",
+          "slug": "metrics-stay-on-this-machine"
+        },
+        {
+          "id": "42c29d04-0020",
+          "heading": "Incidents, health and cycle links as JSON",
+          "slug": "incidents-health-and-cycle-links-as-json"
+        },
+        {
+          "id": "42c29d04-0021",
+          "heading": "Pushed events",
+          "slug": "pushed-events"
+        },
+        {
+          "id": "42c29d04-0022",
+          "heading": "The guest address route",
+          "slug": "the-guest-address-route"
+        },
+        {
+          "id": "42c29d04-0023",
+          "heading": "Reading the internal authentication key",
+          "slug": "reading-the-internal-authentication-key"
+        },
+        {
+          "id": "42c29d04-0024",
+          "heading": "One port for TLS and plain HTTP",
+          "slug": "one-port-for-tls-and-plain-http"
         }
       ]
     },
@@ -9100,6 +9228,36 @@
           "slug": "heuristic-4-local-registry-image-not-referenced-by-any-pod"
         },
         {
+          "id": "423ef7f5-0016",
+          "heading": "Crash evidence on a Linux host",
+          "slug": "crash-evidence-on-a-linux-host"
+        },
+        {
+          "id": "423ef7f5-0017",
+          "heading": "System journal access",
+          "slug": "system-journal-access"
+        },
+        {
+          "id": "423ef7f5-0018",
+          "heading": "Kernel log when dmesg is restricted",
+          "slug": "kernel-log-when-dmesg-is-restricted"
+        },
+        {
+          "id": "423ef7f5-0019",
+          "heading": "Machine identity and microcode",
+          "slug": "machine-identity-and-microcode"
+        },
+        {
+          "id": "423ef7f5-001a",
+          "heading": "Lockup and crash-evidence settings",
+          "slug": "lockup-and-crash-evidence-settings"
+        },
+        {
+          "id": "423ef7f5-001b",
+          "heading": "Deep diagnostics mode",
+          "slug": "deep-diagnostics-mode"
+        },
+        {
           "id": "423ef7f5-0014",
           "heading": "Guest evidence across CPU restarts and stalls",
           "slug": "guest-evidence-across-cpu-restarts-and-stalls"
@@ -9206,6 +9364,11 @@
           "id": "42b11c32-000f",
           "heading": "vmStart.cachingProxyIp -- external cache source (probed first)",
           "slug": "vmstartcachingproxyip----external-cache-source-probed-first"
+        },
+        {
+          "id": "42b11c32-0015",
+          "heading": "vmStart.serviceHostNames -- names the service VMs answer to",
+          "slug": "vmstartservicehostnames----names-the-service-vms-answer-to"
         },
         {
           "id": "42b11c32-0010",

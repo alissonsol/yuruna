@@ -21,7 +21,8 @@ import (
 // TestSFTPUploadStoresArtifactAndSidecar drives the SFTP ingest the way
 // pkg/sftp would (newSFTPUpload -> WriteAt -> Close) and verifies the file
 // lands in the stash with the right metadata + a sidecar, with the path
-// captured as metadata (not used as a location, section 5.1).
+// captured as metadata (recorded verbatim, never used as a server location;
+// see https://yuruna.link/429e934f-0007).
 func TestSFTPUploadStoresArtifactAndSidecar(t *testing.T) {
 	s := newTestServer(t, true) // share online -> stores on the share store
 	up, err := s.newSFTPUpload("/scratch/report.PDF", "alice", "10.0.0.5")
@@ -52,7 +53,8 @@ func TestSFTPUploadStoresArtifactAndSidecar(t *testing.T) {
 	if rec.Username != "alice" || rec.ClientAddress != "10.0.0.5" {
 		t.Fatalf("username=%q client=%q; want alice/10.0.0.5", rec.Username, rec.ClientAddress)
 	}
-	// On-disk name is <id>.pdf (extension lowercased, section 6.3); content intact.
+	// On-disk name is <id>.pdf (the extension is lowercased on disk; see
+	// https://yuruna.link/429e934f-000b); content intact.
 	if !strings.HasSuffix(rec.StoredPath, up.id+".pdf") {
 		t.Fatalf("storedPath=%q; want suffix %s.pdf", rec.StoredPath, up.id)
 	}
@@ -67,7 +69,9 @@ func TestSFTPUploadStoresArtifactAndSidecar(t *testing.T) {
 }
 
 // TestSFTPUploadTruncates verifies the per-file cap flags truncation while
-// still reporting a full-length write to the client (section 5.5).
+// still reporting a full-length write to the client: the bytes past the cap
+// are dropped and the record is marked truncated (see
+// https://yuruna.link/429e934f-0008).
 func TestSFTPUploadTruncates(t *testing.T) {
 	s := newTestServer(t, true)
 	up, err := s.newSFTPUpload("/scratch/big.bin", "u", "10.0.0.6")
@@ -93,7 +97,7 @@ func TestSFTPUploadTruncates(t *testing.T) {
 
 // TestSFTPUploadBuffersWhenShareOffline confirms an offline share routes
 // the SFTP upload into the VM-local buffer (locallyBuffered=true, no
-// sidecar yet) like the legacy path (section 8.4).
+// sidecar yet) like the legacy path (see https://yuruna.link/429e934f-000e).
 func TestSFTPUploadBuffersWhenShareOffline(t *testing.T) {
 	s := newTestServer(t, false) // share offline -> buffer
 	up, err := s.newSFTPUpload("/scratch/note.txt", "u", "10.0.0.7")

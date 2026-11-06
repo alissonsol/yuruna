@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 	"yuruna.com/test/extension/extension-sdk/servicecfg"
@@ -23,6 +24,7 @@ import (
 	"stash-service/internal/sshsrv"
 	"stash-service/internal/store"
 	"yuruna.com/test/extension/extension-sdk/beacon"
+	"yuruna.com/test/extension/extension-sdk/hostcheck"
 )
 
 // version is the framework version shown in the UI header. The bring-up
@@ -44,6 +46,7 @@ func main() {
 	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "presence re-announce period to the pool-aggregator-service (https://yuruna.link/429e934f-0006); 0 disables the beacon")
 	language := flag.String("language", "auto", "Display language: auto or a supported locale")
 	allowPseudo := flag.Bool("allow-pseudo-locale", false, "Enable diagnostic pseudo locales")
+	allowedHostNames := flag.String("allowed-host-names", "", "comma-separated names the UI answers to in the Host header besides its addresses, this VM's host name and localhost; a request naming any other host is refused (421)")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
@@ -124,16 +127,19 @@ func main() {
 	errCh := make(chan error, 2)
 	go func() { errCh <- srv.ListenAndServe(ctx, *listenAddr) }()
 	if *httpAddr != "" {
+		hostNames := hostcheck.ParseNames(*allowedHostNames)
 		ui := httpsrv.New(srv, httpsrv.Options{
 			Language: *language, AllowPseudoLocale: *allowPseudo,
-			Addr:           *httpAddr,
-			AggregatorURL:  *aggregatorURL,
-			PoolWindowDays: *poolWindowDays,
-			PoolRefresh:    time.Duration(*poolRefreshSecs) * time.Second,
-			DefaultLimit:   *listLimit,
-			Version:        version,
+			Addr:             *httpAddr,
+			AggregatorURL:    *aggregatorURL,
+			PoolWindowDays:   *poolWindowDays,
+			PoolRefresh:      time.Duration(*poolRefreshSecs) * time.Second,
+			DefaultLimit:     *listLimit,
+			Version:          version,
+			AllowedHostNames: hostNames,
 		})
 		log.Printf("stash-service UI on %s (pool window %dd, refresh %ds, aggregator=%q)", *httpAddr, *poolWindowDays, *poolRefreshSecs, *aggregatorURL)
+		log.Printf("stash-service UI answers to any address, localhost, this VM's host name and the configured names [%s]; a request naming another host is refused", strings.Join(hostNames, ", "))
 		if *aggregatorURL != "" {
 			log.Printf("stash-service delete authz: a lab-token session or a dashboard control proof, checked by %s; reads/writes stay open", *aggregatorURL)
 		} else {

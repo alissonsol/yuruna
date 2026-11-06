@@ -372,14 +372,31 @@ Related topic: https://yuruna.link/42dc5bb9-0004
 **`host/windows.hyper-v/modules/Yuruna.Host.psm1`.**
 
 `Start-VMSerialCapture` reads the COM1 pipe from a separate process, a
-PowerShell job, so a reader blocked in `Connect` or `Read` can never stall the
-cycle, and stopping it is one `Stop-Job` away. The pipe server is created by the
-VM worker when the VM is on and goes away with each restart, so the reader
-reconnects for as long as it runs. The job keeps its connection history in a
-sidecar beside the log, rewritten at each change of state, because an empty log
-alone cannot say whether the reader never reached the pipe or reached it and
-heard nothing. The job calls no module function: it outlives module reloads and
-must keep working with nothing but .NET and the shell.
+PowerShell job, so a reader blocked in `Connect` or `Read` never holds the cycle
+while it reads. The pipe server is created by the VM worker when the VM is on
+and goes away with each restart, so the reader reconnects for as long as it
+runs. The job keeps its connection history in a sidecar beside the log,
+rewritten at each change of state, because an empty log alone cannot say whether
+the reader never reached the pipe or reached it and heard nothing. The job calls
+no module function: it outlives module reloads and must keep working with
+nothing but .NET and the shell.
+
+Stopping the reader is bounded separately. PowerShell stops a job only between
+statements, and `Stop-Job`, like `Remove-Job -Force` on a running job, waits
+until the job has stopped. A reader blocked in a `Read` of a guest that writes
+nothing would therefore hold its caller until the guest writes, the pipe closes
+or PowerShell gives up on the request. The stop makes the request without
+waiting on it, gives the reader a few seconds, and then kills the reader's
+process. The job's first output is its process id and start time, and the kill
+goes only to a process that still matches both, so a process that has since
+taken the same id is never killed. A reader whose identity the stop cannot
+confirm, such as one that has not written it yet, is left running, and the stop
+reports that it could not end it; a reader whose named process has already ended
+counts as stopped, and the stop does not wait on its job. A job is removed
+only after PowerShell has ended it. For a killed reader that happens about a
+minute after the kill, when PowerShell's close timeout for the job's process
+runs out, so its job stays listed until a later stop by name removes it, and a
+PowerShell session that exits within that minute waits for it.
 
 <a id="42f52e37-001b"></a>
 
@@ -1289,6 +1306,27 @@ code the running server already loaded is still current. Written AFTER
 the readiness probe so a server that never came up does not advertise
 itself as "already running on SHA X" -- the missing SHA file forces the
 next call to restart.
+
+<a id="42f52e37-0021"></a>
+
+## host/windows.hyper-v/modules/Yuruna.Host.psm1: Rename-VM destination check
+
+Related topic: https://yuruna.link/42e5cdfd-002c
+
+**`host/windows.hyper-v/modules/Yuruna.Host.psm1`.**
+
+The storage move fails on a file already under the destination name, and by
+then the registration carries the new name: the half-renamed state that
+`Repair-HyperVVMStorageLocation` has to finish later. A destination directory
+holding a file of a kind the move writes (a disk, the configuration or a
+checkpoint), or one that cannot be listed, is refused while nothing has changed
+yet. Other files do not collide: the move leaves the seed ISO in the folder a
+test guest was built in, so a snapshot save that renamed the guest and must
+rename it back finds that file there.
+
+The read of the VM storage root runs under the lifecycle cap, as the rename
+does: a management service that does not answer it would not answer the rename
+either, and refusing there leaves the registration untouched.
 
 <a id="42f52e37-0020"></a>
 

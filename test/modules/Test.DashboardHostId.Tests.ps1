@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42d2490f-e2d9-4303-a287-fa13182fb811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -318,6 +318,29 @@ Describe 'failure class documentation links' {
         Assert-Equal 'https://yuruna.link/42820e91#failure-class-network_timeout' $url
         Assert-True ([IO.File]::ReadAllText((Join-Path $repoRoot 'docs/failure-schema.md')).Contains('<a id="failure-class-network_timeout"></a>'))
         Assert-True ([bool]$links[0].targetBlank)
+    }
+}
+
+Describe 'host restarts and runner faults on the pool dashboard' {
+    It 'lists host_restart and runner_fault events from the pool event stream, and no other event' {
+        $panel = Get-Panel -Id 33
+        Assert-Equal 1 @((Get-Panel -Id 8).panels | Where-Object { $_.id -eq 33 }).Count 'the panel belongs to the incidents & cycle events drill-down'
+        Assert-Equal 'logs' $panel.type
+        Assert-Equal 'yuruna-loki' $panel.datasource.uid
+        $targets = @($panel.targets)
+        Assert-Equal 1 $targets.Count
+        $query = [regex]::Match($targets[0].expr, '^\{pool=~"\$pool", src="event"\} \| json \| event=~"(?<names>[^"]+)"$')
+        Assert-True $query.Success "the panel reads the pool event stream by event name: $($targets[0].expr)"
+        # Run the selector as Loki does: a regex label filter matches the whole
+        # value, case-sensitively.
+        $names = [regex]::new('^(?:' + $query.Groups['names'].Value + ')$')
+        foreach ($eventName in 'host_restart', 'runner_fault') {
+            Assert-True $names.IsMatch($eventName) "the panel must show $eventName"
+        }
+        foreach ($eventName in 'step_failure', 'step_end', 'cycle_start', 'cycle_end', 'boot_recovery_completed', 'runner_state_transition', 'pending_cycle_events_dropped') {
+            Assert-True (-not $names.IsMatch($eventName)) "the panel must not show $eventName"
+        }
+        Assert-True ([string]$panel.description).Contains('https://yuruna.link/422226cb') 'the description links the dashboard guide'
     }
 }
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.10.31
+# Version: 2026.11.05
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42c18f3d-326c-467e-a500-0668e518bf56
@@ -1202,22 +1202,54 @@ fi
 command -v pwsh >/dev/null 2>&1 || die "pwsh not found after install."
 
 # --- REGION: PowerShell modules
+# The pinned version and the SHA-512 the gallery publishes for its package
+# (PackageHash, base64): the bytes are checked before anything is unpacked.
+# The same pin lives in test/modules/Test.HostGit.psm1, which installs it on a
+# host set up without this script, and in the other host installers;
+# Test.HostGitInstall keeps every copy equal.
+POWERSHELL_YAML_VERSION="0.4.12"
+POWERSHELL_YAML_SHA512="Vc5DLyw7hLsCL6yFlSvzsdUUWmgfqoM35XmRavtKOz37GHBg3p+vWxaO/9wS8MbptzWspdUBcVRGSqAdlJmtUg=="
 log "Installing required PowerShell modules"
-pwsh -NoProfile -Command '
-    if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue) {
+YURUNA_MODULE_VERSION="$POWERSHELL_YAML_VERSION" YURUNA_MODULE_SHA512="$POWERSHELL_YAML_SHA512" pwsh -NoProfile -Command '
+    $name = "powershell-yaml"; $version = $env:YURUNA_MODULE_VERSION; $sha512 = $env:YURUNA_MODULE_SHA512
+    if (Get-Module -ListAvailable -Name $name -ErrorAction SilentlyContinue) {
         Write-Output "  powershell-yaml already installed"
     } else {
-        Write-Output "  installing powershell-yaml (CurrentUser scope)"
+        Write-Output "  installing powershell-yaml $version (CurrentUser scope)"
+        $package = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-$name-" + [guid]::NewGuid().ToString("N") + ".nupkg")
         try {
-            Install-Module -Name powershell-yaml -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+            Invoke-WebRequest -Uri "https://www.powershellgallery.com/api/v2/package/$name/$version" -OutFile $package -TimeoutSec 300 -ErrorAction Stop | Out-Null
+            $actual = [Convert]::ToBase64String([Security.Cryptography.SHA512]::HashData([IO.File]::ReadAllBytes($package)))
+            if ($actual -cne $sha512) { throw "the package SHA-512 $actual does not match the pinned $sha512" }
+            $data = if ($env:XDG_DATA_HOME) { $env:XDG_DATA_HOME } else { Join-Path $HOME ".local/share" }
+            $nameDir = Join-Path $data "powershell/Modules/$name"
+            $staging = Join-Path $nameDir (".$version." + [guid]::NewGuid().ToString("N") + ".staging")
+            $stagingFull = [IO.Path]::GetFullPath($staging) + [IO.Path]::DirectorySeparatorChar
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [IO.Compression.ZipFile]::OpenRead($package)
+            try {
+                foreach ($entry in $zip.Entries) {
+                    $relative = [uri]::UnescapeDataString($entry.FullName)
+                    if (-not $entry.Name -or $relative -eq "[Content_Types].xml" -or $relative -like "_rels/*" -or $relative -like "package/*" -or ($relative -notmatch "/" -and $relative -like "*.nuspec")) { continue }
+                    $destination = [IO.Path]::GetFullPath((Join-Path $staging $relative))
+                    if (-not $destination.StartsWith($stagingFull, [StringComparison]::Ordinal)) { throw "package entry $($entry.FullName) escapes the module directory" }
+                    [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination))
+                    [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destination, $false)
+                }
+            } finally { $zip.Dispose() }
+            $target = Join-Path $nameDir $version
+            if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+            [IO.Directory]::Move($staging, $target)
         } catch {
-            Write-Warning "  Install-Module powershell-yaml failed: $($_.Exception.Message)"
+            if ($staging) { Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue }
+            Write-Warning "  installing powershell-yaml $version failed: $($_.Exception.Message)"
             Write-Warning "  Invoke-TestProject.ps1 will refuse to run until this is fixed."
-            Write-Warning "  Try manually: pwsh -Command ''Install-Module powershell-yaml -Scope CurrentUser''"
             exit 1
+        } finally {
+            Remove-Item -LiteralPath $package -Force -ErrorAction SilentlyContinue
         }
     }
-' || note_issue "powershell-yaml install reported an error -- see above. Continuing install."
+' || note_issue "Installing the powershell-yaml module reported an error; the harness needs it to read any YAML config. Re-run this installer, or install it by hand with: pwsh -Command 'Install-Module powershell-yaml -RequiredVersion $POWERSHELL_YAML_VERSION -Scope CurrentUser'"
 
 # --- REGION: libvirt configuration
 # Services, group membership, the libvirt-qemu traverse ACL and the default network.

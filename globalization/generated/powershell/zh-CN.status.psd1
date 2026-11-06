@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42bcda77-08ce-3c8e-a78b-3476cd1c4efc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1302,7 +1302,7 @@
             'trust' = 'external'
         }
     )
-    'status.runner_attempts_description' = '最近 20 次运行器尝试中的失败记录会在恢复后保留在此处。预检失败发生在新测试周期开始之前。'
+    'status.runner_attempts_description' = '最近 20 次运行器尝试中的失败记录会在恢复后保留在此处，此外还会保留最多 30 条较早的失败记录（其后已有尝试通过）。预检失败发生在新测试周期开始之前。'
     'status.runner_attempts_empty' = '没有保留的运行器尝试失败记录。'
     'status.runner_attempts_title' = '运行器尝试失败记录'
     'status.runner_attempts_unavailable' = '运行器尝试历史记录不可用。'
@@ -1316,6 +1316,22 @@
             'trust' = 'external'
         }
     )
+    'status.runner_resident' = @(
+        '常驻运行器：提交 '
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '，启动于 '
+        @{
+            'arg' = 'startedAt'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '。'
+    )
+    'status.runner_resident_unreported' = '常驻运行器尚未报告其提交和启动时间。在该报告功能出现之前启动的运行器，会在下次重启后报告这些信息。'
     'status.save' = '保存'
     'status.save_and_start_cycle' = '保存并启动周期'
     'status.save_and_start_cycle_failed_value1' = @(

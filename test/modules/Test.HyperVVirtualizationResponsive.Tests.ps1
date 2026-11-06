@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42d7e0b4-3a91-4c6f-8b25-1e9d6f4a7c80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,7 +137,7 @@ BeforeAll {
     $script:DriverPath = Join-Path $repoRoot 'host/windows.hyper-v/modules/Yuruna.Host.psm1'
     Import-Module $script:DriverPath -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
     $script:Module = Get-Module Yuruna.Host
-    # A lifecycle cmdlet runs in a thread job on a host; here it runs in this
+    # A lifecycle cmdlet runs in a child pwsh on a host; here it runs in this
     # runspace, where the module-scoped Hyper-V mocks answer it.
     Mock -ModuleName Yuruna.Host Invoke-HyperVBoundedCall {
         try { @{ TimedOut = $false; Error = $null; Output = @(& $ScriptBlock @ArgumentList) } }
@@ -750,20 +750,20 @@ Describe 'Hyper-V VM presence: a provider failure never reads as absent' {
         Test-Path -LiteralPath (Join-Path $vhd 'vm-a') | Should -BeFalse
     }
 
-    It 'Stop-HyperVVMForce returns $false on unknown without starting a job, and $true on absent' {
-        Mock -ModuleName Yuruna.Host Start-Job { throw 'no job expected' }
+    It 'Stop-HyperVVMForce returns $false on unknown without issuing a stop, and $true on absent' {
+        Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Stop-VM' { throw 'no stop expected' }
         $script:InventoryThrows = $true
         Stop-HyperVVMForce -VMName 'vm-a' -Confirm:$false -WarningAction SilentlyContinue | Should -BeFalse
         $script:InventoryThrows = $false
         Stop-HyperVVMForce -VMName 'vm-a' -Confirm:$false | Should -BeTrue
-        Should -Invoke -ModuleName Yuruna.Host Start-Job -Times 0 -Exactly
+        Should -Invoke -ModuleName Yuruna.Host -CommandName 'Hyper-V\Stop-VM' -Times 0 -Exactly
     }
 
     It 'Request-HyperVVMShutdown does not report a VM of unknown presence as stopped' {
-        Mock -ModuleName Yuruna.Host Start-Job { throw 'no job expected' }
+        Mock -ModuleName Yuruna.Host -CommandName 'Hyper-V\Stop-VM' { throw 'no stop expected' }
         $script:InventoryThrows = $true
         Request-HyperVVMShutdown -VMName 'vm-a' -Confirm:$false -WarningAction SilentlyContinue | Should -BeFalse
-        Should -Invoke -ModuleName Yuruna.Host Start-Job -Times 0 -Exactly
+        Should -Invoke -ModuleName Yuruna.Host -CommandName 'Hyper-V\Stop-VM' -Times 0 -Exactly
     }
 
     It 'Rename-VM refuses an unknown destination without calling Hyper-V\Rename-VM' {

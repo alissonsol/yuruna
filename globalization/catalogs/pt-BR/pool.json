@@ -898,6 +898,21 @@
       "sourceHash": "747043f9d8290b6421156da494b17ded7e8ce05a68116d282da0639358a31aa0",
       "message": "Número da linha"
     },
+    "pool.runner": {
+      "sourceHash": "826522fded65c6cd289bc866e8839d0ca0124aad4bb9309bb508810f7dc7bb04",
+      "origin": "machine",
+      "message": "Executor"
+    },
+    "pool.runner_cell": {
+      "sourceHash": "3888dd780df453c5d669bd79bc33678b3758aa4b4578a5531e7d0c3d762188c7",
+      "origin": "machine",
+      "message": "{commit} desde {startedAt}"
+    },
+    "pool.runner_unreported": {
+      "sourceHash": "d1a08c12bd029ef76fbb404c1d85f791776411a1f6f5987ca2bbbd7a5b8e7034",
+      "origin": "machine",
+      "message": "O executor deste hospedeiro não informou seu commit e seu horário de início. Um executor iniciado antes de esse relatório existir passa a informá-los após o próximo reinício."
+    },
     "pool.running": {
       "sourceHash": "5068f0a28be3a1e5a56a948a9a9fc9231b71fa9173cbf8590164eb0523bf18da",
       "message": "Em execução:"

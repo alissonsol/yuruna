@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b5c288-370d-4abd-9a24-488e540acb2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -206,7 +206,7 @@ function Invoke-StartCase {
         [switch]$Unanswered,
         [hashtable[]]$StorageReading = @(@{ allowed = $true; status = 'ready'; volumes = @(); vms = @(); errorCode = ''; reason = '' })
     )
-    $seen = [pscustomobject]@{ Starts = 0; Definitions = 0; Sleeps = 0; StorageReads = 0 }
+    $seen = [pscustomobject]@{ Starts = 0; Definitions = 0; Sleeps = 0; StorageReads = 0; BoundedCalls = 0 }
     function Hyper-V\Start-VM {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '',
             Justification = 'The name is the module-qualified call the driver makes, not a verb-noun pair; spelling it exactly is what makes the stand-in resolve.')]
@@ -236,6 +236,7 @@ function Invoke-StartCase {
     function Invoke-HyperVBoundedCall {
         param([scriptblock]$ScriptBlock, [object[]]$ArgumentList = @(), [int]$TimeoutSeconds)
         $null = $TimeoutSeconds
+        $seen.BoundedCalls++
         if ($Unanswered) { return @{ TimedOut = $true; Error = $null; Output = @() } }
         try { return @{ TimedOut = $false; Error = $null; Output = @(& $ScriptBlock @ArgumentList) } }
         catch { return @{ TimedOut = $false; Error = $_; Output = @() } }
@@ -273,7 +274,7 @@ function Invoke-StartCase {
         Restore-YurunaTestEnvironment -Saved $savedSystemRoot
         Remove-YurunaTestTempDir $emptyRoot
     }
-    return @{ Result = $result; Starts = $seen.Starts; Definitions = $seen.Definitions; Sleeps = $seen.Sleeps; StorageReads = $seen.StorageReads }
+    return @{ Result = $result; Starts = $seen.Starts; Definitions = $seen.Definitions; Sleeps = $seen.Sleeps; StorageReads = $seen.StorageReads; BoundedCalls = $seen.BoundedCalls }
 }
 
 $script:Ample = New-HostMemoryReading -CommitAvailableBytes 30GB
@@ -391,6 +392,7 @@ Describe 'Start-VM waits, attempts, and retries only what a wait can fix' {
         Assert-Equal -Expected 1 -Actual $run.Starts -Because 'one start, no retry'
         Assert-NotNull $run.Result['hostMemory'] 'the result carries the reading taken before the attempt'
         Assert-Equal -Expected 0 -Actual $run.Sleeps -Because 'an unloaded host pays nothing for the preflight'
+        Assert-Equal -Expected 1 -Actual $run.BoundedCalls -Because 'only the start itself runs in a child of its own: the startup sizing read stays in process, so a start adds no child process'
     }
 
     It 'retries a resource refusal once, and succeeds when the memory comes back' {

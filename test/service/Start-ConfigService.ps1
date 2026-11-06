@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 426b5e54-fbb6-4398-849c-4e49eda31278
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,8 +41,9 @@
     existing vault storage.
 
     Launcher mode (default) mints the CA + server leaf, opens the host firewall
-    (best-effort, Windows), then re-execs this script detached with -Serve and
-    records config-server.pid. -Serve runs the blocking listener loop.
+    (best-effort: Windows Defender Firewall, or ufw on Linux), then re-execs
+    this script detached with -Serve and records config-server.pid. -Serve runs
+    the blocking listener loop.
 .PARAMETER Port
     TCP port to listen on. 0 (default) resolves configService.port from
     test.config.yml, falling back to 8443.
@@ -61,6 +62,8 @@ param(
     [switch]$Serve,
     [switch]$Restart
 )
+
+Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 
 $ErrorActionPreference = 'Stop'
 # Benign native non-zero exits (chmod on a tmpfs, a firewall-rule probe) must not
@@ -399,12 +402,25 @@ if (Test-Path -LiteralPath $PidFile) { Remove-Item -LiteralPath $PidFile -Force 
 # needs no urlacl/sslcert, but an inbound filter still applies, and service
 # guests fetch their NAS credential here). Windows: Start-CachingProxyServiceVM
 # already runs elevated. Linux: the shared ufw helper, without a sudo prompt;
-# when it cannot read ufw, an active ufw needs 'ufw allow <port>/tcp' from
-# an elevated operator. Idempotent.
+# where that cannot read ufw, the rule that holds is the one the elevated
+# host setup adds (host/ubuntu.kvm/Enable-TestAutomation.ps1). Idempotent.
 if ($IsLinux) {
     Import-Module (Join-Path $PSScriptRoot '../modules/Test.StatusFirewall.psm1') -Force
     $fw = Set-YurunaStatusFirewallRule -Port $Port -NonInteractive
-    Write-Verbose "config port firewall: $($fw.Message)"
+    if ($fw.Ensured) {
+        Write-Verbose "config port firewall: $($fw.Message)"
+    } else {
+        # This launcher is a no-op while the service stays up, so a launch
+        # that cannot confirm the port is open is the operator's notice before
+        # a service guest's NAS mount fails against it. Every result short of
+        # Ensured warns: ufw absent (nftables/iptables are not managed), ufw
+        # unreadable without a cached sudo credential, the allow refused, and
+        # an error inside the helper. The helper also serves the status port,
+        # so the warning names the config service itself and quotes the
+        # helper's message, which names the cause and, where ufw is in use,
+        # the elevated command that opens the port.
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.config_port_firewall_unconfirmed' -Arguments @{ port = "$Port"; detail = "$($fw.Message)" })
+    }
 }
 if ($IsWindows) {
     try {

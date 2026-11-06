@@ -454,7 +454,7 @@ func TestReplayedAnnounceIsHistoricalUntilLiveBeacon(t *testing.T) {
 	if entry.SourceIP != "" {
 		t.Fatalf("replay invented live ownership: %s", entry.SourceIP)
 	}
-	if rank := extensionSourceRank(extensionHostEntry{Source: extSourceAnnounce, confirmed: entry.SourceIP != ""}); rank != 2 {
+	if rank := extensionSourceRank(extensionHostEntry{Source: extSourceAnnounce, Confirmed: entry.SourceIP != ""}); rank != 2 {
 		t.Fatalf("historical rank = %d", rank)
 	}
 	postAnnounce(s, "10.0.0.7:5555", fmt.Sprintf(`{"hostId":%q,"targetPort":80}`, testHostID))

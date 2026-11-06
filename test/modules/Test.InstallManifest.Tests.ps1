@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42357e45-1be3-4923-bebd-60e195c757a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -227,13 +227,14 @@ Describe 'who owns the fix for a drifted manifest' {
 
         function Save-FixtureCommit {
             param([string]$Root, [long]$At)
+            $saved = Save-YurunaTestEnvironment -Name 'GIT_AUTHOR_DATE', 'GIT_COMMITTER_DATE'
             $env:GIT_AUTHOR_DATE = "@$At +0000"
             $env:GIT_COMMITTER_DATE = "@$At +0000"
             try {
                 Invoke-FixtureGit $Root add -A
                 Invoke-FixtureGit $Root commit -q -m "fixture at $At"
             } finally {
-                Remove-Item Env:GIT_AUTHOR_DATE, Env:GIT_COMMITTER_DATE -ErrorAction SilentlyContinue
+                Restore-YurunaTestEnvironment -Saved $saved
             }
         }
 
@@ -293,9 +294,9 @@ Describe 'who owns the fix for a drifted manifest' {
         Write-SignedFixtureManifest -Root $root -ForText "echo v1`n"
         Save-FixtureCommit -Root $root -At 1700000000
         Assert-False (Test-ManifestMustVerify -Root $root) 'a private tree between releases keeps the pending re-sign as the operator step'
-        Invoke-FixtureGit -Root $root -GitArgument @('tag', '2026.10.31')
+        Invoke-FixtureGit -Root $root -GitArgument @('tag', '2026.11.05')
         Assert-True (Test-ManifestMustVerify -Root $root) 'a commit carrying a release tag is what users verify'
-        Invoke-FixtureGit -Root $root -GitArgument @('tag', '--delete', '2026.10.31')
+        Invoke-FixtureGit -Root $root -GitArgument @('tag', '--delete', '2026.11.05')
         Invoke-FixtureGit -Root $root -GitArgument @('tag', 'rollback-before-something')
         Assert-False (Test-ManifestMustVerify -Root $root) 'a tag that is not a release does not count'
         Remove-Item -LiteralPath (Join-Path $root 'dev-only') -Recurse -Force

@@ -237,12 +237,13 @@ Applies to: `internal/config/config.go`
 Configurable: the sink address (`0.0.0.0:22`; `--listen-addr` is a dev-only
 override), the StashFolder, the metadata and buffer directories, the UI
 address (`:80`), the pool window and rescan interval, the list page size, the
-aggregator URL, the presence identity and interval. Constants in code: the
+aggregator URL, the presence identity and interval, and the names the UI
+answers to in `Host` (`--allowed-host-names`). Constants in code: the
 100 MiB file cap, the ID alphabet and length, the
 32-character extension cap and its character set, the archive and sidecar
 extensions, the 5 GiB buffer ceiling, UTC dates, the `YURUNA-STASH-ID:` line,
-the 500-row list cap and the 1 MiB inline text preview. Constants are frozen
-here so a change is one edit.
+the 500-row list cap, the 1 MiB inline text preview and the four multipart
+creates received at once. Constants are frozen here so a change is one edit.
 
 <a id="429e934f-0011"></a>
 

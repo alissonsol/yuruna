@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -176,6 +176,9 @@ $script:TypedField = @{
     hostCommittedBytes       = 'int'
     hostCommitLimitBytes     = 'int'
     hostCommitAvailableBytes = 'int'
+    # An event raised outside a cycle reaches the stream through the pending
+    # queue, which names it so a consumer can drop a copy delivered twice.
+    eventId                  = 'string'
 }
 
 # FailureClass / Severity enums, sourced from the canonical Test.FailureTaxonomy
@@ -185,6 +188,16 @@ $script:TypedField = @{
 # 'unknown'.
 $script:FailureClassEnum = Get-FailureClassEnum
 $script:SeverityEnum     = Get-SeverityEnum
+
+# Runner fault classes -- kept in sync with RunnerFaultClassEnum in
+# Test.RecoveryContract.psm1, which loads after this module. A runner_fault
+# event carries the class status.json publishes, and the runner names some of
+# its own faults outside the shared taxonomy; on that event alone they are
+# valid values of failureClass.
+$script:RunnerFaultClassEnum = @(
+    'config_gate_failed', 'inner_exited', 'outcome_unrecorded', 'vm_admission_occupied',
+    'vm_admission_unknown', 'preamble_stall', 'cycle_killed', 'cycle_spawn_failed'
+)
 
 # Runner-state enum mirror -- kept in sync with the StateEnum in
 # Test.RunnerState.psm1's $script:StateEnum. A value outside this
@@ -245,7 +258,9 @@ function Test-CycleEventSchema {
     # which -- so a typo in the registry has to be caught under either name.
     foreach ($classField in @('failureClass', 'verbDefaultFailureClass')) {
         if ($Record.Contains($classField) -and ($Record[$classField] -is [string])) {
-            if (-not ($script:FailureClassEnum -contains [string]$Record[$classField])) {
+            $classEnum = $script:FailureClassEnum
+            if ($classField -eq 'failureClass' -and [string]$Record['event'] -ceq 'runner_fault') { $classEnum = $classEnum + $script:RunnerFaultClassEnum }
+            if (-not ($classEnum -contains [string]$Record[$classField])) {
                 $violations += "$classField '$($Record[$classField])' is not in the canonical enum"
             }
         }
@@ -280,11 +295,12 @@ function Get-CycleEventSchemaDescriptor {
     [OutputType([hashtable])]
     param()
     return @{
-        RequiredField    = @($script:RequiredField)
-        TypedField       = $script:TypedField.Clone()
-        FailureClassEnum = @($script:FailureClassEnum)
-        SeverityEnum     = @($script:SeverityEnum)
-        RunnerStateEnum  = @($script:RunnerStateEnum)
+        RequiredField        = @($script:RequiredField)
+        TypedField           = $script:TypedField.Clone()
+        FailureClassEnum     = @($script:FailureClassEnum)
+        SeverityEnum         = @($script:SeverityEnum)
+        RunnerStateEnum      = @($script:RunnerStateEnum)
+        RunnerFaultClassEnum = @($script:RunnerFaultClassEnum)
     }
 }
 

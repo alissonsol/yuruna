@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 4219b9e1-52b6-463b-b9d7-5d2aecaadd27
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,6 +138,12 @@ $tc = $_statusSeed.Config
 $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
+# The names the VM answers to besides its addresses, from this host's
+# test.config.yml. Read in the plan, while the working VM is still advertised,
+# because a malformed vmStart.serviceHostNames entry refuses the build.
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.ExtensionService.psm1') -DisableNameChecking -Verbose:$false
+try { $serviceHostNames = Get-ExtensionServiceHostNameSeed -Config $tc }
+catch { Write-Error $_.Exception.Message; exit 1 }
 
 # --- REGION: Report seed values baked empty
 # The build goes on without them, because the guest can still serve, but it
@@ -255,6 +261,7 @@ $UserData = New-CloudInitUserData `
         DOWNLOAD_AGENT_AUTO_SEED_PLACEHOLDER     = $agentAutoSeed
         YURUNA_CACHE_PROXY_IP_PLACEHOLDER        = $cacheProxyIp
         YURUNA_CACHE_CA_CERT_BASE64_PLACEHOLDER  = $cacheCaB64
+        YURUNA_SERVICE_HOST_NAMES_PLACEHOLDER    = $serviceHostNames
     } -Confirm:$false
 
 # --- REGION: Remove existing VM

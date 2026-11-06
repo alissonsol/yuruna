@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42046a95-dbf3-4dd6-b06d-4ee539c58a98
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,6 +137,15 @@ try {
         Write-Information "  Refreshed host.registration.json (host drops from Extension hosts within one aggregator poll)." -InformationAction Continue
     }
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
+
+# --- REGION: Release the host port forwards
+# See https://yuruna.link/42e220c4-0008
+# Every forward the start added is recorded under this service's area as its
+# owner, so only those go; another service's forwards stay. Released before
+# the guest is touched, and whether or not the host still has it: a forward
+# left behind keeps a host port (on UTM, a forwarder process) pointed at an
+# address nothing answers on until this owner's next start re-points it.
+[void](Remove-PortMap -Owner $Area -Confirm:$false)
 
 # --- REGION: Stop the VM
 # See https://yuruna.link/42e220c4-0008

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 426aeda1-aa39-4af4-ab2d-2e9d00f2ca45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -340,6 +340,14 @@ function Write-ConfigGateArtifact {
     if ($Gate.passed) {
         $statusPath = Join-Path $RuntimeDir 'status.json'
         if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            # A whole-document read-modify-write under the shared status-file
+            # lock (Test.Status), the lock the status service's pause routes and
+            # the start-cycle worker hold: a stamp from either side between this
+            # read and this write would otherwise be lost.
+            if (-not (Get-Command Enter-StatusLock -ErrorAction SilentlyContinue)) {
+                Import-Module (Join-Path $PSScriptRoot 'Test.Status.psm1') -DisableNameChecking
+            }
+            $lock = Enter-StatusLock -Path $statusPath
             try {
                 $status = Get-Content -Raw -LiteralPath $statusPath -ErrorAction Stop | ConvertFrom-Json -AsHashtable
                 if ($status -is [System.Collections.IDictionary] -and $status['runnerFault']) {
@@ -351,6 +359,7 @@ function Write-ConfigGateArtifact {
                     $null = Write-YurunaStateFileJson -Path $statusPath -InputObject $status -Depth 32 -Confirm:$false
                 }
             } catch { Write-Verbose "Configuration gate: could not clear prior runner fault: $($_.Exception.Message)" }
+            finally { Exit-StatusLock -Lock $lock }
         }
     }
     Update-RunnerAttemptHistory -RuntimeDir $RuntimeDir -MaxAttempts $MaxAttempts -Confirm:$false

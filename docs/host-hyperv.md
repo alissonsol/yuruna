@@ -107,11 +107,31 @@ kernel's `console=` argument, with `console=tty0` still last. The reader's
 side of the same question is in `serial-console.info.txt`, beside
 `serial-console.log` in the failure folder: `attempts:` and `connects:`
 count how often the host-side reader tried to open the COM1 pipe and how
-often it succeeded, and `lastError:` keeps its last failure. A reader that
-never connected points at the pipe -- the VM worker creates the server end
-only while the VM is on, under the name `Set-VMComPort` was given -- while a
-reader that connected and still saved 0 bytes points at the guest's
-`console=` setting.
+often it succeeded, `lastError:` keeps its last failure, and `lastByte:`
+dates the newest byte the log received. A reader that never connected points
+at the pipe -- the VM worker creates the server end only while the VM is on,
+under the name `Set-VMComPort` was given -- while a reader that connected and
+still saved 0 bytes points at the guest's `console=` setting or at a UART that
+stopped draining into the pipe.
+
+The journal reaches that UART through `yuruna-serial-journal.service`, not
+journald's `ForwardToConsole=`. journald writes to its console tty inline, so
+a UART that stops draining blocks journald. Everything that logs to journald
+then blocks behind it:
+`sudo` and `sshd` hang, while the guest shows almost no CPU, no hung-task
+report (the waits are interruptible sleeps) and TCP 22 still open with an SSH
+banner. journald's three-minute watchdog restarts it into the same wait. The
+service takes that wait in its own process, so a stalled UART costs serial
+output and nothing else. It opens the tty for each line, as journald does,
+because `agetty`'s hangup at every boot invalidates a descriptor held open.
+
+To recognize a UART stall on an x64 guest, read the `IO Instructions/sec`
+counters in `host-samples-*`: thousands per second while the journal flows,
+exactly 0 when the UART has stopped. The guest recorder's samples add the
+`/proc/tty/driver/serial` counters, the age and wait channel of journald's
+clients, and the queue on `/run/systemd/journal/dev-log`. A sample carrying
+`recorderPrivilege=sudo-unresponsive` means `sudo` itself hung, and the
+sample's remaining reads ran unprivileged.
 
 Three more host-side readings land beside `dhcp.capture.txt` (the pktmon
 capture of the guest's DHCP exchange, which also keeps the guest's own ARP
@@ -323,17 +343,33 @@ nothing, rather than a failure naming the step.
 of a step -- on this lab's ARM64 host, while a Kubernetes workload builds or
 pushes container images, or while the guest's update script upgrades its
 packages. The console freezes, SSH stops answering, the recorder heartbeat
-goes stale, and the step fails as `wait_timeout` with a `progress-suspect`
-advisory. While some processor is still outside the hypervisor's hold, the
-all-processor livelock verdict stays `not-livelocked`. Once every processor,
+goes stale, and the step fails with a `progress-suspect` advisory. While some
+processor is still outside the hypervisor's hold, the all-processor livelock
+verdict stays `not-livelocked`. Once every processor,
 the only one on a one-processor guest, has been held for five minutes, the
 verdict turns `livelocked` and `fetchAndExecute`'s wait ends on it, well
-before the budget. The same wait also ends once one processor has serviced no
-interrupt for three minutes and a kernel fault report reached the serial
-console after the wait began, which the first shape below shows within
-minutes; `causeDetail.guestKernelStallEnd` records that, and the remediation
-names the wedged kernel instead of a package mirror. A guest that wedges with
-neither, such as the third shape, still spends the whole budget.
+before the budget. The same wait also ends on a kernel fault report that
+reached the serial console after the wait began, once one processor has
+serviced no interrupt for three minutes, which the first shape below shows
+within minutes, or once the guest has been silent for three minutes: its
+console output unchanged and its recorder's uploads no longer reaching the
+host. A wedge can show that silence while every processor still services
+interrupts and the console carries only hung-task reports. No silence ends
+the wait without the report, and a static console alone is not silence: a
+payload can print nothing for minutes, while a busy guest's recorder still
+reaches the host at least once a minute.
+`causeDetail.guestKernelStallEnd` records which rule ended the wait in `basis`
+(`no-interrupts-serviced` or `guest-silent`) with the readings behind it, and
+the remediation names the wedged kernel instead of a package mirror. A wait
+that ended on either rule, or on the `livelocked` verdict, files the step as
+`guest_kernel_stalled` instead of `wait_timeout`: with
+`testCycle.autoRemediation.enabled` on, the runner retries it unattended on a
+runner-minute budget of its own (`RetryMinutesPerDay`, 180 in 24 hours), so a
+host whose guests keep wedging does not spend the budget of real step
+timeouts, and once that budget is spent the usual failure pause runs its
+length. A guest that wedges without a kernel fault report on the console and
+without the verdict, such as the third shape, still spends the whole step
+budget and files as `wait_timeout`.
 
 **Signatures.** Three shapes have been seen. In the first the guest kernel
 locks up on one processor, and the failure record carries two independent
@@ -978,6 +1014,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.10.31
+Last review: 2026.11.05
 
 Back to [Yuruna](../README.md)

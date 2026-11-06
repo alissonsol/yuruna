@@ -224,6 +224,30 @@
     return v > 0 ? v : null;
   }
 
+  // When the host's resident runner started, in ms; null, which the sort ranks
+  // last, when it has not reported.
+  function runnerStarted(h) {
+    var f = facts[factKey(h)];
+    if (!f || !f.ok || !f.runnerStartedAtUtc) { return null; }
+    var at = new Date(String(f.runnerStartedAtUtc)).getTime();
+    return isNaN(at) ? null : at;
+  }
+
+  // The commit the host's resident runner loaded, and since when: a runner keeps
+  // that code until it restarts. The full commit is the title.
+  function runnerCell(h, error) {
+    var f = facts[factKey(h)];
+    var commit = f && f.ok ? String(f.runnerCommitSha || '') : '';
+    if (!commit) {
+      return Y.el('span', { class: 'muted', text: '--', title: error ? Y.bidiIsolate(error) : t('pool.runner_unreported') });
+    }
+    var started = runnerStarted(h);
+    return Y.el('span', {
+      class: 'mono', title: Y.bidiIsolate(commit),
+      text: t('pool.runner_cell', { commit: commit.slice(0, 9), startedAt: started === null ? '--' : window.YurunaI18n.fmtLocal(new Date(started)) })
+    });
+  }
+
   // Hardware columns sort on their raw numbers; every other column is a string
   // on the wire, so one comparison serves them all -- lowercased, because a
   // hostname's capitalization is not a sort order anyone means to ask for.
@@ -234,6 +258,7 @@
   function sortValue(h, key) {
     if (FACT_KEY[key]) { return factValue(h, key); }
     if (REPO_ACCESS_LABEL[key]) { return accessValue(h, key).toLowerCase(); }
+    if (key === 'runner') { return runnerStarted(h); }
     if (key === 'hostId') { return String(h.hostId || h.address || '').toLowerCase(); }
     return String(h[key] || '').toLowerCase();
   }
@@ -350,7 +375,7 @@
       }
       Y.clearNotice();
       Y.mutate('/api/pool/move-host', { method: 'POST', body: { hostId: h.hostId, poolId: to } }).then(function () {
-        // Beside the picker as well as in the banner: on a twelve-column table
+        // Beside the picker as well as in the banner: on a thirteen-column table
         // at high zoom the banner at the top of <main> is not on screen with
         // the row that produced it.
         return load({ quiet: true }).then(function () {
@@ -388,6 +413,7 @@
       Y.el('td', {}, [control]),
       Y.el('td', {}, [accessCell(h, 'frameworkAccess', factErr)]),
       Y.el('td', {}, [accessCell(h, 'projectAccess', factErr)]),
+      Y.el('td', {}, [runnerCell(h, factErr)]),
       Y.el('td', {}, [sel])
     ]);
   }

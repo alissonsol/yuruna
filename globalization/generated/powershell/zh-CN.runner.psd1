@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42dba0ee-ceaf-a7ec-5c0b-f7f0ef9d34c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,28 @@
         }
         ' 的缓存代理 CA；在修复或删除之前不会在种子中包含任何 CA。'
     )
+    'runner.capability_gate_host_command_missing' = '  序列会运行此宿主机上没有的命令：'
+    'runner.capability_gate_host_command_remedy' = '  请在此宿主机上安装缺失的命令，或从此周期的序列YAML文件中移除运行这些命令的步骤。'
+    'runner.capability_gate_host_command_step' = @(
+        '        '
+        @{
+            'arg' = 'sequence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '，步骤 '
+        @{
+            'arg' = 'step'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '：'
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
     'runner.config_gate_attempt_failed' = @(
         '运行器尝试因配置验证失败而退出，退出代码为 '
         @{
@@ -94,6 +116,20 @@
         '将配置备份到 '
         @{
             'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.config_port_firewall_unconfirmed' = @(
+        '配置服务无法确认入站TCP :'
+        @{
+            'arg' = 'port'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '已对服务客户机开放，服务客户机从此端口获取其NAS凭据：'
+        @{
+            'arg' = 'detail'
             'type' = 'detail'
             'trust' = 'external'
         }
@@ -727,6 +763,40 @@
             'trust' = 'external'
         }
     )
+    'runner.host_address_lease_expiry_churn' = @(
+        '此宿主机在过去'
+        @{
+            'arg' = 'lookbackHours'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        'h内更改了'
+        @{
+            'arg' = 'changes'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '次地址，涉及'
+        @{
+            'arg' = 'distinctAddresses'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '个不同地址，每'
+        @{
+            'arg' = 'medianIntervalMinutes'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' min更改一次——大约每个租期一次，DHCP服务器授予的租期为'
+        @{
+            'arg' = 'leaseSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' s。网桥的DHCP身份确实已固定，地址变化发生在租约到期时，而不是在续租时：续租没有生效，因此每个租约都会到期，下一个租约是全新分配。按固定周期变化的地址每次变化都会中断其后的所有客户机。'
+    )
+    'runner.host_address_lease_expiry_remedy' = "查看一次地址变化前后NetworkManager的dhcp4日志行（journalctl -b 0 -u NetworkManager --grep dhcp4，宿主机诊断中也会打印），确认每个租约是在续租时得到延长还是已到期，并检查宿主机防火墙是否允许服务器的应答到达UDP端口68；在租期过半时的续租前后对网桥抓包（tcpdump -ni yuruna-br0 'udp port 67 or udp port 68'），可以看出请求是否已发送并得到应答，即使宿主机防火墙随后丢弃了该应答也能看到；为网桥MAC地址设置DHCP保留地址或使用静态地址，均可使地址保持稳定——请参阅docs/network.md中的`“Pinning the host address`”一节。"
     'runner.host_condition_probe_unanswered' = @(
         '无法读取'
         @{
@@ -2399,6 +2469,79 @@
             'trust' = 'internal'
         }
         '）；本序列中后续的失败可能源于此。'
+    )
+    'runner.netconsole_receiver_bind_failed' = @(
+        '无法打开UDP端口'
+        @{
+            'arg' = 'port'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '：'
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.netconsole_receiver_listening' = @(
+        '正在UDP端口'
+        @{
+            'arg' = 'port'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '上监听netconsole；日志写入'
+        @{
+            'arg' = 'directory'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '，每台发送方宿主机每个UTC日一个日志文件。按Ctrl+C停止。'
+    )
+    'runner.netconsole_receiver_small_buffer' = @(
+        '系统分配的UDP接收缓冲区为'
+        @{
+            'arg' = 'granted'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '字节，小于请求的'
+        @{
+            'arg' = 'requested'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '字节，因此一阵内核消息（例如宿主机在panic之前发送的回溯）可能使其溢出并丢失行。在Linux上，请使用''sudo sysctl -w net.core.rmem_max='
+        @{
+            'arg' = 'requested'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '''提高该上限，然后重新启动接收器。'
+    )
+    'runner.netconsole_receiver_stopped' = @(
+        '收到'
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '个数据报后已停止。'
+    )
+    'runner.netconsole_receiver_write_failed' = @(
+        '无法将收到的行写入'
+        @{
+            'arg' = 'directory'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '：'
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
     )
     'runner.no_other_runner_refresh_active' = @(
         @{
@@ -4084,7 +4227,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '个不同地址，且间隔不固定，这与重启或链路事件相符，而非续租未生效。发现流程会处理这些变化。'
+        '个不同地址，且间隔不固定，这与重启或链路事件相符。发现流程会处理这些变化。'
     )
     'runner.operator_13c098483d4f4c49' = '未安装powershell-yaml：将通过文本扫描检查users.yml'
     'runner.operator_13eefd852d733d69' = '    虚拟机监控程序以当前用户身份运行，无法访问这些内容，因此它们只会占用空间。'
@@ -5454,7 +5597,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '/tcp，使局域网客户端能够访问status service。'
+        '/tcp，使局域网客户端能够通过TCP :'
+        @{
+            'arg' = 'port'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '访问此宿主机。'
     )
     'runner.operator_26ae0718f0a53461' = @(
         '宿主机指标：'
@@ -19339,7 +19488,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '）；状态端口的防火墙状态未知。如果:'
+        '）；TCP :'
+        @{
+            'arg' = 'port'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '的防火墙状态未知。如果:'
         @{
             'arg' = 'port'
             'type' = 'detail'
@@ -25003,6 +25158,33 @@
         ' 个遗留项。'
     )
     'runner.transcript_title' = 'Yuruna测试运行器日志'
+    'runner.ufw_port_rule_left' = @(
+        'TCP :'
+        @{
+            'arg' = 'port'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '现有的ufw规则保持不变，因为Yuruna不会替换并非由它添加的规则：'
+        @{
+            'arg' = 'rule'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '。如果局域网客户端需要通过:'
+        @{
+            'arg' = 'port'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '访问此主机，请自行修改该规则，例如：sudo ufw allow '
+        @{
+            'arg' = 'port'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '/tcp'
+    )
     'runner.vault_retired_entries' = @(
         '已移除'
         @{
@@ -25090,6 +25272,44 @@
             'trust' = 'external'
         }
         's未处理任何中断，其串行控制台报告了'
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.wait_ended_on_silent_guest' = @(
+        "等待文本`“"
+        @{
+            'arg' = 'patternLabel'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        "`”在约"
+        @{
+            'arg' = 'waited'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's后结束（上限'
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's）：客户机的控制台输出已有'
+        @{
+            'arg' = 'outputStaticSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's未变化，其记录器已有'
+        @{
+            'arg' = 'uploadAgeSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's未向宿主机上传数据，且其串行控制台报告了'
         @{
             'arg' = 'kinds'
             'type' = 'detail'

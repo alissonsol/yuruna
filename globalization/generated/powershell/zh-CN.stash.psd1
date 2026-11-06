@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42e6e6e6-8676-59f0-7784-9fe1dbade78c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,7 @@
     'stash.api_stat_artifact' = '获取制品状态'
     'stash.api_too_many_files_in_one_upload' = '单次上传的文件过多'
     'stash.api_too_many_stashes_in_one_request' = '单次请求的存储服务过多'
+    'stash.api_uploads_busy' = '同时接收的上传过多，请稍后重试'
     'stash.archive' = '压缩包'
     'stash.archive_contents' = '归档内容'
     'stash.archive_value1_contents' = @(

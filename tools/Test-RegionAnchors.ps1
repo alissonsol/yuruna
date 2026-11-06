@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 427a25a9-d3c8-4ce6-b877-b396666875b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,9 @@
 
     Exit codes follow the entry-point contract (Get-EntryPointExitCode):
         0  Every in-repo pointer resolves.
-        1  At least one pointer names a heading that does not exist.
+        1  At least one pointer names a heading that does not exist, or, with
+           -HeadingRegion, a heading names a region other than the one its
+           pointer sits in.
         2  The link map is missing, so nothing could be checked.
 
 .PARAMETER Path
@@ -78,6 +80,12 @@
     pointers are fine.
 .PARAMETER Quiet
     Print only failures and the final summary.
+.PARAMETER HeadingRegion
+    Also run the heading check of tools/Invoke-DocAnchor.ps1 -HeadingRegion
+    over the project and additional checkouts given here: a pointer that
+    resolves still fails when its heading names a region other than the one
+    the pointer sits in. The cross-repository gate's region-anchors row passes
+    it.
 
 .EXAMPLE
     pwsh tools/Test-RegionAnchors.ps1
@@ -95,7 +103,8 @@ param(
     [string[]]$AdditionalSourceRoot,
     [string]$LinkMap,
     [string]$AnchorManifest,
-    [switch]$Quiet
+    [switch]$Quiet,
+    [switch]$HeadingRegion
 )
 
 $ToolRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -546,12 +555,36 @@ foreach ($u in ($unknownId | Sort-Object { $_.file }, { $_.line })) {
     Write-Warning ("        id '{0}' names no heading in the anchor manifest or its published local SBOM target" -f $u.id)
 }
 
+# The heading check asks a second question of the same pointers: whether the
+# heading each one targets names the region the pointer sits in. It runs
+# through the tool that owns it, so a run by hand and the gate cannot disagree.
+$headingVerdict = $ExitOk
+if ($HeadingRegion) {
+    $headingArguments = @{ HeadingRegion = $true; Quiet = $true; Manifest = $AnchorManifest }
+    if (Test-Path -LiteralPath $ProjectRoot -PathType Container) { $headingArguments['ProjectRoot'] = $ProjectRoot }
+    if ($AdditionalSourceRoot) { $headingArguments['AdditionalSourceRoot'] = $AdditionalSourceRoot }
+    # A tool that cannot start (absent, or refusing an argument) never sets an
+    # exit code, and one that throws past its own handler never reaches its
+    # exit: either is no verdict, never the exit code a git call left behind.
+    try {
+        $headingOutput = @(& (Join-Path $ToolRoot 'Invoke-DocAnchor.ps1') @headingArguments 2>&1 |
+                ForEach-Object { [string]$_ } | Where-Object { $_.Trim() })
+        $headingVerdict = switch ($LASTEXITCODE) { 0 { $ExitOk } 1 { $ExitFailure } default { $ExitCannotRun } }
+    } catch {
+        $headingOutput = @("Heading check could not run: $($_.Exception.Message)")
+        $headingVerdict = $ExitCannotRun
+    }
+    if ($headingVerdict -ne $ExitOk -or -not $Quiet) {
+        foreach ($line in $headingOutput) { Write-Output $line }
+    }
+}
+
 if ($dangling.Count -eq 0 -and $overlayBad.Count -eq 0 -and $unknownId.Count -eq 0) {
     if ($templates -gt 0) {
         Write-Output "Test-RegionAnchors: $templates template pointer(s) match documented destinations; runtime values require consumer validation."
     }
     Write-Output 'Test-RegionAnchors: all static in-repo pointers resolve; every overlay anchor pairs.'
-    exit $ExitOk
+    exit $headingVerdict
 }
 
 if ($unknownId.Count -gt 0) {

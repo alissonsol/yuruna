@@ -33,6 +33,16 @@
       "sourceHash": "b1bd6b3503ae1d57782436d56992bb25f636eb5481c4bf6b37d0e26e7194ab5a",
       "message": "קומיט של המסגרת: {commit}"
     },
+    "status.runner_resident": {
+      "sourceHash": "00191ed0dbffee631a5072dbc56e99023685bc24871c31502852b459958d0d26",
+      "origin": "machine",
+      "message": "המריץ הקבוע: קומיט {commit}, הופעל ב-{startedAt}."
+    },
+    "status.runner_resident_unreported": {
+      "sourceHash": "ffd2cea7762a327c4f1d878c418b606bb7687adc1aef41a7d1145fc3a05bf708",
+      "origin": "machine",
+      "message": "המריץ הקבוע לא דיווח על הקומיט ועל שעת ההפעלה שלו. מריץ שהופעל לפני שדיווח זה היה קיים ידווח עליהם לאחר ההפעלה מחדש הבאה שלו."
+    },
     "status.timing_kind": {
       "sourceHash": "ce46993a6c4a47ed5faee2e76d326f4c72946cf55951d3f517386e0b1b659878",
       "origin": "machine",
@@ -2190,8 +2200,8 @@
       "origin": "machine"
     },
     "status.runner_attempts_description": {
-      "sourceHash": "ca4036f65cf8e0840e7fed11fec0db167fd0c6056ccfa940d227fd94a3aa5560",
-      "message": "כישלונות מתוך 20 ניסיונות ההרצה האחרונים נשמרים כאן לאחר ההתאוששות. כישלונות בבדיקה המקדימה מתרחשים לפני תחילת מחזור בדיקות חדש.",
+      "sourceHash": "151b16e1809895e2c67bbe2ede8f529406759faf7883cbd3722eded0a2e257a1",
+      "message": "כישלונות מתוך 20 ניסיונות ההרצה האחרונים נשמרים כאן לאחר ההתאוששות, וכך גם עד 30 כישלונות ישנים יותר שלאחריהם ניסיון מאוחר יותר עבר בהצלחה. כישלונות בבדיקה המקדימה מתרחשים לפני תחילת מחזור בדיקות חדש.",
       "origin": "machine"
     },
     "status.runner_attempts_empty": {

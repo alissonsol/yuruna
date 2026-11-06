@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 422d4ab8-65fc-c85d-47c1-57e5e7f4dddd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1463,7 +1463,7 @@
             'trust' = 'external'
         }
     )
-    'status.runner_attempts_description' = 'כישלונות מתוך 20 ניסיונות ההרצה האחרונים נשמרים כאן לאחר ההתאוששות. כישלונות בבדיקה המקדימה מתרחשים לפני תחילת מחזור בדיקות חדש.'
+    'status.runner_attempts_description' = 'כישלונות מתוך 20 ניסיונות ההרצה האחרונים נשמרים כאן לאחר ההתאוששות, וכך גם עד 30 כישלונות ישנים יותר שלאחריהם ניסיון מאוחר יותר עבר בהצלחה. כישלונות בבדיקה המקדימה מתרחשים לפני תחילת מחזור בדיקות חדש.'
     'status.runner_attempts_empty' = 'אין כישלונות שמורים של ניסיונות הרצה.'
     'status.runner_attempts_title' = 'כישלונות בניסיונות הרצה'
     'status.runner_attempts_unavailable' = 'היסטוריית ניסיונות ההרצה אינה זמינה.'
@@ -1477,6 +1477,22 @@
             'trust' = 'external'
         }
     )
+    'status.runner_resident' = @(
+        'המריץ הקבוע: קומיט '
+        @{
+            'arg' = 'commit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', הופעל ב-'
+        @{
+            'arg' = 'startedAt'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'status.runner_resident_unreported' = 'המריץ הקבוע לא דיווח על הקומיט ועל שעת ההפעלה שלו. מריץ שהופעל לפני שדיווח זה היה קיים ידווח עליהם לאחר ההפעלה מחדש הבאה שלו.'
     'status.save' = 'שמרו'
     'status.save_and_start_cycle' = 'שמרו והתחילו מחזור'
     'status.save_and_start_cycle_failed_value1' = @(

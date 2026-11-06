@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -919,11 +919,12 @@ Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
         function Invoke-ScriptedWait {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
                 Justification = 'Test helper: drives the function under test against scripted frames.')]
-            param([string[]]$Frames, $Livelock, [int]$TimeoutSeconds, [switch]$EndOnGuestLivelock, $GuestLivelockSinceUtc)
+            param([string[]]$Frames, $Livelock, [int]$TimeoutSeconds, [switch]$EndOnGuestLivelock, $GuestLivelockSinceUtc, [string]$GuestRecorderPath)
             & (Get-Module Test.SequenceEngine) { param($d, $f, $l) Reset-LivelockProbeState -ScreenDir $d -Frames $f -Livelock $l } $script:probeDir $Frames $Livelock
             Clear-CarriedConsoleBaseline
             $bound = @{}
             if ($null -ne $GuestLivelockSinceUtc) { $bound.GuestLivelockSinceUtc = $GuestLivelockSinceUtc }
+            if ($GuestRecorderPath) { $bound.GuestRecorderPath = $GuestRecorderPath }
             return [bool](Wait-ForText -VMName 'vm-01' -Pattern @('Continue with autoinstall?') -TimeoutSeconds $TimeoutSeconds -PollSeconds 1 `
                 -EndOnGuestLivelock:$EndOnGuestLivelock -WarningAction SilentlyContinue -InformationAction SilentlyContinue @bound)
         }
@@ -1048,6 +1049,7 @@ Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
             Invoke-ScriptedWait -Frames @('Pulling 192.168.7.42:5000/dotnet/sdk:10.0') -Livelock (New-SilentProcessorVerdict -Seconds 1305) -TimeoutSeconds 60 -EndOnGuestLivelock | Should -BeFalse
             $clock.Elapsed.TotalSeconds | Should -BeLessThan 15 -Because 'the wedge is judged before the first capture, not at the deadline'
             $end = Get-ProbeFailSlot 'WaitForTextKernelStallEnd'
+            $end.basis | Should -Be 'no-interrupts-serviced'
             @($end.processors) | Should -Be @('0')
             $end.noInterruptsServicedSeconds | Should -Be 1305
             $end.noInterruptsServicedSinceUtc | Should -Be '2026-10-29T08:56:28.0000000Z'
@@ -1080,6 +1082,126 @@ Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
             Invoke-ScriptedWait -Frames @('booting') -Livelock (New-SilentProcessorVerdict -Seconds 1305) -TimeoutSeconds 3 | Should -BeFalse
             $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 2.5
             Get-ProbeFailSlot 'WaitForTextKernelStallEnd' | Should -BeNullOrEmpty
+        }
+
+        Context 'with every processor still servicing interrupts' {
+            BeforeAll {
+                # Short enough for a guest's silence to pass the threshold within
+                # an example, with the host recording read every second so a
+                # check follows each poll of the console.
+                & (Get-Module Test.SequenceEngine) {
+                    $script:SavedKernelStallSilentSeconds = $script:KernelStallSilentSeconds
+                    $script:SavedGuestLivelockCheckSeconds = $script:GuestLivelockCheckSeconds
+                    $script:KernelStallSilentSeconds = 2
+                    $script:GuestLivelockCheckSeconds = 1
+                }
+                # A Kubernetes workload's console when its guest went silent, and
+                # the hung-task reports its kernel printed while both processors
+                # kept servicing interrupts.
+                $script:lastWords = "== [push (website)] phase end exit=0 outcome=completed ==`n=== Set-Workload ==="
+                $script:hungTask = @(
+                    '[ 1230.187000] INFO: task kworker/u8:0:12 blocked for more than 121 seconds.'
+                    '[ 1230.194000] INFO: task kube-controller:33152 blocked for more than 121 seconds.'
+                ) -join "`n"
+                $script:servicing = [pscustomobject]@{ Verdict = 'not-livelocked'; LivelockedSeconds = 0; Detail = 'running'
+                    ProcessorWindow = [pscustomobject]@{ Processors = @(
+                        [pscustomobject]@{ Processor = '0'; NoInterruptsServicedSeconds = 0; NoInterruptsServicedSinceUtc = '' }
+                        [pscustomobject]@{ Processor = '1'; NoInterruptsServicedSeconds = 0; NoInterruptsServicedSinceUtc = '' }) } }
+                # The guest recorder's upload as the status service leaves it,
+                # last written the given number of seconds ago.
+                function New-RecorderUpload {
+                    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                        Justification = 'Test helper: writes a fixture file into the example''s temp folder.')]
+                    param([int]$AgeSeconds)
+                    $path = Join-Path $script:probeDir 'execution.system.diagnostic.step-10.txt'
+                    Set-Content -LiteralPath $path -Value "kernelUploadSchema=1`nuploadCreatedUtc=2026-11-02T12:53:55Z" -NoNewline
+                    (Get-Item -LiteralPath $path).LastWriteTimeUtc = [DateTime]::UtcNow.AddSeconds(-$AgeSeconds)
+                    return $path
+                }
+                function Get-KernelStallSerialRead { & (Get-Module Test.SequenceEngine) { $script:KernelStallSerialReads } }
+            }
+            AfterAll {
+                & (Get-Module Test.SequenceEngine) {
+                    $script:KernelStallSilentSeconds = $script:SavedKernelStallSilentSeconds
+                    $script:GuestLivelockCheckSeconds = $script:SavedGuestLivelockCheckSeconds
+                }
+            }
+
+            It 'ends on a kernel report once the console and the guest recorder have both been silent past the threshold' {
+                Set-KernelStallSerial -Text $script:hungTask
+                $upload = New-RecorderUpload -AgeSeconds 1255
+                $clock = [Diagnostics.Stopwatch]::StartNew()
+                Invoke-ScriptedWait -Frames @($script:lastWords) -Livelock $script:servicing -TimeoutSeconds 60 -EndOnGuestLivelock -GuestRecorderPath $upload | Should -BeFalse
+                $clock.Elapsed.TotalSeconds | Should -BeLessThan 20 -Because 'the wait ends once the console has been static past the threshold, not at the deadline'
+                $end = Get-ProbeFailSlot 'WaitForTextKernelStallEnd'
+                $end.basis | Should -Be 'guest-silent'
+                @($end.processors).Count | Should -Be 0 -Because 'every processor kept servicing interrupts'
+                $end.noInterruptsServicedSeconds | Should -BeNullOrEmpty
+                $end.noInterruptsServicedSinceUtc | Should -BeNullOrEmpty
+                @($end.kinds) | Should -Be @('hung-task')
+                $end.outputStaticSeconds | Should -BeGreaterOrEqual 2
+                $end.recorderUploadAgeSeconds | Should -BeGreaterOrEqual 1255
+                $end.waitedSeconds | Should -BeLessThan 20
+                @(Get-KernelStallSerialRead) | Should -Be @(5000) -Because 'only a report that reached the console after the wait began can end it'
+                (Get-ProbeFailSlot 'WaitForTextGuestLivelocked') | Should -BeFalse
+            }
+
+            It 'waits out its budget on a silent guest whose console holds no kernel report' {
+                Set-KernelStallSerial -Text '[ 1181.116000] systemd[1]: Started session-3.scope.'
+                $upload = New-RecorderUpload -AgeSeconds 1255
+                $clock = [Diagnostics.Stopwatch]::StartNew()
+                Invoke-ScriptedWait -Frames @($script:lastWords) -Livelock $script:servicing -TimeoutSeconds 6 -EndOnGuestLivelock -GuestRecorderPath $upload | Should -BeFalse
+                $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 5.5
+                Get-ProbeFailSlot 'WaitForTextKernelStallEnd' | Should -BeNullOrEmpty -Because 'silence alone never ends a wait'
+                @(Get-KernelStallSerialRead).Count | Should -BeGreaterThan 0 -Because 'the guest was silent long enough for its console to be read'
+            }
+
+            It 'waits out its budget on a kernel report while the console keeps changing' {
+                Set-KernelStallSerial -Text $script:hungTask
+                $upload = New-RecorderUpload -AgeSeconds 1255
+                $clock = [Diagnostics.Stopwatch]::StartNew()
+                Invoke-ScriptedWait -Frames @(1..40 | ForEach-Object { "Pushing layer $_ of 40" }) -Livelock $script:servicing -TimeoutSeconds 6 -EndOnGuestLivelock -GuestRecorderPath $upload | Should -BeFalse
+                $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 5.5
+                Get-ProbeFailSlot 'WaitForTextKernelStallEnd' | Should -BeNullOrEmpty -Because 'a console that keeps changing is a guest still working'
+                @(Get-KernelStallSerialRead).Count | Should -Be 0
+            }
+
+            It 'waits out its budget on a kernel report and a static console when the caller names no recorder upload' {
+                Set-KernelStallSerial -Text $script:hungTask
+                $clock = [Diagnostics.Stopwatch]::StartNew()
+                Invoke-ScriptedWait -Frames @($script:lastWords) -Livelock $script:servicing -TimeoutSeconds 6 -EndOnGuestLivelock | Should -BeFalse
+                $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 5.5
+                Get-ProbeFailSlot 'WaitForTextKernelStallEnd' | Should -BeNullOrEmpty -Because 'a payload can run quietly for minutes, so a static console alone is not silence'
+                @(Get-KernelStallSerialRead).Count | Should -Be 0
+            }
+
+            It 'does not end on a kernel report while the guest recorder still reaches the host, or before its first upload' {
+                Set-KernelStallSerial -Text $script:hungTask
+                # Written ahead of the host's clock, so a pause in this process
+                # cannot age it past the shortened threshold.
+                $fresh = New-RecorderUpload -AgeSeconds -600
+                $absent = Join-Path $script:probeDir 'execution.system.diagnostic.not-uploaded.txt'
+                foreach ($path in $fresh, $absent) {
+                    & (Get-Module Test.SequenceEngine) { param($v, $p)
+                        Get-GuestKernelStallEnd -VMName 'vm-01' -LivelockVerdict $v -SerialMark 5000 -OutputStaticSeconds 1325 -RecorderPath $p } $script:servicing $path |
+                        Should -BeNullOrEmpty -Because "a recorder upload at '$path' is no evidence the guest went silent"
+                }
+                @(Get-KernelStallSerialRead).Count | Should -Be 0
+            }
+
+            It 'names the processor that stopped servicing interrupts when it and a silent guest both hold, and keeps the silence readings' {
+                Set-KernelStallSerial -Text $script:hungTask
+                $upload = New-RecorderUpload -AgeSeconds 1255
+                $end = & (Get-Module Test.SequenceEngine) { param($v, $p)
+                    Get-GuestKernelStallEnd -VMName 'vm-01' -LivelockVerdict $v -SerialMark 5000 -OutputStaticSeconds 1325 -RecorderPath $p } (New-SilentProcessorVerdict -Seconds 1305) $upload
+                $end.basis | Should -Be 'no-interrupts-serviced'
+                @($end.processors) | Should -Be @('0')
+                $end.noInterruptsServicedSeconds | Should -Be 1305
+                $end.noInterruptsServicedSinceUtc | Should -Be '2026-10-29T08:56:28.0000000Z'
+                @($end.kinds) | Should -Be @('hung-task')
+                $end.outputStaticSeconds | Should -Be 1325
+                $end.recorderUploadAgeSeconds | Should -BeGreaterOrEqual 1255
+            }
         }
     }
 }
@@ -1264,10 +1386,11 @@ Describe 'Wait-ForText pays a capture repair''s grace only for a feed that moved
         function Invoke-RepairWait {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
                 Justification = 'Test helper: drives the function under test against scripted frames.')]
-            param([bool]$FrameMoves)
+            param([bool]$FrameMoves, [switch]$ExpectBlankConsole)
             & (Get-Module Test.SequenceEngine) { param($d, $m) Reset-RepairProbe -ScreenDir $d -FrameMoves $m } $script:repairDir $FrameMoves
             Clear-CarriedConsoleBaseline
-            $stream = Wait-ForText -VMName 'vm-01' -Pattern @('login:') -TimeoutSeconds 6 -PollSeconds 1 -InformationAction SilentlyContinue 3>&1
+            $blank = if ($ExpectBlankConsole) { @{ ExpectBlankConsole = $true } } else { @{} }
+            $stream = Wait-ForText -VMName 'vm-01' -Pattern @('login:') -TimeoutSeconds 6 -PollSeconds 1 @blank -InformationAction SilentlyContinue 3>&1
             return @($stream | Where-Object { $_ -is [System.Management.Automation.WarningRecord] } | ForEach-Object { $_.Message })
         }
         function Get-RepairProbe { param([string]$Name) & (Get-Module Test.SequenceEngine) { param($n) $script:RepairProbe[$n] } $Name }
@@ -1287,6 +1410,19 @@ Describe 'Wait-ForText pays a capture repair''s grace only for a feed that moved
     It 'grants the grace once a frame after the repair differs' {
         $warnings = Invoke-RepairWait -FrameMoves $true
         ($warnings -join "`n") | Should -Match '\+\d+s degradation grace'
+    }
+    It 'leaves a blank console alone on a step that expects one, and still records how long it stayed blank' {
+        # A login wait that follows an install reboot or a cold restart starts
+        # on a console that shows nothing until getty prints. The step says so,
+        # and the self-heal that reads a blank run as a stale feed stays off for
+        # it; a step without the declaration keeps the repair.
+        $null = Invoke-RepairWait -FrameMoves $false
+        (Get-RepairProbe 'VncRepairs') | Should -BeGreaterOrEqual 1 -Because 'a step that did not declare a blank console still asks for the repair'
+        $null = Invoke-RepairWait -FrameMoves $false -ExpectBlankConsole
+        (Get-RepairProbe 'VncRepairs') | Should -Be 0 -Because 'blank frames are the declared run-up, not a stale feed'
+        (Get-RepairProbe 'RingRepairs') | Should -Be 0
+        (& (Get-Module Test.SequenceEngine) { $script:Fail.WaitForTextBlankScreenSeconds }) | Should -BeGreaterOrEqual 3 `
+            -Because 'the timeout record still names the blank run, which is what tells a dead feed from a slow boot'
     }
 }
 

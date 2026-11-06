@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42b27442-d024-4e11-b9de-4e6650433f1e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -164,12 +164,7 @@ finally {
                     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
                 }
             }
-            foreach ($stage in @(Get-ChildItem -LiteralPath /var/lib/yuruna/git-mirror/staging -Directory)) {
-                $origin = @(& git -c "safe.directory=$($stage.FullName)" -C $stage.FullName config --get remote.origin.url 2>$null)
-                if ($LASTEXITCODE -eq 0 -and ($origin -join '').Trim() -in @($temporaryRepositories | ForEach-Object { "https://github.com/$_.git" })) {
-                    Remove-Item -LiteralPath $stage.FullName -Recurse -Force
-                }
-            }
+            # The worker start below removes any population the stop interrupted.
             $cleanupSucceeded = $true
         } catch { $failure = "$failure Cleanup: $($_.Exception.Message)".Trim() }
         finally {

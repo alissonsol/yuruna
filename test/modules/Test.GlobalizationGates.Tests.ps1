@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1222,12 +1222,18 @@ Describe 'the generated catalogs are lintable, with one bounded exception' {
 
         $settings = Join-Path $script:RepoRoot 'PSScriptAnalyzerSettings.psd1'
         $findings = @()
-        foreach ($file in $files) {
-            foreach ($r in @(Invoke-ScriptAnalyzer -Path $file.FullName -Settings $settings)) {
-                if ($r.RuleName -eq 'PSUseBOMForUnicodeEncodedFile') { continue }
-                $findings += "$($file.Name):$($r.Line) $($r.RuleName) -- $($r.Message)"
+        # The settings name their custom rule by a path relative to the
+        # repository root, and PSScriptAnalyzer resolves it against the current
+        # location, whatever directory this suite was started from.
+        Push-Location -LiteralPath $script:RepoRoot
+        try {
+            foreach ($file in $files) {
+                foreach ($r in @(Invoke-ScriptAnalyzer -Path $file.FullName -Settings $settings)) {
+                    if ($r.RuleName -eq 'PSUseBOMForUnicodeEncodedFile') { continue }
+                    $findings += "$($file.Name):$($r.Line) $($r.RuleName) -- $($r.Message)"
+                }
             }
-        }
+        } finally { Pop-Location }
         Assert-NoFinding $findings 'the catalog emitter produces PowerShell the analyzer objects to'
     }
 
@@ -1304,8 +1310,38 @@ Describe 'the Go services carry what the catalog compiled' {
 }
 
 Describe 'independent tool processes preserve complete gate evidence' {
+    BeforeAll {
+        # The ids a hung fixture recorded (its own and its child's) that still
+        # run once the wait is over.
+        function Wait-RecordedProcessExit {
+            [CmdletBinding()]
+            [OutputType([int[]])]
+            param([Parameter(Mandatory)][string]$Record, [int]$Seconds = 20)
+            if (-not [IO.File]::Exists($Record)) { throw "the hung fixture never recorded its processes in $Record" }
+            $ids = @(ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($Record)))
+            $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+            do {
+                $running = @($ids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+                if ($running.Count -eq 0) { break }
+                Start-Sleep -Milliseconds 200
+            } while ([DateTime]::UtcNow -lt $deadline)
+            return [int[]]$running
+        }
+
+        function Stop-RecordedProcess {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test cleanup; stops only the processes a hung fixture recorded, so a failed case leaves none behind.')]
+            [CmdletBinding()]
+            param([Parameter(Mandatory)][string]$Record)
+            if (-not [IO.File]::Exists($Record)) { return }
+            foreach ($id in @(ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($Record)))) {
+                Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
     BeforeEach {
-        foreach ($name in @('Get-GateRemediation', 'Add-Row', 'Invoke-ToolGateBatch')) {
+        foreach ($name in @('Get-GateRemediation', 'Add-Row', 'Invoke-ToolGateBatch', 'Add-SerialStageRow')) {
             . ([scriptblock]::Create((Get-CrossRepoFunction -Name $name)))
         }
         $script:rows = [Collections.Generic.List[object]]::new()
@@ -1332,6 +1368,18 @@ Start-Sleep -Milliseconds 150
 Write-Output "fixture-$Name"
 exit $Code
 '@, [Text.UTF8Encoding]::new($false))
+        # A tool that starts a process of its own, records both ids, and then
+        # never finishes: what a wedged browser or interpreter looks like to the gate.
+        $script:HangTool = Join-Path $script:BatchRoot 'hang.ps1'
+        [IO.File]::WriteAllText($script:HangTool, @'
+param([Parameter(Mandatory)][string]$Record)
+$ErrorActionPreference = 'Stop'
+$shell = (Get-Process -Id $PID).Path
+$child = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 300') -NoNewWindow -PassThru
+[IO.File]::WriteAllText($Record, (ConvertTo-Json -Compress -InputObject @($PID, $child.Id)))
+Write-Output 'waiting on its child'
+Start-Sleep -Seconds 300
+'@, [Text.UTF8Encoding]::new($false))
     }
 
     It 'honors throttle <Limit> while preserving ordered results and separate process identities' -ForEach @(
@@ -1341,7 +1389,7 @@ exit $Code
             [pscustomobject]@{ Name = $name; Arguments = @('-NoProfile', '-File', $script:BatchTool,
                 '-Root', $script:BatchRoot, '-Name', $name, '-Peers', [string]$Limit) }
         })
-        Invoke-ToolGateBatch -Work $work -ThrottleLimit $Limit
+        Invoke-ToolGateBatch -Work $work -ThrottleLimit $Limit -TimeoutSeconds 120
         @($script:rows.Gate) | Should -Be @('alpha', 'beta', 'gamma')
         @($script:rows | Where-Object State -NE 'pass') | Should -HaveCount 0
         @($script:rows | Where-Object { $_.Seconds -le 0 }) | Should -HaveCount 0
@@ -1366,7 +1414,7 @@ exit $Code
             [pscustomobject]@{ Name = $case.Name; Arguments = @('-NoProfile', '-File', $script:BatchTool,
                 '-Root', $script:BatchRoot, '-Name', $case.Name, '-Code', [string]$case.Code) }
         })
-        Invoke-ToolGateBatch -Work $work -ThrottleLimit 2
+        Invoke-ToolGateBatch -Work $work -ThrottleLimit 2 -TimeoutSeconds 120
         @($script:rows.State) | Should -Be @('pass', 'fail', 'cannot-run')
         $script:rows[1].Detail | Should -BeExactly 'fixture-beta'
     }
@@ -1375,9 +1423,199 @@ exit $Code
         Mock ForEach-Object {}
         $work = @([pscustomobject]@{ Name = 'alpha'; Arguments = @() },
             [pscustomobject]@{ Name = 'beta'; Arguments = @() })
-        Invoke-ToolGateBatch -Work $work -ThrottleLimit 2
+        Invoke-ToolGateBatch -Work $work -ThrottleLimit 2 -TimeoutSeconds 120
         $script:rows | Should -HaveCount 2
         @($script:rows | Where-Object State -NE 'cannot-run') | Should -HaveCount 0
+    }
+
+    It 'stops a tool that outlives the stage ceiling together with every process it started' {
+        $record = Join-Path $script:BatchRoot 'stuck.json'
+        $work = @(
+            [pscustomobject]@{ Name = 'alpha'; Arguments = @('-NoProfile', '-File', $script:BatchTool, '-Root', $script:BatchRoot, '-Name', 'alpha') }
+            [pscustomobject]@{ Name = 'stuck'; Arguments = @('-NoProfile', '-File', $script:HangTool, '-Record', $record) })
+        try {
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            Invoke-ToolGateBatch -Work $work -ThrottleLimit 2 -TimeoutSeconds 10
+            $clock.Stop()
+            @($script:rows.Gate) | Should -Be @('alpha', 'stuck')
+            $script:rows[0].State | Should -Be 'pass' -Because 'a sibling that finished keeps its own verdict'
+            $stuck = $script:rows[1]
+            $stuck.State | Should -Be 'fail'
+            $stuck.Detail | Should -Match '^timed out after 10 s'
+            $stuck.Detail | Should -Match 'waiting on its child' -Because 'what the tool printed before it was stopped stays in the row'
+            $stuck.RemediationCode | Should -Be 'stage-timeout'
+            $stuck.Seconds | Should -BeGreaterOrEqual 10
+            $stuck.Seconds | Should -BeLessThan 40
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 70
+            @(Wait-RecordedProcessExit -Record $record) | Should -HaveCount 0 -Because 'the ceiling stops the tool together with the process it started'
+        } finally {
+            Stop-RecordedProcess -Record $record
+        }
+    }
+
+    It 'records the rows a serial stage prints, and a stage that prints none under its own name' {
+        $stage = Join-Path $script:BatchRoot 'stage.ps1'
+        [IO.File]::WriteAllText($stage, @'
+param([string]$Mode)
+if ($Mode -eq 'report') {
+    Write-Output 'stage diagnostics'
+    Write-Output ('YURUNA_GATE_STAGE ' + (ConvertTo-Json -Compress -InputObject @([ordered]@{ gate = 'fixture-stage'; state = 'not-applicable'; detail = 'nothing to check' })))
+    exit 0
+}
+Write-Output 'the stage stopped early'
+exit 3
+'@, [Text.UTF8Encoding]::new($false))
+        Add-SerialStageRow -Name 'fixture-stage' -Arguments @('-NoProfile', '-File', $stage, '-Mode', 'report') -TimeoutSeconds 120
+        Add-SerialStageRow -Name 'silent-stage' -Arguments @('-NoProfile', '-File', $stage, '-Mode', 'silent') -TimeoutSeconds 120
+        @($script:rows.Gate) | Should -Be @('fixture-stage', 'silent-stage')
+        $script:rows[0].State | Should -Be 'not-applicable'
+        $script:rows[0].Detail | Should -BeExactly 'nothing to check'
+        $script:rows[0].Seconds | Should -BeGreaterThan 0
+        $script:rows[1].State | Should -Be 'fail' -Because 'a stage that reports no row has not passed'
+        $script:rows[1].Detail | Should -Match 'the stage stopped early'
+    }
+
+    It 'runs one serial stage in a process of its own and prints its rows on one line' {
+        $project = Join-Path $TestDrive ('serial-stage-' + [guid]::NewGuid().ToString('N'))
+        [void][IO.Directory]::CreateDirectory($project)
+        $null = & git -C $project init --quiet 2>&1
+        $output = & $script:PowerShell -NoProfile -File $script:CrossRepoPath -ProjectRoot $project `
+            -SerialStage project-shellcheck 2>&1 | Out-String
+        $LASTEXITCODE | Should -Be 0 -Because $output
+        $line = @($output -split "`r?`n" | Where-Object { $_.StartsWith('YURUNA_GATE_STAGE ') })
+        $line | Should -HaveCount 1 -Because $output
+        $reported = @(ConvertFrom-Json -InputObject $line[0].Substring('YURUNA_GATE_STAGE '.Length))
+        $reported | Should -HaveCount 1
+        $reported[0].gate | Should -BeExactly 'project-shellcheck'
+        $reported[0].state | Should -BeExactly 'not-applicable'
+        $output | Should -Not -Match 'Invoke-CrossRepoGate \[' -Because 'a stage process reports its own rows, not a gate summary'
+    }
+
+    It 'stops a serial stage and a pooled tool at the ceiling and still writes evidence its readers parse' {
+        $workspace = Join-Path $TestDrive ('ceiling-' + [guid]::NewGuid().ToString('N'))
+        $framework = Join-Path $workspace 'yuruna'
+        $project = Join-Path $workspace 'project'
+        foreach ($path in @((Join-Path $framework 'tools'), (Join-Path $workspace 'amisad.dev/test'), $project)) {
+            [void][IO.Directory]::CreateDirectory($path)
+        }
+        $null = & git -C $project init --quiet 2>&1
+        $gate = Join-Path $framework 'tools/Invoke-CrossRepoGate.ps1'
+        Copy-Item -LiteralPath $script:CrossRepoPath -Destination $gate
+        # The amisad.dev suite hangs in a serial stage and the translation check
+        # hangs in the pool. No other tool exists here, so every other row is
+        # settled at once and only the two stopped stages cost time.
+        $serialRecord = Join-Path $workspace 'serial.json'
+        $poolRecord = Join-Path $workspace 'pool.json'
+        [IO.File]::WriteAllText((Join-Path $workspace 'amisad.dev/test/AmisAd.Regression.Tests.ps1'), "Describe 'fixture' { }`n")
+        [IO.File]::WriteAllText((Join-Path $framework 'tools/_InvokeOneSuite.ps1'),
+            ("param([string]`$Suite, [string]`$Xml)`n& '{0}' -Record '{1}'`n" -f $script:HangTool, $serialRecord))
+        [IO.File]::WriteAllText((Join-Path $framework 'tools/Test-DocTranslation.ps1'),
+            ("param([string]`$ProjectRoot, [switch]`$Quiet)`n& '{0}' -Record '{1}'`n" -f $script:HangTool, $poolRecord))
+        $evidence = Join-Path $workspace 'evidence.json'
+        try {
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $output = & $script:PowerShell -NoProfile -File $gate -ProjectRoot $project -StageTimeoutSeconds 10 `
+                -EvidencePath $evidence -Quiet 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            $clock.Stop()
+            $code | Should -Be 1 -Because $output
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 180
+            $doc = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($evidence))
+            $doc.schema | Should -BeExactly 'yuruna.cross-repo-gate/v1'
+            foreach ($name in @('amisad-tests', 'doc-translation')) {
+                $row = @($doc.rows | Where-Object gate -EQ $name)
+                $row | Should -HaveCount 1
+                $row[0].state | Should -BeExactly 'fail'
+                $row[0].detail | Should -Match '^timed out after 10 s'
+                $row[0].remediationCode | Should -BeExactly 'stage-timeout'
+                $row[0].seconds | Should -BeGreaterOrEqual 10
+                $row[0].seconds | Should -BeLessThan 45
+            }
+            # The publisher quotes code, gates and action from this list.
+            $action = @($doc.actions | Where-Object code -EQ 'stage-timeout')
+            $action | Should -HaveCount 1
+            @($action[0].gates) | Should -Contain 'amisad-tests'
+            @($action[0].gates) | Should -Contain 'doc-translation'
+            [string]$action[0].action | Should -Match 'StageTimeoutSeconds'
+            $summary = @($output -split "`r?`n" | Where-Object { $_.StartsWith('Invoke-CrossRepoGate [') })
+            $summary | Should -HaveCount 1 -Because $output
+            $counted = [regex]::Match($summary[0],
+                '^Invoke-CrossRepoGate \[changed-domain\]: (\d+) gate\(s\) -- \d+ pass, \d+ fail, \d+ cannot run, \d+ not applicable\.$')
+            $counted.Success | Should -BeTrue -Because $summary[0]
+            [int]$counted.Groups[1].Value | Should -Be @($doc.rows).Count
+            foreach ($record in @($serialRecord, $poolRecord)) {
+                @(Wait-RecordedProcessExit -Record $record) | Should -HaveCount 0 -Because "the stage in $record is stopped with every process it started"
+            }
+        } finally {
+            Stop-RecordedProcess -Record $serialRecord
+            Stop-RecordedProcess -Record $poolRecord
+        }
+    }
+}
+
+Describe 'the source-metadata row compares the four workspace repositories' {
+    BeforeAll {
+        . ([scriptblock]::Create((Get-CrossRepoFunction -Name 'Get-SourceMetadataRoot')))
+    }
+
+    It 'finds each checkout where the other cross-repository rows look and names the absent ones' {
+        $workspace = Join-Path $TestDrive ('metadata-' + [guid]::NewGuid().ToString('N'))
+        $framework = Join-Path $workspace 'yuruna'
+        # -ProjectRoot may name a yuruna-project checkout anywhere, a staged
+        # clone or a snapshot.
+        $project = Join-Path (Join-Path $TestDrive ('snapshot-' + [guid]::NewGuid().ToString('N'))) 'yuruna-project'
+        foreach ($path in @($framework, $project)) { [void][IO.Directory]::CreateDirectory($path) }
+
+        $alone = Get-SourceMetadataRoot -FrameworkRoot $framework -ProjectRoot $project
+        @($alone.Root) | Should -Be @($framework, $project)
+        @($alone.Absent) | Should -Be @('yuruna.link', 'amisad.dev')
+
+        $link = Join-Path $workspace 'yuruna.link'
+        $nested = Join-Path $workspace 'alius-git/amisad.dev'
+        foreach ($path in @($link, $nested)) { [void][IO.Directory]::CreateDirectory($path) }
+        $found = Get-SourceMetadataRoot -FrameworkRoot $framework -ProjectRoot $project
+        @($found.Root) | Should -Be @($framework, $project, $link, $nested)
+        @($found.Absent) | Should -HaveCount 0
+
+        $beside = Join-Path $workspace 'amisad.dev'
+        [void][IO.Directory]::CreateDirectory($beside)
+        @((Get-SourceMetadataRoot -FrameworkRoot $framework -ProjectRoot $project).Root)[3] | Should -Be $beside `
+            -Because 'a checkout beside the framework comes before the organization folder'
+    }
+
+    It 'never holds a lab''s own project to the framework''s headers' {
+        $workspace = Join-Path $TestDrive ('metadata-' + [guid]::NewGuid().ToString('N'))
+        $framework = Join-Path $workspace 'yuruna'
+        $labProject = Join-Path $workspace 'lab-project'
+        foreach ($path in @($framework, $labProject, (Join-Path $workspace 'yuruna.link'), (Join-Path $workspace 'amisad.dev'))) {
+            [void][IO.Directory]::CreateDirectory($path)
+        }
+
+        $without = Get-SourceMetadataRoot -FrameworkRoot $framework -ProjectRoot $labProject
+        @($without.Root) | Should -Not -Contain $labProject -Because 'a project of another name is somebody else''s repository'
+        @($without.Absent) | Should -Be @('yuruna-project') `
+            -Because 'with no yuruna-project in the workspace the four repositories cannot be compared'
+
+        $sibling = Join-Path $workspace 'yuruna-project'
+        [void][IO.Directory]::CreateDirectory($sibling)
+        $with = Get-SourceMetadataRoot -FrameworkRoot $framework -ProjectRoot $labProject
+        @($with.Root) | Should -Be @($framework, $sibling, (Join-Path $workspace 'yuruna.link'), (Join-Path $workspace 'amisad.dev'))
+        @($with.Absent) | Should -HaveCount 0
+    }
+
+    It 'runs the whole-tree check with -FailOnDebt over every root, and reports an absent root as not applicable' {
+        $pool = @($script:CrossRepoAst.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and
+                    $node.Member.Extent.Text -ceq 'Add' -and $node.Extent.Text.Contains("Name = 'source-metadata'") }, $true))
+        $pool | Should -HaveCount 1 -Because 'the gate adds exactly one source-metadata tool to its pool'
+        foreach ($required in @('Test-SourceMetadata.ps1', "'-All'", "'-FailOnDebt'", "'-Root'")) {
+            $pool[0].Extent.Text.Contains($required) | Should -BeTrue -Because "the source-metadata tool runs without $required"
+        }
+        $absent = @($script:CrossRepoAst.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Add-Row' -and
+                    $node.Extent.Text.Contains("'source-metadata'") }, $true))
+        $absent | Should -HaveCount 1
+        $absent[0].Extent.Text | Should -Match "-State 'not-applicable'" -Because 'an absent sibling is not a finding in the repositories that are present'
     }
 }
 

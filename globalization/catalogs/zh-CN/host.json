@@ -713,6 +713,11 @@
       "origin": "machine",
       "message": "删除Yuruna添加的status-service规则"
     },
+    "host.kvm_config_port_rule_delete": {
+      "sourceHash": "20e8aa7e997c6819f5a1e10b952d15749ec47e3a67641991d4de27ccb1d72443",
+      "origin": "machine",
+      "message": "删除Yuruna添加的配置服务规则"
+    },
     "host.operator_50978cbbff00be18": {
       "sourceHash": "b636d7368c722b4a3cdec076709ff9971ba8a3337d36e5d40a13e5c3c6dc81c8",
       "origin": "machine",
@@ -2608,6 +2613,11 @@
       "origin": "machine",
       "message": "  状态防火墙：{message}"
     },
+    "host.kvm_config_port_firewall": {
+      "sourceHash": "f199338c13ac23b004d72128fe56eb9472639efe0d1e318dc36b5901194192a5",
+      "origin": "machine",
+      "message": "  配置服务防火墙：{message}"
+    },
     "host.operator_5c039b0b7884d16b": {
       "sourceHash": "101159b1afe7d6f546740c18b0617bf2bc82707561f03e625cf08b080983827a",
       "origin": "machine",
@@ -4129,9 +4139,9 @@
       "message": "  SSH：      ssh download-agent-service-admin@{dockIp}  （测试框架密钥已获授权）"
     },
     "host.operator_a0e97dcbb626019f": {
-      "sourceHash": "f618b6dfc7bb8a5e09a5724d98821422449f0acbdc957c6c86eee0899f03ac71",
+      "sourceHash": "3e6200b8bb70bd8bf58878661018ab2ece763d9c4e7b8b9e9fbed9dce368221b",
       "origin": "machine",
-      "message": "仅移除ufw状态端口规则——已确认该规则由本工具创建。组成员资格、$HOME ACL、libvirtd/virtlogd和GNOME键将保持原样，并在报告中列出。"
+      "message": "仅移除Yuruna标记为自己所加的ufw规则。组成员资格、$HOME ACL、libvirtd/virtlogd和GNOME键将保持原样，并在报告中列出。"
     },
     "host.operator_a19074ac4867746e": {
       "sourceHash": "5dfbda1c19cb0b249879c5819add22db468e903a3a21f497e15edccb64bbc3ad",
@@ -5939,9 +5949,19 @@
       "message": "Save-VMDiskSnapshot：在保存操作等待检查点'{id}' {seconds} 秒期间，Hyper-V 模块对'{vMName}'的检查点列表失败或未响应；Hyper-V 自身记录包含 [{held}]（无法读取时为 ?）。"
     },
     "host.hyperv_bounded_call_no_answer": {
-      "sourceHash": "2ef44748001e42ceafd235fd44188bf5dcba0e45fa7601b1afeb8a6a2c2176aa",
+      "sourceHash": "ceebd004fd1615852ff3216da8f1e05042fdaf0948d624205806f89040c76c25",
       "origin": "machine",
-      "message": "Hyper-V 调用结束时未返回结果（作业状态：{state}；原因：{reason}）。"
+      "message": "Hyper-V 调用结束时未返回结果（子进程退出代码：{exitCode}；原因：{reason}）。"
+    },
+    "host.hyperv_worker_lookup_unanswered": {
+      "sourceHash": "241b947d6129abef092494e8bfa7aac1c036c38f2685c75f76ef8260d6c284dd",
+      "origin": "machine",
+      "message": "  查找虚拟机{vmId}的vmwp.exe工作进程未在{seconds}秒内得到响应；将重试Stop-VM。"
+    },
+    "host.hyperv_worker_lookup_failed": {
+      "sourceHash": "b511b1575e9e01041dd8b3b8b1d27d94273d30bae5fb876b10e4bca0a29b6b85",
+      "origin": "machine",
+      "message": "  查找虚拟机{vmId}的vmwp.exe工作进程失败；将重试Stop-VM。错误：{message}"
     },
     "host.vm_storage_reconcile_action": {
       "sourceHash": "518ebc15e6c396cd1dc4a0f1dc5d0d10450037b1cc28c9b504784ba5ff8c1ed1",
@@ -6027,6 +6047,401 @@
       "sourceHash": "f9e98167cc295b055bd08d2232dfd51afd0b07096d61dead8fbed458d671fcea",
       "origin": "machine",
       "message": "{uri} 的下载未完成（已为下次尝试暂存 {bytes} 字节）：{detail}"
+    },
+    "host.kvm_journal_group_missing": {
+      "sourceHash": "959a3184ce5dd537d0c419ed9af27e3ec3802386ddd0d7ddeec5ee9084f4279b",
+      "origin": "machine",
+      "message": "组'systemd-journal'不存在，因此测试运行器的诊断功能无法读取系统日志或上一次启动的内核日志。systemd会根据sysusers.d创建该组；请运行'sudo systemd-sysusers'恢复该组，然后重新运行此脚本。"
+    },
+    "host.kvm_journal_group_session_stale": {
+      "sourceHash": "f88518214624d1392e44e5a735e816d46ae699a3a9c4536c7c2d292a9672744b",
+      "origin": "machine",
+      "message": "  /etc/group中已有'systemd-journal'组成员关系；当前shell的组集合尚未更新。请注销并重新登录，然后从该新会话启动测试运行器，以便其诊断功能能够读取系统日志。"
+    },
+    "host.deep_diagnostics_requires_linux": {
+      "sourceHash": "6b05aeded11bfb3fbe2143cb0f0b2eb731dff67549ebde8823b41459d32e036a",
+      "origin": "machine",
+      "message": "深度诊断模式适用于Ubuntu KVM宿主机，而此宿主机运行的不是Linux。未进行任何更改。"
+    },
+    "host.deep_diagnostics_requires_systemd": {
+      "sourceHash": "140ff13f904adbd57dbb40d5c17fd6177970b25b8686590144f53c79a3b1407a",
+      "origin": "machine",
+      "message": "深度诊断模式要求正在运行的init系统为systemd，而此宿主机上不存在/run/systemd/system。未进行任何更改。"
+    },
+    "host.deep_diagnostics_target_invalid": {
+      "sourceHash": "4a5fbc432b0e7b438dac76adce4499912bfdbcbd4b67227ebd1a2bffe101c028",
+      "origin": "machine",
+      "message": "-NetconsoleTarget '{target}'不是IPv4地址（端口可选），例如192.168.1.20或192.168.1.20:6666。未进行任何更改。"
+    },
+    "host.deep_diagnostics_state_unreadable": {
+      "sourceHash": "b5eeab43b4781b4c49cd8dc37783da65b407cff9b3e825c8fa951e232bfc9e70",
+      "origin": "machine",
+      "message": "{path}已存在，但不是深度诊断状态文件（{message}）。未进行任何更改；请先恢复该文件或将其移走，然后再运行。"
+    },
+    "host.deep_diagnostics_sudo_unavailable": {
+      "sourceHash": "085b2ea5ba15995198d1610ef12a55ad483f850010992badf5908e68fe2ffac3",
+      "origin": "machine",
+      "message": "深度诊断模式会更改归root所有的设置，而sudo未能在不询问密码的情况下运行命令。未进行任何更改。请在可以输入sudo密码的终端中重新运行此脚本，或以root身份运行。"
+    },
+    "host.deep_diagnostics_plan_header": {
+      "sourceHash": "93f182324d96e9c4a211328e4e128fd392425488d893ee795992a6c33d8360a4",
+      "origin": "machine",
+      "message": "{hostName}上的深度诊断模式：计划的更改"
+    },
+    "host.deep_diagnostics_plan_apply": {
+      "sourceHash": "90abb32af843093d728561eb69befd3b6e51c69a3dbdc0d5b266e6f0273f6a72",
+      "origin": "machine",
+      "message": "  {component} ({title}): 将应用"
+    },
+    "host.deep_diagnostics_plan_current": {
+      "sourceHash": "e8c4d1bdec6c29e91f74628b23bcb83866e3c6c4e0fcb7aea32a20796499e893",
+      "origin": "machine",
+      "message": "  {component} ({title}): 已生效"
+    },
+    "host.deep_diagnostics_plan_skip": {
+      "sourceHash": "d667df05a7d7a07ec6afea949a86a2356748e152ff70a91482a0ab2973e2114d",
+      "origin": "machine",
+      "message": "  {component} ({title}): 跳过 -- {reason}"
+    },
+    "host.deep_diagnostics_change": {
+      "sourceHash": "f64563285514e9f41aff0483e32247cdeab458d5d2af944a1ae276bad67812d4",
+      "origin": "machine",
+      "message": "    {key}: {previous} -> {new}"
+    },
+    "host.deep_diagnostics_plan_note": {
+      "sourceHash": "2290f352f10fbdeaedb2acd773883bc7460789676a550159a94ac51dc4c3135e",
+      "origin": "machine",
+      "message": "    说明: {note}"
+    },
+    "host.deep_diagnostics_state_record": {
+      "sourceHash": "acfa6fffe838eb8c061b7cd91dea999e71f05a2330c1d484bf12259ccd2a47a3",
+      "origin": "machine",
+      "message": "以上每个值都会在首次更改之前记录到{path}；Disable-DeepDiagnostics.ps1会根据该记录恢复宿主机。"
+    },
+    "host.deep_diagnostics_title_sysctl": {
+      "sourceHash": "b99dee601390d5383306032b6d364536a82183dedffd573c6b0a49badfc48c1d",
+      "origin": "machine",
+      "message": "发生锁死或oops时触发panic并重启"
+    },
+    "host.deep_diagnostics_title_pstore": {
+      "sourceHash": "5afb2adb367f08c36e860b89ca8b1c13a9ee8be430311372d70b411c35d5ee03",
+      "origin": "machine",
+      "message": "保存在UEFI存储中的崩溃记录"
+    },
+    "host.deep_diagnostics_title_watchdog": {
+      "sourceHash": "0cf99a53ad4c2e29b4d5e7cc851e4b8a41ff9732e0f7b584c8c172da4bd6db7f",
+      "origin": "machine",
+      "message": "硬件看门狗复位"
+    },
+    "host.deep_diagnostics_title_journald": {
+      "sourceHash": "6928e1288545bcae81a5822288377286ca60cbfcf5e4641ac139621db1e6c148",
+      "origin": "machine",
+      "message": "每10秒同步一次的持久日志"
+    },
+    "host.deep_diagnostics_title_rasdaemon": {
+      "sourceHash": "bf11a2cf1687ff3b5c00951d6dbfbb685a3cabfd491755e766627ed3e993905c",
+      "origin": "machine",
+      "message": "硬件错误日志"
+    },
+    "host.deep_diagnostics_title_netconsole": {
+      "sourceHash": "71852ec2d7f0bcdfda36e2b17a3d3a94d044d7576dc7c679e51711511da3a4d6",
+      "origin": "machine",
+      "message": "发送到另一台机器的内核日志"
+    },
+    "host.deep_diagnostics_title_vitals": {
+      "sourceHash": "fef3b8a0e08f6ee195178027b3ca918551f5d0112efc7fdf79e7700eab3df013",
+      "origin": "machine",
+      "message": "每10秒写入内核日志的宿主机运行指标"
+    },
+    "host.deep_diagnostics_title_boot_evidence": {
+      "sourceHash": "2f6dcf73aa5f9f44b4b1990b3d298748bdbf7dca23d3e00edd85477329f70a1f",
+      "origin": "machine",
+      "message": "每次启动时生成的证据包"
+    },
+    "host.deep_diagnostics_value_absent": {
+      "sourceHash": "de66465ce8197184bd45fa0c8ff0ad4750423ddc6036db2efe9b4c62410422de",
+      "origin": "machine",
+      "message": "不存在"
+    },
+    "host.deep_diagnostics_value_yuruna_file": {
+      "sourceHash": "e763539e8f86109b6dc88d2aeb6f0115c03ebd5eb655d6f47be6d706e65f70d4",
+      "origin": "machine",
+      "message": "深度诊断版本"
+    },
+    "host.deep_diagnostics_value_saved_content": {
+      "sourceHash": "c93b56c4f137b6c73055aeacc292668c97de4f11176b1fac7822f2da2751adab",
+      "origin": "machine",
+      "message": "其他内容，已保存在{statePath}中"
+    },
+    "host.deep_diagnostics_value_restored_content": {
+      "sourceHash": "6bb3e689ea3831c78c2af6d1ecbeb9f0441d2210635acc9f341fe9ff285ef07a",
+      "origin": "machine",
+      "message": "保存在{statePath}中的原有内容"
+    },
+    "host.deep_diagnostics_value_removed": {
+      "sourceHash": "7d13121e6168384d737b8c509b9b66b1218a99eb346eba444a4f567d1992b0a5",
+      "origin": "machine",
+      "message": "已移除"
+    },
+    "host.deep_diagnostics_value_loaded": {
+      "sourceHash": "dac66a41a0362379c4d458ab4c2e14e8ed3cd002ade1ce383ccec7d21d7b149d",
+      "origin": "machine",
+      "message": "已加载"
+    },
+    "host.deep_diagnostics_value_not_loaded": {
+      "sourceHash": "d90f1bb08c796195592d70fb9f77a5b42104a1c419ccd2c356b985beb36f51e8",
+      "origin": "machine",
+      "message": "未加载"
+    },
+    "host.deep_diagnostics_value_installed": {
+      "sourceHash": "855a99e9d5c3a53556dc4766d10b9bac4326b0e985b0cbc06e648f1ec76e9a72",
+      "origin": "machine",
+      "message": "已安装"
+    },
+    "host.deep_diagnostics_value_not_installed": {
+      "sourceHash": "30194887522dcb661c5e129f67a1e16be4387c3c9c6ce9449ce63a9826c1a206",
+      "origin": "machine",
+      "message": "未安装"
+    },
+    "host.deep_diagnostics_value_none": {
+      "sourceHash": "b43067ea1bc0cd80e851e3c69c5d02ce5fee95dea5834b9d1c34c11931f9c486",
+      "origin": "machine",
+      "message": "无"
+    },
+    "host.deep_diagnostics_key_netconsole": {
+      "sourceHash": "d6f49bce41cedf33a6e7b8542f7ab2dfa5dfebcf5b910d8e56d5a05d7f3a5388",
+      "origin": "machine",
+      "message": "netconsole目标"
+    },
+    "host.deep_diagnostics_key_pstore_backend": {
+      "sourceHash": "4b697eec73e824d58e0ecc2d3a97d072e9d638be24e4ed1efc470009f439497d",
+      "origin": "machine",
+      "message": "pstore后端"
+    },
+    "host.deep_diagnostics_sysctl_not_exposed": {
+      "sourceHash": "0d14f303bc164a3dd5bcc7372eec90e9f43aac8cd8cccb16fba5eafa46b3fffb",
+      "origin": "machine",
+      "message": "此内核未提供{key}，因此略过该项。"
+    },
+    "host.deep_diagnostics_setting_overridden": {
+      "sourceHash": "d37e2aaf1b611ba93aa2f4ac302c0bf540772a97bb5683369743701bbe9f2bdb",
+      "origin": "machine",
+      "message": "{path}设置了{key}={value}，且读取顺序在深度诊断配置片段之后，因此启动时以其值为准。"
+    },
+    "host.deep_diagnostics_pstore_legacy_bios": {
+      "sourceHash": "8c1c8a89fbdcc446020b9196a754287992dce0551f1e55f0d3b30c1191f89443",
+      "origin": "machine",
+      "message": "此宿主机以旧版BIOS启动，而efi-pstore需要UEFI"
+    },
+    "host.deep_diagnostics_pstore_unsupported": {
+      "sourceHash": "b56250bd228a31dbfb233008cbe264638b79f17605378744f3c3d88a4ddbc2e4",
+      "origin": "machine",
+      "message": "此内核不支持pstore"
+    },
+    "host.deep_diagnostics_pstore_unit_masked": {
+      "sourceHash": "d515d44479ed6f6f63f20dbb4e494ca354f7df63f57e903ab3f64fd685252e69",
+      "origin": "machine",
+      "message": "systemd-pstore.service已被屏蔽（masked）；请解除屏蔽（unmask），以便在启动时归档崩溃记录"
+    },
+    "host.deep_diagnostics_pstore_backend": {
+      "sourceHash": "5c24abc4ae7281fa2cb5406b0130d847f0013223b2dfe496027667ca4470f743",
+      "origin": "machine",
+      "message": "pstore已在使用{backend}后端"
+    },
+    "host.deep_diagnostics_pstore_no_backend": {
+      "sourceHash": "05d00b7a4b08dd4dd5b0d64034934d6111ffe5b5584bc816ba11c38f46075d4f",
+      "origin": "machine",
+      "message": "efi_pstore已加载，但pstore仍报告没有后端（{backend}）"
+    },
+    "host.deep_diagnostics_watchdog_daemon": {
+      "sourceHash": "d5a9229957b4b2d84a91ac937ba617ba4b4a4d494e5484fb52409e299b25f772",
+      "origin": "machine",
+      "message": "{unit}正在运行并占用看门狗设备；请停止并禁用它，以便systemd使用该设备"
+    },
+    "host.deep_diagnostics_watchdog_held": {
+      "sourceHash": "5743b5803c9204852e61c3ff8039a8b767251b16488b77f2b87a096653d2f719",
+      "origin": "machine",
+      "message": "{device}已被另一个进程打开，而看门狗设备同一时间只能由一个使用者打开；请停止该进程，以便systemd使用它"
+    },
+    "host.deep_diagnostics_watchdog_nowayout": {
+      "sourceHash": "b2ac7b9b4301ac93b262f471c799e8c06b8fe16d8114ec85c4064415bf26264f",
+      "origin": "machine",
+      "message": "{device}设置了nowayout：一旦激活，不重启就无法停止，因此Disable-DeepDiagnostics.ps1将无法恢复此宿主机"
+    },
+    "host.deep_diagnostics_watchdog_softdog": {
+      "sourceHash": "8381fbb56daa05c0374930eddaff5cd39e16b88e9b76eaf578682f645ccb10d0",
+      "origin": "machine",
+      "message": "只注册了softdog（{device}）。softdog运行在死机时会停止运行的处理器上，因此在完全死机时无法触发；而且只要softdog仍处于加载状态，硬件驱动程序就不会注册为watchdog0；请卸载softdog（sudo modprobe -r softdog）后重新运行"
+    },
+    "host.deep_diagnostics_watchdog_no_driver": {
+      "sourceHash": "d58c83ad2ef3b807aed21883f12bf96bbf30bbe4789c8725bb52fd7e709632c3",
+      "origin": "machine",
+      "message": "未注册任何硬件看门狗，且没有已知适用于CPU厂商'{vendor}'的驱动程序；不使用softdog，因为它在完全死机时无法触发"
+    },
+    "host.deep_diagnostics_watchdog_no_device": {
+      "sourceHash": "a2408b963eed9e009726b619879ef8e062e2c7a8822df76b910297e99cee5ef8",
+      "origin": "machine",
+      "message": "{module}已加载，但未注册任何硬件看门狗，这通常表示固件已将其禁用（请查看：sudo dmesg | grep -i {module}）"
+    },
+    "host.deep_diagnostics_netconsole_no_target": {
+      "sourceHash": "48dce015e2a8b88e597a07c6cbcd738d8f1570b153ad67be4726c2a0e219d5a0",
+      "origin": "machine",
+      "message": "未指定-NetconsoleTarget"
+    },
+    "host.deep_diagnostics_netconsole_how_to": {
+      "sourceHash": "0b814309d771e829a9aa828c2ca0914cfe2b1a9532e7a77efde547d2fa209c58",
+      "origin": "machine",
+      "message": "若要将内核日志实时发送到另一台机器，请在那台机器上运行pwsh test/lab/Receive-Netconsole.ps1，然后使用-NetconsoleTarget <那台机器的IPv4地址>[:port]重新运行此脚本。"
+    },
+    "host.deep_diagnostics_netconsole_no_dispatcher": {
+      "sourceHash": "634089ea5b1bf9eb5593697c0ecf4df3a824125bc823b2c12a50f159b12882a5",
+      "origin": "machine",
+      "message": "未安装NetworkManager，因此目标仅在启动时设置，此宿主机的地址变化后不会重新设置"
+    },
+    "host.deep_diagnostics_netconsole_not_enabled": {
+      "sourceHash": "62b1f64884e33d03a771b8c27d70c1b586c419cc0dee2389bd05b1d3eebac0c8",
+      "origin": "machine",
+      "message": "netconsole目标未能启用；请查看：journalctl -t yuruna-netconsole"
+    },
+    "host.deep_diagnostics_existing_unreadable": {
+      "sourceHash": "54b308d98d8ad851056e1654ab9f6363338e34facaf88d7c6384e29962263dea",
+      "origin": "machine",
+      "message": "{path}已存在但无法读取，因此之后无法将其恢复；已保持原样"
+    },
+    "host.deep_diagnostics_step_failed": {
+      "sourceHash": "67f91e75215cd0072714b307120b993389e41341d1d0362a04a95698902e8ade",
+      "origin": "machine",
+      "message": "{command}失败（退出码{exitCode}）：{output}"
+    },
+    "host.deep_diagnostics_reason_interrupted": {
+      "sourceHash": "0c98ffb961b6c99bc391d32bb3122d127b416720117a82bc3ad143ab41110052",
+      "origin": "machine",
+      "message": "Enable-DeepDiagnostics.ps1在此组件生效之前已停止"
+    },
+    "host.deep_diagnostics_reason_declined": {
+      "sourceHash": "8ff34314fcc674351af08029040586a8d11b9405ac10b3f0aa768f4ec69aaf08",
+      "origin": "machine",
+      "message": "未确认"
+    },
+    "host.deep_diagnostics_applying": {
+      "sourceHash": "baa277e4f5776186b62feeb9236c54fe84d7afeeca3febd36120ae8d48b32f94",
+      "origin": "machine",
+      "message": "正在应用{component} ({title})……"
+    },
+    "host.deep_diagnostics_component_failed": {
+      "sourceHash": "6cf2655cdf38304644af922d98f1a589f7eed757a5f869cc9b5f3a1a8273d827",
+      "origin": "machine",
+      "message": "{component}未应用：{reason}"
+    },
+    "host.deep_diagnostics_summary_header": {
+      "sourceHash": "254aea78d7f5251b798565882d4aea83077bb3052f445e7c3321e8aaa4b2a922",
+      "origin": "machine",
+      "message": "深度诊断模式："
+    },
+    "host.deep_diagnostics_summary_applied": {
+      "sourceHash": "21cec2498c46ab7dddf62ff506d7f1dddb547cc9d3f45f6e067a599ff1870308",
+      "origin": "machine",
+      "message": "  {component}: 已应用"
+    },
+    "host.deep_diagnostics_summary_skipped": {
+      "sourceHash": "9dbefe557de9c84b7045f1a136f693c0355a77e1cb6baee9589443c8b6618986",
+      "origin": "machine",
+      "message": "  {component}: 已跳过 -- {reason}"
+    },
+    "host.deep_diagnostics_summary_failed": {
+      "sourceHash": "6118c1f77ae58e29227accd35814c8b8aa142b584662b3a57b23319acfa54102",
+      "origin": "machine",
+      "message": "  {component}: 失败 -- {reason}"
+    },
+    "host.deep_diagnostics_nothing_to_change": {
+      "sourceHash": "1d4658fbf592d71a4ae4a53ae6f60315824ace0c72fab7c455ef09223caf1541",
+      "origin": "machine",
+      "message": "此宿主机上的深度诊断模式已生效；未进行任何更改。"
+    },
+    "host.deep_diagnostics_receiver_command": {
+      "sourceHash": "8847e7f5806edaf80f102dab5b98f7b6d89b12121a477bb8d3a99cb891721e09",
+      "origin": "machine",
+      "message": "请在目标机器上保持接收器运行：pwsh test/lab/Receive-Netconsole.ps1 -Port {port}"
+    },
+    "host.deep_diagnostics_verify": {
+      "sourceHash": "f84f4d3a3810c6760cc82222df8376fd1323ae54c9e28cc22b6a40a0b623dd19",
+      "origin": "machine",
+      "message": "若要端到端检查该路径，请运行下面的命令；它写入的行会出现在此处的'journalctl -k -n 5'输出中，启用netconsole时也会出现在接收器的日志中：echo '<5>yuruna-deep-diagnostics: check' | sudo tee /dev/kmsg"
+    },
+    "host.deep_diagnostics_enable_incomplete": {
+      "sourceHash": "34d619152e9f904c2d770cfa1840106510e0957e7e2d80a56d29a6e2c5b6f8ba",
+      "origin": "machine",
+      "message": "{count}个组件失败，其余组件已生效；请排除原因后重新运行Enable-DeepDiagnostics.ps1。"
+    },
+    "host.deep_diagnostics_should_record": {
+      "sourceHash": "d8ef8dcc86a8932be9c37985f50d618f4271e3c8c05df829d104c8ed7c3d80dd",
+      "origin": "machine",
+      "message": "记录当前值并应用深度诊断模式"
+    },
+    "host.deep_diagnostics_should_apply": {
+      "sourceHash": "4f72e0b25041f9ce22a660da511994cae6a6925b582d795504bda95170f9e2ae",
+      "origin": "machine",
+      "message": "应用"
+    },
+    "host.deep_diagnostics_should_restore": {
+      "sourceHash": "f755d69f8166b16dd2ee8ea6c9c8d6a6bc6c0f45204fbfc9e1f3a1d07178a213",
+      "origin": "machine",
+      "message": "恢复启用深度诊断模式之前记录的值"
+    },
+    "host.deep_diagnostics_not_enabled": {
+      "sourceHash": "d3efade36c8cb2684a1382e70fbc2586c2ba3aac49d1bf18d1cb1cd59b9a26bc",
+      "origin": "machine",
+      "message": "此宿主机未启用深度诊断模式：{path}不存在。"
+    },
+    "host.deep_diagnostics_restore_header": {
+      "sourceHash": "722f5740d76ea24c4d05b0877b12bc1a00b805d35e973fef8f45ed87c3294746",
+      "origin": "machine",
+      "message": "深度诊断模式（由{enabledBy}于{enabledAtUtc}启用）：计划的恢复"
+    },
+    "host.deep_diagnostics_restore_failed": {
+      "sourceHash": "82fe1525917028e95190b7d494ced77911125bf64003950c9fb73a66056736ae",
+      "origin": "machine",
+      "message": "{item}未恢复：{message}"
+    },
+    "host.deep_diagnostics_restore_done": {
+      "sourceHash": "cc0eb7256fcc9373f8af3c9695f9894d20751d586ea96718e187bf5fe49abcde",
+      "origin": "machine",
+      "message": "深度诊断模式已关闭；已撤销{count}项更改。"
+    },
+    "host.deep_diagnostics_restore_incomplete": {
+      "sourceHash": "5439dd6fcc36df7d6fa51a467c3c63b64430df56122d72c93cbec72177fad7c1",
+      "origin": "machine",
+      "message": "{count}项更改无法撤销；{path}已保留，因此再次运行Disable-DeepDiagnostics.ps1即可完成恢复。"
+    },
+    "host.deep_diagnostics_evidence_kept": {
+      "sourceHash": "59e6df48eb7809b61b14f1c633d4be5d239b8590ce56d5d0676838bb9480a299",
+      "origin": "machine",
+      "message": "证据包保留在{path}中；-RemoveEvidence会删除它们"
+    },
+    "host.deep_diagnostics_module_in_use": {
+      "sourceHash": "9948fb83d9b1a39b16500aeb0460663cd5aa5c5f93d0b190237b12c5845c571f",
+      "origin": "machine",
+      "message": "{module}保持加载状态，因为仍有程序在使用它"
+    },
+    "host.deep_diagnostics_journal_directory_created": {
+      "sourceHash": "8b9fea77c799f6e51ffce071e6238187afdd4ba00977689895d563828a291cd5",
+      "origin": "machine",
+      "message": "{path}是在深度诊断模式开启期间创建的；只要它存在，journald就会保留持久日志。若要恢复为仅保存在内存中的日志，请运行：sudo rm -rf {path} && sudo systemctl restart systemd-journald"
+    },
+    "host.deep_diagnostics_watchdog_provider_unknown": {
+      "sourceHash": "105c4c2e87e0910a0ccc323369a908a1081c741d2711c0b1600d74960e51591a",
+      "origin": "machine",
+      "message": "无法确定提供{device}（'{identity}'）的内核模块（已加载的看门狗驱动：{drivers}），因此下次启动时不会有任何组件加载它，重启后看门狗将消失；请在只加载一个硬件看门狗驱动时再次运行"
+    },
+    "host.deep_diagnostics_dependencies_kept": {
+      "sourceHash": "40b04747a120d8fce2a38d170a9297af66b87661949ed75514f44ba57d30f96e",
+      "origin": "machine",
+      "message": "安装{package}时一并安装的软件包已被apt标记为自动安装，由于其他软件可能会使用它们，因此予以保留；/var/log/apt/history.log在该次安装下列出了它们。若也要移除它们：sudo apt-get purge <这些软件包>。apt-get autoremove还会移除apt不再需要的所有其他软件包，其中包括旧内核"
+    },
+    "host.deep_diagnostics_value_evidence": {
+      "sourceHash": "94132803a79189da09a466128fefa3117c8b08d51e96bec2b667bc0d47cbf5e5",
+      "origin": "machine",
+      "message": "证据包"
     }
   }
 }

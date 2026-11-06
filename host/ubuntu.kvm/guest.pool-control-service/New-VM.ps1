@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.10.31
+.VERSION 2026.11.05
 .GUID 42cb87f4-7e53-4a64-bea3-4c874894dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,7 +131,7 @@ if ($networkName -eq 'default') {
     # --- REGION: Bridge-uplink preflight
     # See https://yuruna.link/42e220c4-0004
     # Reject a confirmed dead bridge; leave network repair to the caching-proxy launcher.
-    $netXml = (& virsh --connect $virshUri net-dumpxml $networkName 2>$null) -join "`n"
+    $netXml = (Invoke-Virsh -VirshArgs @('net-dumpxml', $networkName)) -join "`n"
     if ($netXml -match "<forward\s+mode='bridge'" -and $netXml -match "<bridge\s+name='([^']+)'") {
         $extBridge = $Matches[1]
         $brifDir   = "/sys/class/net/$extBridge/brif"

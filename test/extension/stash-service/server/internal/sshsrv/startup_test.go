@@ -20,7 +20,8 @@ import (
 
 // Regression for the NAS-offline lockout: when the share is offline at
 // startup (cifs mount failed), the host key cannot be written to the share,
-// but the daemon must still start (section 8.4) using a VM-local fallback key --
+// but the daemon must still start, using a VM-local fallback key (see
+// https://yuruna.link/429e934f-0005) --
 // rather than crash-looping and taking SSH + the UI down with it.
 func TestNewStartsWhenShareUnwritable(t *testing.T) {
 	tmp := t.TempDir()
@@ -98,7 +99,8 @@ func TestHostKeyFailLoudOnCorruptShareKey(t *testing.T) {
 
 // An offline-first key living only in the VM-local fallback must be PROMOTED
 // to the share once the share is reachable + keyless, so a later reimage does
-// not mint a new key and break client trust (section 4.4).
+// not mint a new key and break client trust: a local key is promoted only to
+// an absent share key (see https://yuruna.link/429e934f-0005).
 func TestHostKeyPromotedFromFallback(t *testing.T) {
 	tmp := t.TempDir()
 	// Generate a valid key by writing one to a throwaway "primary".

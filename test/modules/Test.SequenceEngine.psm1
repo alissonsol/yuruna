@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -116,6 +116,22 @@ $script:KernelStallSilentSeconds = 180
 # How often such a wait reads the host recording. The recording advances once
 # per sampler interval, so asking more often buys nothing but parsing.
 $script:GuestLivelockCheckSeconds = 60
+# A wait that ends on a display stall needs at least DisplayStallEndReports
+# page-flip timeout reports from a driver in DisplayStallEndDrivers, spanning at
+# least DisplayStallEndSpanSeconds, the newest within DisplayStallEndSeconds of
+# the newest record the console holds, and the console the wait reads unchanged
+# for DisplayStallEndSeconds. The DRM core waits ten seconds for a flip before
+# it reports, and a stalled commit prints two lines (flip_done, then commit
+# wait), so six reports are three commits in a row that never reached the
+# screen. A single timed-out commit, as a mode set during boot can leave, prints
+# two and ends. On the ARM64 lab host a stalled hyperv_drm reported every ten
+# seconds or so for over eight minutes while the guest ran on to a login
+# prompt, and the screen never changed again. Only drivers named here end a
+# wait.
+$script:DisplayStallEndReports = 6
+$script:DisplayStallEndSpanSeconds = 20
+$script:DisplayStallEndSeconds = 30
+$script:DisplayStallEndDrivers = @('hyperv_drm')
 
 # Exponential-backoff helper for filesystem-state poll loops is
 # centralized in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
@@ -1282,6 +1298,66 @@ function Get-GuestKernelStallEnd {
     }
 }
 
+function Get-GuestDisplayStallEnd {
+    <#
+    .SYNOPSIS
+        The evidence that a wait is on a guest whose display stopped
+        presenting frames, or $null.
+    .DESCRIPTION
+        A display driver whose page flips time out leaves the framebuffer a
+        console wait reads on its last presented frame, while the guest keeps
+        running: the text a wait seeks can be printed and never reach the
+        screen. The guest's kernel says so on its serial console, and the wait
+        sees the console stop changing. Neither is enough alone: a lone
+        timed-out commit can follow a mode set and recover, and a console can
+        sit unchanged on a prompt for minutes. Only reports that reached the
+        console after the wait began count, from a driver in
+        DisplayStallEndDrivers, and the console's text, or its blank run, must
+        have stayed unchanged for DisplayStallEndSeconds before the serial
+        console is read at all. Evidence gathering must never fail the wait, so
+        a source that cannot be read ends nothing.
+    .PARAMETER SerialMark
+        Where the serial capture ended when the wait began.
+    .PARAMETER ConsoleUnchangedSeconds
+        How long the console's text, or its blank run, has gone unchanged, as
+        the wait measured it; $null when it has not been measured.
+    .OUTPUTS
+        [ordered] driver, reports, firstUptimeSeconds, lastUptimeSeconds,
+        spanSeconds, newestRecordUptimeSeconds, consoleUnchangedSeconds and
+        text; $null when the rule does not hold.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [AllowEmptyString()][string]$VMName,
+        [Nullable[long]]$SerialMark,
+        [Nullable[int]]$ConsoleUnchangedSeconds
+    )
+    if ($null -eq $SerialMark -or $null -eq $ConsoleUnchangedSeconds -or $ConsoleUnchangedSeconds -lt $script:DisplayStallEndSeconds) { return $null }
+    $reading = Get-StepGuestKernelFault -VMName $VMName -SerialMark $SerialMark
+    $serial = if ($reading) { $reading.serial } else { $null }
+    $stall = if ($serial) { $serial.displayStall } else { $null }
+    if (-not $stall -or [string]$stall.driver -notin $script:DisplayStallEndDrivers -or [int]$stall.reports -lt $script:DisplayStallEndReports) { return $null }
+    $span = [double]$stall.lastUptimeSeconds - [double]$stall.firstUptimeSeconds
+    if ($span -lt $script:DisplayStallEndSpanSeconds) { return $null }
+    # A stall that stopped reporting while the guest went on printing has
+    # recovered. The reading dates only the newest boot's records, so a stall
+    # that began in an earlier boot the wait also saw is not judged current.
+    $newest = $serial.newestRecordUptimeSeconds
+    if ([int]$stall.boot -ne [int]$serial.boots -or $null -eq $newest -or
+        [double]$newest - [double]$stall.lastUptimeSeconds -gt $script:DisplayStallEndSeconds) { return $null }
+    return [ordered]@{
+        driver                    = [string]$stall.driver
+        reports                   = [int]$stall.reports
+        firstUptimeSeconds        = $stall.firstUptimeSeconds
+        lastUptimeSeconds         = $stall.lastUptimeSeconds
+        spanSeconds               = [math]::Round($span, 3)
+        newestRecordUptimeSeconds = $newest
+        consoleUnchangedSeconds   = $ConsoleUnchangedSeconds
+        text                      = [string]$stall.text
+    }
+}
+
 function Get-DisplayInactiveLivelockVerdict {
     <#
     .SYNOPSIS
@@ -1399,6 +1475,12 @@ function Wait-ForText {
         # partially executed payload must not be replayed merely because its
         # completion wait ended early.
         [switch]$EndOnGuestLivelock,
+        # End the wait once the guest's display driver has stopped presenting
+        # frames (see Get-GuestDisplayStallEnd): the screen it reads will not
+        # show the text again in this boot. Only a caller that cold-restarts the
+        # guest after such a wait passes it; for every other wait the stall stays
+        # a diagnostic on the failure record.
+        [switch]$EndOnDisplayStall,
         # Where a wait that ends on a livelock starts judging the verdict, for the
         # early end and for the verdict it records on timeout alike: a cold restart
         # just before the wait must not hand it the previous boot's run. Defaults
@@ -1569,10 +1651,11 @@ function Wait-ForText {
     $nextLivelockCheckUtc = $startUtc
     $livelockVerdict = $null
     $endedOnLivelock = $false
-    # A kernel fault counts toward an early end only when its report reached
-    # the console after this wait began.
-    $kernelStallMark = if ($EndOnGuestLivelock) { Get-StepSerialLogMark -VMName $VMName } else { $null }
+    # A kernel fault or display stall counts toward an early end only when its
+    # report reached the console after this wait began.
+    $kernelStallMark = if ($EndOnGuestLivelock -or $EndOnDisplayStall) { Get-StepSerialLogMark -VMName $VMName } else { $null }
     $kernelStallEnd = $null
+    $displayStallEnd = $null
     # The current run of frames carrying the emulator's no-display message,
     # measured only for a caller that ends on a livelock. The second opinion
     # samples for seconds, so it is asked at most once a minute.
@@ -1606,16 +1689,25 @@ function Wait-ForText {
             # not depend on the console path at all. A silent guest is judged
             # on the console as the last pass read it, a reading that does not
             # grow while no frame arrives.
-            if ($EndOnGuestLivelock -and [DateTime]::UtcNow -ge $nextLivelockCheckUtc) {
+            if (($EndOnGuestLivelock -or $EndOnDisplayStall) -and [DateTime]::UtcNow -ge $nextLivelockCheckUtc) {
                 $nextLivelockCheckUtc = [DateTime]::UtcNow.AddSeconds($script:GuestLivelockCheckSeconds)
-                $livelockVerdict = Get-GuestLivelockVerdict -VMName $VMName -Since $livelockSinceUtc
-                if ($livelockVerdict -and $livelockVerdict.Verdict -eq 'livelocked') {
-                    $endedOnLivelock = $true
-                    break
+                if ($EndOnGuestLivelock) {
+                    $livelockVerdict = Get-GuestLivelockVerdict -VMName $VMName -Since $livelockSinceUtc
+                    if ($livelockVerdict -and $livelockVerdict.Verdict -eq 'livelocked') {
+                        $endedOnLivelock = $true
+                        break
+                    }
+                    $kernelStallEnd = Get-GuestKernelStallEnd -VMName $VMName -LivelockVerdict $livelockVerdict -SerialMark $kernelStallMark `
+                        -OutputStaticSeconds $progressStaticSeconds -RecorderPath $GuestRecorderPath
+                    if ($kernelStallEnd) { break }
                 }
-                $kernelStallEnd = Get-GuestKernelStallEnd -VMName $VMName -LivelockVerdict $livelockVerdict -SerialMark $kernelStallMark `
-                    -OutputStaticSeconds $progressStaticSeconds -RecorderPath $GuestRecorderPath
-                if ($kernelStallEnd) { break }
+                if ($EndOnDisplayStall) {
+                    # A frozen screen can be blank as well as readable.
+                    $consoleUnchanged = if ($null -ne $progressStaticSeconds) { $progressStaticSeconds }
+                        elseif ($blankSinceUtc) { [int]([DateTime]::UtcNow - $blankSinceUtc).TotalSeconds } else { $null }
+                    $displayStallEnd = Get-GuestDisplayStallEnd -VMName $VMName -SerialMark $kernelStallMark -ConsoleUnchangedSeconds $consoleUnchanged
+                    if ($displayStallEnd) { break }
+                }
             }
 
             # Capture into the ring buffer with a millisecond-precise UTC name
@@ -1975,6 +2067,10 @@ function Wait-ForText {
             $kernelStallEnd.waitedSeconds = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             $script:Fail.WaitForTextKernelStallEnd = $kernelStallEnd
         }
+        if ($displayStallEnd) {
+            $displayStallEnd.waitedSeconds = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
+            $script:Fail.WaitForTextDisplayStallEnd = $displayStallEnd
+        }
         if ($livelockVerdict) {
             $script:Fail.WaitForTextGuestLivelock = $livelockVerdict
             $script:Fail.WaitForTextGuestLivelocked = ($livelockVerdict.Verdict -eq 'livelocked')
@@ -2065,6 +2161,9 @@ function Wait-ForText {
         } elseif ($kernelStallEnd) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.wait_ended_on_kernel_stall' -Arguments @{ patternLabel = "$patternLabel"; waited = "$($kernelStallEnd.waitedSeconds)"; timeoutSeconds = "${TimeoutSeconds}"
                 processors = "$($kernelStallEnd.processors -join ', ')"; silentSeconds = "$($kernelStallEnd.noInterruptsServicedSeconds)"; kinds = "$($kernelStallEnd.kinds -join ', ')" })
+        } elseif ($displayStallEnd) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.wait_ended_on_display_stall' -Arguments @{ patternLabel = "$patternLabel"; waited = "$($displayStallEnd.waitedSeconds)"; timeoutSeconds = "${TimeoutSeconds}"
+                driver = "$($displayStallEnd.driver)"; reports = "$($displayStallEnd.reports)"; spanSeconds = "$($displayStallEnd.spanSeconds)"; unchangedSeconds = "$($displayStallEnd.consoleUnchangedSeconds)" })
         } elseif ($deadlineGrantedSeconds -gt 0) {
             $waited = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5d951715d9614411' -Arguments @{ patternLabel = "$patternLabel"; timeoutSeconds = "${TimeoutSeconds}"; deadlineGrantedSeconds = "${deadlineGrantedSeconds}"; waited = "${waited}" })

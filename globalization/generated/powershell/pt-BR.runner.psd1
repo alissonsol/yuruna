@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42b0681f-50bb-3b49-3fcf-f99d409ef81e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25163,6 +25163,51 @@
             'trust' = 'external'
         }
         '). O ciclo continua, as exclusões continuam verificando referências, e o próximo ciclo tenta de novo.'
+    )
+    'runner.wait_ended_on_display_stall' = @(
+        'A espera pelo texto '''
+        @{
+            'arg' = 'patternLabel'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' terminou após ~'
+        @{
+            'arg' = 'waited'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's de '
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's: o driver de vídeo '
+        @{
+            'arg' = 'driver'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' do convidado relatou no seu console serial '
+        @{
+            'arg' = 'reports'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' expirações de troca de página em '
+        @{
+            'arg' = 'spanSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's enquanto o console ficou inalterado por '
+        @{
+            'arg' = 'unchangedSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's, então a tela não mostrará o texto nesta inicialização e a nova tentativa pode reiniciar o convidado a frio'
     )
     'runner.wait_ended_on_kernel_stall' = @(
         'A espera pelo texto '''

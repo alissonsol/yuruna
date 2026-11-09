@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.05
+# Version: 2026.11.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42f9c4ac-c6ad-4def-81e6-8822c5a6abdb
@@ -1181,22 +1181,44 @@ brew_ensure_cask() {
     return 0
   fi
   if [[ -n "$appPath" && -d "$appPath" ]]; then
-    log "  $name already present at $appPath (installed outside brew) -- skipping"
-    return 0
+    # A copy the App Store installed is the App Store's to update; replacing it
+    # would take it away from the channel the operator chose.
+    if [[ -d "$appPath/Contents/_MASReceipt" ]]; then
+      log "  $name at $appPath came from the App Store -- leaving it to the App Store's updates"
+      return 0
+    fi
+    # A copy dragged in from the release DMG never advances on its own. The cask
+    # downloads that same release, so replacing the bundle keeps its bundle id
+    # and signature; the VMs live in the app's container, not in the bundle.
+    log "  $name at $appPath was installed outside brew -- the cask takes it over"
+    brew_run "replacing $appPath with the $name cask" install --cask --force "$name"
+    return
   fi
   log "  installing $name (cask)"
   brew_run "installing the $name cask" install --cask "$name"
 }
 
+# A formula this installer adds only when a floor needs it is upgraded from then
+# on like the rest, and never installed just for being listed.
+brew_upgrade_if_installed() {
+  local name="$1"
+  brew list --formula --versions "$name" >/dev/null 2>&1 || return 0
+  brew_ensure_formula "$name"
+}
+
 yuruna_require_install_mode
 log "Installing / upgrading required formulae"
 brew_ensure_formula git
-brew_ensure_formula powershell || brew_ensure_cask powershell
+# The formula is installed even beside Microsoft's .pkg or an older cask; the
+# version floor region below makes the newest copy the one `pwsh` runs.
+brew_ensure_formula powershell
 brew_ensure_formula tesseract
 brew_ensure_formula qemu
 brew_ensure_formula wget
 brew_ensure_formula openssl
 brew_ensure_formula gh
+# Added by the floor repair when the system curl is below its floor.
+brew_upgrade_if_installed curl
 
 log "Installing / upgrading required casks"
 if [[ ${PRESERVE_SERVICE_VM:-0} -eq 1 ]]; then
@@ -1206,11 +1228,6 @@ else
   # can say what is actually wrong with the end state instead of relaying a
   # package-manager exit code. brew_run has already printed brew's own output.
   brew_ensure_cask utm "/Applications/UTM.app" || note_issue "The UTM cask step did not succeed -- the verification below says whether the installed UTM is still usable."
-fi
-
-if ! command -v pwsh >/dev/null 2>&1; then
-  log "  installing PowerShell (cask fallback)"
-  brew install --cask powershell
 fi
 
 # --- REGION: .NET runtime location
@@ -1300,10 +1317,15 @@ POWERSHELL_YAML_SHA512="Vc5DLyw7hLsCL6yFlSvzsdUUWmgfqoM35XmRavtKOz37GHBg3p+vWxaO
 log "Installing required PowerShell modules"
 YURUNA_MODULE_VERSION="$POWERSHELL_YAML_VERSION" YURUNA_MODULE_SHA512="$POWERSHELL_YAML_SHA512" pwsh -NoProfile -Command '
     $name = "powershell-yaml"; $version = $env:YURUNA_MODULE_VERSION; $sha512 = $env:YURUNA_MODULE_SHA512
-    if (Get-Module -ListAvailable -Name $name -ErrorAction SilentlyContinue) {
-        Write-Output "  powershell-yaml already installed"
+    # A copy older than the pin is replaced by it: the pinned copy installs beside
+    # the old one, and the module loader picks the highest version. A newer copy
+    # is left alone.
+    $newest = Get-Module -ListAvailable -Name $name -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
+    if ($newest -and $newest.Version -ge [version]$version) {
+        Write-Output "  powershell-yaml $($newest.Version) already installed"
     } else {
-        Write-Output "  installing powershell-yaml $version (CurrentUser scope)"
+        if ($newest) { Write-Output "  replacing powershell-yaml $($newest.Version) with the pinned $version (CurrentUser scope)" }
+        else { Write-Output "  installing powershell-yaml $version (CurrentUser scope)" }
         $package = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-$name-" + [guid]::NewGuid().ToString("N") + ".nupkg")
         try {
             Invoke-WebRequest -Uri "https://www.powershellgallery.com/api/v2/package/$name/$version" -OutFile $package -TimeoutSec 300 -ErrorAction Stop | Out-Null
@@ -1681,13 +1703,17 @@ prefer_newest_binary() {
   local cmd="$1" formula="$2"; shift 2
   local link="$PATH_LINK_DIR/$cmd"
   local current="" current_ver="" best="" best_ver="" cand cand_ver
-  local brew_bin="" brew_link keep now now_ver
+  local brew_bin="" brew_ver="" brew_link keep now now_ver link_ver="" link_stale=0
 
   current="$(command -v "$cmd" 2>/dev/null || true)"
   brew_bin="$(brew_formula_binary "$formula" "$cmd" || true)"
   [[ -n "$current" ]] && current_ver="$(tool_version "$current" || true)"
+  [[ -n "$brew_bin" ]] && brew_ver="$(tool_version "$brew_bin" || true)"
 
-  for cand in "$current" "$brew_bin" "$link" "$@"; do
+  # Homebrew's copy first, so it wins a tie: its opt path follows every upgrade,
+  # and a tie that went to a link pointing into the same keg would read as an
+  # older Homebrew copy below.
+  for cand in "$brew_bin" "$current" "$link" "$@"; do
     [[ -n "$cand" ]] || continue
     cand_ver="$(tool_version "$cand" || true)"
     [[ -n "$cand_ver" ]] || continue
@@ -1699,12 +1725,24 @@ prefer_newest_binary() {
     warn "  no runnable '$cmd' to promote -- nothing on this Mac answers --version"
     return 1
   fi
-  if [[ -n "$current_ver" ]] && version_ge "$current_ver" "$best_ver"; then
+  # This shell ran `brew shellenv`; the status service and the runner's children
+  # did not, and resolve the name through the link directory. A link there that
+  # answers older than the best copy (Microsoft's .pkg links one) is what they
+  # run, whatever this shell resolves.
+  if [[ -x "$link" ]]; then
+    link_ver="$(tool_version "$link" || true)"
+    if [[ -z "$link_ver" ]] || ! version_ge "$link_ver" "$best_ver"; then link_stale=1; fi
+  fi
+  if (( link_stale == 0 )) && [[ -n "$current_ver" ]] && version_ge "$current_ver" "$best_ver"; then
     log "  '$cmd' already resolves to the newest copy here: $current_ver ($current)"
     return 0
   fi
 
-  log "  '$cmd' resolves to ${current_ver:-nothing} (${current:-not on PATH}); this Mac carries $best_ver at $best"
+  if (( link_stale )); then
+    log "  $link answers ${link_ver:-nothing}, older than $best_ver at $best -- shells that never ran 'brew shellenv' resolve '$cmd' there"
+  else
+    log "  '$cmd' resolves to ${current_ver:-nothing} (${current:-not on PATH}); this Mac carries $best_ver at $best"
+  fi
   if [[ "$best" != "$link" && "$(readlink "$link" 2>/dev/null || true)" != "$best" ]]; then
     if [[ -e "$link" && ! -L "$link" ]]; then
       # A real binary someone put there is not this installer's to delete, and
@@ -1726,7 +1764,7 @@ prefer_newest_binary() {
   # ahead of /usr/local/bin. Unlinking leaves the keg installed -- `brew link`
   # puts it back -- and is the only way the newer copy becomes reachable by name
   # in this shell as well as in the ones that never ran shellenv.
-  if [[ -n "$brew_bin" && "$brew_bin" != "$best" ]]; then
+  if [[ -n "$brew_bin" && "$brew_bin" != "$best" ]] && ! version_ge "$brew_ver" "$best_ver"; then
     brew_link="$(brew --prefix)/bin/$cmd"
     if [[ -e "$brew_link" || -L "$brew_link" ]]; then
       log "  unlinking Homebrew's '$formula': its $cmd is older than $best_ver and sits ahead of $link on PATH"
@@ -1749,20 +1787,15 @@ repair_brew_tool() {
   prefer_newest_binary "$cmd" "$formula"
 }
 
-# Upgrade whichever PowerShell build is installed (the Homebrew formula or Microsoft's
-# cask); the second pass adds the other. The promotion picks the copy the name runs.
+# Upgrade the Homebrew formula, or install it beside Microsoft's .pkg or an older
+# cask; the promotion picks the copy the name runs. Homebrew no longer carries a
+# PowerShell cask, so the formula is the one build this repair can add.
 # See https://yuruna.link/429fb30b-0029
 repair_powershell() {
-  local round="$1" have_formula=0
-  if brew list --formula --versions powershell >/dev/null 2>&1; then have_formula=1; fi
-  log "  repairing 'pwsh' (Homebrew formula installed: $have_formula, repair pass $round)"
+  local round="$1"
+  log "  repairing 'pwsh' through the 'powershell' formula (repair pass $round)"
   brew_unpin_if_pinned powershell
-  if (( have_formula )); then
-    brew_ensure_formula powershell
-  fi
-  if (( round >= 2 )) || (( have_formula == 0 )); then
-    brew_ensure_cask powershell
-  fi
+  brew_ensure_formula powershell
   # Microsoft's .pkg installs outside every Homebrew prefix and is invisible to
   # `brew --prefix`, so its location is named here.
   prefer_newest_binary pwsh powershell /usr/local/microsoft/powershell/7/pwsh
@@ -1823,18 +1856,17 @@ bring_tools_to_required_versions() {
   log "Checking installed versions against the required floors"
   floor_round=0
   floor_issues=()
-  # Two repair passes, then report. The second exists for the one escalation
-  # that needs a first attempt to have failed (adding the other PowerShell
-  # build); a third would only repeat the second against a floor no build on
-  # this Mac can reach, which is the operator's to decide about, not this
-  # script's to loop on.
+  # Two repair passes, then report. The second retries what the first left
+  # short, such as an upgrade that failed once; a third would only repeat the
+  # second against a floor no build on this Mac can reach, which is the
+  # operator's to decide about, not this script's to loop on.
   while :; do
     floor_issues=()
     requirement_issue_check
     if (( floor_rc != 0 )); then
       # Printed whole: a last line cut from pwsh's wrapped error names nothing.
       printf '%s\n' "$floor_out" >&2
-      note_issue "The version floors could not be checked: automation/Test-Requirement.ps1 exited $floor_rc, with its output printed above. A missing powershell-yaml module is the usual cause; install it with: pwsh -Command 'Install-Module powershell-yaml -Scope CurrentUser', then re-run this installer."
+      note_issue "The version floors could not be checked: automation/Test-Requirement.ps1 exited $floor_rc, with its output printed above. A missing powershell-yaml module is the usual cause; install it with: pwsh -Command 'Install-Module powershell-yaml -RequiredVersion $POWERSHELL_YAML_VERSION -Scope CurrentUser', then re-run this installer."
       return 0
     fi
     while IFS= read -r floor_line; do
@@ -1879,8 +1911,165 @@ bring_tools_to_required_versions() {
   fi
 }
 
+# Every run, not only when a floor fails: the formula is upgraded in place above,
+# but a copy Microsoft's .pkg linked into the link directory keeps answering for
+# every caller that never ran `brew shellenv` until it is replaced there.
+if command -v pwsh >/dev/null 2>&1; then
+  log "Making the newest PowerShell on this Mac the one 'pwsh' runs"
+  prefer_newest_binary pwsh powershell /usr/local/microsoft/powershell/7/pwsh || true
+  hash -r 2>/dev/null || true
+fi
+
 if command -v pwsh >/dev/null 2>&1 && [[ -f "$YURUNA_DIR/automation/Test-Requirement.ps1" ]]; then
   bring_tools_to_required_versions
+fi
+
+# --- REGION: Newer versions report
+# See https://yuruna.link/429fb30b-003c
+# The upgrades above have run, so a tool listed here is one its own source still
+# offers newer than what this Mac runs: deferred on purpose (UTM while a service
+# VM runs), held by a brew pin, or a copy no package manager here owns. Advisory:
+# it never fails the run, and a source that cannot be asked reads as unknown,
+# never as current.
+REPORT_BREW_FORMULAE="git powershell tesseract qemu wget openssl gh curl"
+REPORT_BREW_CASKS="utm"
+
+# One "name<TAB>installed<TAB>available<TAB>pinned" row per outdated entry, read
+# from brew's JSON. `brew outdated` exits 1 whenever a named package IS outdated,
+# so its status says nothing about whether it answered; the JSON does.
+brew_outdated_rows() {
+  local kind="$1" json
+  shift
+  (( $# > 0 )) || return 0
+  if [[ "$kind" == "cask" ]]; then
+    json="$(brew outdated --json=v2 --cask --greedy "$@" 2>/dev/null || true)"
+  else
+    json="$(brew outdated --json=v2 --formula "$@" 2>/dev/null || true)"
+  fi
+  [[ -n "$json" ]] || return 1
+  # The script goes in as one argument: `-Command -` reads stdin as a console
+  # would and prints terminal-mode escapes in place of the rows.
+  local script=""
+  read -r -d '' script <<'YURUNA_BREW_OUTDATED_PS' || true
+  $ErrorActionPreference = 'Stop'
+  $doc = $env:YURUNA_BREW_OUTDATED | ConvertFrom-Json
+  foreach ($entry in @($doc.formulae) + @($doc.casks)) {
+      if ($null -eq $entry) { continue }
+      "{0}`t{1}`t{2}`t{3}" -f $entry.name, (@($entry.installed_versions) -join ','), $entry.current_version, ([bool]$entry.pinned).ToString().ToLowerInvariant()
+  }
+YURUNA_BREW_OUTDATED_PS
+  YURUNA_BREW_OUTDATED="$json" pwsh -NoProfile -NonInteractive -Command "$script"
+}
+
+# The pwsh a caller runs when Homebrew does not own it: this shell's, and the one
+# in the link directory that shells without `brew shellenv` resolve. A Homebrew
+# copy is left to `brew outdated`.
+non_brew_pwsh_paths() {
+  local cand target seen=""
+  for cand in "$(command -v pwsh 2>/dev/null || true)" "$PATH_LINK_DIR/pwsh"; do
+    [[ -n "$cand" && -x "$cand" ]] || continue
+    target="$(readlink "$cand" 2>/dev/null || printf '%s' "$cand")"
+    case "$target" in */Cellar/powershell/*|*/opt/powershell/*) continue ;; esac
+    case " $seen " in *" $target "*) continue ;; esac
+    seen="$seen $target"
+    printf '%s\n' "$cand"
+  done
+}
+
+# PowerShell's newest release, from the redirect GitHub answers for "latest".
+github_latest_pwsh() {
+  local url tag
+  url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' --max-time 20 \
+    "https://github.com/PowerShell/PowerShell/releases/latest" 2>/dev/null)" || return 1
+  tag="${url##*/}"
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  printf '%s\n' "${tag#v}"
+}
+
+# "name<TAB>installed<TAB>pinned" for each module installed older than its pin.
+# powershell-yaml's pin is this script's; PSScriptAnalyzer's lives in the
+# checkout's tools/Install-TestModule.ps1.
+module_rows_below_pin() {
+  local script=""
+  read -r -d '' script <<'YURUNA_MODULE_PIN_PS' || true
+  $ErrorActionPreference = 'Stop'
+  $pins = [ordered]@{ 'powershell-yaml' = $env:YURUNA_YAML_PIN }
+  if (Test-Path -LiteralPath $env:YURUNA_TEST_MODULE_SCRIPT) {
+      $text = Get-Content -LiteralPath $env:YURUNA_TEST_MODULE_SCRIPT -Raw
+      $match = [regex]::Match($text, "(?m)^\s*'PSScriptAnalyzer'\s*=\s*@\{\s*Version\s*=\s*'([^']+)'")
+      if ($match.Success) { $pins['PSScriptAnalyzer'] = $match.Groups[1].Value }
+  }
+  foreach ($name in $pins.Keys) {
+      $have = Get-Module -ListAvailable -Name $name -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
+      if ($have -and $have.Version -lt [version]$pins[$name]) { "{0}`t{1}`t{2}" -f $name, $have.Version, $pins[$name] }
+  }
+YURUNA_MODULE_PIN_PS
+  YURUNA_YAML_PIN="$POWERSHELL_YAML_VERSION" \
+  YURUNA_TEST_MODULE_SCRIPT="$YURUNA_DIR/tools/Install-TestModule.ps1" \
+    pwsh -NoProfile -NonInteractive -Command "$script"
+}
+
+report_newer_versions() {
+  local name have want pinned path latest rows reason lines="" unknown=""
+  local formulae="" casks=""
+  for name in $REPORT_BREW_FORMULAE; do
+    if brew list --formula --versions "$name" >/dev/null 2>&1; then formulae="$formulae $name"; fi
+  done
+  for name in $REPORT_BREW_CASKS; do
+    if brew list --cask --versions "$name" >/dev/null 2>&1; then casks="$casks $name"; fi
+  done
+  # shellcheck disable=SC2086 # the lists are words on purpose
+  if rows="$(brew_outdated_rows formula $formulae)"; then
+    while IFS=$'\t' read -r name have want pinned; do
+      [[ -n "$name" ]] || continue
+      reason="brew did not move it in this run"
+      [[ "$pinned" == "true" ]] && reason="held by 'brew pin' -- 'brew unpin $name' lets it upgrade"
+      lines="$lines  $name: $have -> $want (Homebrew formula; $reason)"$'\n'
+    done <<< "$rows"
+  else
+    unknown="$unknown  Homebrew formulae: unknown (brew outdated did not answer)"$'\n'
+  fi
+  # shellcheck disable=SC2086 # the lists are words on purpose
+  if rows="$(brew_outdated_rows cask $casks)"; then
+    while IFS=$'\t' read -r name have want pinned; do
+      [[ -n "$name" ]] || continue
+      reason="brew did not move it in this run"
+      [[ "$name" == "utm" && ${PRESERVE_SERVICE_VM:-0} -eq 1 ]] && reason="a service VM is running, so UTM cannot quit"
+      lines="$lines  $name: $have -> $want (Homebrew cask; $reason)"$'\n'
+    done <<< "$rows"
+  else
+    unknown="$unknown  Homebrew casks: unknown (brew outdated did not answer)"$'\n'
+  fi
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    have="$(tool_version "$path" || true)"
+    if ! latest="$(github_latest_pwsh)"; then
+      unknown="$unknown  PowerShell: ${have:-unreadable} -> unknown (GitHub did not name the newest release)"$'\n'
+    elif [[ -z "$have" ]] || ! version_ge "$have" "$latest"; then
+      lines="$lines  PowerShell: ${have:-unreadable} -> $latest (GitHub release; $path comes from a source this installer does not manage)"$'\n'
+    fi
+  done <<< "$(non_brew_pwsh_paths)"
+  if rows="$(module_rows_below_pin)"; then
+    while IFS=$'\t' read -r name have want; do
+      [[ -n "$name" ]] || continue
+      lines="$lines  $name: $have -> $want (pinned in the PowerShell Gallery; the install of the pin did not complete)"$'\n'
+    done <<< "$rows"
+  else
+    unknown="$unknown  PowerShell modules: unknown (pwsh could not list them)"$'\n'
+  fi
+  log "Newer versions available"
+  if [[ -z "$lines$unknown" ]]; then
+    log "  none: every tool this installer manages is at the newest version its source offers"
+    return 0
+  fi
+  while IFS= read -r name; do
+    [[ -n "$name" ]] && log "$name"
+  done <<< "$lines$unknown"
+  return 0
+}
+
+if command -v pwsh >/dev/null 2>&1; then
+  report_newer_versions || true
 fi
 
 # --- REGION: Host configuration

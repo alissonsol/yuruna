@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1492,6 +1492,11 @@ $script:GuestKernelFaultPatterns = [ordered]@{
     'oops'                    = [regex]'^(?:Internal error: )?Oops\b'
     'panic'                   = [regex]'^Kernel panic - not syncing\b'
 }
+# A display driver whose page flips stop completing: the guest runs, but the
+# framebuffer a console wait reads stops changing, so the wait times out on a
+# live guest. Named apart from the faults above, which judge the kernel and
+# decide how the step is filed.
+$script:GuestDisplayStallPattern = [regex]'^(?<driver>\S+) \S+: \[drm\] \*ERROR\* (?:flip_done timed out|\[[A-Z]+:\d+:[^\]]*\] commit wait timed out)'
 # A record opening with none of these cannot match a pattern above, so the
 # patterns run only on the few records that do.
 $script:GuestKernelFaultHint = [regex]'^(?:watchdog: |NMI watchdog: |BUG: |rcu: |INFO: task |Internal error: |Oops|Kernel panic|CPU\d+: Watchdog|Watchdog detected)'
@@ -1580,9 +1585,12 @@ function ConvertFrom-GuestKernelFaultText {
         [ordered] source, boots, records, kernelRecords, faultRecords, kinds,
         firstFault, lastFault, lastNormalRecordUptimeSeconds,
         newestRecordUptimeSeconds, softLockups, rcuStalledCpus,
-        largestStallJiffies, largestForwardLeap, uptimeLimitSeconds and
-        clockJump; $null when the text holds no timestamped record, which is
-        not the same reading as records without a fault.
+        largestStallJiffies, largestForwardLeap, uptimeLimitSeconds,
+        clockJump and displayStall ({ driver, reports, boot,
+        firstUptimeSeconds, lastUptimeSeconds, text } of a display driver whose
+        page flips time out, or $null); $null when the text holds no
+        timestamped record, which is not the same reading as records without
+        a fault.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
@@ -1640,7 +1648,21 @@ function ConvertFrom-GuestKernelFaultText {
     $lockups = [ordered]@{}
     $largestJiffies = $null
     $faults = [Collections.Generic.List[object]]::new()
+    $displayStall = $null
     foreach ($record in $records) {
+        if ($record.Kernel) {
+            $display = $script:GuestDisplayStallPattern.Match($record.Body)
+            if ($display.Success) {
+                if ($null -eq $displayStall) {
+                    $text = if ($record.Body.Length -gt 240) { $record.Body.Substring(0, 240) } else { $record.Body }
+                    $displayStall = [ordered]@{ driver = $display.Groups['driver'].Value; reports = 0; boot = $record.Boot
+                        firstUptimeSeconds = [math]::Round($record.Uptime, 3); lastUptimeSeconds = $null; text = $text }
+                }
+                $displayStall.reports++
+                $displayStall.lastUptimeSeconds = [math]::Round($record.Uptime, 3)
+                continue
+            }
+        }
         if (-not $record.Kernel -or -not $script:GuestKernelFaultHint.IsMatch($record.Body)) { continue }
         foreach ($kind in $script:GuestKernelFaultPatterns.Keys) {
             $match = $script:GuestKernelFaultPatterns[$kind].Match($record.Body)
@@ -1752,6 +1774,7 @@ function ConvertFrom-GuestKernelFaultText {
         largestForwardLeap            = $leap
         uptimeLimitSeconds            = if ($null -ne $limit) { [math]::Round($limit, 3) } else { $null }
         clockJump                     = $clockJump
+        displayStall                  = $displayStall
     }
 }
 

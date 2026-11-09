@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 429cf6e1-60e6-4291-ada0-b98592faf403
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,10 @@ BeforeAll {
     $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
     $seed = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.base.user-data') | ConvertFrom-Yaml
     $script:squidConf = @($seed.write_files | Where-Object { $_.path -eq '/etc/squid/conf.d/yuruna.conf' })[0].content
-    $script:rules = @($seed.write_files | Where-Object { $_.path -eq '/etc/squid/yuruna-store-id.rules' })[0].content
+    # The helper reads /etc/squid/yuruna-store-id.rules, which the release asset
+    # learner writes as these static rules followed by the release downloads it
+    # learned (Test.CachingProxyReleaseAsset).
+    $script:rules = @($seed.write_files | Where-Object { $_.path -eq '/etc/squid/yuruna-store-id.static.rules' })[0].content
 
     # What storeid_file_rewrite answers for one input line: the first rule whose
     # regex matches, with $1..$n replaced by the captures, or $null for ERR.
@@ -67,7 +70,7 @@ Describe 'squid files a gallery package request under the CDN object' {
         $script:squidConf | Should -Match '(?m)^refresh_pattern -i \^https\?://cdn\\\.powershellgallery\\\.com/packages/\s+525600 100% 525600 override-expire'
     }
 
-    It 'writes the rules file as one tab-separated rule with no comment line' {
+    It 'writes the static rules as one tab-separated rule with no comment line' {
         # The helper reports any line without a tab, a comment included, as a parse error.
         $lines = @($script:rules -split "`n" | Where-Object { $_ })
         $lines.Count | Should -Be 1

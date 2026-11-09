@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -867,6 +867,53 @@ Describe 'Write-CycleInfraFailure' {
             }
         } finally {
             Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $oldLogDir
+        }
+    }
+
+    It 'forwards the installer cause of a kept record on the only event the pool receives' -TestCases @(
+        @{ Case = 'a cause on record'; Recorded = @{ kind = 'apt-unreachable'; summary = 'apt could not connect to 192.0.2.1:3128' }; Expected = 'apt-unreachable: apt could not connect to 192.0.2.1:3128' },
+        @{ Case = 'no cause on record'; Recorded = $null; Expected = $null }
+    ) {
+        param($Case, $Recorded, $Expected)
+        $null = $Case
+        # A lab stage's sequence runs apart from the cycle's event stream, so its
+        # failure reaches the pool only through this stage's infra event.
+        $tmp = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+        $oldLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
+        $env:YURUNA_LOG_DIR = $tmp
+        Set-Content -LiteralPath (Join-Path $tmp 'last_failure.json') -Value (
+            @{ reason = 'step'; context = @{ causeDetail = @{ installerFailure = $Recorded } } } | ConvertTo-Json -Depth 6)
+        $script:sentEvent = $null
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; the test reads back only the event.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory, $HostStorage, $DependencyFailures)
+            @{ File = [ordered]@{ stage = $Stage }; Event = @{ stage = $Stage } }
+        }
+        function global:Write-YurunaStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global writer signature; a kept record must never reach it.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored.')]
+            param($Path, $Content, [switch]$Confirm)
+            throw 'a record this iteration wrote must be kept'
+        }
+        function global:Send-CycleEventSafely { param($EventRecord) $global:__InfraEventSent = $EventRecord }
+        try {
+            InModuleScope Test.RunnerInnerLoop {
+                $prior = $script:GuestIterationStartedUtc
+                try {
+                    $script:GuestIterationStartedUtc = [datetime]::UtcNow.AddMinutes(-5)
+                    Write-CycleInfraFailure -Stage 'initialize-lab' -FailureClass 'pattern_matched_failure' -GuestKey '(orchestration)' -HostType 'host.test'
+                } finally { $script:GuestIterationStartedUtc = $prior }
+            }
+            $global:__InfraEventSent | Should -Not -BeNullOrEmpty -Because 'the event still goes out'
+            $global:__InfraEventSent['causeInstallerFailure'] | Should -Be $Expected
+        } finally {
+            Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely -ErrorAction SilentlyContinue
+            Remove-Variable -Scope Global -Name __InfraEventSent -ErrorAction SilentlyContinue
             Restore-YurunaTestEnvironment -Saved $oldLogDir
         }
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 4265d6db-e190-47e6-b2ae-7119aa42d885
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -746,6 +746,14 @@ Describe 'Get-HostRefreshAutoThreshold -- the knob, the pool override and the fl
     It 'is off for a config that cannot be read' {
         Get-HostRefreshAutoThreshold -ConfigPath (Join-Path $script:SuiteTemp 'no-such.yml') | Should -Be 0
         Get-HostRefreshAutoThreshold -ConfigPath '' | Should -Be 0
+    }
+    # The resident reads this knob for its whole life; a half-saved edit read
+    # as no configuration would switch automatic refresh off until the next save.
+    It 'keeps the last threshold that parsed while an edit leaves the file broken' {
+        $path = New-KnobConfig "testCycle:`n  autoRefreshAfterStalls: 3"
+        Get-HostRefreshAutoThreshold -ConfigPath $path | Should -Be 3 -Because 'fixture sanity'
+        Set-Content -LiteralPath $path -Value "testCycle: [unclosed"
+        Get-HostRefreshAutoThreshold -ConfigPath $path -WarningAction SilentlyContinue | Should -Be 3
     }
 }
 

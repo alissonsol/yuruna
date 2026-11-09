@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2869,6 +2869,16 @@ function Write-CycleInfraFailure {
             if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
                 $null = Copy-CycleFailureRecord -LogDir $dir
             }
+        } elseif (Test-Path -LiteralPath $failFile) {
+            # The kept record is the engine's account of this same failure, but
+            # a stage's sequence runs apart from the cycle's event stream, so
+            # this event is all the pool ever sees of it.
+            try {
+                $installerFailure = (Get-Content -Raw -LiteralPath $failFile | ConvertFrom-Json -Depth 12).context.causeDetail.installerFailure
+                if ($installerFailure.kind) {
+                    $rec.Event.causeInstallerFailure = "$($installerFailure.kind): $($installerFailure.summary)".TrimEnd(' ', ':')
+                }
+            } catch { Write-Verbose "kept failure record unreadable: $($_.Exception.Message)" }
         }
         if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
             Send-CycleEventSafely -EventRecord $rec.Event

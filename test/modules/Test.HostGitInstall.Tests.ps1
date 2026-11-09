@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42b667c7-9705-40d2-b7ab-42c08bffb2a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -234,6 +234,8 @@ Describe 'hostgit-install -- every installer copy of a pin equals the host''s' {
         ([regex]::Match($installer, '(?m)^POWERSHELL_YAML_VERSION="([^"]+)"')).Groups[1].Value | Should -BeExactly $script:HostPin['powershell-yaml'].Version
         ([regex]::Match($installer, '(?m)^POWERSHELL_YAML_SHA512="([^"]+)"')).Groups[1].Value | Should -BeExactly $script:HostPin['powershell-yaml'].Sha512
         $installer | Should -Not -Match 'Install-Module -Name powershell-yaml -Scope CurrentUser -Force'
+        $installer | Should -Not -Match 'Install-Module powershell-yaml -Scope CurrentUser' -Because 'the manual advice names the same pin'
+        $installer | Should -Match 'Install-Module powershell-yaml -RequiredVersion \$POWERSHELL_YAML_VERSION -Scope CurrentUser'
     }
 
     It 'the shell installers install powershell-yaml through one block' {
@@ -269,5 +271,47 @@ Describe 'hostgit-install -- every installer copy of a pin equals the host''s' {
             $found.Extent.Text.Replace("`r`n", "`n")
         }
         $copies[1] | Should -BeExactly $copies[0]
+    }
+}
+
+Describe 'hostgit-install -- the shell installers'' powershell-yaml block raises an older copy to the pin' {
+    BeforeAll {
+        Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Global -DisableNameChecking
+        $text = Get-Content -LiteralPath (Join-Path $repoRoot 'install/ubuntu.kvm.sh') -Raw
+        # The PowerShell the block hands pwsh, between -Command ' and the closing quote.
+        $match = [regex]::Match($text, "(?ms)^POWERSHELL_YAML_VERSION=.*?pwsh -NoProfile -Command '\n(?<script>.*?)\n' \|\| note_issue")
+        if (-not $match.Success) { throw 'install/ubuntu.kvm.sh carries no powershell-yaml install script' }
+        # The gallery is never reached: a download stands in as offline, so a case
+        # that installs ends in the block's own failure path.
+        $script:YamlScript = "function Invoke-WebRequest { throw 'offline in this test' }`n" + $match.Groups['script'].Value
+        $script:PwshPath = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
+    }
+
+    It '<Case>' -TestCases @(
+        @{ Case = 'replaces a copy older than the pin'; Present = '0.4.11'; Expected = 'replacing powershell-yaml 0.4.11 with the pinned 0.4.12'; Exit = 1 }
+        @{ Case = 'leaves the pinned copy'; Present = '0.4.12'; Expected = 'powershell-yaml 0.4.12 already installed'; Exit = 0 }
+        @{ Case = 'leaves a newer copy, never downgrading it'; Present = '0.4.13'; Expected = 'powershell-yaml 0.4.13 already installed'; Exit = 0 }
+        @{ Case = 'installs the pin where there is no copy'; Present = $null; Expected = 'installing powershell-yaml 0.4.12'; Exit = 1 }
+    ) {
+        param([string]$Case, [AllowNull()][string]$Present, [string]$Expected, [int]$Exit)
+        $null = $Case
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-yamlpin'
+        try {
+            # The child sees only this tree's modules: PSModulePath names it, and
+            # XDG_DATA_HOME moves the current user's module folder into it.
+            $modules = Join-Path $root 'data/powershell/Modules'
+            if ($Present) {
+                $dir = Join-Path $modules "powershell-yaml/$Present"
+                New-Item -ItemType Directory -Path $dir -Force | Out-Null
+                Set-Content -LiteralPath (Join-Path $dir 'powershell-yaml.psd1') -Value "@{ ModuleVersion = '$Present' }"
+            }
+            $run = Invoke-BoundedNativeCommand -FilePath $script:PwshPath -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $script:YamlScript) `
+                -TimeoutSeconds 120 -Environment @{
+                    YURUNA_MODULE_VERSION = '0.4.12'; YURUNA_MODULE_SHA512 = 'not-reached'
+                    XDG_DATA_HOME = (Join-Path $root 'data'); PSModulePath = (Join-Path $root 'mods')
+                }
+            Assert-Match ([regex]::Escape($Expected)) "$($run.StdOut)" "the block says what it does with a $(if ($Present) { $Present } else { 'missing' }) copy"
+            Assert-Equal -Expected $Exit -Actual ([int]$run.ExitCode)
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }

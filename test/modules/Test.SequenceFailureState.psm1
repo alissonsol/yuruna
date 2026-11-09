@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,6 +133,10 @@ Add-SequenceFailureSlot -Name 'WaitForTextGuestLivelocked' -Lifetime wait -Defau
 # wedged with a processor or the whole guest silent (see
 # Get-GuestKernelStallEnd); $null when the wait did not end that way.
 Add-SequenceFailureSlot -Name 'WaitForTextKernelStallEnd' -Lifetime wait -Default $null
+# The evidence a wait ended on before its deadline because the guest's display
+# driver stopped presenting frames (see Get-GuestDisplayStallEnd); $null when
+# the wait did not end that way.
+Add-SequenceFailureSlot -Name 'WaitForTextDisplayStallEnd' -Lifetime wait -Default $null
 # Seconds the console had read blank -- no engine found any text -- when
 # the wait ended. The content-static slot above measures only readable
 # text, so without this a guest that went black leaves a record that
@@ -392,6 +396,69 @@ function Save-WaitFailureEvidence {
     }
 }
 
+function Get-InstallerFailureCause {
+    <#
+    .SYNOPSIS
+        What an Ubuntu installer that failed during a step reported, or $null.
+    .DESCRIPTION
+        The seed's error-commands hook uploads a bucket per failed install to
+        <log>/installer-fail/<hostname>/<UTC-timestamp>/. The screen says only
+        that an error occurred, so without this a failed install reads the same
+        whether the mirror, the proxy or the guest caused it.
+        Reads the newest bucket written since the step started, so a bucket left
+        by an earlier failure cannot be blamed for this one. File times are the
+        host's own, which spares this from a guest clock that disagrees.
+        A connection failure outranks an unsatisfiable dependency: indexes that
+        could not be refreshed can themselves leave the resolver with no answer.
+    .OUTPUTS
+        [ordered] kind, summary, missingPackages, lines, artifacts; or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [AllowEmptyString()][AllowNull()][string]$LogDir,
+        $SinceUtc
+    )
+    $since = $SinceUtc -as [DateTime]
+    if (-not $LogDir -or -not $since) { return $null }
+    $root = Join-Path $LogDir 'installer-fail'
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) { return $null }
+    # The hook uploads the network snapshot on every failure, so its absence
+    # means no bucket and not merely a failure with nothing for apt to say.
+    $anchor = Get-ChildItem -LiteralPath $root -Filter 'network-at-failure.txt' -File -Recurse -Depth 2 -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTimeUtc -ge $since.ToUniversalTime() } |
+        Sort-Object -Property LastWriteTimeUtc -Descending | Select-Object -First 1
+    if (-not $anchor) { return $null }
+    $causePath = Join-Path $anchor.DirectoryName 'installer-cause.txt'
+    $lines = @(if (Test-Path -LiteralPath $causePath -PathType Leaf) {
+        Get-Content -LiteralPath $causePath -ErrorAction SilentlyContinue | Where-Object { $_ }
+    })
+    $text = $lines -join "`n"
+    $missing = @([regex]::Matches($text, '(?m)Depends:? (\S+)(?: but it is not installable|\n+but none of the choices)') |
+        ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+    $unreachable = [regex]::Match($text, '(?:Could not connect|Unable to connect) to ([^\s(]+?):?(?:\s|$)', 'Multiline')
+    $firstError = @($lines | Where-Object { $_ -like 'E: *' } | Select-Object -First 1)
+    $kind, $summary = if ($unreachable.Success) {
+        'apt-unreachable', "apt could not connect to $($unreachable.Groups[1].Value)"
+    } elseif ($missing.Count -gt 0 -or $text -match 'Unable to satisfy dependencies|held broken packages') {
+        'package-index-inconsistent', "the apt index requires packages it does not carry: $($missing -join ', ')"
+    } elseif ($firstError -match '^E: Failed to fetch') {
+        'apt-fetch-failed', [string]$firstError[0]
+    } elseif ($firstError.Count -gt 0) {
+        'apt-error', [string]$firstError[0]
+    } else {
+        'unclassified', ''
+    }
+    $relative = [IO.Path]::GetRelativePath($LogDir, $anchor.DirectoryName) -replace '\\', '/'
+    return [ordered]@{
+        kind            = [string]$kind
+        summary         = if ($summary.Length -le 300) { [string]$summary } else { $summary.Substring(0, 300) }
+        missingPackages = [string[]]$missing
+        lines           = [string[]]@($lines | Select-Object -First 20)
+        artifacts       = "log/$relative/"
+    }
+}
+
 function Test-StepHostInputFaultDeterministic {
     <#
     .SYNOPSIS
@@ -593,6 +660,7 @@ function New-SequenceFailureRecord {
         proxyCopy          = [string]$fail.StepAptIndexMismatch.proxyCopy
         proxyPurgeStatus   = $fail.StepAptIndexMismatch.proxyPurgeStatus
     } } else { $null }
+    $installerFailure = Get-InstallerFailureCause -LogDir $LogDir -SinceUtc $fail.LastFailedStepStartedUtc
     # The guest kernel's own reports, kept only for the step the reading names:
     # after a retry forwards its failed attempt, that is the originating step,
     # and a reading left by any other step describes a different failure.
@@ -971,6 +1039,12 @@ function New-SequenceFailureRecord {
                     # fault kinds on the serial console. $null when the wait
                     # did not end that way.
                     guestKernelStallEnd = $fail.WaitForTextKernelStallEnd
+                    # Why a wait whose caller cold-restarts the guest ended
+                    # before its deadline on a display that stopped presenting
+                    # frames: the driver, its page-flip reports and how long
+                    # the console stayed unchanged. $null when the wait did not
+                    # end that way.
+                    guestDisplayStallEnd = $fail.WaitForTextDisplayStallEnd
                     consoleSecondOpinion = $consoleSecondOpinion
                     progressAdvisory = $progressAdvisory
                     installerStage = $installerStage
@@ -997,6 +1071,9 @@ function New-SequenceFailureRecord {
                     # An apt index that disagreed with its InRelease, as apt and
                     # apt_retry reported it. $null when apt reported none.
                     aptIndexMismatch       = $aptIndexMismatch
+                    # What an Ubuntu installer that failed during the step
+                    # reported through its error hook. $null when none did.
+                    installerFailure       = $installerFailure
                     # How the step's last key, text or click send failed, as the
                     # transport reported it. $null when no send failed.
                     hostInputFault         = $hostInputFault
@@ -1068,6 +1145,7 @@ function New-SequenceFailureRecord {
         firstGuestSilenceSource = $firstGuestSilenceSource
         causeLauncherRejection  = if ($launcherRejection) { $launcherRejection.code } else { '' }
         causeAptIndexMismatch   = if ($aptIndexMismatch) { $aptIndexMismatch.url } else { '' }
+        causeInstallerFailure   = if ($installerFailure) { "$($installerFailure.kind): $($installerFailure.summary)".TrimEnd(' ', ':') } else { '' }
         causeHostInputFault     = if ($hostInputFault) { $hostInputFault.reason } else { '' }
         causeGuestKernelFault   = $guestKernelFaultKinds -join ','
         causeHostAddressChange  = $hostAddressChangeSummary
@@ -1263,5 +1341,5 @@ function New-InfraFailureRecord {
     return @{ File = $file; Event = $eventRecord }
 }
 
-Export-ModuleMember -Function Get-SequenceFailureState, Get-GuestProgressAdvisory, Get-GuestKernelFaultKind, New-SequenceFailureRecord, New-InfraFailureRecord, Test-StepHostInputFaultDeterministic, `
+Export-ModuleMember -Function Get-SequenceFailureState, Get-GuestProgressAdvisory, Get-GuestKernelFaultKind, Get-InstallerFailureCause, New-SequenceFailureRecord, New-InfraFailureRecord, Test-StepHostInputFaultDeterministic, `
     Get-SequenceFailureSlot, Reset-SequenceFailureSlot, Save-WaitFailureEvidence

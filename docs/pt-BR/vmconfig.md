@@ -121,7 +121,7 @@ durante o autoinstall com um diagnóstico confuso.
 | `host/vmconfig/ubuntu.server.base.user-data` | A base compartilhada -- igual para Ubuntu Server 24 e 26. Contém linhas de âncora como `# === YURUNA_OVERLAY_NETWORK ===`, substituídas pelo combinador. |
 | `host/vmconfig/ubuntu.server.hyperv.overlay.yml` | Overlay por hospedeiro: lista de bloqueio de `hv_balloon` + fixação do framebuffer `hyperv_fb`. |
 | `host/vmconfig/ubuntu.server.kvm.overlay.yml` | Overlay por hospedeiro: comando inicial para impedir o apagamento do VT + `consoleblank=0` + linha de comando GRUB segura para framebuffer. |
-| `host/vmconfig/ubuntu.server.utm.overlay.yml` | Overlay por hospedeiro: bloco `network:` que fixa DHCP IPv4 e recusa RA IPv6; `shutdown: poweroff`, para que o executor inicie a frio o sistema instalado; encaminhamento do journald para o console serial PL011. |
+| `host/vmconfig/ubuntu.server.utm.overlay.yml` | Overlay por hospedeiro: bloco `network:` que fixa DHCP IPv4 e recusa RA IPv6; `shutdown: poweroff`, para que o executor inicie a frio o sistema instalado; `yuruna-serial-journal.service`, que copia o journal para o console serial PL011. |
 | `host/vmconfig/amazon.linux.2023.base.user-data` | A base compartilhada de AL2023. Usa `runcmd:` do cloud-init (AL2023 inicia uma imagem de nuvem pré-compilada, em vez de executar um autoinstall no estilo Ubuntu), com seu próprio conjunto de âncoras. |
 | `host/vmconfig/amazon.linux.2023.hyperv.overlay.yml` | Overlay de AL2023 por hospedeiro (Hyper-V). |
 | `host/vmconfig/amazon.linux.2023.kvm.overlay.yml` | Overlay de AL2023 por hospedeiro (KVM): runcmd de `consoleblank=0`. |
@@ -944,7 +944,7 @@ linha de comando nomeie a porta certa --
 [host-hyperv.md](../host-hyperv.md#the-converted-arm64-image-does-not-boot).
 Por isso o overlay Hyper-V escolhe a porta dentro do instalador: `ttyAMA0`
 quando ele roda em aarch64, `ttyS0` nos demais casos, tanto para o argumento
-`console=` do kernel quanto para o encaminhamento do journald, de modo que a
+`console=` do kernel quanto para `yuruna-serial-journal.service`, de modo que a
 captura da COM1 carregue o relato do próprio convidado sobre um silêncio em
 qualquer das duas arquiteturas.
 
@@ -1366,6 +1366,16 @@ recusou a conexão ou não respondeu a tempo. Envie também `curtin-errors.tar`:
 seus logs úteis apenas nesse arquivo quando os arquivos nomeados separadamente
 nunca foram gravados.
 
+Envie `installer-cause.txt` quando o apt declarou um motivo: as linhas de erro do
+apt e as dependências não satisfeitas, retiradas do log do curtin dentro desse
+arquivo, sem duplicatas e sem a reclamação sobre `/dev/pts` que toda instalação
+imprime. O executor lê esse arquivo para o campo
+[`installerFailure`](failure-schema.md) do registro de falha, de modo que uma
+instalação com falha nomeia sua causa no painel do pool em vez de apenas "An
+error occurred". O snapshot de rede testa o proxy gravado no seed, porque o
+curtin grava esse proxy no destino e a configuração do apt do próprio instalador
+nunca o nomeia.
+
 O hook de erro também exibe `/log/installer-fail/<hostname>/<UTC-timestamp>/` no
 console. Esses envios são separados da pasta de diagnóstico do convidado no ciclo
 e continuam úteis quando esse diagnóstico excede o prazo. Abra diretamente o
@@ -1772,12 +1782,17 @@ manager` em squid.conf mantém a saída fora da LAN.
 
 **Artefatos de versões do GitHub** (kubectl, helm, gh, jq, terraform-provider-*,
 tofu, ...) ficam em `github.com/<owner>/<repo>/releases/download/<tag>/<asset>`,
-que redireciona com 302 para `objects.githubusercontent.com/<token>/...`. Ambas as
-URLs são endereçadas pelo conteúdo usando tag e nome de artefato -- os artefatos de versão são
-imutáveis no modelo de dados do GitHub --, portanto ambas recebem a fixação de um ano inteiro. A
+que redireciona com 302 para uma URL assinada em `release-assets.githubusercontent.com`
+(antes `objects.githubusercontent.com`). Os artefatos de versão são imutáveis por tag no
+modelo de dados do GitHub, portanto a URL da versão e os dois hospedeiros da CDN recebem a
+fixação de um ano inteiro. A
 regra corresponde ao hospedeiro inteiro, não apenas aos artefatos terraform-provider,
 pois binários sem extensão (`kubectl` e `helm` diretamente) não correspondem a nenhum
-dos padrões abrangentes `.zip` ou `.tar.gz`.
+dos padrões abrangentes `.zip` ou `.tar.gz`. Só as fixações não servem nada para essas URLs:
+o squid não consegue armazenar o redirecionamento, e cada um traz uma nova assinatura. Um
+Store ID montado a partir dos redirecionamentos que o squid registra é o que serve um artefato
+armazenado para a URL da sua versão (consulte
+[Downloads de versões do GitHub](../caching.md#42f6b05f-005d)).
 
 **Pacotes de charts Helm** baixados por `helm install <repo>/<chart>` têm
 URLs terminadas em `.tgz` (por exemplo,
@@ -2049,7 +2064,7 @@ Regra provisionada de unified-alerting do Grafana (pasta `Yuruna`) que dispara q
 
 Coordenadas do hospedeiro Yuruna (status service). Incorporadas à seed por New-VM.ps1 da plataforma (Get-GuestReachableHostIp + statusService.port). O bloco de compilação runcmd abaixo carrega isso para obter as fontes do coletor e do interpretador da árvore de trabalho LOCAL do hospedeiro (http://IP:PORT/yuruna-repo/) -- o repositório do hospedeiro é a fonte de verdade, portanto uma reconstrução nunca espera pelo espelho GitHub privado->público. A mesma resolução de fetch-and-execute.sh. IP/PORT vazios (coordenadas indisponíveis, por exemplo, status service desabilitado) recorrem ao GitHub raw.
 
-`--no-proxy` é necessário no caminho do hospedeiro: o IP do hospedeiro é privado, e o próprio squid desta VM está em `offline_mode`, portanto encaminhar essa obtenção por um proxy falharia. Carregar `host.env` é seguro aqui -- apenas IP/PORT incorporados pelo hospedeiro, nunca texto livre do operador (um valor malformado abortaria a fase runcmd).
+`--no-proxy` é necessário no caminho do hospedeiro: o IP do hospedeiro é privado, e o próprio squid desta VM está em `offline_mode`, portanto encaminhar essa obtenção por um proxy falharia. Carregar `host.env` é seguro aqui -- apenas chaves incorporadas pelo hospedeiro (o id do hospedeiro, os endereços e a porta do status service e do proxy de cache, o hash da CA, o repositório e a referência do framework), nunca texto livre do operador (um valor malformado abortaria a fase runcmd).
 
 Esta VM de cache consulta o diretório do grupo por loopback porque o agregador executa localmente. O resolvedor de endereços de hospedeiros rejeita endereços loopback retornados como endereço anunciado de um hospedeiro, não loopback como endereço de escuta do próprio diretório. O local do diretório é uma propriedade da topologia de serviços desta VM e não depende de sua concessão DHCP.
 
@@ -2193,9 +2208,11 @@ os caracteres especiais do cofre cheguem intactos ao arquivo de credenciais cifs
 A remontagem só ocorre quando a versão informada muda ou o ponto de
 montagem não está montado no momento.
 
-Observação sobre carregamento: `/etc/yuruna/host.env` contém apenas
-`YURUNA_STATUS_SERVICE_IP`/`PORT` incorporados pelo hospedeiro (sem texto livre do operador), portanto carregá-lo
-é seguro. Arquivos de ambiente fornecidos pelo operador devem ter seus valores extraídos com sed.
+Observação sobre carregamento: `/etc/yuruna/host.env` contém apenas chaves
+incorporadas pelo hospedeiro (o id do hospedeiro, os endereços e a porta do
+status service e do proxy de cache, o hash da CA, o repositório e a referência
+do framework), gravadas a partir de valores validados e nunca de texto livre do
+operador, portanto carregá-lo é seguro. Arquivos de ambiente fornecidos pelo operador devem ter seus valores extraídos com sed.
 
 O nome de máquina TLS estável (SAN) é mapeado para o IP atual do hospedeiro por
 `curl --connect-to`, para que uma mudança DHCP do hospedeiro nunca invalide o certificado
@@ -2987,6 +3004,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../../README.md)

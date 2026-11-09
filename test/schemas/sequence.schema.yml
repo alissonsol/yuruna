@@ -459,6 +459,9 @@ $defs:
             # The wait is for the install's own power-off, not for a requested
             # shutdown: a VM that never stops is the install not finishing.
             installPowerOff: { type: boolean, default: false }
+            # Console text that ends the wait, because after it the VM will
+            # not reach the stopped state on its own.
+            failurePatterns: { $ref: "#/$defs/patternOrArray" }
 
       - if: { properties: { action: { const: tapOn } } }
         then:

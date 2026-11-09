@@ -171,7 +171,7 @@ workload:
     text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.update.sh"
     description: "ubuntu.server.26.update.sh"
     waitPattern: "FETCHED AND EXECUTED:"
-    timeoutSeconds: 1800
+    timeoutSeconds: 3600
 
   - action: saveSystemDiagnostic
     id: yuruna.update

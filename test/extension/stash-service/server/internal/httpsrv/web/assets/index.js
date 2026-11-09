@@ -382,7 +382,7 @@
 
   // Shared footer: server IPs, last-loaded time, and the refresh countdown
   // (default 60 s). The countdown drives the visibility-aware auto-refresh of
-  // the first page -- but only when not searching or paginated (section 4.1), so it
+  // the first page -- but only when not searching or paginated, so it
   // never yanks the user off a "Load more" page or an active query. Each
   // successful load() stamps the footer's "Loaded" time + resets the countdown.
   var footer = Y.initFooter({

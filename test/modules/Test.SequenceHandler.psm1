@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -298,8 +298,13 @@ function Resolve-WaitForTextStepParam {
         expectBlankConsole = $step.expectBlankConsole -eq $true
         # Set only on the copies of its steps that a retry block able to
         # cold-restart the guest hands down (see the retry handler). A splat,
-        # so a wait without it binds exactly as it did before the switch.
-        livelockExit    = if ($step.endWaitOnGuestLivelock -eq $true) { @{ EndOnGuestLivelock = $true } } else { @{} }
+        # so a wait without them binds exactly as it did before the switches.
+        livelockExit    = & {
+            $exit = @{}
+            if ($step.endWaitOnGuestLivelock -eq $true) { $exit.EndOnGuestLivelock = $true }
+            if ($step.endWaitOnDisplayStall -eq $true) { $exit.EndOnDisplayStall = $true }
+            $exit
+        }
     }
 }
 
@@ -750,7 +755,7 @@ function Save-GuestConsoleFrame {
         if ($sections.Count -eq 0) { $sections.Add("== none ($Label) ==") }
         Set-Content -LiteralPath ([IO.Path]::ChangeExtension($framePath, '.txt')) -Value ($sections -join "`n") -Encoding utf8 -ErrorAction SilentlyContinue
         $hash = (Get-FileHash -LiteralPath $framePath -Algorithm SHA256).Hash
-        return @{ Path = $framePath; Text = $text; Hash = $hash }
+        return @{ Path = $framePath; Text = $text; AllText = ($sections -join "`n"); Hash = $hash }
     } catch {
         Write-Verbose "      console frame unavailable for '$($Context.VMName)': $($_.Exception.Message)"
         return $null
@@ -784,7 +789,10 @@ function Wait-VmStopped {
     param(
         [Parameter(Mandatory)][hashtable]$Context,
         [Parameter(Mandatory)][int]$TimeoutSeconds,
-        [int]$FrameIntervalSeconds = 30
+        [int]$FrameIntervalSeconds = 30,
+        # Text on a saved frame that ends the wait: the VM will not stop on its
+        # own after it, so the rest of the deadline could only be wasted.
+        [string[]]$FailurePattern = @()
     )
     $started = [DateTime]::UtcNow
     $deadline = $started.AddSeconds($TimeoutSeconds)
@@ -802,7 +810,13 @@ function Wait-VmStopped {
             return @{ Stopped = $false; ObservedState = $state; WaitedSeconds = $waited }
         }
         if ([DateTime]::UtcNow -ge $nextFrame) {
-            [void](Save-GuestConsoleFrame -Context $Context -Label 'waiting for stopped')
+            $frame = Save-GuestConsoleFrame -Context $Context -Label 'waiting for stopped'
+            $screenText = if ($frame) { [string]$frame.AllText } else { '' }
+            foreach ($candidate in $FailurePattern) {
+                if ($screenText -and $screenText -imatch [regex]::Escape($candidate)) {
+                    return @{ Stopped = $false; ObservedState = $state; WaitedSeconds = $waited; MatchedFailurePattern = $candidate; Frame = $frame }
+                }
+            }
             $nextFrame = [DateTime]::UtcNow.AddSeconds($FrameIntervalSeconds)
         }
         Start-Sleep -Seconds 1
@@ -941,10 +955,19 @@ Register-SequenceAction -Name 'startVm' -ReplaySafety 'state-changing' -HostIORe
         # provisioning_failure. A wait for an install's own power-off
         # (installPowerOff) that never sees it leaves the same evidence but also
         # keeps provisioning_failure: the install did not finish, and an
-        # installer still drawing its own screen is not marked silent.
-        $wait = Wait-VmStopped -Context $c -TimeoutSeconds $timeoutSeconds -FrameIntervalSeconds $frameInterval
+        # installer still drawing its own screen is not marked silent. A declared
+        # failure pattern on a frame ends the wait as a pattern match, the same
+        # filing an installer crash gets from a login wait on the other hosts.
+        [string[]]$failurePatterns = @($c.Step.failurePatterns | Where-Object { $_ } | ForEach-Object { & $c.ExpandVariable $_ $c.Vars })
+        if ($failurePatterns.Count -gt 0) { Reset-SequenceFailureSlot -Lifetime wait -State $script:Fail }
+        $wait = Wait-VmStopped -Context $c -TimeoutSeconds $timeoutSeconds -FrameIntervalSeconds $frameInterval -FailurePattern $failurePatterns
         if (-not $wait.Stopped) {
-            if ($wait.ObservedState -ne 'absent') {
+            if ($wait.MatchedFailurePattern) {
+                $script:Fail.WaitForTextMatchedFailurePattern = [string]$wait.MatchedFailurePattern
+                Save-WaitFailureEvidence -State $script:Fail -LogDir $c.LogDir -VMName $c.VMName -CapturePath ([string]$wait.Frame.Path) `
+                    -OcrText ([string]$wait.Frame.Text) -Pattern $failurePatterns
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_5eefabfaa35c260f' -Arguments @{ matchedPattern = "$($wait.MatchedFailurePattern)" })
+            } elseif ($wait.ObservedState -ne 'absent') {
                 Save-VmNotStoppedEvidence -Context $c -Wait $wait -Action 'startVm' -RequestedAtUtc $requestedAt -InstallPowerOff:$installPowerOff
             }
             return $false
@@ -2955,13 +2978,16 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
             }
         } elseif ($genericColdRetry -or (Test-Arm64HyperVColdPowerCycleMode -Mode ([string]$c.Step.restartVmBeforeRetry) -HostType $c.HostType)) {
             # The login wait this mode restarts on ends early on a livelocked
-            # guest for the same reason. Copies, so the declared steps keep
-            # their wait policy for every other invocation.
+            # guest for the same reason, and on a display that stopped
+            # presenting frames, which in that boot will never show the prompt.
+            # Copies, so the declared steps keep their wait policy for every
+            # other invocation.
             $innerSteps = @(foreach ($innerStep in $innerSteps) {
                 if ([string]$innerStep.action -eq 'waitForTextWithNudge') {
                     $loginStep = @{}
                     foreach ($key in $innerStep.Keys) { $loginStep[$key] = $innerStep[$key] }
                     $loginStep.endWaitOnGuestLivelock = $true
+                    $loginStep.endWaitOnDisplayStall = $true
                     $loginStep
                 } else { $innerStep }
             })
@@ -3070,6 +3096,10 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                     # attempt failed, so restarts it justified are queryable.
                     guestLivelocked        = [bool]$script:Fail.WaitForTextGuestLivelocked
                     guestLivelockedSeconds = [int]$(if ($script:Fail.WaitForTextGuestLivelock) { $script:Fail.WaitForTextGuestLivelock.LivelockedSeconds } else { 0 })
+                    # Why the attempt's wait ended early on a display that
+                    # stopped presenting frames, or $null, so restarts a
+                    # display stall justified are queryable too.
+                    guestDisplayStall      = $script:Fail.WaitForTextDisplayStallEnd
                     # Whether the live installer was still on screen, which
                     # decides whether a cold restart must boot the installer DVD.
                     installerRunning       = [bool]$installerRunning
@@ -3157,6 +3187,8 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                             event = 'retry_vm_restart'; stack = 'sequence'; attempt = [int]$attempt
                             maxAttempts = [int]$maxAttempts; vmName = [string]$c.VMName; hostType = [string]$c.HostType
                             mode = $restartMode; ok = [bool]$restarted; recovery = $c.ColdPowerCycleResult
+                            # The failed wait's display stall, when that is what ended it.
+                            guestDisplayStall = $script:Fail.WaitForTextDisplayStallEnd
                         }
                     }
                     if (-not $restarted) {

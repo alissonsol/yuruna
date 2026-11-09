@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 424025fc-72c7-4d6f-8266-32ee055a88e0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,10 @@ BeforeDiscovery {
         @($serviceWeb | ForEach-Object { Get-ChildItem -LiteralPath $_ -Filter '*.html' -File }) |
         ForEach-Object { @{ Name = $_.Name; Path = $_.FullName } })
     $script:SheetCases = @(@((Join-Path $root 'test/status/yuruna.common.css')) + @($serviceWeb | ForEach-Object { Join-Path $_ 'assets/style.css' }) |
+        ForEach-Object { @{ Name = ($_ -replace '^.*/test/', 'test/'); Path = $_ } })
+    # The sheets behind the pages whose runtime draws Yuruna.explain's inline
+    # forms: the host status pages and pool-control's hosts page.
+    $script:ExplainSheetCases = @((Join-Path $root 'test/status/yuruna.common.css'), (Join-Path $root 'test/extension/pool-control-service/server/internal/httpsrv/web/assets/style.css') |
         ForEach-Object { @{ Name = ($_ -replace '^.*/test/', 'test/'); Path = $_ } })
 }
 
@@ -160,6 +164,32 @@ Describe 'Phone rules in the shared chrome' {
                 }
             }
         }
+    }
+    It 'gives the explanation controls the touch minimum on phones in <Name>' -TestCases $script:ExplainSheetCases {
+        param($Name, $Path)
+        $null = $Name
+        # Y.explain and Yuruna.explain turn a plain value into a span with a
+        # button role (.explain-target) and put a "?" button (.explain-toggle)
+        # beside a link. The rule above checks only a control a sheet sizes
+        # under the floor, so a sheet that sizes neither passes it and leaves
+        # the span as short as its text on a phone.
+        $floorValue = '^(var\(--touch-min\)|44px|2\.75rem)$'
+        $rules = Get-CssRuleInMedia -Css ([IO.File]::ReadAllText($Path))
+        foreach ($selector in '.explain-target', '.explain-toggle') {
+            $naming = @($rules | Where-Object { (Split-CssSelector $_.Selector) -contains $selector })
+            foreach ($phone in @('max-width:\s*600px', 'pointer:\s*coarse')) {
+                $applies = @($naming | Where-Object { -not $_.Media -or ($_.Media -match $phone -and $_.Media -notmatch 'min-width') })
+                foreach ($property in 'min-height', 'min-width') {
+                    @($applies | Where-Object { (Get-CssDeclaration -Body $_.Body -Property $property) -match $floorValue }).Count |
+                        Should -BeGreaterThan 0 -Because "$selector needs a $property at the touch minimum where ($phone) holds"
+                }
+            }
+        }
+        # A span takes a min-height only with a display that has one.
+        $displays = @($rules | Where-Object { (Split-CssSelector $_.Selector) -contains '.explain-target' } |
+            ForEach-Object { Get-CssDeclaration -Body $_.Body -Property 'display' } | Where-Object { $_ })
+        @($displays | Where-Object { $_ -match '^(inline-block|inline-flex|inline-grid|block|flex|grid)$' }).Count |
+            Should -BeGreaterThan 0 -Because 'an inline span ignores min-height'
     }
     It 'measures the footer in every page script' {
         foreach ($file in @('test/status/yuruna.common.js', 'test/extension/extension-sdk/webui/assets/yuruna.core.js')) {

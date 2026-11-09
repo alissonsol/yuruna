@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42645f00-faa2-428e-bbc3-6249194cf5b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -723,6 +723,122 @@ Describe 'Start record and cycle record' {
         Set-Content -LiteralPath (Join-Path $script:CycleDir 'runner.cycle.json') -Value '{"schemaVersion":1,"pid":"x"}' -Encoding utf8NoBOM
         Assert-Equal -Expected 'Unknown' -Actual (Read-YurunaRunnerCycleRecord -RuntimeDir $script:CycleDir).State
         Remove-Item -LiteralPath (Join-Path $script:CycleDir 'runner.cycle.json') -Force
+    }
+}
+
+# A runner that its terminal or SSH session takes down leaves only these
+# records to say why, so they are written by a real process and a real signal.
+Describe 'Runner session and exit records' {
+    BeforeAll {
+        $script:RecordRepo = (Resolve-Path (Join-Path $here '../..')).Path
+        # A child runner stand-in: records its session, says so, and waits.
+        function Start-RecordingChild {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: starts a child process the case ends.')]
+            [CmdletBinding()]
+            [OutputType([System.Diagnostics.Process])]
+            param([Parameter(Mandatory)][string]$Runtime, [string]$BootUtc = '')
+            $command = @"
+`$ErrorActionPreference = 'Stop'
+Import-Module '$($script:RecordRepo)/automation/Yuruna.Common.psm1' -DisableNameChecking
+Import-Module '$($script:RecordRepo)/test/modules/Test.SingleInstance.psm1' -DisableNameChecking
+`$boot = if ('$BootUtc') { [datetime]::Parse('$BootUtc', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) } else { `$null }
+`$registered = Register-YurunaRunnerExitRecord -RuntimeDir '$Runtime' -HostBootUtc `$boot -Confirm:`$false
+[IO.File]::WriteAllText('$Runtime/ready', "`$registered")
+Start-Sleep -Seconds 60
+"@
+            return (Start-TestChildProcess -Command $command)
+        }
+        function Wait-ChildReady {
+            param([string]$Runtime)
+            $deadline = [datetime]::UtcNow.AddSeconds(60)
+            while (-not (Test-Path -LiteralPath (Join-Path $Runtime 'ready')) -and [datetime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+            return (Get-Content -Raw -LiteralPath (Join-Path $Runtime 'ready'))
+        }
+        $script:RecordJsonOption = @{}
+        if ((Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $script:RecordJsonOption.DateKind = 'String' }
+    }
+
+    It 'records how the runner started, naming each parent by its executable only' {
+        $runtime = Join-Path $script:SingleInstanceTempRoot ('session-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $runtime
+        $boot = [datetime]::UtcNow.AddHours(-2).ToString('o')
+        $child = Start-RecordingChild -Runtime $runtime -BootUtc $boot
+        try {
+            Wait-ChildReady -Runtime $runtime | Should -Be 'True'
+            $jsonOption = $script:RecordJsonOption
+            $session = [IO.File]::ReadAllText((Join-Path $runtime 'runner.session.json')) | ConvertFrom-Json @jsonOption
+            $session.pid | Should -Be $child.Id
+            # Linux derives a start time from clock ticks, so two reads differ by microseconds.
+            $started = [datetime]::Parse($session.startedUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+            [Math]::Abs(($started - $child.StartTime.ToUniversalTime()).TotalSeconds) | Should -BeLessThan 1
+            $session.hostBootUtc | Should -Be $boot
+            @($session.parents).Count | Should -BeGreaterThan 0
+            @($session.parents)[0] | Should -Be "$((Get-Process -Id $PID).ProcessName)[$PID]" -Because 'the nearest parent is the process that started it'
+            foreach ($parent in @($session.parents)) { $parent | Should -Match '^[^\s\[\]]{1,32}\[\d+\]$' -Because 'a name carries no command line' }
+            $session.sshSession | Should -BeOfType [bool]
+        } finally {
+            if (-not $child.HasExited) { $child.Kill() }
+            $child.Dispose()
+        }
+    }
+
+    It 'records the <Signal> that ends the runner, and the signal still ends it' -ForEach @(
+        @{ Signal = 'SIGHUP'; Number = 1 }, @{ Signal = 'SIGTERM'; Number = 15 }
+    ) {
+        if ($IsWindows) { Set-ItResult -Skipped -Because 'Windows delivers no POSIX signal to send here'; return }
+        $runtime = Join-Path $script:SingleInstanceTempRoot ('exit-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $runtime
+        # A previous runner's record, which the sweep has already reported.
+        [IO.File]::WriteAllText((Join-Path $runtime 'runner.exit.json'), '{"signal":"SIGTERM","atUtc":"2026-01-01T00:00:00Z","pid":1}')
+        $child = Start-RecordingChild -Runtime $runtime
+        try {
+            Wait-ChildReady -Runtime $runtime | Should -Be 'True'
+            Test-Path -LiteralPath (Join-Path $runtime 'runner.exit.json') | Should -BeFalse -Because 'a new runner starts with no exit record'
+            $kill = Start-Process -FilePath 'kill' -ArgumentList @("-$Number", "$($child.Id)") -PassThru -Wait
+            $kill.ExitCode | Should -Be 0
+            $child.WaitForExit(30000) | Should -BeTrue -Because 'the handler leaves the signal''s default action in place'
+            $child.ExitCode | Should -Be (128 + $Number)
+            $report = Get-YurunaRunnerExitReport -RuntimeDir $runtime
+            $report.pid | Should -Be $child.Id
+            $report.signal | Should -Be $Signal
+            [datetime]::Parse($report.signalAtUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) |
+                Should -BeGreaterThan ([datetime]::UtcNow.AddMinutes(-2))
+        } finally {
+            if (-not $child.HasExited) { $child.Kill() }
+            $child.Dispose()
+        }
+    }
+
+    It 'joins only the same runner''s exit record, and tells a restart from a kill' {
+        $runtime = Join-Path $script:SingleInstanceTempRoot ('report-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $runtime
+        $boot = [datetime]::new(2026, 11, 7, 6, 0, 0, [DateTimeKind]::Utc)
+        [IO.File]::WriteAllText((Join-Path $runtime 'runner.session.json'), (@{ schemaVersion = 1; pid = 4242; startedUtc = '2026-11-07T08:00:00.0000000Z'
+            recordedUtc = '2026-11-07T08:00:01.0000000Z'; hostBootUtc = $boot.ToString('o'); sshSession = $true; terminalProgram = $null
+            multiplexer = $null; parents = @('zsh[100]', 'sshd[90]') } | ConvertTo-Json -Compress))
+        $report = Get-YurunaRunnerExitReport -RuntimeDir $runtime -HostBootUtc $boot
+        $report.signal | Should -BeNullOrEmpty -Because 'no exit record is a runner ended without a catchable signal'
+        $report.hostRestarted | Should -BeFalse
+        $report.sshSession | Should -BeTrue
+        @($report.parents) | Should -Be @('zsh[100]', 'sshd[90]')
+        (Get-YurunaRunnerExitReport -RuntimeDir $runtime -HostBootUtc $boot.AddHours(1)).hostRestarted | Should -BeTrue
+        (Get-YurunaRunnerExitReport -RuntimeDir $runtime -HostBootUtc $boot.AddSeconds(3)).hostRestarted | Should -BeFalse -Because 'a boot time read in whole seconds is the same boot'
+        (Get-YurunaRunnerExitReport -RuntimeDir $runtime).hostRestarted | Should -BeNullOrEmpty
+        [IO.File]::WriteAllText((Join-Path $runtime 'runner.exit.json'), '{"signal":"SIGHUP","atUtc":"2026-11-07T15:35:02.0000000Z","pid":4243}')
+        (Get-YurunaRunnerExitReport -RuntimeDir $runtime -HostBootUtc $boot).signal | Should -BeNullOrEmpty -Because 'another runner''s signal is not this one''s'
+        [IO.File]::WriteAllText((Join-Path $runtime 'runner.exit.json'), '{"signal":"SIGHUP","atUtc":"2026-11-07T15:35:02.0000000Z","pid":4242}')
+        $report = Get-YurunaRunnerExitReport -RuntimeDir $runtime -HostBootUtc $boot
+        $report.signal | Should -Be 'SIGHUP'
+        $report.signalAtUtc | Should -Be '2026-11-07T15:35:02.0000000Z'
+    }
+
+    It 'reports nothing without a readable session record' {
+        $runtime = Join-Path $script:SingleInstanceTempRoot ('none-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $runtime
+        Get-YurunaRunnerExitReport -RuntimeDir $runtime | Should -BeNullOrEmpty
+        [IO.File]::WriteAllText((Join-Path $runtime 'runner.session.json'), '{"pid":')
+        Get-YurunaRunnerExitReport -RuntimeDir $runtime | Should -BeNullOrEmpty
     }
 }
 

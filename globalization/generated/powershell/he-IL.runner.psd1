@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42a07001-0b1b-e8af-74b4-0c25e481f7c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25221,6 +25221,51 @@
             'trust' = 'external'
         }
         '). המחזור ממשיך, המחיקות ממשיכות לבדוק הפניות, והמחזור הבא ינסה שוב.'
+    )
+    'runner.wait_ended_on_display_stall' = @(
+        'ההמתנה לטקסט '''
+        @{
+            'arg' = 'patternLabel'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' הסתיימה אחרי ~'
+        @{
+            'arg' = 'waited'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's מתוך '
+        @{
+            'arg' = 'timeoutSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's: מנהל התצוגה '
+        @{
+            'arg' = 'driver'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' של האורח דיווח בקונסולה הטורית שלו על '
+        @{
+            'arg' = 'reports'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' פסקי זמן של החלפת עמוד במשך '
+        @{
+            'arg' = 'spanSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's בזמן שהמסוף לא השתנה במשך '
+        @{
+            'arg' = 'unchangedSeconds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        's, ולכן המסך לא יציג את הטקסט באתחול הזה והניסיון החוזר יכול להפעיל מחדש את האורח בהפעלה קרה'
     )
     'runner.wait_ended_on_kernel_stall' = @(
         'ההמתנה לטקסט '''

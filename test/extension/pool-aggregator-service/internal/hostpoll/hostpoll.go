@@ -359,27 +359,34 @@ func FetchStatus(client *http.Client, base string) (*HostStatus, []byte, error) 
 // FetchRunnerStopped reads /control/runner-status and reports whether the host's
 // outer test runner is verifiably not alive: only an explicit running:false
 // counts; a 404 or a missing field is "cannot tell", and a transport failure
-// returns the error. See https://yuruna.link/42c29d04-000c.
-func FetchRunnerStopped(client *http.Client, base string) (bool, error) {
+// returns the error. lostMidCycle says a stopped runner died inside a cycle: its
+// lifecycle state (runnerState) still reads in-cycle and its runner.pid is still
+// there (pid). Both are needed: an operator's Ctrl+C stops a running cycle and
+// leaves runnerState at in-cycle too, but it ends through the orderly shutdown,
+// which removes runner.pid. See https://yuruna.link/42c29d04-000c.
+func FetchRunnerStopped(client *http.Client, base string) (stopped, lostMidCycle bool, err error) {
 	status, body, err := Get(client, base, "/control/runner-status", 64<<10)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if status == http.StatusNotFound {
-		return false, nil
+		return false, false, nil
 	}
 	if status != http.StatusOK {
-		return false, fmt.Errorf("runner-status HTTP %d", status)
+		return false, false, fmt.Errorf("runner-status HTTP %d", status)
 	}
 	// A pointer, so an answer that omits the field is told apart from one that says
 	// false -- the difference between "cannot tell" and "the runner is gone".
 	var rs struct {
-		Running *bool `json:"running"`
+		Running     *bool  `json:"running"`
+		Pid         *int   `json:"pid"`
+		RunnerState string `json:"runnerState"`
 	}
 	if err := json.Unmarshal(body, &rs); err != nil {
-		return false, fmt.Errorf("runner-status parse: %w", err)
+		return false, false, fmt.Errorf("runner-status parse: %w", err)
 	}
-	return rs.Running != nil && !*rs.Running, nil
+	stopped = rs.Running != nil && !*rs.Running
+	return stopped, stopped && rs.RunnerState == "in-cycle" && rs.Pid != nil, nil
 }
 
 // StepPauseCode is what Invoke-Sequence writes into the current-action sidecar's

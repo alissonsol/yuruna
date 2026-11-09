@@ -111,7 +111,7 @@ mid-autoinstall with a confusing diagnostic.
 | `host/vmconfig/ubuntu.server.base.user-data` | The shared base -- same for Ubuntu Server 24 and 26. Contains anchor lines like `# === YURUNA_OVERLAY_NETWORK ===` that the merger replaces. |
 | `host/vmconfig/ubuntu.server.hyperv.overlay.yml` | Per-host overlay: `hv_balloon` denylist + `hyperv_fb` framebuffer pin. |
 | `host/vmconfig/ubuntu.server.kvm.overlay.yml` | Per-host overlay: VT-blanking early-command + `consoleblank=0` + fb-safe GRUB cmdline. |
-| `host/vmconfig/ubuntu.server.utm.overlay.yml` | Per-host overlay: `network:` block pinning IPv4 DHCP and refusing IPv6 RA; `shutdown: poweroff`, so the runner cold-starts the installed system; journald forwarding to the PL011 serial console. |
+| `host/vmconfig/ubuntu.server.utm.overlay.yml` | Per-host overlay: `network:` block pinning IPv4 DHCP and refusing IPv6 RA; `shutdown: poweroff`, so the runner cold-starts the installed system; `yuruna-serial-journal.service`, which copies the journal to the PL011 serial console. |
 | `host/vmconfig/amazon.linux.2023.base.user-data` | The shared AL2023 base. Uses cloud-init `runcmd:` (AL2023 boots a prebuilt cloud image rather than running an Ubuntu-style autoinstall), with its own anchor set. |
 | `host/vmconfig/amazon.linux.2023.hyperv.overlay.yml` | Per-host AL2023 overlay (Hyper-V). |
 | `host/vmconfig/amazon.linux.2023.kvm.overlay.yml` | Per-host AL2023 overlay (KVM): `consoleblank=0` runcmd. |
@@ -873,7 +873,7 @@ cmdline names the right port --
 [host-hyperv.md](host-hyperv.md#the-converted-arm64-image-does-not-boot).
 The Hyper-V overlay therefore chooses the port inside the installer:
 `ttyAMA0` when it runs on aarch64, `ttyS0` elsewhere, for both the kernel
-`console=` argument and journald's forwarding, so the COM1 capture carries
+`console=` argument and `yuruna-serial-journal.service`, so the COM1 capture carries
 the guest's own account of a silence on either architecture.
 
 UTM omits this block entirely: its display window reads the serial
@@ -1272,6 +1272,15 @@ refused or timed out. Upload `curtin-errors.tar` as well: curtin can preserve
 its useful logs only inside that archive when the separately named files were
 never written.
 
+Upload `installer-cause.txt` when apt stated a reason: apt's error lines and
+unmet dependencies, taken from curtin's log inside that archive, with duplicates
+and the `/dev/pts` complaint every install prints removed. The runner reads it
+into the failure record's
+[`installerFailure`](failure-schema.md) field, so a failed install names its
+cause on the pool dashboard instead of only "An error occurred". The network
+snapshot probes the proxy baked into the seed, because curtin writes that proxy
+into the target and the installer's own apt configuration never names it.
+
 The error hook also prints `/log/installer-fail/<hostname>/<UTC-timestamp>/` to
 the console. These uploads are separate from the cycle's guest diagnostic
 folder, and remain useful when that diagnostic times out. Open the printed
@@ -1635,12 +1644,16 @@ manager` ACL in squid.conf keeps the dump off the LAN.
 
 **GitHub release assets** (kubectl, helm, gh, jq, terraform-provider-*,
 tofu, ...) live at `github.com/<owner>/<repo>/releases/download/<tag>/<asset>`,
-which 302-redirects to `objects.githubusercontent.com/<token>/...`. Both
-URLs are content-addressed by tag plus asset name -- release assets are
-immutable in GitHub's data model -- so both get the full-year pin. The
-rule matches the whole host rather than just terraform-provider assets,
-because non-extensioned binaries (raw `kubectl`, `helm`) match neither
-catch-all `.zip` nor `.tar.gz` pattern.
+which 302-redirects to a signed URL on `release-assets.githubusercontent.com`
+(formerly `objects.githubusercontent.com`). Release assets are immutable per
+tag in GitHub's data model, so the release URL and both CDN hosts get the
+full-year pin. The rule matches the whole host rather than just
+terraform-provider assets, because non-extensioned binaries (raw `kubectl`,
+`helm`) match neither catch-all `.zip` nor `.tar.gz` pattern. The pins alone
+serve nothing for these URLs: squid cannot store the redirect, and each one
+names a new signature. A Store ID filed from the redirects squid logs is what
+serves a stored asset for its release URL (see
+[GitHub release downloads](caching.md#42f6b05f-005d)).
 
 **Helm chart packages** downloaded by `helm install <repo>/<chart>` have
 URLs ending in `.tgz` (e.g.
@@ -1880,7 +1893,7 @@ Provisioned Grafana unified-alerting rule (`Yuruna` folder) that fires when the 
 
 Yuruna host (status service) coordinates. Baked into the seed by the platform New-VM.ps1 (Get-GuestReachableHostIp + statusService.port). The runcmd build block below sources this to fetch the collector + parser source from the LOCAL host working tree (http://IP:PORT/yuruna-repo/) -- the host repo is the source of truth, so a rebuild never waits on the private->public GitHub mirror. Same resolution as fetch-and-execute.sh. Empty IP/PORT (coordinates unavailable, e.g. status service disabled) fall back to GitHub raw.
 
-`--no-proxy` is required on the host path: the host IP is private and this VM's own squid is in `offline_mode`, so routing that fetch through a proxy would fail. Sourcing `host.env` is safe here -- host-baked IP/PORT only, never operator free-text (a malformed value would abort the runcmd phase).
+`--no-proxy` is required on the host path: the host IP is private and this VM's own squid is in `offline_mode`, so routing that fetch through a proxy would fail. Sourcing `host.env` is safe here -- host-baked keys only (the host id, the status service and caching-proxy addresses and port, the CA hash, the framework repository and ref), never operator free-text (a malformed value would abort the runcmd phase).
 
 This cache VM consults the pool directory on loopback because the aggregator runs locally. The host-address resolver rejects loopback addresses returned as a host's advertised address, not loopback as the directory's own listening address. The directory location is a property of this VM's service topology and does not depend on its DHCP lease.
 
@@ -2004,9 +2017,10 @@ vault special characters survive into the cifs credentials file intact.
 Remount happens only when the reported version changed or the mount
 point is not currently mounted.
 
-Sourcing note: `/etc/yuruna/host.env` holds only host-baked
-`YURUNA_STATUS_SERVICE_IP`/`PORT` (no operator free-text), so sourcing it
-is safe. Operator-supplied env files must instead be sed-extracted.
+Sourcing note: `/etc/yuruna/host.env` holds only host-baked keys (the host
+id, the status service and caching-proxy addresses and port, the CA hash, the
+framework repository and ref), written from validated values and never from
+operator free-text, so sourcing it is safe. Operator-supplied env files must instead be sed-extracted.
 
 The stable TLS hostname (SAN) is mapped to the host's current IP via
 `curl --connect-to`, so a host DHCP change never invalidates the server
@@ -2672,6 +2686,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

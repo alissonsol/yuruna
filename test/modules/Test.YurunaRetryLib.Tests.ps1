@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -181,6 +181,45 @@ echo "$r"
         $out = Invoke-RetryLibDriver -Driver $driver
         # rc7=transient(0) rc3=permanent(1) 404=permanent(1) 503=transient(0) 429=transient(0) | 1 attempt | jitter-in-band
         Assert-StringEqual -Actual $out -Expected '0 1 1 0 0 1 J' -Because "classifier/gate/jitter result was: '$out'"
+    }
+
+    It 'waits out a half-hour GitHub release outage, keeps other fetches at five attempts, and still stops on a 404' {
+        # GitHub's release endpoints have answered 504 for most of half an hour
+        # while the rest of github.com answered. Each stand-in attempt costs 16 s
+        # of simulated time, as curl's own three retries did against those 504s,
+        # and every sleep advances the same clock.
+        if (-not $script:bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $driver = @'
+err=$(mktemp)
+sleep() { naps="$naps $1"; SECONDS=$(( SECONDS + $1 )); }
+curl() { case " $* " in *"%{http_code}"*) echo "$probe"; return 0 ;; esac; calls=$((calls + 1)); SECONDS=$(( SECONDS + 16 )); return 22; }
+wget() { calls=$((calls + 1)); SECONDS=$(( SECONDS + 16 )); return 4; }
+fetch() { calls=0; naps=""; SECONDS=0; "$@" 2>"$err"; rc=$?; end=$SECONDS; }
+outcome() { grep '"event":"outcome"' "$err" | tail -1; }
+r=""
+probe=504
+fetch curl_retry -fsSL -o /dev/null "https://github.com/PowerShell/PowerShell/releases/download/v7.6.9/hashes.sha256"
+max=0; for n in $naps; do [ "$n" -gt "$max" ] && max=$n; done
+[ "$rc" -eq 22 ] && r="${r}rc " || r="${r}rc($rc) "
+# The last attempt starts before the window closes and ends 16 s later.
+{ [ "$end" -ge 1800 ] && [ "$end" -le 1816 ]; } && r="${r}window " || r="${r}window($end) "
+[ "$max" -le 120 ] && r="${r}cap " || r="${r}cap($max) "
+[ "$calls" -gt 5 ] && r="${r}longer " || r="${r}longer($calls) "
+outcome | grep -q "\"outcome\":\"exhausted\",\"attempt\":${calls},\"maxAttempts\":${calls},\"rc\":22,\"windowSeconds\":1800}" && r="${r}record " || r="${r}record($(outcome)) "
+fetch curl_retry -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/PowerShell/PowerShell/releases/latest"
+{ [ "$end" -ge 1800 ] && [ "$calls" -gt 5 ]; } && r="${r}latest " || r="${r}latest($end/$calls) "
+fetch wget_try -qO /dev/null "https://github.com/nats-io/nats-server/releases/download/v2.12.1/nats-server.tar.gz"
+{ [ "$end" -ge 1800 ] && [ "$calls" -gt 5 ]; } && r="${r}wget " || r="${r}wget($end/$calls) "
+fetch curl_retry -fsSL -o /dev/null "https://download.docker.com/linux/ubuntu/gpg"
+{ [ "$calls" -eq 5 ] && ! grep -q windowSeconds "$err"; } && r="${r}other " || r="${r}other($calls) "
+probe=404
+fetch curl_retry -fsSL -o /dev/null "https://github.com/PowerShell/PowerShell/releases/download/v0.0.0/missing.tar.gz"
+[ "$calls" -eq 1 ] && r="${r}permanent" || r="${r}permanent($calls)"
+rm -f "$err"
+echo "$r"
+'@
+        $out = Invoke-RetryLibDriver -Driver $driver
+        Assert-StringEqual -Actual $out -Expected 'rc window cap longer record latest wget other permanent' -Because "release-window result was: '$out'"
     }
     It 'advertises the safe-stall marker and wraps a bounded call in timeout --foreground' {
         # The marker is what lets a guest script ask for a wall-clock bound

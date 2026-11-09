@@ -505,6 +505,11 @@
           "slug": "powershell-gallery-packages"
         },
         {
+          "id": "42f6b05f-005d",
+          "heading": "GitHub release downloads",
+          "slug": "github-release-downloads"
+        },
+        {
           "id": "42f6b05f-0015",
           "heading": "offline_mode",
           "slug": "offline_mode"
@@ -5238,6 +5243,11 @@
           "id": "429fb30b-0029",
           "heading": "Version floors are repaired, not reported",
           "slug": "version-floors-are-repaired-not-reported"
+        },
+        {
+          "id": "429fb30b-003c",
+          "heading": "Newer versions are reported",
+          "slug": "newer-versions-are-reported"
         },
         {
           "id": "429fb30b-002a",

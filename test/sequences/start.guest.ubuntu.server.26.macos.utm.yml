@@ -49,6 +49,12 @@ component:
     timeoutSeconds: 2400
     frameIntervalSeconds: 30
     installPowerOff: true
+    # An installer that caught its own error waits at a shell and never powers
+    # off, so without these the rest of the deadline is spent on a known result.
+    failurePatterns:
+      - "install_fail.crash"
+      - "Press enter to start a shell"
+      - "An error occurred"
     description: "Wait for the install to power off, then cold-start the installed system"
 
   # See https://yuruna.link/42e220c4-0007
@@ -185,7 +191,7 @@ workload:
     text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.update.sh"
     description: "ubuntu.server.26.update.sh"
     waitPattern: "FETCHED AND EXECUTED:"
-    timeoutSeconds: 1800
+    timeoutSeconds: 3600
 
   - action: saveSystemDiagnostic
     id: yuruna.update

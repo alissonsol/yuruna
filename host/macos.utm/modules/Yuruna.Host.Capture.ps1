@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42f8b2a8-0c1c-45bf-b7d3-7239488c88e5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,10 @@
 # One segment of the live log. A full segment becomes serial-console.1.log,
 # replacing the one before it, so the folder keeps the newest one to two.
 $script:UtmSerialCaptureSegmentBytes = 4MB
+# How long a stop waits for the reader to honor the request before it kills
+# the reader's process. The reader looks for a request between statements, at
+# most 2 s apart even while it connects, so only a dropped request reaches this.
+$script:UtmSerialReaderStopSeconds = 5
 # How much of the live log a control snapshot copies beside itself.
 $script:UtmSerialConsoleTailBytes = 256KB
 
@@ -65,15 +69,73 @@ function Get-VMSerialCaptureJob {
     $name = "yuruna-serial-$VMName"
     return @(Get-Job -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $name })
 }
+# The process a reader job named as its first output; $null until it has.
+function Get-VMSerialCaptureIdentity {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)]$Job)
+    return (@(Receive-Job -Job $Job -Keep -ErrorAction SilentlyContinue) | Where-Object { $null -ne $_.ProcessId } | Select-Object -First 1)
+}
+# See https://yuruna.link/42f52e37-001e
+# Requests the stop without waiting on it and kills a reader still running at
+# the cap. $true when no reader is left running: every job has ended, or the
+# process it named has.
 function Stop-VMSerialCaptureJob {
     [CmdletBinding()]
+    [OutputType([bool])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Stops reader jobs of this process; changes no durable system state, and must never prompt inside a runner cycle.')]
     param([Parameter(Mandatory)][string]$VMName)
-    foreach ($job in (Get-VMSerialCaptureJob -VMName $VMName)) {
-        Stop-Job -Job $job -ErrorAction SilentlyContinue
-        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+    $capMs = 1000 * $script:UtmSerialReaderStopSeconds
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $jobs = @(Get-VMSerialCaptureJob -VMName $VMName)
+    # Job.StopJob returns only once the job has ended, so it runs on a pool
+    # thread. The delegate binds the public base method because PowerShell
+    # does not convert the method of the internal job type it is called on.
+    $stopJob = [System.Management.Automation.Job].GetMethod('StopJob', [Type]::EmptyTypes)
+    foreach ($job in $jobs) {
+        if ($job.Finished.WaitOne(0)) { continue }
+        try {
+            $null = [System.Threading.Tasks.Task]::Run([Action][Delegate]::CreateDelegate([Action], $job, $stopJob))
+        } catch {
+            Write-Verbose "Serial console capture: the stop request to the reader of '$VMName' failed: $($_.Exception.Message)"
+        }
     }
+    $left = 0
+    foreach ($job in $jobs) {
+        # A reader an earlier stop killed keeps its job Running for about a
+        # minute, so a stop by name within that minute would spend the whole
+        # cap on a job whose process is already gone. Its job is not waited on.
+        $dead = $false
+        if (-not $job.Finished.WaitOne(0)) {
+            $identity = Get-VMSerialCaptureIdentity -Job $job
+            if ($identity) { $dead = (Get-YurunaProcessIdentityLiveness -ProcessId $identity.ProcessId -StartTimeUnixMs $identity.StartTimeUnixMs) -eq 'dead' }
+        }
+        if (-not $dead -and -not $job.Finished.WaitOne([int][Math]::Max(0, $capMs - $clock.ElapsedMilliseconds))) {
+            $identity = Get-VMSerialCaptureIdentity -Job $job
+            $liveness = $null
+            if ($identity) { $liveness = Get-YurunaProcessIdentityLiveness -ProcessId $identity.ProcessId -StartTimeUnixMs $identity.StartTimeUnixMs }
+            if ($liveness -eq 'alive') {
+                try {
+                    $process = [System.Diagnostics.Process]::GetProcessById([int]$identity.ProcessId)
+                    try {
+                        $process.Kill()
+                        $null = $process.WaitForExit([int][Math]::Max(0, 2 * $capMs - $clock.ElapsedMilliseconds))
+                    } finally { $process.Dispose() }
+                    Write-Verbose "Serial console capture: the reader of '$VMName' did not stop within $($script:UtmSerialReaderStopSeconds) s; killed its process $($identity.ProcessId)."
+                } catch {
+                    Write-Verbose "Serial console capture: could not kill process $($identity.ProcessId), the reader of '$VMName': $($_.Exception.Message)"
+                }
+                $liveness = Get-YurunaProcessIdentityLiveness -ProcessId $identity.ProcessId -StartTimeUnixMs $identity.StartTimeUnixMs
+            }
+            if ($liveness -ne 'dead') {
+                $left++
+                Write-Verbose "Serial console capture: the reader of '$VMName' did not stop within $($script:UtmSerialReaderStopSeconds) s and is left running; its job stays listed for the next stop."
+            }
+        }
+        if ($job.Finished.WaitOne(0)) { Remove-Job -Job $job -ErrorAction SilentlyContinue }
+    }
+    return ($left -eq 0)
 }
 # The reader's own account, from the sidecar it rewrites at each change of
 # state; $null when there is none or it cannot be parsed.
@@ -189,13 +251,17 @@ function Start-VMSerialCapture {
         }
         foreach ($job in (Get-VMSerialCaptureJob -VMName $VMName)) {
             if ([string]$job.State -notin @('Running', 'NotStarted')) { continue }
+            # A killed reader's job reads Running for about a minute after its
+            # process is gone, and its sidecar still names this port and log.
+            $identity = Get-VMSerialCaptureIdentity -Job $job
+            if ($identity -and (Get-YurunaProcessIdentityLiveness -ProcessId $identity.ProcessId -StartTimeUnixMs $identity.StartTimeUnixMs) -eq 'dead') { continue }
             $reader = Get-VMSerialCaptureReader -Path $paths.State
             if ($reader -and [int]$reader.port -eq $port -and [string]$reader.logPath -eq $paths.Log) {
                 Write-Verbose "Serial console capture for '$VMName' already reads 127.0.0.1:$port."
                 return $true
             }
         }
-        Stop-VMSerialCaptureJob -VMName $VMName
+        $null = Stop-VMSerialCaptureJob -VMName $VMName
         $null = New-Item -ItemType Directory -Force -Path $paths.Directory
         $logPath = $paths.Log
         $previousPath = $paths.Previous
@@ -208,7 +274,11 @@ function Start-VMSerialCapture {
             lastConnectUtc = $null; lastDisconnectUtc = $null; lastError = $null; bytesRead = 0L; rotations = 0; updatedUtc = $null
         }
         [System.IO.File]::WriteAllText($statePath, ($armed | ConvertTo-Json -Compress))
+        # Its first output is its process id and start time, the identity a stop
+        # kills it by when it does not honor the stop request.
         $null = Start-Job -Name "yuruna-serial-$VMName" -ScriptBlock {
+            $self = [System.Diagnostics.Process]::GetCurrentProcess()
+            [pscustomobject]@{ ProcessId = $self.Id; StartTimeUnixMs = [DateTimeOffset]::new($self.StartTime).ToUnixTimeMilliseconds() }
             $Port = $using:port
             $LogPath = $using:logPath
             $PreviousPath = $using:previousPath
@@ -229,8 +299,8 @@ function Start-VMSerialCapture {
                 $sinceSave.Restart()
             }
             & $save
-            # No finally block anywhere in this loop: PowerShell drops a Stop-Job
-            # that arrives while one runs, and Stop-Job then waits two minutes.
+            # No finally block anywhere in this loop: PowerShell drops a stop
+            # request that arrives while one runs, which leaves the stop's kill.
             while ([System.IO.Directory]::Exists($directory)) {
                 $client = $null
                 $file = $null
@@ -249,8 +319,8 @@ function Start-VMSerialCapture {
                     $state.lastConnectUtc = [DateTime]::UtcNow.ToString('o')
                     & $save
                     while ($true) {
-                        # A job parked in a blocking read does not see Stop-Job, which
-                        # then waits two minutes, so the wait for data is bounded.
+                        # A job parked in a blocking read does not see a stop request,
+                        # so the wait for data is bounded.
                         if (-not $client.Client.Poll(500000, [System.Net.Sockets.SelectMode]::SelectRead)) { continue }
                         $read = $stream.Read($buffer, 0, $buffer.Length)
                         if ($read -le 0) { break }
@@ -313,8 +383,7 @@ function Stop-VMSerialCapture {
         Justification = 'Diagnostic teardown: stops a reader job of this process; must never prompt inside a runner cycle.')]
     param([Parameter(Mandatory)][string]$VMName)
     try {
-        Stop-VMSerialCaptureJob -VMName $VMName
-        return ((Get-VMSerialCaptureJob -VMName $VMName).Count -eq 0)
+        return (Stop-VMSerialCaptureJob -VMName $VMName)
     } catch {
         Write-Verbose "Stop-VMSerialCapture failed: $($_.Exception.Message)"
         return $false
@@ -356,7 +425,7 @@ function Save-VMSerialCapture {
         $paths = Get-VMSerialCapturePath -VMName $VMName
         if (-not $paths) { return $false }
         $armed = (Get-VMSerialCaptureJob -VMName $VMName).Count -gt 0
-        Stop-VMSerialCaptureJob -VMName $VMName
+        $null = Stop-VMSerialCaptureJob -VMName $VMName
         if (-not $armed -and -not [System.IO.File]::Exists($paths.State) -and -not [System.IO.File]::Exists($paths.Log) -and
             -not [System.IO.File]::Exists($paths.Previous)) { return $false }
         if (-not (Test-Path -LiteralPath $OutputDirectory -PathType Container)) {

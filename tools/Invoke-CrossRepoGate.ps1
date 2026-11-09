@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -581,6 +581,45 @@ function Add-SerialStageRow {
     }
 }
 
+function Get-NUnitFailureSummary {
+    <#
+    .SYNOPSIS
+        Name the failed cases of an NUnit 2.5 result, each with the first line of its error.
+    .DESCRIPTION
+        A nested suite's result file is deleted once its row is written, so the
+        row is the only place its failures can be read after the gate ends: the
+        gate's table, its evidence file and the failure message of a suite that
+        runs the gate all copy it. The summary stays on one line because the
+        table prints one row per line, and it names a bounded number of
+        failures so a suite that fails wholesale cannot bury the other rows.
+    .PARAMETER Document
+        The parsed result file.
+    .PARAMETER Limit
+        How many failures to name before the rest are only counted.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][xml]$Document,
+        [ValidateRange(1, 100)][int]$Limit = 5
+    )
+    # The runner reads failures with the same query: a failed case, or a block
+    # whose setup failed before its cases ran.
+    $failures = @($Document.SelectNodes('//test-case[failure] | //test-suite[failure]'))
+    $named = [Collections.Generic.List[string]]::new()
+    foreach ($failure in ($failures | Select-Object -First $Limit)) {
+        $message = $failure.SelectSingleNode('failure/message')
+        [string]$firstLine = if ($message) {
+            @(($message.InnerText -split "`r?`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ }) | Select-Object -First 1
+        }
+        if ($firstLine.Length -gt 300) { $firstLine = $firstLine.Substring(0, 300) + '...' }
+        $name = $failure.GetAttribute('name')
+        $named.Add($(if ($firstLine) { "${name}: $firstLine" } else { $name }))
+    }
+    if ($failures.Count -gt $Limit) { $named.Add("$($failures.Count - $Limit) more") }
+    return ($named -join '; ')
+}
+
 # Every stage below runs a child process and captures its output, so a release
 # run spends minutes printing nothing between the first gate and the summary and
 # reads as hung. Report the stage that is running on the progress stream: stdout
@@ -1084,11 +1123,17 @@ if ($SerialStage -eq 'amisad-tests') {
             if (-not (Test-Path -LiteralPath $amisadXml)) {
                 Add-Row -Gate 'amisad-tests' -State 'fail' -Detail 'the suite produced no result file'
             } else {
-                $results = ([xml](Get-Content -LiteralPath $amisadXml -Raw)).'test-results'
+                $amisadDocument = [xml](Get-Content -LiteralPath $amisadXml -Raw)
+                $results = $amisadDocument.'test-results'
                 $total = [int]$results.total
                 $broken = [int]$results.failures + [int]$results.errors
+                $amisadDetail = "$total test(s), $broken failed, $([int]$results.skipped + [int]$results.'not-run' + [int]$results.ignored) skipped"
+                if ($broken -gt 0) {
+                    $amisadFailures = Get-NUnitFailureSummary -Document $amisadDocument
+                    if ($amisadFailures) { $amisadDetail += "; failed: $amisadFailures" }
+                }
                 Add-Row -Gate 'amisad-tests' -State $(if ($total -gt 0 -and $broken -eq 0) { 'pass' } else { 'fail' }) `
-                    -Detail "$total test(s), $broken failed, $([int]$results.skipped + [int]$results.'not-run' + [int]$results.ignored) skipped"
+                    -Detail $amisadDetail
             }
         } catch {
             Add-Row -Gate 'amisad-tests' -State 'cannot-run' -Detail $_.Exception.Message

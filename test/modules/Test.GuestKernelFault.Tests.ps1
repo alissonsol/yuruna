@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42b6c1f4-8e37-4d2a-9a51-7f0c3e6d2b84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -360,6 +360,28 @@ Describe 'A guest clock that jumped, read from the console''s timestamps' {
         $reading.largestForwardLeap.fromUptimeSeconds | Should -Be 270.012
         $reading.largestForwardLeap.seconds | Should -Be 11753.443
         @($reading.kinds) | Should -Contain 'clock-jump'
+    }
+
+    It 'names a display driver whose page flips time out, and files it as no kernel fault' {
+        # An ARM64 Hyper-V guest whose framebuffer stopped: the console wait
+        # reads a frozen screen while the guest keeps running.
+        $text = @(
+            '[   22.427325] systemd[1]: Started update-notifier-download.timer - Download data for packages that failed at package install time.'
+            '[   71.096573] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* flip_done timed out'
+            '[   71.096579] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [CRTC:36:crtc-0] commit wait timed out'
+            '[   81.975659] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [PLANE:34:plane-0] commit wait timed out'
+            '[  124.345177] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [CONNECTOR:38:Virtual-1] commit wait timed out'
+            '[  208.833131] systemd-logind[1021]: New session 3 of user yuuser26.'
+        ) -join "`n"
+        $reading = ConvertFrom-GuestKernelFaultText -Text $text
+        $reading.displayStall.driver | Should -Be 'hyperv_drm'
+        $reading.displayStall.reports | Should -Be 4
+        $reading.displayStall.firstUptimeSeconds | Should -Be 71.097
+        $reading.displayStall.lastUptimeSeconds | Should -Be 124.345
+        $reading.displayStall.text | Should -Match 'flip_done timed out$'
+        @($reading.kinds).Count | Should -Be 0 -Because 'a stalled display is no kernel fault, so it changes no failure class'
+        $reading.faultRecords | Should -Be 0
+        (ConvertFrom-GuestKernelFaultText -Text '[   21.100000] hyperv_drm x: [drm] ready').displayStall | Should -BeNullOrEmpty -Because 'a driver that only reports in is no stall'
     }
 
     It 'judges every boot in the text against the limit, and measures the leap in the newest boot' {

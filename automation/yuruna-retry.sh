@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.05
+# Version: 2026.11.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 426a6ad8-45b3-4008-972c-5b67700fa245
@@ -39,12 +39,39 @@ _yuruna_retry_positive_integer() {
     printf '%s' "$fallback"
 }
 
+# --- REGION: Retry window
+# See https://yuruna.link/4220a755-0003
+# With a window, the attempt count is only a backstop: enough attempts that
+# their shortest jittered sleeps alone fill the window, so the window is what
+# ends a retry whose every attempt fails, and a wall clock that jumps cannot
+# keep it retrying for ever. Without one, the default stays five attempts.
+_yuruna_retry_window_attempts() {
+    local window="$1" delay="$2" max_delay="$3" slept=0 attempts=1 half
+    if [ "$window" -le 0 ]; then printf '5'; return 0; fi
+    while [ "$slept" -lt "$window" ] && [ "$attempts" -lt 1000 ]; do
+        if [ "$max_delay" -gt 0 ] && [ "$delay" -gt "$max_delay" ]; then delay="$max_delay"; fi
+        half=$(( delay / 2 ))
+        [ "$half" -lt 1 ] && half=1
+        slept=$(( slept + half ))
+        attempts=$(( attempts + 1 ))
+        delay=$(( delay * 2 ))
+    done
+    printf '%s' "$attempts"
+}
+
 # --- REGION: Retry execution
 _yuruna_retry() {
     local label="$1"; shift
-    local max_attempts delay
-    max_attempts=$(_yuruna_retry_positive_integer "${YURUNA_RETRY_MAX_ATTEMPTS:-}" 5)
+    local max_attempts delay window max_delay
     delay=$(_yuruna_retry_positive_integer "${YURUNA_RETRY_DELAY_SECONDS:-}" 10)
+    # A window (seconds) bounds the retries by elapsed time; a maximum delay
+    # caps each backoff so no single sleep outgrows it. Both are off at 0.
+    window=$(_yuruna_retry_positive_integer "${YURUNA_RETRY_WINDOW_SECONDS:-}" 0)
+    max_delay=$(_yuruna_retry_positive_integer "${YURUNA_RETRY_MAX_DELAY_SECONDS:-}" 0)
+    max_attempts=$(_yuruna_retry_positive_integer "${YURUNA_RETRY_MAX_ATTEMPTS:-}" \
+        "$(_yuruna_retry_window_attempts "$window" "$delay" "$max_delay")")
+    local window_field="" started="$SECONDS"
+    [ "$window" -gt 0 ] && window_field=",\"windowSeconds\":${window}"
     local stall="${YURUNA_RETRY_STALL_TIMEOUT_SECONDS:-0}"
     local attempt=1 rc=0
     # See https://yuruna.link/4220a755-0004
@@ -97,11 +124,22 @@ _yuruna_retry() {
         if [ -n "${YURUNA_RETRY_CLASSIFY:-}" ] && ! "$YURUNA_RETRY_CLASSIFY" "$rc"; then permanent=true; fi
         # See https://yuruna.link/4220a755-0003
         # Emit scalar retry fields on stderr for host telemetry.
-        _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"attempt\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc},\"permanent\":${permanent}}"
+        _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"attempt\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc},\"permanent\":${permanent}${window_field}}"
         if [ "$permanent" = true ]; then
-            _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"permanent\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc}}"
+            _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"permanent\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc}${window_field}}"
             echo "!! ${label}: PERMANENT failure (rc=$rc, not retryable) -- not spending the remaining $((max_attempts - attempt)) attempt(s): $*" >&2
             return "$rc"
+        fi
+        local remaining=0
+        if [ "$window" -gt 0 ]; then
+            remaining=$(( window - (SECONDS - started) ))
+            if [ "$remaining" -le 0 ]; then
+                # The window allowed the attempts made so far; the record says
+                # so, which keeps "exhausted N attempts" true for its readers.
+                _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"exhausted\",\"attempt\":${attempt},\"maxAttempts\":${attempt},\"rc\":${rc}${window_field}}"
+                echo "!! ${label}: the ${window}s retry window closed after $attempt attempt(s) for: $*" >&2
+                return "$rc"
+            fi
         fi
         if [ "$attempt" -lt "$max_attempts" ]; then
             # See https://yuruna.link/4220a755-0005
@@ -111,16 +149,19 @@ _yuruna_retry() {
             fi
             # See https://yuruna.link/4220a755-0003
             # Equal jitter prevents parallel guests from retrying in lockstep.
+            if [ "$max_delay" -gt 0 ] && [ "$delay" -gt "$max_delay" ]; then delay="$max_delay"; fi
             local half=$(( delay / 2 ))
             local nap=$(( half + (RANDOM % (half + 1)) ))
             [ "$nap" -lt 1 ] && nap=1
+            # The last attempt starts as the window closes, not after it.
+            [ "$window" -gt 0 ] && [ "$nap" -gt "$remaining" ] && nap="$remaining"
             echo "!! ${label}: sleeping ${nap}s before retry (backoff ${delay}s, jittered)" >&2
             sleep "$nap"
             delay=$((delay * 2))
         fi
         attempt=$((attempt + 1))
     done
-    _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"exhausted\",\"attempt\":${max_attempts},\"maxAttempts\":${max_attempts},\"rc\":${rc}}"
+    _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"exhausted\",\"attempt\":${max_attempts},\"maxAttempts\":${max_attempts},\"rc\":${rc}${window_field}}"
     echo "!! ${label}: all $max_attempts attempts exhausted for: $*" >&2
     return "$rc"
 }
@@ -415,14 +456,35 @@ _yuruna_classify_wget() {
     return 0
 }
 
+# --- REGION: GitHub release retry window
+# See https://yuruna.link/4220a755-0003
+# GitHub's release endpoints (releases/download and the releases/latest
+# redirect) have answered 504 for most of half an hour at a time while the rest
+# of github.com answered, which outlasts five attempts over about four minutes.
+# A fetch from them keeps retrying through a 30-minute window with each backoff
+# capped at two minutes, so it lands within two minutes of GitHub recovering.
+# A deterministic 404 still fails at once, and a caller's own window or cap
+# wins. Prints "<window> <max delay>" for the call.
+_yuruna_retry_release_bounds() {
+    local window="${YURUNA_RETRY_WINDOW_SECONDS:-}" max_delay="${YURUNA_RETRY_MAX_DELAY_SECONDS:-}"
+    local release='^https://github\.com/[^/?#]+/[^/?#]+/releases/(download/|latest([?#]|$))'
+    if [[ "${1:-}" =~ $release ]]; then
+        window="${window:-1800}"
+        max_delay="${max_delay:-120}"
+    fi
+    printf '%s %s' "${window:-0}" "${max_delay:-0}"
+}
+
 # --- REGION: https://yuruna.link/4220a755-0003
 # Bound stalled transfer throughput, preserving moving large downloads.
 curl_retry() {
-    local url="" _a
+    local url="" _a window max_delay
     for _a in "$@"; do case "$_a" in http://*|https://*) url="$_a" ;; esac; done
     local classify=_yuruna_classify_curl
     [ -n "${YURUNA_RETRY_NO_TRANSIENT_GATE:-}" ] && classify=""
+    read -r window max_delay <<<"$(_yuruna_retry_release_bounds "$url")"
     YURUNA_RETRY_CLASSIFY="$classify" YURUNA_RETRY_CURL_URL="$url" \
+    YURUNA_RETRY_WINDOW_SECONDS="$window" YURUNA_RETRY_MAX_DELAY_SECONDS="$max_delay" \
     _yuruna_retry curl_retry curl --retry 3 --retry-connrefused --retry-delay 5 \
         --speed-limit 1024 --speed-time 60 "$@"
 }
@@ -430,11 +492,13 @@ curl_retry() {
 # --- REGION: https://yuruna.link/4220a755-0003
 # Use the same classifier and backoff as curl_retry with a bounded read stall.
 wget_try() {
-    local url="" _a
+    local url="" _a window max_delay
     for _a in "$@"; do case "$_a" in http://*|https://*) url="$_a" ;; esac; done
     local classify=_yuruna_classify_wget
     [ -n "${YURUNA_RETRY_NO_TRANSIENT_GATE:-}" ] && classify=""
+    read -r window max_delay <<<"$(_yuruna_retry_release_bounds "$url")"
     YURUNA_RETRY_CLASSIFY="$classify" YURUNA_RETRY_WGET_URL="$url" \
+    YURUNA_RETRY_WINDOW_SECONDS="$window" YURUNA_RETRY_MAX_DELAY_SECONDS="$max_delay" \
     _yuruna_retry wget_try wget --tries=3 --waitretry=5 --retry-connrefused \
         --read-timeout=60 "$@"
 }
@@ -880,6 +944,7 @@ export -f yuruna_host_env yuruna_host_relocate yuruna_fetch_archive yuruna_mater
 # --- REGION: https://yuruna.link/4220a755-0003
 # Child Bash payloads need the wrappers and every helper they call.
 export -f _yuruna_retry _yuruna_retry_positive_integer _yuruna_retry_record _yuruna_retry_run \
+    _yuruna_retry_window_attempts _yuruna_retry_release_bounds \
     apt_retry _yuruna_classify_apt_update _yuruna_apt_index_heal \
     dnf_retry curl_retry wget_try pwsh_retry _yuruna_pwsh_attempt \
     _yuruna_http_status_class _yuruna_classify_curl _yuruna_classify_wget \

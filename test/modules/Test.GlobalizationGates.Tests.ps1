@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1489,6 +1489,51 @@ exit 3
         $reported[0].gate | Should -BeExactly 'project-shellcheck'
         $reported[0].state | Should -BeExactly 'not-applicable'
         $output | Should -Not -Match 'Invoke-CrossRepoGate \[' -Because 'a stage process reports its own rows, not a gate summary'
+    }
+
+    It 'names each failed amisad.dev case and the first line of its error in the stage row' {
+        # The stage deletes the suite's result file once it has read it, so a row
+        # that carries only counts leaves a failed case nameless in the gate's
+        # table, its evidence file and the failure message of a suite that runs
+        # the gate. The real shim runs a real nested suite here, so the row is
+        # read from the NUnit file Pester writes.
+        $workspace = Join-Path $TestDrive ('nested-' + [guid]::NewGuid().ToString('N'))
+        $framework = Join-Path $workspace 'yuruna'
+        $project = Join-Path $workspace 'project'
+        foreach ($path in @((Join-Path $framework 'tools'), (Join-Path $workspace 'amisad.dev/test'), $project)) {
+            [void][IO.Directory]::CreateDirectory($path)
+        }
+        $gate = Join-Path $framework 'tools/Invoke-CrossRepoGate.ps1'
+        Copy-Item -LiteralPath $script:CrossRepoPath -Destination $gate
+        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'tools/_InvokeOneSuite.ps1') -Destination (Join-Path $framework 'tools/_InvokeOneSuite.ps1')
+        [IO.File]::WriteAllText((Join-Path $workspace 'amisad.dev/test/AmisAd.Regression.Tests.ps1'), @'
+Describe 'nested fixture' {
+    It 'passes' { }
+    It 'fails first' { throw "the first nested error`nand a second line the row leaves out" }
+    It 'fails <Name>' -ForEach @(@{ Name = 'second' }, @{ Name = 'third' }, @{ Name = 'fourth' }, @{ Name = 'fifth' }, @{ Name = 'sixth' }) {
+        throw "the $Name nested error"
+    }
+}
+'@, [Text.UTF8Encoding]::new($false))
+        $output = & $script:PowerShell -NoProfile -File $gate -ProjectRoot $project -SerialStage amisad-tests 2>&1 | Out-String
+        $LASTEXITCODE | Should -Be 0 -Because $output
+        $line = @($output -split "`r?`n" | Where-Object { $_.StartsWith('YURUNA_GATE_STAGE ') })
+        $line | Should -HaveCount 1 -Because $output
+        $reported = @(ConvertFrom-Json -InputObject $line[0].Substring('YURUNA_GATE_STAGE '.Length))
+        $reported | Should -HaveCount 1
+        $reported[0].gate | Should -BeExactly 'amisad-tests'
+        $reported[0].state | Should -BeExactly 'fail'
+        $detail = [string]$reported[0].detail
+        $detail | Should -Match '^7 test\(s\), 6 failed, 0 skipped; failed: ' -Because 'the counts the row always carried stay first'
+        # Pester may prefix a thrown message with the exception's type, so each
+        # case's name is followed by its own message somewhere before the next.
+        foreach ($name in @('first', 'second', 'third', 'fourth', 'fifth')) {
+            $detail | Should -Match ("fails ${name}: [^;]*the $name nested error(;|$)")
+        }
+        $detail | Should -Not -Match 'sixth' -Because 'five failures are named and the rest are counted'
+        $detail | Should -Match '; 1 more$'
+        $detail | Should -Not -Match 'second line' -Because 'the gate table prints one line per row'
+        $detail | Should -Not -Match "`n"
     }
 
     It 'stops a serial stage and a pooled tool at the ceiling and still writes evidence its readers parse' {

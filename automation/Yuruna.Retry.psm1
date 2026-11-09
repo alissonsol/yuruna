@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 4257205b-1908-49c3-840b-b2b3559b3337
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,12 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableName
         burst of parallel callers does not lock-step their retries onto
         the same failure window.
 
+    Both sides take an optional retry window: -WindowSeconds here, and
+    YURUNA_RETRY_WINDOW_SECONDS with YURUNA_RETRY_MAX_DELAY_SECONDS there,
+    which the bash wrappers set for a GitHub release URL. A window ends the
+    retries once that much time has passed since the first attempt, and the
+    attempt count becomes a backstop sized so the window binds first.
+
     Defaults can be overridden per call OR via the same env vars the
     bash side honors (YURUNA_RETRY_MAX_ATTEMPTS, YURUNA_RETRY_DELAY_SECONDS),
     so an operator can tune both halves of the system from one place.
@@ -61,7 +67,7 @@ $script:RetryDefaults = @{
 }
 
 # See https://yuruna.link/4213a0b3-0010
-$script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|could not resolve host|server misbehaving|connection refused|connection to the server \S+ was refused|connection reset|client\.timeout|\bEOF\b|TLS handshake|temporary failure|\b(?:429|500|502|503|504)\b|too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
+$script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|could not resolve host|server misbehaving|connection refused|connection to the server \S+ was refused|connection reset|client\.timeout|\bEOF\b|TLS handshake|temporary failure|\b(?:429|500|502|503|504)\b|too many requests|error acquiring the state lock|ConditionalCheckFailedException|etcdserver: (?:request timed out|leader changed)|the server was unable to return a response in the time allotted|the server is currently unable to handle the request)'
 
 <#
 .SYNOPSIS
@@ -80,6 +86,35 @@ function Get-YurunaRetryDefault {
         if ([int]::TryParse($raw, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
     }
     return $Fallback
+}
+
+<#
+.SYNOPSIS
+    Returns the attempt count that backs a retry window: enough attempts that
+    their shortest jittered backoffs alone fill the window, so the window is
+    what ends a retry whose every attempt fails. Without a window it returns
+    the shared default.
+#>
+function Get-YurunaRetryWindowAttempt {
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][int]$WindowSeconds,
+        [Parameter(Mandatory)][int]$InitialDelaySeconds,
+        [Parameter(Mandatory)][int]$MaxDelaySeconds,
+        [Parameter(Mandatory)][double]$JitterFraction
+    )
+    if ($WindowSeconds -le 0) { return [int]$script:RetryDefaults.MaxAttempts }
+    $delay = [Math]::Max($InitialDelaySeconds, 1)
+    $floor = [Math]::Max(1.0 - [Math]::Max($JitterFraction, 0.0), 0.0)
+    $slept = 0.0
+    $attempts = 1
+    while ($slept -lt $WindowSeconds -and $attempts -lt 1000) {
+        $capped = [Math]::Min($delay, [Math]::Max($MaxDelaySeconds, 1))
+        $slept += [Math]::Max($capped * $floor, 1.0)
+        $attempts++
+        $delay = [Math]::Min([long]$delay * 2, [int]::MaxValue)
+    }
+    return [int]$attempts
 }
 
 <#
@@ -440,6 +475,12 @@ function Get-YurunaCommandTimeout {
     stopped. The predicate sees TimedOut too; without one, a stopped attempt is
     retried like any other non-zero exit, and the classifier never matches the
     stopped line, so a classifier-gated call is not retried after a stop.
+
+    With -WindowSeconds, no attempt starts after that much time has passed
+    since the first, the last backoff is shortened to end as the window
+    closes, and an unset -MaxAttempts comes from Get-YurunaRetryWindowAttempt.
+    A run the window ends reports the attempts it made as its allowance, so
+    "all N attempts exhausted" stays true.
 #>
 function Invoke-WithYurunaRetry {
     [OutputType([pscustomobject])]
@@ -456,17 +497,20 @@ function Invoke-WithYurunaRetry {
         [scriptblock]$OnAttempt,
         [scriptblock]$OnRetry,
         [scriptblock]$ShouldRetry,
-        [ValidateRange(0, 86400)][int]$TimeoutSeconds = 0
+        [ValidateRange(0, 86400)][int]$TimeoutSeconds = 0,
+        [ValidateRange(0, 86400)][int]$WindowSeconds = 0
     )
 
-    if ($MaxAttempts -le 0) {
-        $MaxAttempts = Get-YurunaRetryDefault -EnvName 'YURUNA_RETRY_MAX_ATTEMPTS' -Fallback $script:RetryDefaults.MaxAttempts
-    }
     if ($InitialDelaySeconds -le 0) {
         $InitialDelaySeconds = Get-YurunaRetryDefault -EnvName 'YURUNA_RETRY_DELAY_SECONDS' -Fallback $script:RetryDefaults.InitialDelaySeconds
     }
     if ($MaxDelaySeconds -le 0)     { $MaxDelaySeconds  = $script:RetryDefaults.MaxDelaySeconds }
     if ($JitterFraction  -lt 0)     { $JitterFraction   = $script:RetryDefaults.JitterFraction }
+    if ($MaxAttempts -le 0) {
+        $MaxAttempts = Get-YurunaRetryDefault -EnvName 'YURUNA_RETRY_MAX_ATTEMPTS' -Fallback (Get-YurunaRetryWindowAttempt -WindowSeconds $WindowSeconds -InitialDelaySeconds $InitialDelaySeconds -MaxDelaySeconds $MaxDelaySeconds -JitterFraction $JitterFraction)
+    }
+    $allowedAttempts = $MaxAttempts
+    $windowClock = [System.Diagnostics.Stopwatch]::StartNew()
     # The label is often the expanded command itself. Redacted once here, it is
     # safe in the log header, the console lines, the events and the result.
     $secretValues = Get-YurunaSecretValue
@@ -530,7 +574,13 @@ function Invoke-WithYurunaRetry {
 
         if ($success) { break }
 
-        if ($attempt -lt $MaxAttempts) {
+        $windowRemaining = 0
+        $windowClosed = $false
+        if ($WindowSeconds -gt 0) {
+            $windowRemaining = [int][Math]::Ceiling($WindowSeconds - $windowClock.Elapsed.TotalSeconds)
+            $windowClosed = $windowRemaining -le 0
+        }
+        if ($attempt -lt $MaxAttempts -and -not $windowClosed) {
             # A predicate lets the caller fail fast on a non-transient error
             # (config typo, NotFound, auth) instead of spending the whole
             # backoff budget on a failure that will never clear. Evaluated
@@ -557,6 +607,8 @@ function Invoke-WithYurunaRetry {
                 }
             }
             $sleep = Get-YurunaRetryBackoff -BaseDelay $delay -MaxDelay $MaxDelaySeconds -JitterFraction $JitterFraction
+            # The last attempt starts as the window closes, not after it.
+            if ($WindowSeconds -gt 0 -and $sleep -gt $windowRemaining) { $sleep = $windowRemaining }
             Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_b33c77878eaa7c77' -Arguments @{ label = "${Label}"; attempt = "${attempt}"; maxAttempts = "${MaxAttempts}"; lastExit = "${lastExit}"; sleep = "${sleep}" })
             Send-YurunaRetryEvent -EventName 'retry_attempt' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Transient ([bool](Test-YurunaTransientFailure -Output $lastOutput)) -SleepSeconds $sleep
             if ($OnRetry) {
@@ -565,8 +617,10 @@ function Invoke-WithYurunaRetry {
             Start-Sleep -Seconds $sleep
             $delay = [Math]::Min([int]($delay * 2), $MaxDelaySeconds)
         } else {
-            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_0006b705ae0abd93' -Arguments @{ label = "${Label}"; maxAttempts = "${MaxAttempts}"; lastExit = "${lastExit}" })
-            Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Permanent $false
+            if ($windowClosed) { $allowedAttempts = $attempt }
+            Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_0006b705ae0abd93' -Arguments @{ label = "${Label}"; maxAttempts = "${allowedAttempts}"; lastExit = "${lastExit}" })
+            Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $allowedAttempts -ExitCode $lastExit -Permanent $false
+            if ($windowClosed) { break }
         }
         $attempt++
     }
@@ -580,8 +634,8 @@ function Invoke-WithYurunaRetry {
     }
     return [pscustomobject]@{
         Success     = $success
-        Attempts    = [Math]::Min($attempt, $MaxAttempts)
-        MaxAttempts = $MaxAttempts
+        Attempts    = [Math]::Min($attempt, $allowedAttempts)
+        MaxAttempts = $allowedAttempts
         LastExit    = $lastExit
         LastOutput  = $lastOutput
         LastError   = $lastError
@@ -622,13 +676,14 @@ function Get-YurunaRetryBackoff {
     one: init only fetches providers and modules, and a fetch that stalled is
     the failure a retry clears.
 
-    Init takes one attempt more than the shared default, unless the caller or
-    YURUNA_RETRY_MAX_ATTEMPTS sets the count. It is the call that must reach
-    the provider registry, and an attempt that cannot reach it fails within
-    seconds on OpenTofu's own client timeout, so five attempts span only about
-    four minutes of backoff. A registry that stays unreachable through the
-    caching proxy for five minutes outlasts that; six attempts span about
-    seven.
+    Init retries through the same 30-minute window, with backoff capped at
+    two minutes, that the guest library gives a GitHub release fetch, unless
+    the caller or YURUNA_RETRY_MAX_ATTEMPTS sets the attempt count. It is the
+    call that must reach the provider registry and the GitHub releases the
+    providers download from, and an attempt that cannot reach them fails
+    within seconds on OpenTofu's own client timeout, so five attempts spanned
+    only about four minutes. GitHub's release endpoints have answered 504 for
+    most of half an hour at a time, which outlasts that.
 #>
 function Invoke-TofuInitWithRetry {
     [OutputType([pscustomobject])]
@@ -642,13 +697,10 @@ function Invoke-TofuInitWithRetry {
         [ValidateRange(0, 86400)][int]$TimeoutSeconds = 0
     )
     if ($TimeoutSeconds -le 0) { $TimeoutSeconds = $script:ToolCallDefaultSeconds['tofu init'] }
-    if ($MaxAttempts -le 0) {
-        $MaxAttempts = Get-YurunaRetryDefault -EnvName 'YURUNA_RETRY_MAX_ATTEMPTS' -Fallback ($script:RetryDefaults.MaxAttempts + 1)
-    }
     $label = "tofu init ($ResourceName)"
     return Invoke-WithYurunaRetry -Label $label -ScriptBlock {
         & tofu init -input=false
-    } -MaxAttempts $MaxAttempts -InitialDelaySeconds $InitialDelaySeconds -LogPath $LogPath -RcFile $RcFile -TimeoutSeconds $TimeoutSeconds
+    } -MaxAttempts $MaxAttempts -InitialDelaySeconds $InitialDelaySeconds -MaxDelaySeconds 120 -WindowSeconds 1800 -LogPath $LogPath -RcFile $RcFile -TimeoutSeconds $TimeoutSeconds
 }
 
 Export-ModuleMember -Function 'Invoke-WithYurunaRetry','Invoke-TofuInitWithRetry','Invoke-YurunaToolWithDeadline','Get-YurunaCommandTimeout','Get-YurunaRetryBackoff','Get-YurunaRetryDefault','Get-YurunaTransientPattern','Test-YurunaTransientFailure','Write-YurunaToolLogSection','Get-YurunaSecretValue','Protect-YurunaSecretText','Get-YurunaOutputTail'

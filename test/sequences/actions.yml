@@ -121,7 +121,9 @@ actions:
     (positive integer or substituted string, optional), installPowerOff
     (boolean, default false -- the wait is for an install that powers the VM
     off on its own; a VM that never stops is then a provisioning_failure and
-    the guest is not marked silent).
+    the guest is not marked silent), failurePatterns (string or string[],
+    optional -- console text on a saved frame that ends the wait as a
+    pattern_matched_failure, because the VM will not stop on its own after it).
 
   inputText: >
     Type a text string. Parameters: text (string), sensitive

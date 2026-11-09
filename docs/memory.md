@@ -1282,8 +1282,10 @@ block, and a helm chart rendering an `InvalidImageName` pod -- the
 failure surfaces ~30 minutes downstream from the cause.
 
 The shared Yuruna.Retry backoff (10 s initial delay, jittered
-exponential), with six attempts for init rather than the shared five,
-covers about seven minutes of upstream wobble.
+exponential), capped at two minutes and run through a 30-minute window
+for init rather than the shared five attempts, waits out an upstream
+outage of up to half an hour, as long as GitHub's release endpoints have
+answered `504`.
 Longer outages still surface, framed as "tofu init failed ... after N
 attempts" with the stderr tail attached, so the operator immediately
 sees whether it's a 5xx, a checksum mismatch, or something else. The
@@ -1765,6 +1767,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

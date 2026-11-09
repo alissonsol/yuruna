@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 427642c0-6914-46fa-a327-c4a7e4ddc547
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -496,6 +496,60 @@ foreach ($one in 0) {
         $age = (& $script:RunnerStatus $runtime).stepHeartbeatAgeSeconds
         $age | Should -BeGreaterOrEqual 99
         $age | Should -BeLessOrEqual 105
+    }
+}
+
+# A runner that is gone is reported with what its session and exit records say,
+# and only when those records belong to the runner runner.pid names.
+Describe 'runner status says why a runner is gone' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.SingleInstance.psm1') -Force -Global -DisableNameChecking
+        $start = $script:ServerText.IndexOf("if (`$path -eq 'control/runner-status') {", [StringComparison]::Ordinal)
+        $end = $script:ServerText.IndexOf('# --- REGION: /control/control-status', $start, [StringComparison]::Ordinal)
+        $script:GoneStatus = [scriptblock]::Create(@'
+param([string]$runtimeDir, [bool]$alive)
+$serverConfigPath = 'unused'
+$script:RunnerExitBootUtc = [datetime]::new(2026, 11, 7, 6, 0, 0, [DateTimeKind]::Utc)
+function Test-RunnerAlive { [pscustomobject]@{ Running = $alive; RunnerPid = 4242 } }
+function Read-TestConfig { $null }
+function Get-TestConfigValue { $null }
+function Write-ServerErr { param($Message) $null = $Message }
+$res = [pscustomobject]@{ ContentType = ''; Headers = [System.Collections.Generic.Dictionary[string, string]]::new(); ContentLength64 = 0; OutputStream = [IO.MemoryStream]::new() }
+$path = 'control/runner-status'
+foreach ($one in 0) {
+'@ + "`n" + $script:ServerText.Substring($start, $end - $start) + "`n" + @'
+}
+[Text.Encoding]::UTF8.GetString($res.OutputStream.ToArray()) | ConvertFrom-Json
+'@)
+        function Set-RunnerRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes into a throwaway runtime directory.')]
+            param([string]$Runtime, [int]$SessionPid)
+            [IO.File]::WriteAllText((Join-Path $Runtime 'runner.session.json'), (@{ schemaVersion = 1; pid = $SessionPid
+                startedUtc = '2026-11-07T08:00:00.0000000Z'; recordedUtc = '2026-11-07T08:00:01.0000000Z'
+                hostBootUtc = '2026-11-07T06:00:00.0000000Z'; sshSession = $true; terminalProgram = $null; multiplexer = $null
+                parents = @('zsh[100]', 'sshd[90]') } | ConvertTo-Json -Compress))
+            [IO.File]::WriteAllText((Join-Path $Runtime 'runner.exit.json'), "{`"signal`":`"SIGHUP`",`"atUtc`":`"2026-11-07T15:35:02.0000000Z`",`"pid`":$SessionPid}")
+        }
+    }
+    It 'names the signal, the session and the boot of a runner that is gone' {
+        $runtime = Join-Path $script:Work ('runner-gone-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $runtime -Force
+        Set-RunnerRecord -Runtime $runtime -SessionPid 4242
+        $lastExit = (& $script:GoneStatus $runtime $false).lastExit
+        $lastExit.signal | Should -Be 'SIGHUP'
+        ([datetime]$lastExit.signalAtUtc).ToUniversalTime() | Should -Be ([datetime]::new(2026, 11, 7, 15, 35, 2, [DateTimeKind]::Utc))
+        $lastExit.sshSession | Should -BeTrue
+        @($lastExit.parents) | Should -Be @('zsh[100]', 'sshd[90]')
+        $lastExit.hostRestarted | Should -BeFalse
+    }
+    It 'reports nothing while the runner runs, or for records of another runner' {
+        $runtime = Join-Path $script:Work ('runner-gone-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $runtime -Force
+        Set-RunnerRecord -Runtime $runtime -SessionPid 4242
+        (& $script:GoneStatus $runtime $true).lastExit | Should -BeNullOrEmpty
+        Set-RunnerRecord -Runtime $runtime -SessionPid 1717
+        (& $script:GoneStatus $runtime $false).lastExit | Should -BeNullOrEmpty
     }
 }
 

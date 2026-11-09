@@ -359,6 +359,9 @@ write_files:
       # binaries (raw `kubectl`, `helm`) are covered too.
       refresh_pattern -i ^https?://github\.com/[^/]+/[^/]+/releases/download/ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://objects\.githubusercontent\.com/        525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      # Where GitHub redirects a release download; the signed query would otherwise
+      # leave it to the stock zero-freshness query-string rule, unstored.
+      refresh_pattern -i ^https?://release-assets\.githubusercontent\.com/ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
 
       # --- REGION: Helm chart + repo index caching
       # See https://yuruna.link/429f3d06-0044
@@ -384,11 +387,26 @@ write_files:
       # File a versioned package request under the CDN object it redirects to, so
       # a stored package is served without asking the gallery.
       acl yuruna_gallery_package url_regex -i ^https?://www\.powershellgallery\.com/api/v2/package/[^/]+/[^/?#]+$
+      # See https://yuruna.link/42f6b05f-005d
+      # A GitHub release download is filed under the CDN URL it was last
+      # redirected to, once yuruna-release-asset-learn.py has learned it.
+      acl yuruna_github_release_download url_regex -i ^https?://github\.com/[^/]+/[^/]+/releases/download/
       store_id_program /usr/lib/squid/storeid_file_rewrite /etc/squid/yuruna-store-id.rules
       store_id_children 2 startup=1 idle=1 concurrency=0
       store_id_access allow yuruna_gallery_package
+      store_id_access allow yuruna_github_release_download
       store_id_access deny all
       refresh_pattern -i ^https?://cdn\.powershellgallery\.com/packages/    525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
+      # GitHub answers a release download with a redirect, never the asset. Kept
+      # under the asset's key, or handed to a CDN request collapsed onto it, that
+      # redirect would send the asset's own URL back to itself.
+      store_miss deny yuruna_github_release_download
+      collapsed_forwarding_access deny yuruna_github_release_download
+      # The redirects the learner reads. `has request` keeps the URL ACL from
+      # being evaluated for request-less log events, which would warn in cache.log.
+      acl yuruna_has_request has request
+      logformat yuruna_release_redirect %ts.%03tu %<Hs %>ru %{Location}<h
+      access_log stdio:/var/log/squid/yuruna_release_redirects.log yuruna_release_redirect yuruna_has_request yuruna_github_release_download
 
       logfile_rotate 2
 
@@ -425,11 +443,225 @@ write_files:
   # --- REGION: PowerShell Gallery package store ID rules
   # See https://yuruna.link/42f6b05f-005c
   # One tab-separated rule and no comment lines, which the helper rejects; the
-  # double-quoted scalar carries the tab as an escape.
-  - path: /etc/squid/yuruna-store-id.rules
+  # double-quoted scalar carries the tab as an escape. squid's helper reads
+  # /etc/squid/yuruna-store-id.rules, which yuruna-release-asset-learn.py writes
+  # as these rules followed by the GitHub release downloads it learned.
+  - path: /etc/squid/yuruna-store-id.static.rules
     permissions: '0644'
     owner: root:root
     content: "^(https?)://www\\.powershellgallery\\.com/api/v2/package/([^/\\s]+)/([^/?#\\s]+)(?:\\s|$)\t$1://cdn.powershellgallery.com/packages/$2.$3.nupkg\n"
+  # See https://yuruna.link/42f6b05f-005d
+  - path: /usr/local/bin/yuruna-release-asset-learn.py
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/usr/bin/env python3
+      """Learn where GitHub redirects each release download, so squid serves the stored asset for it.
+
+      GitHub answers github.com/<owner>/<repo>/releases/download/<tag>/<file>
+      with a 302 to a signed URL on its release CDN. squid stores the asset under
+      that signed URL, but it cannot store the redirect, which carries no
+      Expires, so without a Store ID every download asks GitHub first and fails
+      whenever GitHub's redirect endpoint does, although the asset is in the cache.
+
+      squid logs each such redirect to its own file. This reads that log, keeps
+      the newest redirect of each release URL, and writes the rules file squid's
+      stock storeid_file_rewrite helper reads: the static rules, then one exact
+      rule per learned URL that files the request under the CDN URL it was
+      redirected to. squid then serves the stored asset for the release URL
+      without asking GitHub. A URL whose asset is not stored misses, asks GitHub
+      as before, and its new redirect replaces the mapping.
+
+      Only a release URL without a query is learned, so a cache-busting query
+      still reaches GitHub. The rules file is replaced atomically, and squid is
+      told to reconfigure only when its content changed.
+
+      Exit status: 0 the rules file is current; 1 squid did not accept the
+      reconfigure, so the new rules apply when squid next starts its helpers.
+      """
+      import argparse
+      import glob
+      import os
+      import re
+      import subprocess
+      import sys
+      import tempfile
+
+      # A release download URL, without a query. The character sets leave out
+      # everything the helper's rules file or squid's reply parser treats specially.
+      REQUEST = re.compile(r'^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[A-Za-z0-9._~%+!,;=@-]+/[A-Za-z0-9._~%+!,;=@-]+$')
+      # Where GitHub redirects it. No whitespace, quote, backslash or $, which the
+      # helper would read as a capture reference in the store ID it answers with.
+      LOCATION = re.compile(r"^https://(?:release-assets|objects)\.githubusercontent\.com/[A-Za-z0-9._~:/?#\[\]@!&'()*+,;=%-]+$")
+      # The helper tries its rules in order for every release download.
+      MAX_LEARNED = 4096
+
+
+      def read_redirects(paths):
+          """(epoch, release URL, location) for each learnable redirect squid logged."""
+          found = []
+          for path in paths:
+              try:
+                  with open(path, encoding='utf-8', errors='replace') as handle:
+                      for line in handle:
+                          fields = line.rstrip('\n').split(' ')
+                          if len(fields) != 4 or fields[1] != '302':
+                              continue
+                          stamp, _, url, location = fields
+                          if not REQUEST.match(url) or not LOCATION.match(location):
+                              continue
+                          try:
+                              found.append((float(stamp), url, location))
+                          except ValueError:
+                              continue
+              except FileNotFoundError:
+                  continue
+          return found
+
+
+      def read_map(path):
+          """{release URL: (epoch, location)} as the last run kept it."""
+          learned = {}
+          try:
+              with open(path, encoding='utf-8') as handle:
+                  for line in handle:
+                      fields = line.rstrip('\n').split('\t')
+                      if len(fields) == 3 and REQUEST.match(fields[0]) and LOCATION.match(fields[1]):
+                          try:
+                              learned[fields[0]] = (float(fields[2]), fields[1])
+                          except ValueError:
+                              continue
+          except FileNotFoundError:
+              pass
+          return learned
+
+
+      def merge(learned, redirects):
+          """The newest redirect of each URL wins; the oldest go first past the bound."""
+          merged = dict(learned)
+          for epoch, url, location in redirects:
+              if url not in merged or epoch >= merged[url][0]:
+                  merged[url] = (epoch, location)
+          if len(merged) > MAX_LEARNED:
+              merged = dict(sorted(merged.items(), key=lambda item: item[1][0])[-MAX_LEARNED:])
+          return merged
+
+
+      def rule_for(url, location):
+          """One rule for the helper: the URL as a literal regex, then its store ID.
+
+          The helper is Perl; a backslash before punctuation is a literal there
+          and in Python's re alike. squid appends request details after the URL,
+          so the regex ends at whitespace or at the end of the line. squid
+          %-decodes the store ID the helper answers with, so each % is written as
+          %25 for the key to come out as the CDN URL the asset is stored under.
+          """
+          literal = ''.join(c if c.isalnum() or c in '/_' else '\\' + c for c in url)
+          return '^' + literal + r'(?:\s|$)' + '\t' + location.replace('%', '%25')
+
+
+      def render_rules(static_text, learned):
+          lines = [line for line in static_text.split('\n') if line.strip()]
+          lines += [rule_for(url, learned[url][1]) for url in sorted(learned)]
+          return '\n'.join(lines) + '\n'
+
+
+      def render_map(learned):
+          return ''.join('{0}\t{1}\t{2:.3f}\n'.format(url, learned[url][1], learned[url][0]) for url in sorted(learned))
+
+
+      def read_text(path):
+          try:
+              with open(path, encoding='utf-8') as handle:
+                  return handle.read()
+          except FileNotFoundError:
+              return None
+
+
+      def write_atomically(path, text):
+          directory = os.path.dirname(path) or '.'
+          handle, temporary = tempfile.mkstemp(dir=directory, prefix='.' + os.path.basename(path) + '.')
+          try:
+              with os.fdopen(handle, 'w', encoding='utf-8') as out:
+                  out.write(text)
+                  out.flush()
+                  os.fsync(out.fileno())
+              os.chmod(temporary, 0o644)
+              os.replace(temporary, path)
+          except BaseException:
+              try:
+                  os.unlink(temporary)
+              except OSError:
+                  pass
+              raise
+
+
+      def main(argv=None):
+          parser = argparse.ArgumentParser(description='Learn GitHub release redirects and write the squid store ID rules.')
+          parser.add_argument('--log', default='/var/log/squid/yuruna_release_redirects.log')
+          parser.add_argument('--map', default='/var/lib/yuruna/release-asset-map.tsv')
+          parser.add_argument('--static-rules', default='/etc/squid/yuruna-store-id.static.rules')
+          parser.add_argument('--rules', default='/etc/squid/yuruna-store-id.rules')
+          parser.add_argument('--squid', default='/usr/sbin/squid')
+          parser.add_argument('--no-reconfigure', action='store_true',
+                              help='only write the rules, as the build does before squid first starts')
+          args = parser.parse_args(argv)
+
+          with open(args.static_rules, encoding='utf-8') as handle:
+              static_text = handle.read()
+          # squid keeps rotated logs beside the live one as <log>.0, <log>.1, ...
+          redirects = read_redirects([args.log] + sorted(glob.glob(glob.escape(args.log) + '.[0-9]')))
+          before = read_map(args.map)
+          learned = merge(before, redirects)
+          if learned != before:
+              os.makedirs(os.path.dirname(args.map) or '.', exist_ok=True)
+              write_atomically(args.map, render_map(learned))
+          text = render_rules(static_text, learned)
+          if text == read_text(args.rules):
+              return 0
+          write_atomically(args.rules, text)
+          print('yuruna-release-asset-learn: {0} has {1} learned release download(s)'.format(args.rules, len(learned)))
+          if args.no_reconfigure:
+              return 0
+          result = subprocess.run([args.squid, '-k', 'reconfigure'], check=False)
+          if result.returncode != 0:
+              print('yuruna-release-asset-learn: squid -k reconfigure exited {0}; the new rules apply when squid next starts its helpers'.format(result.returncode),
+                    file=sys.stderr)
+              return 1
+          return 0
+
+
+      if __name__ == '__main__':
+          sys.exit(main())
+  - path: /etc/systemd/system/yuruna-release-asset-learn.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Yuruna release asset learner (serve stored GitHub release downloads without asking GitHub)
+      After=squid.service
+      # --- REGION: [Service]
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/yuruna-release-asset-learn.py
+      TimeoutStartSec=120
+  - path: /etc/systemd/system/yuruna-release-asset-learn.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # --- REGION: [Unit]
+      [Unit]
+      Description=Learn the GitHub release redirects squid logged, every minute
+      # --- REGION: [Timer]
+      [Timer]
+      OnBootSec=1min
+      OnUnitActiveSec=1min
+      AccuracySec=10s
+      Unit=yuruna-release-asset-learn.service
+      # --- REGION: [Install]
+      [Install]
+      WantedBy=timers.target
   # --- REGION: https://yuruna.link/42f6b05f-0016
   - path: /usr/share/squid/errors/templates/ERR_YURUNA_NO_UPSTREAM
     permissions: '0644'
@@ -3360,7 +3592,7 @@ write_files:
             "id": 6,
             "type": "table",
             "title": "Pool hosts",
-            "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Pass and Fail combine cycles from this ID and any prior ID handed over to it within the selected time range. Yellow preflight failures are runner attempts, excluded from cycle counts. Watch Status first: 'runner stopped' means the results below are a record, not a live reading. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Pass and Fail combine cycles from this ID and any prior ID handed over to it within the selected time range. Yellow preflight failures are runner attempts, excluded from cycle counts. Watch Status first: 'runner stopped' means the results below are a record, not a live reading, and 'runner lost mid-cycle' means the runner died inside a cycle and nothing restarted it. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
             "datasource": { "type": "datasource", "uid": "-- Mixed --" },
             "targets": [
@@ -3452,7 +3684,8 @@ write_files:
                           "pausing-cycle": { "text": "pausing (after cycle)", "color": "#eab308", "index": 6 },
                           "pausing-step": { "text": "pausing (after step)", "color": "#f59e0b", "index": 7 },
                           "stopped": { "text": "runner stopped", "color": "#475569", "index": 8 },
-                          "preflight-failed": { "text": "preflight failed", "color": "#eab308", "index": 9 }
+                          "preflight-failed": { "text": "preflight failed", "color": "#eab308", "index": 9 },
+                          "lost": { "text": "runner lost mid-cycle", "color": "#7c3aed", "index": 10 }
                         } }
                       ]
                     }
@@ -3550,7 +3783,7 @@ write_files:
             "id": 7,
             "type": "state-timeline",
             "title": "Host state over time (host x UTC time)",
-            "description": "One row per host, one color per observed host state; times are UTC. Yellow preflight failures happen before a cycle starts and do not count as failed cycles. Red means a test cycle or another runner failure. Open results or diagnostics to inspect the matching attempt or cycle; share applies to cycles. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "One row per host, one color per observed host state; times are UTC. Yellow preflight failures happen before a cycle starts and do not count as failed cycles. Red means a test cycle or another runner failure. Violet means the runner died inside a cycle. Open results or diagnostics to inspect the matching attempt or cycle; share applies to cycles. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -3595,10 +3828,11 @@ write_files:
                     "6": { "text": "pausing (after cycle)", "color": "#eab308", "index": 6 },
                     "7": { "text": "pausing (after step)", "color": "#f59e0b", "index": 7 },
                     "8": { "text": "runner stopped", "color": "#64748b", "index": 8 },
-                    "9": { "text": "preflight failed", "color": "#eab308", "index": 9 }
+                    "9": { "text": "preflight failed", "color": "#eab308", "index": 9 },
+                    "10": { "text": "runner lost mid-cycle", "color": "#8b5cf6", "index": 10 }
                   } }
                 ],
-                "thresholds": { "mode": "absolute", "steps": [ { "color": "#cbd5e1", "value": null }, { "color": "#3b82f6", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#ef4444", "value": 3 }, { "color": "#94a3b8", "value": 4 }, { "color": "#ca8a04", "value": 5 }, { "color": "#eab308", "value": 6 }, { "color": "#f59e0b", "value": 7 }, { "color": "#64748b", "value": 8 }, { "color": "#eab308", "value": 9 } ] }
+                "thresholds": { "mode": "absolute", "steps": [ { "color": "#cbd5e1", "value": null }, { "color": "#3b82f6", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#ef4444", "value": 3 }, { "color": "#94a3b8", "value": 4 }, { "color": "#ca8a04", "value": 5 }, { "color": "#eab308", "value": 6 }, { "color": "#f59e0b", "value": 7 }, { "color": "#64748b", "value": 8 }, { "color": "#eab308", "value": 9 }, { "color": "#8b5cf6", "value": 10 } ] }
               },
               "overrides": []
             }
@@ -5500,6 +5734,10 @@ runcmd:
       chown -R proxy:proxy "$SSL_DB" 2>/dev/null || true
     fi
     [ -d "$SSL_DB" ] && echo "yuruna: squid ssl_db ready"
+  # See https://yuruna.link/42f6b05f-005d
+  # The store ID helper reads its rules file as squid starts it, so the file
+  # exists first; the static rules alone serve if the learner cannot run.
+  - /usr/local/bin/yuruna-release-asset-learn.py --no-reconfigure || install -m 0644 /etc/squid/yuruna-store-id.static.rules /etc/squid/yuruna-store-id.rules
   - |
     # Surface the real config error here (with its line number) instead of a
     # bare systemd start failure. Runs after the CA + ssl_db steps so the
@@ -5790,6 +6028,8 @@ runcmd:
   - /usr/local/bin/squid-meta-exporter.sh || true
   # See https://yuruna.link/42f6b05f-005b
   - systemctl enable --now yuruna-apt-index-selftest.timer || true
+  # See https://yuruna.link/42f6b05f-005d
+  - systemctl enable --now yuruna-release-asset-learn.timer || true
   # --- REGION: https://yuruna.link/429f3d06-0076
   # Arm now and prime after zot activation, avoiding a false initial DOWN reading.
   - systemctl enable --now zot-meta-exporter.timer

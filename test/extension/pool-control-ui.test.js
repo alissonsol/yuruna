@@ -307,8 +307,12 @@ async function hostsRunnerColumn() {
   assert.ok(shown.textContent.includes(env.box.YurunaI18n.fmtLocal(new Date('2026-10-25T03:13:08Z'))), 'the cell names the start time: ' + shown.textContent);
   assert.ok(String(shown.getAttribute('title')).includes(commit), 'the full commit is the title');
   const blank = runnerCell(rows.find(r => r.getAttribute('data-host-id') === silent));
-  assert.strictEqual(blank.textContent, '--', 'a host that has not reported shows the blank');
-  assert.strictEqual(blank.getAttribute('title'), env.box.YurunaI18n.t('pool.runner_unreported'), 'and says why');
+  assert.strictEqual(blank.className, 'explain', 'the reason a host shows no runner is explained, not only hovered');
+  const mark = blank.children[0];
+  assert.strictEqual(mark.textContent, '--', 'a host that has not reported shows the blank');
+  assert.strictEqual(mark.getAttribute('title'), env.box.YurunaI18n.t('pool.runner_unreported'), 'and says why');
+  assert.strictEqual(mark.getAttribute('role'), 'button', 'to a keyboard and a tap as well as a mouse');
+  assert.strictEqual(blank.children[blank.children.length - 1].textContent, env.box.YurunaI18n.t('pool.runner_unreported'));
 }
 function watchDocumentKeys(box) {
   const keys = new Set();

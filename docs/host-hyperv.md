@@ -385,6 +385,17 @@ readings of it:
   fails may hold only the first reports; `serial-console.kernel.json`, beside
   the saved `serial-console.log`, reads the newest 16 MiB of it again once the
   capture closes.
+- `causeDetail.guestKernelFault.serial.displayStall`, for a console wait that
+  timed out while the guest ran: `hyperv_drm` reporting `flip_done timed out`
+  and `commit wait timed out` every ten seconds or so. The framebuffer the wait
+  reads stopped updating, so it shows a frozen screen while the serial log
+  goes on, often to a login prompt. It is no kernel fault and does not file
+  the step as one. A login wait inside a cold-restart `retry` does not wait
+  for its deadline on it: once three commits in a row have timed out and the
+  console has stayed unchanged for 30 seconds, the wait ends with
+  `causeDetail.guestDisplayStallEnd` and the retry cold-restarts the guest (see
+  [test sequences](test-sequences.md#428e4df6-001c)). Every other wait,
+  including the password-change prompts, keeps the stall as a diagnostic.
 - `guestLivelock.processorWindow`: one processor in the storm shape, about 91%
   hypervisor time on millions of external-interrupt intercepts per second,
   that services no interrupt at all, so its `noInterruptsServicedSeconds` keeps
@@ -1014,6 +1025,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

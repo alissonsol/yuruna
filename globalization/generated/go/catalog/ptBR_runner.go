@@ -25154,6 +25154,51 @@ const DataptBRrunner = `{
     },
     "). O ciclo continua, as exclusões continuam verificando referências, e o próximo ciclo tenta de novo."
   ],
+  "runner.wait_ended_on_display_stall": [
+    "A espera pelo texto '",
+    {
+      "arg": "patternLabel",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' terminou após ~",
+    {
+      "arg": "waited",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s de ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s: o driver de vídeo ",
+    {
+      "arg": "driver",
+      "type": "detail",
+      "trust": "external"
+    },
+    " do convidado relatou no seu console serial ",
+    {
+      "arg": "reports",
+      "type": "detail",
+      "trust": "external"
+    },
+    " expirações de troca de página em ",
+    {
+      "arg": "spanSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s enquanto o console ficou inalterado por ",
+    {
+      "arg": "unchangedSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s, então a tela não mostrará o texto nesta inicialização e a nova tentativa pode reiniciar o convidado a frio"
+  ],
   "runner.wait_ended_on_kernel_stall": [
     "A espera pelo texto '",
     {

@@ -8,9 +8,9 @@
   "totals": {
     "domains": 16,
     "files": 545,
-    "candidates": 8936,
-    "fragments": 1863,
-    "catalogCalls": 5740,
+    "candidates": 8977,
+    "fragments": 1871,
+    "catalogCalls": 5742,
     "pages": 15,
     "markdown": 152,
     "yamlFields": 178
@@ -94,7 +94,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 21,
-      "candidates": 656,
+      "candidates": 658,
       "fragments": 279,
       "catalogCalls": 102,
       "pages": 0,
@@ -111,7 +111,7 @@
         },
         {
           "file": "test/service/Invoke-StatusServiceRuntime.ps1",
-          "candidates": 79
+          "candidates": 81
         },
         {
           "file": "test/service/Start-ExtensionService.stash.ps1",
@@ -350,9 +350,9 @@
       "repository": "yuruna",
       "present": true,
       "files": 142,
-      "candidates": 2447,
+      "candidates": 2458,
       "fragments": 334,
-      "catalogCalls": 2461,
+      "catalogCalls": 2463,
       "pages": 0,
       "markdown": 1,
       "yamlFields": 0,
@@ -371,7 +371,7 @@
         },
         {
           "file": "test/modules/Test.RunnerInnerLoop.psm1",
-          "candidates": 102
+          "candidates": 103
         },
         {
           "file": "test/modules/Test.HostCondition.Mac.psm1",
@@ -384,7 +384,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 106,
-      "candidates": 969,
+      "candidates": 973,
       "fragments": 136,
       "catalogCalls": 1898,
       "pages": 0,
@@ -418,7 +418,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 40,
-      "candidates": 412,
+      "candidates": 411,
       "fragments": 17,
       "catalogCalls": 698,
       "pages": 0,
@@ -452,8 +452,8 @@
       "repository": "yuruna",
       "present": true,
       "files": 5,
-      "candidates": 636,
-      "fragments": 131,
+      "candidates": 661,
+      "fragments": 139,
       "catalogCalls": 84,
       "pages": 0,
       "markdown": 8,
@@ -461,7 +461,7 @@
       "topFiles": [
         {
           "file": "install/windows.hyper-v.ps1",
-          "candidates": 306
+          "candidates": 331
         },
         {
           "file": "install/setup.ps1",

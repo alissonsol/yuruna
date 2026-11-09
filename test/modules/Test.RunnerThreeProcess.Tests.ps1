@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 4227f6df-0fe0-4a7d-b85b-64c7c2f5ede7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,16 +21,20 @@
     The real runner chain -- Start-TestRunner.ps1, Invoke-TestCycleRunner.ps1
     and the inner -- across three real processes: every operator option
     reaching the inner, a refresh resume that keeps the operator's controls
-    and admits only its preflight chain, and the real inner's preflight.
+    and admits only its preflight chain, the real inner's preflight, and
+    faults fired inside the chain, each ending as a scored non-pass.
 .DESCRIPTION
     Each case runs a copy of the working tree under a private directory, with
     a private HOME (so the private state root is the test's own), a private
     runtime and log directory, and stand-in git and sudo on a private PATH.
-    The copy's inner is a capture stub whose param block is the real inner's
-    own, so a drift in that block is caught; it records what it was given and
-    parks until the test releases it. The real-inner case uses an unmodified
-    copy and ends the handoff as recovery-pending, so no ordinary cycle -- and
-    no VM command -- can start. The suite kills only the process trees it
+    Cases A, A2, B and D, and the chaos case whose cycle process dies before
+    any inner starts, replace the copy's inner with a capture stub whose param
+    block is the real inner's own, so a drift in that block is caught; it
+    records what it was given and parks until the test releases it. Case C and
+    the other chaos cases run the unmodified inner: Case C ends the handoff as
+    recovery-pending, and each chaos case ends the inner at a fault point
+    inside its preamble, before it detects the host, so no ordinary cycle --
+    and no VM command -- can start. The suite kills only the process trees it
     started.
 #>
 

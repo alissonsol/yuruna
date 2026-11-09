@@ -327,9 +327,10 @@ first, and every `/dists/` path outside `by-hash/` is answered from the
 origin while upstream is allowed (see
 [Apt metadata under offline_mode](#42f6b05f-0057)).
 A second class of provider zips
-lives on the GitHub release CDN (`github.com/.../releases/download/`
--> 302 -> `objects.githubusercontent.com/...`); both endpoints get the
-same year-long TTL via their own dedicated `refresh_pattern` entries.
+lives on GitHub releases (`github.com/.../releases/download/` -> 302 ->
+`release-assets.githubusercontent.com/...`). A year-long TTL alone does
+not cache those, because squid cannot store the redirect; see
+[GitHub release downloads](#42f6b05f-005d).
 
 Guests reach these endpoints through the SSL-bumped `:3129` listener
 (see [HTTPS caching](#https-caching)): cloud-init exports
@@ -407,6 +408,82 @@ rule's regex ends at whitespace or at the end of the line.
 A running cache adopts its existing configuration, so the rule reaches it
 when the VM is rebuilt from the seed (`Start-CachingProxyServiceVM.ps1
 -ForceRebuild`).
+
+<a id="42f6b05f-005d"></a>
+
+### GitHub release downloads
+
+Guests download release assets -- PowerShell's tarball and its
+`hashes.sha256`, `tofu`, `mkcert`, OpenTofu providers -- from
+`github.com/<owner>/<repo>/releases/download/<tag>/<file>`. GitHub answers
+with a 302 to a signed URL on `release-assets.githubusercontent.com`. As with
+the gallery, squid cannot store the redirect: it carries `Cache-Control:
+no-cache` and no `Expires`. And the CDN URL cannot be computed from the release
+URL, because it names the asset by an opaque id and carries a signature that
+changes about every hour. So the year-long `refresh_pattern` entries for these
+hosts serve nothing by themselves: every download asks GitHub's redirect
+endpoint first, and while that endpoint answers 504, every download fails,
+although the asset is in the cache.
+
+The redirect is therefore learned, and a [Store ID](#42f6b05f-005c) files the
+release URL under the CDN URL it was redirected to:
+
+- squid writes each release-download reply to
+  `/var/log/squid/yuruna_release_redirects.log`: the time, the status it
+  received, the request URL (`%>ru`, which keeps the query) and the `Location`
+  header. The `has request` ACL comes first on that `access_log` line, so the
+  URL ACL is not evaluated for request-less log events, which would write "ACL
+  is used in context without an HTTP request" to `cache.log` each time (see
+  [Squid access log and self-scrape filtering](vmconfig.md#429f3d06-0045)).
+- `yuruna-release-asset-learn.py`, run every minute by
+  `yuruna-release-asset-learn.timer`, reads that log and its rotated copies,
+  keeps the newest 302 of each release URL in
+  `/var/lib/yuruna/release-asset-map.tsv`, and writes
+  `/etc/squid/yuruna-store-id.rules`: the static rules from
+  `/etc/squid/yuruna-store-id.static.rules` (the gallery rule), then one exact
+  rule per learned URL. It replaces the file atomically and runs `squid -k
+  reconfigure` only when the content changed. The build runs it once before
+  squid first starts, because the helper reads its rules as squid starts it.
+- A request for a learned URL is looked up under the CDN URL. A stored asset is
+  served directly (`TCP_MEM_HIT/200`, `TCP_HIT/200` or `TCP_OFFLINE_HIT/200` on
+  the `github.com` line of the access log) without asking GitHub, so an outage
+  of GitHub's redirect endpoint no longer fails a download the cache holds. A
+  miss still goes to GitHub, follows the redirect and stores the CDN object,
+  and the learner replaces the mapping with the newer redirect.
+- The CDN's signed URLs get a year-long `refresh_pattern`; otherwise their query
+  string would leave them to the stock zero-freshness rule, unstored. A Store
+  ID hit is judged by the pattern that matches the CDN URL, not the release URL.
+
+What it leaves alone, on purpose:
+
+- Only a release URL without a query is learned, so a cache-busting request
+  (`?nocache=`, from `YurunaCacheContent`) still reaches GitHub.
+- `releases/latest`, which the PowerShell installs follow to find the current
+  tag, is a moving target and is never stored; that lookup still needs GitHub.
+- Release assets are treated as immutable per tag, as the year-long patterns
+  already assume. An asset replaced under the same tag keeps its stored content
+  until it is purged: `curl -x http://127.0.0.1:3129 -X PURGE <release URL>` on
+  the VM goes through the same Store ID and drops the stored CDN object, and
+  the next download fetches and learns it again.
+
+Three details keep it correct:
+
+- `store_miss deny` and `collapsed_forwarding_access deny` apply to release
+  downloads. squid does not store GitHub's 302, but it shares it with requests
+  that collapse onto the same key while it is in flight. GitHub repeats the same
+  signed URL for about an hour, so a mapped release URL that misses can be
+  answered with exactly the CDN URL its key names; a CDN request collapsed onto
+  it would receive a redirect to itself.
+- squid %-decodes the Store ID the helper answers with, so the learner writes
+  each `%` of the CDN URL as `%25`; the key then matches the CDN request
+  exactly.
+- The helper tries its rules in order for every release download, so the
+  learner keeps at most 4096 mappings and drops the oldest first. A request
+  URL and a `Location` are learned only when they hold no character the
+  helper's rules file or squid's reply parser treats specially.
+
+A running cache adopts its existing configuration, so this reaches it when the
+VM is rebuilt from the seed (`Start-CachingProxyServiceVM.ps1 -ForceRebuild`).
 
 <a id="42f6b05f-0015"></a>
 
@@ -3083,6 +3160,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

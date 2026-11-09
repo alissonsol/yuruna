@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,10 +94,12 @@ function Read-WindowsHyperVFeatureState {
     that times out, cannot start or exits non-zero is 'Unknown', which the
     caller reports with the advice it gives for any state other than Enabled.
     The cap matches the driver's own feature-state read (Get-HyperVFeatureState).
+    The whole value after 'State :' is kept, as that read does, so a feature
+    waiting on a reboot reads 'Enable Pending', not 'Enable'.
     .PARAMETER DismPath
     Full path of dism.exe.
     .OUTPUTS
-    [string] the first word of DISM's State value, or 'Unknown'.
+    [string] DISM's whole State value, or 'Unknown'.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -108,7 +110,7 @@ function Read-WindowsHyperVFeatureState {
     $read = Invoke-BoundedNativeCommand -FilePath $DismPath -ArgumentList @('/English', '/Online', '/Get-FeatureInfo', '/FeatureName:Microsoft-Hyper-V-All') -TimeoutSeconds $TimeoutSeconds
     if ($read.TimedOut -or -not $read.Started -or $read.ExitCode -ne 0) { return 'Unknown' }
     foreach ($line in @("$($read.StdOut)" -split '\r?\n')) {
-        if ($line -match '^State\s*:\s*(\S+)') { return $Matches[1] }
+        if ($line -match '^\s*State\s*:\s*(?<value>.+?)\s*$') { return $Matches['value'] }
     }
     return 'Unknown'
 }

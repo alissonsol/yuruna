@@ -25826,6 +25826,51 @@ const DataqpsPlocrunner = `{
     },
     "). Ţħé çýçļé çóñţíñúéš, ďéļéţéš šţáý řéƒéřéñçé-çħéçķéď, áñď ţħé ñéẋţ çýçļé ţříéš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "runner.wait_ended_on_display_stall": [
+    "[Ţéẋţ '",
+    {
+      "arg": "patternLabel",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' ŵáíţ éñďéď áƒţéř ~",
+    {
+      "arg": "waited",
+      "type": "detail",
+      "trust": "external"
+    },
+    "š óƒ ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "š: ţħé ğúéšţ'š ",
+    {
+      "arg": "driver",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ďíšƥļáý ďříṽéř řéƥóřţéď ",
+    {
+      "arg": "reports",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ƥáğé-ƒļíƥ ţíɱéóúţš óṽéř ",
+    {
+      "arg": "spanSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "š óñ íţš šéříáļ çóñšóļé ŵħíļé ţħé çóñšóļé šţáýéď úñçħáñğéď ƒóř ",
+    {
+      "arg": "unchangedSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "š, šó ţħé šçřééñ ŵíļļ ñóţ šħóŵ ţħé ţéẋţ íñ ţħíš ƀóóţ áñď ţħé řéţřý çáñ çóļď-řéšţářţ ţħé ğúéšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "runner.wait_ended_on_kernel_stall": [
     "[Ţéẋţ '",
     {

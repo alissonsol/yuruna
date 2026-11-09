@@ -2,7 +2,7 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 // GUID: 42578abf-614e-477d-83ba-01938728b8f5
 // Create page: paste text or upload file(s). Both post to /api/stashes and
-// redirect to the new stash on success (section 5.4).
+// redirect to the new stash on success.
 
 (function () {
   function $(id) { return document.getElementById(id); }

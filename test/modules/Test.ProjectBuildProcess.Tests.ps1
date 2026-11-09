@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42a42fc4-3899-4caf-9b13-53b48db992a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -152,7 +152,7 @@ Describe 'Website deployment budgets agree across console and SSH' -Skip:(-not $
         $console = Get-Content -LiteralPath (Join-Path $script:BudgetProjectRoot $ConsolePath) -Raw | ConvertFrom-Yaml
         $consoleDeploy = @($console.workload | Where-Object { $_['action'] -eq 'fetchAndExecute' -and $_['text'] -like '*.workload.k8s.website.sh' })
         $consoleDeploy.Count | Should -Be 1
-        $consoleDeploy[0].timeoutSeconds | Should -Be 1800
+        $consoleDeploy[0].timeoutSeconds | Should -Be 3600
         foreach ($suffix in 'ssh', 'warm.ssh') {
             $relative = "example/website/test/workload.guest.ubuntu.server.$Release.k8s.website.$suffix.yml"
             $ssh = Get-Content -LiteralPath (Join-Path $script:BudgetProjectRoot $relative) -Raw | ConvertFrom-Yaml

@@ -114,7 +114,7 @@ Applies to: `HostView.StatusLabel` and `HostView.StatusCode` in
 `StatusCode` is its numeric twin for the state-timeline panel, derived from the
 same source so they never disagree: unreachable 0, running 1, pass 2, fail 3,
 idle 4 (reachable with no or another cycle status), paused 5, pausing-cycle 6,
-pausing-step 7, stopped 8, preflight-failed 9.
+pausing-step 7, stopped 8, preflight-failed 9, lost 10.
 
 The ladder mirrors the host status page's banner state for state, so a host reads
 the same on both surfaces. Two readings exist because `status.json` cannot supply
@@ -129,6 +129,12 @@ to see:
   the false green the runner-status route exists to remove. It resolves above
   everything: the last result and any pause flag still armed describe a runner no
   longer there to honor them.
+- Runner lost mid-cycle. A runner that died inside a cycle -- a closed terminal
+  window, a dropped SSH session, a kill, a host restart -- reads the same to
+  `status.json` as one an operator stopped: the cycle it was running still says
+  `running`, and nothing restarts the runner. `lost` keeps it apart from
+  `stopped`, which is the reading an operator's own stop produces. It resolves
+  where `stopped` does.
 
 <a id="42c29d04-0006"></a>
 
@@ -377,6 +383,16 @@ framework build) or that answers without the field has nothing to say, and
 inventing "stopped" out of silence would blank every host's real status the
 moment the route moved or was renamed. A transport failure returns the error so
 the caller can keep what it last knew.
+
+A stopped runner is lost mid-cycle only when two more fields agree. `runnerState`
+must still read `in-cycle`, and `pid` must be set, which the route reports only
+while `runner.pid` names a process. The state alone cannot tell them apart: an
+operator's Ctrl+C stops a running cycle and ends the runner before any later state
+is written, so it too leaves `in-cycle` behind. But Ctrl+C ends the runner
+through its orderly shutdown, which removes `runner.pid`. A runner that died
+leaves the file in place until the next runner's start clears it. A runner that
+died between cycles (`idle`, `paused`, `cycle-start`) stays `stopped`, and so
+does every answer from a build that does not report `runnerState`.
 
 <a id="42c29d04-000d"></a>
 

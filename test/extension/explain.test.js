@@ -147,8 +147,49 @@ async function hostsPage() {
   assert.ok(denied.children[2].textContent.length > 0, 'the denied repository explains what to fix');
 }
 
+// A blank cell that carries a reason -- why a host shows no name, no hardware
+// facts or no runner -- answers a keyboard and a tap as well as a mouse.
+async function hostsBlanks(hostnamesVisible) {
+  const named = '426d17ef0b88426b922180dad1a9e921';
+  const silent = '42bb17ef0b88426b922180dad1a9e922';
+  const hosts = { ok: true, pools: ['default'], targetPoolId: '', hostnamesVisible,
+    hosts: [{ hostId: named, hostname: hostnamesVisible ? 'box' : '', type: 'kvm', pool: 'default', control: 'ready' },
+      { hostId: silent, hostname: '', type: 'kvm', pool: 'default', control: 'ready' }] };
+  const facts = { ok: true, hosts: { [named]: { ok: false, error: 'facts fan-out timed out' } } };
+  const env = runPage({service: 'pool-control-service', file: 'hosts.html'}, 'en-US', false, 'data', {beforePage: box => {
+    const api = box.Y.api;
+    box.Y.api = (url, opts) => url === '/api/hosts' ? Promise.resolve(hosts) : (url === '/api/hosts/facts' ? Promise.resolve(facts) : api(url, opts));
+  }});
+  assert.deepStrictEqual(env.failures, []);
+  await settle();
+  const t = env.box.YurunaI18n.t;
+  const html = fs.readFileSync(path.join(__dirname, 'pool-control-service', 'server', 'internal', 'httpsrv', 'web', 'hosts.html'), 'utf8');
+  const order = Array.from(html.matchAll(/<th data-sort="([A-Za-z]+)"/g), m => m[1]);
+  const rows = env.byId['host-rows'].children;
+  const cell = (id, key) => rows.find(r => r.getAttribute('data-host-id') === id).children[order.indexOf(key) + 1].children[0];
+  const expect = (where, wrap, reason) => {
+    assert.strictEqual(wrap.className, 'explain', `${where}: the blank is explained, not only hovered`);
+    const mark = wrap.children[0];
+    assert.strictEqual(mark.textContent, '--', `${where}: still the blank`);
+    assert.strictEqual(mark.getAttribute('title'), reason, `${where}: the mouse keeps its tooltip`);
+    assert.strictEqual(mark.getAttribute('role'), 'button', `${where}: a keyboard and a tap reach it`);
+    assert.strictEqual(wrap.children[wrap.children.length - 1].textContent, reason, `${where}: the details say why`);
+  };
+  // A fetch error is the host's own text, isolated so it cannot reorder the page.
+  const fetchError = env.box.Y.bidiIsolate('facts fan-out timed out');
+  const nameReason = hostnamesVisible ? t('pool.this_host_has_not_reported_a_name') : t('pool.unlock_with_the_lab_token_to_see_hostnames');
+  expect('a host with no name', cell(silent, 'hostname'), nameReason);
+  if (!hostnamesVisible) { expect('a withheld name', cell(named, 'hostname'), nameReason); }
+  for (const key of ['memory', 'cores', 'storageTotal', 'storageFree']) {
+    expect(`${key} of a host whose facts failed`, cell(named, key), fetchError);
+    expect(`${key} of a host with no facts`, cell(silent, key), t('pool.this_host_has_not_reported_hardware_facts'));
+  }
+  expect('the runner of a host whose facts failed', cell(named, 'runner'), fetchError);
+  expect('the runner of a host with no facts', cell(silent, 'runner'), t('pool.runner_unreported'));
+}
+
 checkContract('Y.explain (yuruna.core.js)', runPage({service: 'pool-control-service', file: 'hosts.html'}).box.Y.explain);
 checkContract('Yuruna.explain (yuruna.common.js)', statusExplain());
-hostsPage().then(() => {
-  console.log('PASS: Y.explain and Yuruna.explain share one contract (disclosure, companion toggle, details region), and pool hosts route remediation through it');
+hostsPage().then(() => hostsBlanks(true)).then(() => hostsBlanks(false)).then(() => {
+  console.log('PASS: Y.explain and Yuruna.explain share one contract (disclosure, companion toggle, details region), and pool hosts route remediation and the reasons for blank cells through it');
 }).catch(error => { console.error(error.stack); process.exitCode = 1; });

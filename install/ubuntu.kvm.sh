@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.05
+# Version: 2026.11.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42c18f3d-326c-467e-a500-0668e518bf56
@@ -29,6 +29,7 @@ YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 # trust root). Refresh on a vendor key rotation: re-fetch the key, confirm the
 # new fingerprint with `gpg --show-keys --with-colons`, and update the value.
 MS_APT_KEY_FPR="AA86F75E427A19DD33346403EE4D7792F748182B"       # Microsoft 2025 General GPG Signer (Ubuntu >= 25.10 prod repo)
+MS_APT_KEY_FPR_NOBLE="BC528686B50D79E339D3721CEB3E94ADBE1229CF" # Microsoft (Release signing), microsoft.asc: signs the Ubuntu 24.04 prod repo
 GH_APT_KEY_FPR_NEW="7F38BBB59D064DBCB3D84D725612B36462313325"   # GitHub CLI (current)
 GH_APT_KEY_FPR_OLD="2C6106201985B60E6C7AC87323F3D4EA75716059"   # GitHub CLI (legacy, expires 2026-09-05)
 
@@ -842,9 +843,92 @@ log "Stopping anything that would block a repo update (runner + status service; 
 capture_installer_state
 stop_yuruna_processes
 
+# --- REGION: Microsoft's Ubuntu 24.04 suite for PowerShell
+# Microsoft's suite for a release does not always carry the stable package: the 26.04
+# suite publishes only powershell-preview. When neither the host's own apt sources nor
+# the release's .deb can move PowerShell, the PowerShell region below adds Microsoft's
+# 24.04 suite, verified with the key that signs it and pinned so apt takes nothing but
+# powershell from it. These three files are this installer's own; an operator's own
+# Microsoft source is never touched. They go again once another source offers
+# powershell, so the host returns to its own release's source when Microsoft publishes
+# there. Refresh the key pin when that suite's signer changes: `gpg --list-packets` on
+# its InRelease names the signing key.
+# See https://yuruna.link/429fb30b-0034
+PWSH_NOBLE_URL="https://packages.microsoft.com/ubuntu/24.04/prod"
+PWSH_NOBLE_ORIGIN="microsoft-ubuntu-noble-prod noble"
+PWSH_NOBLE_LIST="/etc/apt/sources.list.d/yuruna-powershell-noble.sources"
+PWSH_NOBLE_PREF="/etc/apt/preferences.d/yuruna-powershell-noble.pref"
+PWSH_NOBLE_KEYRING="/etc/apt/keyrings/yuruna-powershell-noble.gpg"
+
+# Whether a configured apt source offers powershell; with an argument, a source other
+# than that URI. apt-cache madison lists what sources carry, never the dpkg status
+# entry that apt otherwise reports as the candidate of an installed package.
+apt_offers_powershell() {
+  LC_ALL=C apt-cache madison powershell 2>/dev/null \
+    | awk -F'|' -v skip="${1:-}" '
+        { gsub(/^[ \t]+|[ \t]+$/, "", $3) }
+        $3 != "" && (skip == "" || index($3, skip " ") != 1) { found = 1 }
+        END { exit !found }'
+}
+
+remove_pwsh_noble_source() {
+  sudo rm -f -- "$PWSH_NOBLE_LIST" "$PWSH_NOBLE_PREF" "$PWSH_NOBLE_KEYRING"
+}
+
+# The pin lands before the source, so apt never reads that suite unpinned, and a
+# suite apt cannot verify or that offers no powershell is removed before this returns.
+add_pwsh_noble_source() {
+  local tmp
+  log "No apt source offers powershell -- adding Microsoft's Ubuntu 24.04 suite for that package alone ($PWSH_NOBLE_LIST)"
+  tmp="$(mktemp -d)" || return 1
+  yuruna_track_tmp "$tmp"
+  curl -fsSL --connect-timeout 10 --max-time 60 "https://packages.microsoft.com/keys/microsoft.asc" -o "$tmp/microsoft.asc" \
+    || return 1
+  verify_key_fingerprints "$tmp/microsoft.asc" "$MS_APT_KEY_FPR_NOBLE"
+  if sudo install -d -m 0755 /etc/apt/keyrings \
+     && sudo gpg --dearmor --yes -o "$PWSH_NOBLE_KEYRING" "$tmp/microsoft.asc" \
+     && sudo chmod 0644 "$PWSH_NOBLE_KEYRING" \
+     && printf '%s\n' 'Package: *' "Pin: release o=$PWSH_NOBLE_ORIGIN" 'Pin-Priority: -1' '' \
+          'Package: powershell' "Pin: release o=$PWSH_NOBLE_ORIGIN" 'Pin-Priority: 500' \
+          | sudo tee "$PWSH_NOBLE_PREF" >/dev/null \
+     && printf '%s\n' 'Types: deb' "URIs: $PWSH_NOBLE_URL" 'Suites: noble' 'Components: main' \
+          'Architectures: amd64' "Signed-By: $PWSH_NOBLE_KEYRING" \
+          | sudo tee "$PWSH_NOBLE_LIST" >/dev/null \
+     && sudo apt-get update -qq && apt_offers_powershell; then
+    rm -rf -- "$tmp"
+    return 0
+  fi
+  warn "  Microsoft's Ubuntu 24.04 suite could not be used -- removing the files this attempt wrote"
+  remove_pwsh_noble_source || true
+  sudo apt-get update -qq || true
+  return 1
+}
+
+# Once another source offers powershell, the 24.04 suite this installer added goes.
+retire_pwsh_noble_source() {
+  [[ -e "$PWSH_NOBLE_LIST" ]] || return 0
+  apt_offers_powershell "$PWSH_NOBLE_URL" || return 0
+  log "Another apt source offers powershell -- removing Microsoft's Ubuntu 24.04 suite this installer added for it"
+  remove_pwsh_noble_source || { warn "  could not remove $PWSH_NOBLE_LIST, $PWSH_NOBLE_PREF and $PWSH_NOBLE_KEYRING"; return 0; }
+  sudo apt-get update -q || warn "  'apt-get update' failed after that removal; apt reads the change on its next run"
+}
+
+# Runs when the index refresh failed. The 24.04 suite this installer added must never
+# be what stops a run -- Microsoft can change the key that signs it -- so with that
+# suite configured it is removed and the refresh runs once more. Without it, apt's
+# failure ends the install as it always has.
+retry_apt_update_without_pwsh_noble_source() {
+  local rc=$?
+  [[ -e "$PWSH_NOBLE_LIST" ]] || return "$rc"
+  warn "'apt-get update' failed with Microsoft's Ubuntu 24.04 suite configured -- removing that suite, which this installer added for powershell alone, and refreshing again"
+  remove_pwsh_noble_source || return "$rc"
+  sudo apt-get update -q
+}
+
 # --- REGION: Install platform packages
 log "Refreshing apt index"
-sudo apt-get update -q
+sudo apt-get update -q || retry_apt_update_without_pwsh_noble_source
+retire_pwsh_noble_source
 
 case "$ARCH" in
   x86_64)   qemu_default="qemu-system-x86"   ;;
@@ -885,6 +969,41 @@ case "$ARCH" in
   x86_64)   APT_PACKAGES+=(ovmf) ;;
   aarch64)  APT_PACKAGES+=(qemu-efi-aarch64) ;;
 esac
+
+# Whether Microsoft's powershell package is installed. That package and a tarball
+# this installer unpacked share /opt/microsoft/powershell/7, so dpkg, not the path,
+# says which source owns the copy. A package held with apt-mark reads "hold ok
+# installed"; whether it is held is apt_package_held's answer.
+powershell_deb_installed() {
+  case "$(dpkg-query -W -f='${Status}' powershell 2>/dev/null || true)" in
+    "install ok installed"|"hold ok installed") return 0 ;;
+  esac
+  return 1
+}
+# grep reads all of its input: with pipefail, a grep -q that stops at the first match
+# can fail the producer with SIGPIPE, and a held package would read as not held.
+apt_package_held() {
+  apt-mark showhold 2>/dev/null | grep -x -- "$1" >/dev/null
+}
+# A PowerShell that apt installed moves with this list to the newest version a
+# configured source offers. A source can stop short of the newest release or carry no
+# powershell at all, and the region after the checkout then moves the package from the
+# release's own .deb. A copy the operator holds with apt-mark stays: naming a held
+# package here would make apt refuse the whole list, and the closing report says it
+# was held. So does a candidate apt cannot install on this release -- a build whose
+# dependencies it cannot meet -- which is left out for this run rather than failing
+# every package. A first install, with no package yet, goes through the PowerShell
+# region below.
+# See https://yuruna.link/4213a0b3-01b1
+PWSH_APT_UNINSTALLABLE=0
+if powershell_deb_installed && ! apt_package_held powershell; then
+  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --simulate powershell >/dev/null 2>&1; then
+    APT_PACKAGES+=(powershell)
+  else
+    PWSH_APT_UNINSTALLABLE=1
+    warn "apt cannot install the powershell its sources offer here ('apt-cache policy powershell' names it), so this run leaves it out of the package list."
+  fi
+fi
 
 log "Resolving apt dependencies (dry-run)"
 if ! apt_sim_out="$(sudo DEBIAN_FRONTEND=noninteractive \
@@ -1096,7 +1215,10 @@ ensure_osinfo_db_has_ubuntu24() {
 ensure_osinfo_db_has_ubuntu24
 
 # --- REGION: PowerShell
-# Microsoft's apt repo on x86_64, the release tarball on aarch64 or when apt fails.
+# On x86_64, Microsoft's apt repo for this release, then the release's .deb, then
+# Microsoft's 24.04 suite, and the release tarball only where no package owns its
+# tree; on aarch64, the release tarball, or the release's .deb for a host that already
+# has Microsoft's package.
 # See https://yuruna.link/429fb30b-0034
 install_pwsh_apt() {
   local codename repo_url created_list=0
@@ -1104,7 +1226,6 @@ install_pwsh_apt() {
   repo_url="https://packages.microsoft.com/ubuntu/$(. /etc/os-release; echo "$VERSION_ID")/prod"
   # Refuse unsupported releases before changing apt's persistent sources.
   curl -fsI --connect-timeout 10 --max-time 30 "$repo_url/dists/$codename/Release" >/dev/null || return 1
-  log "Adding Microsoft apt repo (codename=$codename)"
   if [[ ! -f /etc/apt/keyrings/microsoft.gpg ]]; then
     sudo install -d -m 0755 /etc/apt/keyrings || return 1
     local ms_tmp; ms_tmp="$(mktemp -d)" || return 1
@@ -1122,9 +1243,12 @@ install_pwsh_apt() {
     sudo chmod 0644 /etc/apt/keyrings/microsoft.gpg || return 1
   fi
   if [[ ! -f /etc/apt/sources.list.d/microsoft-prod.list ]]; then
+    log "Adding Microsoft apt repo (codename=$codename)"
     echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] $repo_url $codename main" \
       | sudo tee /etc/apt/sources.list.d/microsoft-prod.list >/dev/null || return 1
     created_list=1
+  else
+    log "Microsoft apt repo already listed in /etc/apt/sources.list.d/microsoft-prod.list (codename=$codename)"
   fi
   if sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y powershell; then
     return 0
@@ -1136,22 +1260,78 @@ install_pwsh_apt() {
   return 1
 }
 
+# The newest stable PowerShell release, from the /releases/latest redirect, not the
+# rate-limited API. Prints nothing and fails when GitHub does not answer with a tag;
+# the time caps keep an offline host's closing report from waiting on it for minutes.
+pwsh_latest_release() {
+  local tag
+  tag="$(curl -fsSLI --retry 3 --retry-delay 5 --retry-connrefused \
+    --connect-timeout 15 --max-time 60 -o /dev/null -w '%{url_effective}' \
+    "https://github.com/PowerShell/PowerShell/releases/latest")" || return 1
+  tag="${tag##*/}"
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  printf '%s\n' "${tag#v}"
+}
+
+# Downloads asset $2 of PowerShell release $1 and the release's published hashes.sha256
+# into a directory only root can write, and verifies the asset there, so the file apt
+# or tar then reads as root is the file that was checked. Each download streams from
+# curl into a file root writes: a directory the operator's account can write is one
+# another process of that account can swap a file in, and with the asset and the list
+# it must match both there, that process could swap the two together. Root opens
+# nothing such a process can reach, so it never follows a link planted in place of a
+# download either. That account still chooses which curl and checksum tools its PATH
+# finds and the curl configuration they read, so this narrows what its other processes
+# can do rather than closing it. Leaves the verified file's path in PWSH_RELEASE_ASSET.
+# The list also names sibling artifacts (arm64/musl/.deb) that are not downloaded, so
+# the asset's single line is pulled out first (awk index() = literal match). The
+# downloads retry the way the latest-release lookup does: one attempt may take 15
+# minutes, which a ~70 MB asset needs on a slow link (--max-time bounds a single
+# attempt), and no retry starts once 15 minutes have passed since the first
+# (--retry-max-time). The directory is made under /tmp by name, because sudo can keep
+# the account's TMPDIR, and /tmp's sticky bit keeps other accounts from renaming what
+# root created there. Every step checks its own result, because callers run this where
+# errexit does not apply.
+PWSH_RELEASE_ASSET=""
+fetch_pwsh_release_asset() {
+  local ver="$1" asset="$2" url="https://github.com/PowerShell/PowerShell/releases/download/v$1" verified line expected actual
+  local -a get=(curl -fsSL --retry 3 --retry-delay 5 --retry-connrefused --connect-timeout 15 --max-time 900 --retry-max-time 900)
+  verified="$(sudo mktemp -d /tmp/yuruna-pwsh.XXXXXXXXXX)" || die "PowerShell $ver: could not create a directory only root can write"
+  yuruna_track_tmp "$verified"
+  sudo chmod 0755 "$verified" || die "PowerShell $ver: could not let the checks below read $verified"
+  "${get[@]}" "$url/$asset" | sudo tee "$verified/$asset" >/dev/null \
+    || die "PowerShell $ver: could not download $asset"
+  "${get[@]}" "$url/hashes.sha256" | sudo tee "$verified/hashes.sha256" >/dev/null \
+    || die "PowerShell $ver: could not fetch hashes.sha256 for verification"
+  sudo chmod 0644 "$verified/$asset" "$verified/hashes.sha256" \
+    || die "PowerShell $ver: could not let the checks below read $asset and hashes.sha256"
+  # The release asset is UTF-16 LE with BOM and CRLF, generated on Windows. Read raw, awk
+  # matches no filename (NUL bytes interleave every ASCII byte), so normalize to UTF-8/LF
+  # first, transcoding only when a UTF-16 BOM is present.
+  case "$(od -An -tx1 -N2 "$verified/hashes.sha256" | tr -d ' \n')" in
+    fffe|feff) line="$(iconv -f UTF-16 -t UTF-8 "$verified/hashes.sha256" | tr -d '\r' | LC_ALL=C awk -v p="$asset" 'index($0,p){print}')" ;;
+    *)         line="$(tr -d '\r' < "$verified/hashes.sha256" | LC_ALL=C awk -v p="$asset" 'index($0,p){print}')" ;;
+  esac
+  [[ -n "$line" && "$line" != *$'\n'* ]] \
+    || die "PowerShell $ver: expected exactly one checksum line for $asset in hashes.sha256"
+  expected="${line%% *}"
+  actual="$(sha256sum "$verified/$asset")" || die "PowerShell $ver: could not read $verified/$asset"
+  [[ "${actual%% *}" == "${expected,,}" ]] \
+    || die "PowerShell $ver: $asset SHA-256 does not match hashes.sha256 (possible tamper)"
+  PWSH_RELEASE_ASSET="$verified/$asset"
+}
+
 install_pwsh_tarball() {
-  # Fallback PowerShell source for all downstream automation (aarch64 has no Microsoft
-  # apt package; x86_64 lands here only when apt fails). The latest tag comes from the
-  # /releases/latest redirect, not the rate-limited API. PWSH_VERSION overrides the
-  # discovery.
+  # Fallback PowerShell source for all downstream automation where no Microsoft
+  # package serves: aarch64 without one, and x86_64 when neither apt, the release's
+  # .deb nor Microsoft's 24.04 suite installed powershell. It unpacks into the tree
+  # Microsoft's package installs, so callers run it only while no package owns that
+  # tree. A step that fails ends the attempt before the link moves. PWSH_VERSION
+  # overrides the discovery of the latest release.
   # See https://yuruna.link/4213a0b3-01b7
   local ver="${PWSH_VERSION:-}"
   if [[ -z "$ver" ]]; then
-    local tag
-    tag="$(curl -fsSLI --retry 3 --retry-delay 5 --retry-connrefused \
-      -o /dev/null -w '%{url_effective}' \
-      "https://github.com/PowerShell/PowerShell/releases/latest")"
-    tag="${tag##*/}"
-    [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-      || die "PowerShell latest-version discovery failed (got: '$tag')"
-    ver="${tag#v}"
+    ver="$(pwsh_latest_release)" || die "PowerShell latest-version discovery failed"
   fi
   local pkg
   case "$ARCH" in
@@ -1160,42 +1340,101 @@ install_pwsh_tarball() {
     *)       die "no pwsh tarball for $ARCH" ;;
   esac
   log "Downloading PowerShell $ver tarball ($ARCH)"
-  local tmp; tmp="$(mktemp -d)"
-  yuruna_track_tmp "$tmp"
-  curl -fsSL -o "$tmp/$pkg" "https://github.com/PowerShell/PowerShell/releases/download/v${ver}/${pkg}"
-  # Verify the tarball against the release's published hashes.sha256 before
-  # unpacking it as the interpreter for all downstream Yuruna automation. Pull
-  # the single pinned-version line out first (awk index() = literal match):
-  # `sha256sum -c` over the whole file fails on the sibling artifacts
-  # (arm64/musl/.deb) that are not downloaded.
-  curl -fsSL -o "$tmp/hashes.sha256" "https://github.com/PowerShell/PowerShell/releases/download/v${ver}/hashes.sha256" \
-    || die "PowerShell $ver: could not fetch hashes.sha256 for verification"
-  # The release asset is UTF-16 LE with BOM and CRLF, generated on Windows. Read raw, awk
-  # matches no filename (NUL bytes interleave every ASCII byte), so normalize to UTF-8/LF
-  # first, transcoding only when a UTF-16 BOM is present.
-  case "$(od -An -tx1 -N2 "$tmp/hashes.sha256" | tr -d ' \n')" in
-    fffe|feff) iconv -f UTF-16 -t UTF-8 "$tmp/hashes.sha256" | tr -d '\r' > "$tmp/hashes.norm" ;;
-    *)         tr -d '\r' < "$tmp/hashes.sha256" > "$tmp/hashes.norm" ;;
+  # Verified before it is unpacked as the interpreter for all downstream automation.
+  fetch_pwsh_release_asset "$ver" "$pkg"
+  sudo install -d -m 0755 /opt/microsoft/powershell/7 \
+    || die "PowerShell $ver: could not create /opt/microsoft/powershell/7"
+  sudo tar -xzf "$PWSH_RELEASE_ASSET" -C /opt/microsoft/powershell/7 \
+    || die "PowerShell $ver: $pkg did not unpack into /opt/microsoft/powershell/7"
+  sudo chmod +x /opt/microsoft/powershell/7/pwsh \
+    || die "PowerShell $ver: /opt/microsoft/powershell/7/pwsh is missing after the unpack"
+  sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh \
+    || die "PowerShell $ver: could not link /usr/local/bin/pwsh"
+}
+
+# Microsoft's powershell package from the .deb its release publishes, for the release
+# PWSH_VERSION names or the newest; the amd64 file is the one Microsoft's 24.04
+# repository serves for that version. apt installs it, so dpkg records what is on disk;
+# a tarball unpacked over the package would leave dpkg recording the old version and
+# its checksums, and a later apt operation would rewrite or remove files under the
+# newer interpreter. --reinstall unpacks a package already at that version again, so
+# files that no longer match what dpkg recorded are replaced. A package the operator
+# holds is never handed to apt here: apt refuses to change a held version, but it
+# performs a same-version --reinstall, and dpkg then resets the hold. apt waits for a
+# dpkg lock another apt run holds, such as an unattended upgrade. Exits 1 when the .deb
+# could not be fetched or verified, and returns 2 when the package is held or apt did
+# not install it.
+# See https://yuruna.link/4213a0b3-01b7
+install_pwsh_deb() {
+  local ver="${PWSH_VERSION:-}" arch pkg
+  if apt_package_held powershell; then
+    warn "  Microsoft's powershell package is held with apt-mark hold, so no release .deb replaces it; 'sudo apt-mark unhold powershell' releases it"
+    return 2
+  fi
+  if [[ -z "$ver" ]]; then
+    ver="$(pwsh_latest_release)" || die "PowerShell latest-version discovery failed"
+  fi
+  case "$ARCH" in
+    x86_64)  arch=amd64 ;;
+    aarch64) arch=arm64 ;;
+    *)       die "no PowerShell package for $ARCH" ;;
   esac
-  LC_ALL=C awk -v p="$pkg" 'index($0,p){print}' "$tmp/hashes.norm" > "$tmp/pkg.sha256"
-  [[ "$(wc -l < "$tmp/pkg.sha256")" -eq 1 ]] \
-    || die "PowerShell $ver: expected exactly one checksum line for $pkg in hashes.sha256"
-  ( cd "$tmp" && sha256sum -c --quiet pkg.sha256 ) \
-    || die "PowerShell $ver: tarball SHA-256 does not match hashes.sha256 (possible tamper)"
-  sudo install -d -m 0755 /opt/microsoft/powershell/7
-  sudo tar -xzf "$tmp/$pkg" -C /opt/microsoft/powershell/7
-  sudo chmod +x /opt/microsoft/powershell/7/pwsh
-  sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh
-  rm -rf -- "$tmp"
+  pkg="powershell_${ver}-1.deb_${arch}.deb"
+  log "Downloading the PowerShell $ver package ($ARCH)"
+  fetch_pwsh_release_asset "$ver" "$pkg"
+  if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall -o DPkg::Lock::Timeout=120 "$PWSH_RELEASE_ASSET"; then
+    warn "  apt did not install $pkg"
+    return 2
+  fi
+}
+
+# Microsoft's powershell package from its apt sources, with Microsoft's Ubuntu 24.04
+# suite added for it when no source the host has offers powershell (see the region
+# that defines that suite). PWSH_VERSION, when the operator set it, names the version;
+# otherwise apt takes the newest a source offers. x86_64 only: no Microsoft Ubuntu
+# suite carries an arm64 powershell. Returns 1 when the suite could not be added, and
+# 2 when apt did not install powershell.
+install_pwsh_noble() {
+  local want=powershell
+  # The suite is Microsoft's Ubuntu 24.04 repository, so a host on another
+  # distribution, such as the AMD Ryzen AI platform's Debian, never gets it added.
+  if [[ "${ID:-}" != ubuntu ]]; then
+    log "Not adding Microsoft's Ubuntu 24.04 suite: this host runs ${PRETTY_NAME:-${ID:-another distribution}}, not Ubuntu"
+    return 3
+  fi
+  if [[ -n "${PWSH_VERSION:-}" ]]; then want="powershell=${PWSH_VERSION}-1.deb"; fi
+  if ! apt_offers_powershell; then
+    add_pwsh_noble_source || return 1
+  fi
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$want" || return 2
+}
+
+# Runs one PowerShell source in a subshell with its own temp registry: errexit does not
+# hold there, so each source checks its own steps, and a die() in one ends that source,
+# never the run or the next source. The name is re-read afterward. A source succeeds by
+# the version pwsh answers then, never by this status, which only tells the closing
+# report why a source fell short.
+run_pwsh_source() {
+  local rc=0
+  ( YURUNA_TMP_PATHS=(); trap yuruna_cleanup_tmp_paths EXIT; "$@" ) || rc=$?
+  hash -r
+  return "$rc"
 }
 
 # Presence only, deliberately: this runs before the checkout exists, so the
 # floor it would have to compare against is not readable yet. An already-present
-# pwsh is raised to the floor by the repair region further down, once the repo
-# is on disk.
+# pwsh is moved to the newest release and checked against the floor by the region
+# further down, once the repo is on disk. On x86_64 each source runs only while pwsh
+# is still absent; on aarch64 the tarball is the one source, and a release GitHub
+# cannot name ends the run.
 if ! command -v pwsh >/dev/null 2>&1; then
   case "$ARCH" in
-    x86_64)  install_pwsh_apt || install_pwsh_tarball ;;
+    x86_64)
+      run_pwsh_source install_pwsh_apt || true
+      command -v pwsh >/dev/null 2>&1 || run_pwsh_source install_pwsh_deb || true
+      command -v pwsh >/dev/null 2>&1 || run_pwsh_source install_pwsh_noble || true
+      command -v pwsh >/dev/null 2>&1 || powershell_deb_installed || run_pwsh_source install_pwsh_tarball || true
+      ;;
     aarch64) install_pwsh_tarball ;;
   esac
 fi
@@ -1212,10 +1451,15 @@ POWERSHELL_YAML_SHA512="Vc5DLyw7hLsCL6yFlSvzsdUUWmgfqoM35XmRavtKOz37GHBg3p+vWxaO
 log "Installing required PowerShell modules"
 YURUNA_MODULE_VERSION="$POWERSHELL_YAML_VERSION" YURUNA_MODULE_SHA512="$POWERSHELL_YAML_SHA512" pwsh -NoProfile -Command '
     $name = "powershell-yaml"; $version = $env:YURUNA_MODULE_VERSION; $sha512 = $env:YURUNA_MODULE_SHA512
-    if (Get-Module -ListAvailable -Name $name -ErrorAction SilentlyContinue) {
-        Write-Output "  powershell-yaml already installed"
+    # A copy older than the pin is replaced by it: the pinned copy installs beside
+    # the old one, and the module loader picks the highest version. A newer copy
+    # is left alone.
+    $newest = Get-Module -ListAvailable -Name $name -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
+    if ($newest -and $newest.Version -ge [version]$version) {
+        Write-Output "  powershell-yaml $($newest.Version) already installed"
     } else {
-        Write-Output "  installing powershell-yaml $version (CurrentUser scope)"
+        if ($newest) { Write-Output "  replacing powershell-yaml $($newest.Version) with the pinned $version (CurrentUser scope)" }
+        else { Write-Output "  installing powershell-yaml $version (CurrentUser scope)" }
         $package = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-$name-" + [guid]::NewGuid().ToString("N") + ".nupkg")
         try {
             Invoke-WebRequest -Uri "https://www.powershellgallery.com/api/v2/package/$name/$version" -OutFile $package -TimeoutSec 300 -ErrorAction Stop | Out-Null
@@ -1535,9 +1779,10 @@ restore_test_status
 restore_installer_state
 
 # --- REGION: PowerShell floor repair
-# The interpreter every later step runs on, brought up to the floor in
-# automation/Yuruna.Requirement.yml. Presence is not the question a floor asks, so this
-# runs after the checkout, where the floor lives, not beside the install.
+# The interpreter every later step runs on, moved to the newest release its own
+# source offers and then checked against the floor in automation/Yuruna.Requirement.yml.
+# Presence is not the question a floor asks, so this runs after the checkout, where
+# the floor lives, not beside the install.
 # See https://yuruna.link/4213a0b3-01b1
 requirement_floor() {
   # A `version:` string carries vendor decoration around the number
@@ -1567,8 +1812,148 @@ pwsh_version() {
     | grep -oE '[0-9]+(\.[0-9]+){1,3}' | head -1
 }
 
+# The source that owns the pwsh on PATH, or the one at the path given: snap, apt
+# (Microsoft's package), tarball (a copy this installer unpacked under
+# /opt/microsoft/powershell/7), other, or none.
+pwsh_source() {
+  local path="${1:-}" resolved
+  if [[ -z "$path" ]]; then
+    path="$(command -v pwsh 2>/dev/null)" || { printf 'none\n'; return 0; }
+  fi
+  case "$path" in /snap/*) printf 'snap\n'; return 0 ;; esac
+  resolved="$(readlink -f "$path" 2>/dev/null || printf '%s' "$path")"
+  if [[ "$resolved" == /opt/microsoft/powershell/7/pwsh ]]; then
+    if powershell_deb_installed; then printf 'apt\n'; else printf 'tarball\n'; fi
+    return 0
+  fi
+  printf 'other\n'
+}
+
+# Moves Microsoft's package until pwsh answers $1 or newer: through apt from the
+# verified .deb of release $2 (the newest when empty), then, on x86_64, from Microsoft's
+# apt sources, with its 24.04 suite added when the host's sources carry none. When it
+# falls short it leaves why in PWSH_UPGRADE_WHY, for the floor issue and the closing
+# report.
+PWSH_UPGRADE_WHY=""
+raise_pwsh_package() {
+  local reach="$1" release="$2" rc=0 why
+  PWSH_VERSION="$release" run_pwsh_source install_pwsh_deb || rc=$?
+  if version_ge "$(pwsh_version || true)" "$reach"; then return 0; fi
+  case "$rc" in
+    0) why="$(command -v pwsh || echo pwsh) still answers below $reach after the release .deb installed" ;;
+    2) why="apt did not install the release .deb" ;;
+    *) why="the release .deb could not be fetched or verified" ;;
+  esac
+  if [[ "$ARCH" == x86_64 ]]; then
+    rc=0
+    run_pwsh_source install_pwsh_noble || rc=$?
+    if version_ge "$(pwsh_version || true)" "$reach"; then return 0; fi
+    case "$rc" in
+      0) why="$why, and Microsoft's apt sources offer nothing at or past $reach" ;;
+      2) why="$why, and apt did not install powershell from Microsoft's apt sources" ;;
+      3) why="$why, and Microsoft's Ubuntu 24.04 suite is added only on Ubuntu hosts" ;;
+      *) why="$why, and Microsoft's Ubuntu 24.04 suite could not be added" ;;
+    esac
+  fi
+  PWSH_UPGRADE_WHY="$why"
+}
+
+# How many files of Microsoft's powershell package under /opt/microsoft/powershell/7,
+# the tree a tarball unpacks into, dpkg -V finds changed or missing: 0 when every one
+# matches what dpkg recorded, and when dpkg cannot tell. dpkg -V exits 0 whatever it
+# finds, so its lines are what is counted. A file elsewhere does not count: dpkg -V also
+# lists as missing a file that dpkg's own path-exclude setting kept from being unpacked,
+# such as the package's manual page on a minimized Ubuntu install, and a reinstall
+# leaves that file out again.
+pwsh_package_mismatches() {
+  { LC_ALL=C dpkg -V powershell 2>/dev/null || true; } \
+    | awk '$NF ~ /^\/opt\/microsoft\/powershell\/7\// { n++ } END { print n + 0 }'
+}
+
+# A re-run moves the interpreter to the newest release its own source offers, not only
+# to the floor: a copy that once met the floor would otherwise keep that version for
+# the life of the machine. That release is whatever GitHub marks as the latest, or
+# PWSH_VERSION when the operator set one, and nothing is ever downgraded. snapd moves a
+# snap. Microsoft's package has moved with the package list as far as a configured
+# source offers; short of that release it moves through apt from the release's
+# verified .deb, then from Microsoft's apt sources -- never by a tarball over the
+# package. An apt pin does not stop the release's .deb; a package the operator holds
+# with apt-mark stays. Files of the package that no longer match what dpkg recorded --
+# a tarball unpacked over it leaves them so -- are replaced the same way, at the
+# release pwsh answers as when there is nothing newer, so dpkg and the files agree. A
+# tarball copy is replaced by the release's verified tarball. A copy from any other
+# source is left alone, and the closing report names what is newer.
+# The replacement runs between pwsh calls, never under one: the runner and the status
+# service were stopped before the package install, and every later step starts a
+# new pwsh. A source that cannot install ends its attempt, not the install.
+# See https://yuruna.link/4213a0b3-01b8
+bring_powershell_to_newest() {
+  local have want source damaged
+  have="$(pwsh_version || true)"
+  source="$(pwsh_source)"
+  case "$source" in
+    snap)
+      log "Refreshing the PowerShell snap to its channel's newest release"
+      sudo snap refresh powershell || warn "  'snap refresh powershell' failed; the snap keeps ${have:-its version}"
+      ;;
+    apt)
+      damaged="$(pwsh_package_mismatches)"
+      if apt_package_held powershell; then
+        if (( damaged > 0 )); then
+          note_issue "Microsoft's powershell package has files that no longer match what dpkg recorded ('dpkg -V powershell' lists $damaged under /opt/microsoft/powershell/7), and it is held with apt-mark hold, so this installer leaves it; release it with 'sudo apt-mark unhold powershell' and re-run this installer, which reinstalls it."
+        fi
+        log "PowerShell ${have:-(unreadable)} is Microsoft's package, held with apt-mark hold -- leaving it"
+        return 0
+      fi
+      want="${PWSH_VERSION:-}"
+      if [[ -z "$want" ]] && ! want="$(pwsh_latest_release)"; then
+        warn "GitHub did not name PowerShell's newest release; the package keeps ${have:-its version}"
+        want=""
+      fi
+      if [[ -n "$want" ]] && ! { [[ -n "$have" ]] && version_ge "$have" "$want"; }; then
+        log "Upgrading Microsoft's PowerShell package from ${have:-(unreadable)} to $want"
+        raise_pwsh_package "$want" "$want"
+        if ! version_ge "$(pwsh_version || true)" "$want"; then
+          warn "  PowerShell $want could not be installed: $PWSH_UPGRADE_WHY; PowerShell stays at $(pwsh_version || echo "${have:-its version}")"
+        fi
+      elif (( damaged > 0 )) && [[ -n "$have" ]]; then
+        log "Microsoft's PowerShell package has files that no longer match what dpkg recorded ('dpkg -V powershell' lists $damaged under /opt/microsoft/powershell/7) -- reinstalling PowerShell $have from the release's .deb"
+        PWSH_VERSION="$have" run_pwsh_source install_pwsh_deb || true
+      elif [[ -n "$want" ]]; then
+        log "PowerShell $have is at or past $want, the release the package path would install"
+      fi
+      if (( damaged > 0 )); then
+        damaged="$(pwsh_package_mismatches)"
+        if (( damaged > 0 )); then
+          note_issue "Microsoft's powershell package still has files that do not match what dpkg recorded ('dpkg -V powershell' lists $damaged under /opt/microsoft/powershell/7); the output above says why no release .deb replaced them, and re-running this installer tries again."
+        else
+          log "  every file of Microsoft's PowerShell package matches what dpkg recorded"
+        fi
+      fi
+      ;;
+    tarball)
+      want="${PWSH_VERSION:-}"
+      if [[ -z "$want" ]] && ! want="$(pwsh_latest_release)"; then
+        warn "GitHub did not name PowerShell's newest release; the tarball copy keeps ${have:-its version}"
+        return 0
+      fi
+      if [[ -n "$have" ]] && version_ge "$have" "$want"; then
+        log "PowerShell $have is at or past $want, the release the tarball path would install"
+        return 0
+      fi
+      log "Upgrading PowerShell ${have:-(unreadable)} to $want from the release tarball"
+      PWSH_VERSION="$want" run_pwsh_source install_pwsh_tarball || true
+      if ! version_ge "$(pwsh_version || true)" "$want"; then
+        warn "  the PowerShell $want tarball could not be installed; PowerShell stays at ${have:-its version}"
+      fi
+      ;;
+    *) ;;
+  esac
+  hash -r
+}
+
 bring_powershell_to_required_version() {
-  local floor have
+  local floor have target from
   floor="$(requirement_floor PowerShell || true)"
   have="$(pwsh_version || true)"
   if [[ -z "$floor" ]]; then
@@ -1596,27 +1981,54 @@ bring_powershell_to_required_version() {
     have="$(pwsh_version || true)"
   fi
   if ! version_ge "$have" "$floor"; then
-    # Both managed sources land under /usr/local/bin, ahead of /snap/bin on the stock
-    # PATH, so the newer copy wins the name. Run in a subshell: a source that gives up
-    # must end the upgrade attempt, not the install.
+    # A package the operator holds is replaced from no source: apt refuses it, and a
+    # tarball unpacked over it would defeat the hold.
+    if powershell_deb_installed && apt_package_held powershell; then
+      note_issue "PowerShell $have is below the $floor floor, and Microsoft's powershell package is held with apt-mark hold, so this installer leaves it; release it with 'sudo apt-mark unhold powershell' and re-run this installer."
+      return 0
+    fi
+    # The release the .deb and the tarball install: PWSH_VERSION, or whatever GitHub
+    # marks as the latest. One below the floor is never installed -- nor, since the
+    # installed version is below the floor too, one below that -- so the repair then
+    # installs nothing. When GitHub does not answer, each source asks it again.
+    target="${PWSH_VERSION:-}"
+    if [[ -z "$target" ]]; then target="$(pwsh_latest_release || true)"; fi
+    if [[ -n "$target" ]] && ! version_ge "$target" "$floor"; then
+      if [[ -n "${PWSH_VERSION:-}" ]]; then from="PWSH_VERSION names $target"; else from="GitHub's newest release is $target"; fi
+      note_issue "PowerShell $have is below the $floor floor, and $from, which is below it too, so this installer installed nothing; re-run it with PWSH_VERSION set to $floor or later."
+      return 0
+    fi
+    # Each source is judged by the version the name answers with afterward, never by its
+    # exit status: apt succeeds without moving a package that no configured source offers
+    # newer. On x86_64: Microsoft's apt repo for this release -- asked only when no
+    # package is installed, because the package list already asked those sources about
+    # one -- then the release's .deb and Microsoft's 24.04 suite, then the tarball only
+    # while no package owns the tree it unpacks into. On aarch64: the release's .deb for
+    # a host with Microsoft's package, the tarball otherwise. The package installs
+    # /usr/bin/pwsh and the tarball links /usr/local/bin/pwsh, both ahead of /snap/bin
+    # on the stock PATH, so the newer copy wins the name. Each source runs in its own
+    # subshell: one that gives up ends its attempt, never the install or the next source.
     # See https://yuruna.link/4213a0b3-01b8
-    (
-      YURUNA_TMP_PATHS=()
-      trap yuruna_cleanup_tmp_paths EXIT
-      case "$ARCH" in
-        x86_64)  install_pwsh_apt || install_pwsh_tarball ;;
-        aarch64) install_pwsh_tarball ;;
-      esac
-    ) || true
-    hash -r
+    if [[ "$ARCH" == x86_64 ]] && ! powershell_deb_installed; then
+      run_pwsh_source install_pwsh_apt || true
+    fi
+    if ! version_ge "$(pwsh_version || true)" "$floor" \
+       && { [[ "$ARCH" == x86_64 ]] || powershell_deb_installed; }; then
+      raise_pwsh_package "$floor" "$target"
+    fi
+    if ! version_ge "$(pwsh_version || true)" "$floor" && ! powershell_deb_installed; then
+      PWSH_VERSION="$target" run_pwsh_source install_pwsh_tarball \
+        || PWSH_UPGRADE_WHY="${PWSH_UPGRADE_WHY:+$PWSH_UPGRADE_WHY, and }the release tarball could not be installed"
+    fi
     have="$(pwsh_version || true)"
   fi
   if version_ge "$have" "$floor"; then
     log "  PowerShell is now $have"
   else
-    note_issue "PowerShell is ${have:-unreadable} after the upgrade attempt, still below the $floor floor."
+    note_issue "PowerShell is ${have:-unreadable} after the upgrade attempt, still below the $floor floor${PWSH_UPGRADE_WHY:+: $PWSH_UPGRADE_WHY}."
   fi
 }
+bring_powershell_to_newest
 bring_powershell_to_required_version
 
 # --- REGION: AMD Ryzen AI Developer Platform floor repair
@@ -2146,7 +2558,7 @@ report_floor_check() {
            -Tool "$(floor_check_tools)" -WarnOnly 2>&1)" || rc=$?
   if (( rc != 0 )); then
     printf '%s\n' "$out" >&2
-    note_issue "The version floors could not be checked: automation/Test-Requirement.ps1 exited $rc, with its output printed above. A missing powershell-yaml module is the usual cause; install it with: pwsh -Command 'Install-Module powershell-yaml -Scope CurrentUser', then re-run this installer."
+    note_issue "The version floors could not be checked: automation/Test-Requirement.ps1 exited $rc, with its output printed above. A missing powershell-yaml module is the usual cause; install it with: pwsh -Command 'Install-Module powershell-yaml -RequiredVersion $POWERSHELL_YAML_VERSION -Scope CurrentUser', then re-run this installer."
     return 0
   fi
   while IFS= read -r line; do
@@ -2156,6 +2568,164 @@ report_floor_check() {
 if command -v pwsh >/dev/null 2>&1 && [[ -f "$YURUNA_DIR/automation/Test-Requirement.ps1" ]]; then
   log "Checking installed versions against the required floors"
   report_floor_check
+fi
+
+# Advisory, after the floor check: each tool this installer manages that its own
+# source offers newer than what is installed, as `tool: installed -> available
+# (source; why this run left it)`. A source that does not answer is reported as
+# unknown, never as current, and nothing here fails the run. gh and the AMD
+# platform's git are installed only when absent and at the floor, so they are
+# reported, not upgraded.
+# See https://yuruna.link/4213a0b3-01b1
+apt_newer_lines() {
+  local pkgs=("${APT_PACKAGES[@]}" virt-manager gh) policy pkg installed candidate why
+  if powershell_deb_installed && ! printf '%s\n' "${pkgs[@]}" | grep -x powershell >/dev/null; then
+    pkgs+=(powershell)
+  fi
+  if ! policy="$(LC_ALL=C apt-cache policy "${pkgs[@]}" 2>/dev/null)"; then
+    printf 'apt packages: unknown (apt-cache policy did not answer)\n'
+    return 0
+  fi
+  while read -r pkg installed candidate offered; do
+    if [[ -z "$installed" || "$installed" == "(none)" ]]; then continue; fi
+    # An installed package whose only origin is dpkg's own record has itself as apt's
+    # candidate, so apt cannot say whether anything newer exists. PowerShell is left to
+    # pwsh_newer_line, which asks GitHub.
+    if [[ "$offered" == none ]]; then
+      if [[ "$pkg" != powershell ]]; then
+        printf '%s: %s -> unknown (no configured apt source offers %s)\n' "$pkg" "$installed" "$pkg"
+      fi
+      continue
+    fi
+    if [[ -z "$candidate" || "$candidate" == "(none)" ]]; then continue; fi
+    if ! dpkg --compare-versions "$installed" lt "$candidate"; then continue; fi
+    if apt_package_held "$pkg"; then why="held by apt-mark hold"
+    elif [[ "$pkg" == gh ]]; then why="this installer installs gh only when it is absent"
+    elif [[ "$pkg" == powershell && "${PWSH_APT_UNINSTALLABLE:-0}" -eq 1 ]]; then
+      why="apt cannot install that candidate here, so this run left it out of the package list"
+    else why="apt did not move it in this run"
+    fi
+    printf '%s: %s -> %s (apt; %s)\n' "$pkg" "$installed" "$candidate" "$why"
+  done < <(printf '%s\n' "$policy" | awk '
+    function flush() {
+      if (pkg != "") print pkg, (installed == "" ? "(none)" : installed), (candidate == "" ? "(none)" : candidate), (status && !offered ? "none" : "some")
+    }
+    /^[^ ]/ { flush(); pkg = $1; sub(/:$/, "", pkg); installed = ""; candidate = ""; table = status = offered = 0; next }
+    $1 == "Installed:" { installed = $2; next }
+    $1 == "Candidate:" { candidate = $2; next }
+    $1 == "Version" && $2 == "table:" { table = 1; next }
+    # An origin line is a priority followed by where that version comes from.
+    table && $1 ~ /^-?[0-9]+$/ && $2 !~ /^-?[0-9]+$/ {
+      if ($2 ~ /\/var\/lib\/dpkg\/status$/) status = 1; else offered = 1
+    }
+    END { flush() }')
+  return 0
+}
+# PowerShell is compared with GitHub's newest release whatever its source: a package no
+# configured source carries has itself as apt's candidate, so the apt lines alone would
+# call it current.
+pwsh_newer_line() {
+  local source have latest snaps why floor
+  source="$(pwsh_source)"
+  have="$(pwsh_version || true)"
+  case "$source" in
+    none) return 0 ;;
+    snap)
+      if ! snaps="$(snap refresh --list 2>/dev/null)"; then
+        printf 'PowerShell: %s -> unknown (snapd did not list pending refreshes)\n' "${have:-unreadable}"
+        return 0
+      fi
+      latest="$(printf '%s\n' "$snaps" | awk '$1 == "powershell" { print $2; exit }')"
+      if [[ -n "$latest" ]]; then
+        printf 'PowerShell: %s -> %s (snap; snapd has not refreshed it yet)\n' "${have:-unreadable}" "$latest"
+      fi
+      return 0
+      ;;
+  esac
+  if ! latest="$(pwsh_latest_release)"; then
+    printf 'PowerShell: %s -> unknown (GitHub did not name the newest release%s)\n' "${have:-unreadable}" "${PWSH_UPGRADE_WHY:+; $PWSH_UPGRADE_WHY}"
+    return 0
+  fi
+  if [[ -n "$have" ]] && version_ge "$have" "$latest"; then
+    # GitHub can mark an older line as the latest. A copy below the floor is then still
+    # behind the floor's own release, which the floor check reports, so it is not current.
+    floor="$(requirement_floor PowerShell || true)"
+    if [[ -n "$floor" ]] && ! version_ge "$have" "$floor"; then
+      printf "PowerShell: %s -> unknown (GitHub's newest release %s is below the %s floor)\n" "$have" "$latest" "$floor"
+    fi
+    return 0
+  fi
+  if [[ "$source" == apt ]]; then
+    if apt_package_held powershell; then why="held by apt-mark hold; 'sudo apt-mark unhold powershell' releases it"
+    elif [[ -n "${PWSH_UPGRADE_WHY:-}" ]]; then why="$PWSH_UPGRADE_WHY"
+    elif [[ -n "${PWSH_VERSION:-}" ]]; then why="PWSH_VERSION is $PWSH_VERSION"
+    else why="the package upgrade did not complete"
+    fi
+    printf "PowerShell: %s -> %s (Microsoft's package; %s)\n" "${have:-unreadable}" "$latest" "$why"
+  elif [[ "$source" == tarball ]]; then
+    if [[ -n "${PWSH_VERSION:-}" ]]; then why="PWSH_VERSION is $PWSH_VERSION"
+    else why="the tarball upgrade did not complete"
+    fi
+    printf 'PowerShell: %s -> %s (release tarball; %s)\n' "${have:-unreadable}" "$latest" "$why"
+  else
+    printf 'PowerShell: %s -> %s (GitHub release; %s comes from a source this installer does not manage)\n' \
+      "${have:-unreadable}" "$latest" "$(command -v pwsh)"
+  fi
+  return 0
+}
+module_newer_lines() {
+  local listed name have pin
+  if ! listed="$(pwsh -NoProfile -Command 'foreach ($n in "powershell-yaml", "PSScriptAnalyzer") { $m = Get-Module -ListAvailable -Name $n -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1; "$n $(if ($m) { $m.Version })" }' 2>/dev/null)"; then
+    printf 'PowerShell modules: unknown (pwsh could not list them)\n'
+    return 0
+  fi
+  while read -r name have; do
+    case "$name" in
+      powershell-yaml)  pin="$POWERSHELL_YAML_VERSION" ;;
+      PSScriptAnalyzer) pin="$(sed -n "s/^[[:space:]]*'PSScriptAnalyzer'[[:space:]]*=[[:space:]]*@{ Version = '\([^']*\)'.*/\1/p" \
+                          "$YURUNA_DIR/tools/Install-TestModule.ps1" 2>/dev/null | head -1)" ;;
+      *) continue ;;
+    esac
+    if [[ -z "$have" || -z "$pin" ]] || version_ge "$have" "$pin"; then continue; fi
+    printf '%s: %s -> %s (pinned in the PowerShell Gallery; the install of the pin did not complete)\n' "$name" "$have" "$pin"
+  done <<< "$listed"
+  return 0
+}
+amd_git_newer_line() {
+  local have listing latest
+  if ! is_amd_ryzen_ai_platform; then return 0; fi
+  have="$(tool_version git || true)"
+  if ! listing="$(curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 60 \
+                    "https://www.kernel.org/pub/software/scm/git/" 2>/dev/null)"; then
+    printf 'git: %s -> unknown (kernel.org did not answer)\n' "${have:-unreadable}"
+    return 0
+  fi
+  latest="$(printf '%s\n' "$listing" | grep -oE 'git-[0-9]+\.[0-9]+\.[0-9]+\.tar\.xz' \
+    | sed -E 's/^git-//; s/\.tar\.xz$//' | sort -u -t. -k1,1n -k2,2n -k3,3n | tail -1 || true)"
+  if [[ -z "$latest" ]]; then
+    printf 'git: %s -> unknown (kernel.org listed no release)\n' "${have:-unreadable}"
+    return 0
+  fi
+  if [[ -n "$have" ]] && version_ge "$have" "$latest"; then return 0; fi
+  printf 'git: %s -> %s (kernel.org; this installer builds git at its %s floor)\n' \
+    "${have:-unreadable}" "$latest" "$(requirement_floor git || printf 'unreadable')"
+  return 0
+}
+report_newer_versions() {
+  local lines line
+  lines="$(pwsh_newer_line; apt_newer_lines; module_newer_lines; amd_git_newer_line)"
+  log "Newer versions available"
+  if [[ -z "$lines" ]]; then
+    log "  none: every tool this installer manages is at the newest version its source offers"
+    return 0
+  fi
+  while IFS= read -r line; do
+    if [[ -n "$line" ]]; then log "  $line"; fi
+  done <<< "$lines"
+  return 0
+}
+if command -v pwsh >/dev/null 2>&1; then
+  report_newer_versions || warn "The check for newer versions did not finish; it is advisory and the install is unaffected."
 fi
 
 # --- REGION: Backup notice

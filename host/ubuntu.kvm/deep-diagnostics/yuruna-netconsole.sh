@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.05
+# Version: 2026.11.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42c2a0b9-0c0c-4daf-85f4-2ae933afa367

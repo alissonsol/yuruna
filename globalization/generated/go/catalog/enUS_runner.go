@@ -25209,6 +25209,51 @@ const DataenUSrunner = `{
     },
     "). The cycle continues, deletes stay reference-checked, and the next cycle tries again."
   ],
+  "runner.wait_ended_on_display_stall": [
+    "Text '",
+    {
+      "arg": "patternLabel",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' wait ended after ~",
+    {
+      "arg": "waited",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s of ",
+    {
+      "arg": "timeoutSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s: the guest's ",
+    {
+      "arg": "driver",
+      "type": "detail",
+      "trust": "external"
+    },
+    " display driver reported ",
+    {
+      "arg": "reports",
+      "type": "detail",
+      "trust": "external"
+    },
+    " page-flip timeouts over ",
+    {
+      "arg": "spanSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s on its serial console while the console stayed unchanged for ",
+    {
+      "arg": "unchangedSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s, so the screen will not show the text in this boot and the retry can cold-restart the guest"
+  ],
   "runner.wait_ended_on_kernel_stall": [
     "Text '",
     {

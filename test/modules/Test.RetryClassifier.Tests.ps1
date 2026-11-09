@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42ec2071-1f84-4394-921b-5ee9b08141b3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,6 +96,26 @@ Describe 'Transient classifier: the tokens already relied on keep matching' {
     ) {
         param($token)
         $token | Should -Match $script:pattern
+    }
+}
+
+Describe 'Transient classifier: an API server that is not serving yet' {
+    # A single-node cluster that just restarted answers before etcd settles. A
+    # namespace create then fails with one of these, and the same call passes
+    # a few seconds later.
+    It 'matches <token>' -TestCases @(
+        @{ token = 'Error from server: etcdserver: request timed out' }
+        @{ token = 'Error from server: etcdserver: request timed out, possibly due to previous leader failure' }
+        @{ token = 'Error from server: etcdserver: leader changed' }
+        @{ token = 'Error from server (Timeout): the server was unable to return a response in the time allotted, but may still be processing the request (post namespaces)' }
+        @{ token = 'Error from server (ServiceUnavailable): the server is currently unable to handle the request' }
+    ) {
+        param($token)
+        $token | Should -Match $script:pattern
+    }
+
+    It 'still fails fast on a namespace that already exists' {
+        'Error from server (AlreadyExists): namespaces "website" already exists' | Should -Not -Match $script:pattern
     }
 }
 

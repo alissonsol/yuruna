@@ -1335,6 +1335,18 @@ cycle the host restarted under, then `boot_recovery_completed` -- wait in
 event stream ahead of its `cycle_start`, where the pool collects them
 (see [queued events](definition.md#42fa6f45-0030)).
 
+A runner whose terminal or SSH session ends is sent SIGHUP and stops with its
+cycle and its readers; status.json goes on saying the cycle runs. So each
+runner records how it was started, in `runtime/runner.session.json` (whether
+under an SSH session, a terminal program or a multiplexer, its parent
+processes, and the host's boot time), and its SIGHUP and SIGTERM handlers write
+the signal to `runtime/runner.exit.json` before the process ends as the signal
+would end it. Until the next runner starts, `/control/runner-status` reports
+both as `lastExit` ([runner-status](control-routes.md#42185271-000b)). The next
+runner's sweep reads them before it clears `runner.pid`, and its
+`boot_recovery_completed` event carries them as `previousRunner`; only then
+does the new runner replace them with its own.
+
 <a id="42f909ad-0020"></a>
 
 ### History depth
@@ -1355,6 +1367,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

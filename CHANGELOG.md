@@ -4,6 +4,17 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.11.08
+
+- **Riding out GitHub outages.** The caching proxy serves learned GitHub
+  release assets without asking GitHub, and release downloads retry for half
+  an hour, so cycles wait out an outage.
+- **Also in this release.** Installers keep managed tools at their newest
+  release (PowerShell floor 7.6.9), the pool shows runners lost mid-cycle,
+  runners record why they stopped, a stalled Hyper-V login display
+  cold-restarts the guest, UTM serial stops are bounded, and failed Ubuntu
+  installs name their cause.
+
 ## 2026.11.05
 
 - **Working git mirror.** After a caching-proxy rebuild, hosts and guests fetch
@@ -682,6 +693,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](README.md)

@@ -161,13 +161,13 @@
 
   // Two different blanks, and they need different answers from the operator:
   // withheld until this browser is unlocked, or a host that never reported one
-  // (it has no address the pool can read a registration record from).
+  // (it has no address the pool can read a registration record from). Which
+  // one it is decides what to do next, so the reason is reachable by keyboard
+  // and touch as well as by hover.
   function hostnameCell(name) {
     if (name) { return Y.el('span', { text: name }); }
-    return Y.el('span', {
-      class: 'muted', text: '--',
-      title: hostnamesVisible ? window.YurunaI18n.t("pool.this_host_has_not_reported_a_name") : window.YurunaI18n.t("pool.unlock_with_the_lab_token_to_see_hostnames")
-    });
+    return Y.explain(Y.el('span', { class: 'muted', text: '--' }),
+      hostnamesVisible ? window.YurunaI18n.t("pool.this_host_has_not_reported_a_name") : window.YurunaI18n.t("pool.unlock_with_the_lab_token_to_see_hostnames"));
   }
 
   function typeCell(type) {
@@ -197,14 +197,13 @@
   }
 
   // One blank for every way a fact can be missing (host silent, older host
-  // build without the route, fan-out still unfetched); the title says which.
+  // build without the route, fan-out still unfetched); its explanation says
+  // which, by hover, keyboard and touch alike.
   // Takes a formatted string or a raw number (the Cores column).
   function factCell(value, error) {
     if (value !== null && value !== undefined && value !== '') { return Y.el('span', { text: String(value) }); }
-    return Y.el('span', {
-      class: 'muted', text: '--',
-      title: error ? Y.bidiIsolate(error) : window.YurunaI18n.t("pool.this_host_has_not_reported_hardware_facts")
-    });
+    return Y.explain(Y.el('span', { class: 'muted', text: '--' }),
+      error ? Y.bidiIsolate(error) : window.YurunaI18n.t("pool.this_host_has_not_reported_hardware_facts"));
   }
 
   // The identity a row's facts arrive under. A discovered host that could not
@@ -234,12 +233,14 @@
   }
 
   // The commit the host's resident runner loaded, and since when: a runner keeps
-  // that code until it restarts. The full commit is the title.
+  // that code until it restarts. The full commit is the title, a reading aid
+  // beside the short one the cell shows; why a host shows none is explained by
+  // keyboard and touch too.
   function runnerCell(h, error) {
     var f = facts[factKey(h)];
     var commit = f && f.ok ? String(f.runnerCommitSha || '') : '';
     if (!commit) {
-      return Y.el('span', { class: 'muted', text: '--', title: error ? Y.bidiIsolate(error) : t('pool.runner_unreported') });
+      return Y.explain(Y.el('span', { class: 'muted', text: '--' }), error ? Y.bidiIsolate(error) : t('pool.runner_unreported'));
     }
     var started = runnerStarted(h);
     return Y.el('span', {

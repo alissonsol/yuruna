@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42d64c35-2931-4e2a-aa8a-75a10025ea5a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -229,6 +229,8 @@ Describe 'Windows setup reads the Hyper-V feature state bounded' {
     It 'reads <Expected> from an answered dism query' -TestCases @(
         @{ Expected = 'Enabled' }
         @{ Expected = 'Disabled' }
+        @{ Expected = 'Enable Pending' }
+        @{ Expected = 'Disabled with Payload Removed' }
     ) {
         param([string]$Expected)
         $script:FixtureOutcome = [pscustomobject]@{ TimedOut = $false; Started = $true; ExitCode = 0; StdOut = "Feature Name : Microsoft-Hyper-V-All`r`nState : $Expected`r`n" }

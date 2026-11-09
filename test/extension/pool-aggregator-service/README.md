@@ -52,8 +52,8 @@ Every `-interval` (default 30s) it:
    `gitCommits`, with `commitUrl`/`projectCommitUrl` the per-repo
    `.../commit/<sha>` deep-links the table's Commit column resolves; `control` is
    the remote-control verdict of point 5e),
-   `yuruna_pool_host_status` (numeric 0-9:
-   unreachable/running/pass/fail/idle/paused/pausing-cycle/pausing-step/stopped/preflight-failed),
+   `yuruna_pool_host_status` (numeric 0-10:
+   unreachable/running/pass/fail/idle/paused/pausing-cycle/pausing-step/stopped/preflight-failed/lost),
    and `yuruna_pool_host_last_seen_seconds`.
    Served at `/metrics`. The whole pool telemetry is **hostname-free** (see below).
 5b. **Discovers extension hosts (registration-driven).** Each poll it reads every
@@ -643,14 +643,14 @@ from the **LOCAL host working tree** served by the deploying host's status
 server (`http://<host>:<port>/yuruna-repo/test/extension/pool-aggregator-service/`) --
 the same base-URL resolution as `automation/fetch-and-execute.sh`: read
 `/etc/yuruna/host.env` (host IP+port baked into the seed by `New-VM.ps1`), probe
-`/livecheck`, else fall back to github raw. It then `go build`s, installs the
+`/livecheck`, else fall back to GitHub raw. It then `go build`s, installs the
 binary + unit, and `systemctl enable --now`s. Failure is soft.
 
-Because it reads the host's **live working tree**, **no github mirror is
+Because it reads the host's **live working tree**, **no GitHub mirror is
 required** -- the host serves whatever is checked out at request time, so a
 rebuild always gets the latest local source. `Start-CachingProxyServiceVM.ps1` starts the
 status service before creating the VM. If the server is unreachable (or
-`statusService` is disabled in `test.config.yml`), the build falls back to github
+`statusService` is disabled in `test.config.yml`), the build falls back to GitHub
 raw -- where the private collector source may be absent, so the collector is
 skipped (logged loudly in `/var/log/cloud-init-output.log`).
 
@@ -798,6 +798,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../../../README.md)

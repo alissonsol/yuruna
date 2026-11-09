@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42db5b4f-9255-4491-9e61-27cc60af1914
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,6 +71,7 @@ Describe 'status-service /log-upload allowlist' {
             'installer-journal.txt',
             'network-at-failure.txt',
             'mounts-at-failure.txt',
+            'installer-cause.txt',
             'autoinstall-user-data.log',
             'curtin-errors.tar',
             '1785870436.086154699.install_fail.crash',
@@ -81,6 +82,48 @@ Describe 'status-service /log-upload allowlist' {
             Assert-True ("installer-fail/vm/20260804T190716Z/$name" -match $script:UploadRegex) `
                 "'$name' must still be accepted under a bucket path"
         }
+    }
+
+    It 'probes the proxy the seed was given, which the installer''s own apt configuration never names' {
+        # curtin writes the proxy into /target, so a probe that reads the live
+        # system's apt configuration reports no proxy while curtin is failing
+        # against one, and the record then shows every direct route healthy.
+        $seed = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '../../host/vmconfig/ubuntu.server.base.user-data')
+        Assert-True ($seed -match 'APT_PROXY="CACHING_PROXY_URL_PLACEHOLDER"') 'the error hook must probe the proxy baked into the seed'
+        Assert-Equal -Expected $false -Actual ($seed -match 'APT_PROXY=\$\(grep') -Because 'reading the installer''s apt configuration finds no proxy'
+    }
+
+    It 'extracts apt''s statement from curtin''s archive, one copy of each line' -Skip:($IsWindows) {
+        # Runs the hook's own lines, so a filter that stops matching apt's wording
+        # fails here rather than on the next pool-wide outage.
+        $seed = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '../../host/vmconfig/ubuntu.server.base.user-data')
+        $block = [regex]::Match($seed, '(?ms)^\s*CURTIN_LOG=\$\(tar.*?^\s*fi > "\$CAUSESNAP"').Value
+        Assert-True ([bool]$block) 'the cause extraction must stay in the error hook'
+        $work = Join-Path $TestDrive 'hook'
+        $logDir = Join-Path $work 'curtin-logs-2026-11-06-01-17'
+        $null = New-Item -ItemType Directory -Force -Path $logDir
+        # curtin repeats its output, indented, inside the report at the end of the log.
+        Set-Content -LiteralPath (Join-Path $logDir 'curtin-install.log') -Value @(
+            'Reading package lists...',
+            'E: Can not write log (Is /dev/pts mounted?) - posix_openpt (19: No such device)',
+            ' linux-generic : Depends: linux-image-generic (= 7.0.0-43.43) but 7.0.0-30.30 is to be installed',
+            '                 Recommends: linux-tools-7.0.0-43-generic but it is not installable',
+            'E: Unable to satisfy dependencies. Reached two conflicting assignments:',
+            '   2. linux-image-generic:amd64=7.0.0-43.43 Depends linux-modules-7.0.0-43-generic',
+            '      but none of the choices are installable:',
+            '        E: Unable to satisfy dependencies. Reached two conflicting assignments:',
+            '        Running command [''udevadm'', ''settle'']')
+        $archive = Join-Path $work 'curtin-errors.tar'
+        & tar -cf $archive -C $work 'curtin-logs-2026-11-06-01-17'
+        $cause = Join-Path $work 'cause.txt'
+        $script = $block.Replace('/var/log/installer/curtin-errors.tar', $archive).Replace('$CAUSESNAP', $cause)
+        & sh -c $script
+        $lines = @(Get-Content -LiteralPath $cause)
+        Assert-Equal -Expected (@(
+            'linux-generic : Depends: linux-image-generic (= 7.0.0-43.43) but 7.0.0-30.30 is to be installed',
+            'E: Unable to satisfy dependencies. Reached two conflicting assignments:',
+            '2. linux-image-generic:amd64=7.0.0-43.43 Depends linux-modules-7.0.0-43-generic',
+            'but none of the choices are installable:') -join "`n") -Actual ($lines -join "`n")
     }
 
     It 'rejects executable and extensionless uploads' {

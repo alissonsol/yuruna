@@ -424,7 +424,10 @@ The UI shows a "Stopped" banner when `running=false` so stale `status.json`
 data is not mistaken for a live runner. The pool aggregator asks every host the
 same question on every poll: the *Pool hosts* Status column reads **runner
 stopped** above every other reading, so a host whose runner is gone stops
-showing its last cycle's green to the whole lab. Only an explicit
+showing its last cycle's green to the whole lab. It reads **runner lost
+mid-cycle** instead when `runnerState` is still `in-cycle` and `pid` is set: the
+runner died inside a cycle and left its `runner.pid` behind, which the orderly
+end of an operator's Ctrl+C removes. Only an explicit
 `running=false` counts -- a host predating the route answers `404`, which is not
 evidence of a stopped runner and leaves the cycle status showing.
 
@@ -454,6 +457,21 @@ with the bounds the resident runner applies in its place. The status page shows
 a running cycle with `watchdogLapsed` set, or with `liveness` `stalled`, in an
 amber banner instead of "Test in progress"; it names the bound rather than the
 live age, so the aria-live banner does not re-announce itself on every poll.
+
+`lastExit` says why a runner is gone. It is `null` while the runner runs, and
+otherwise the runner's `runtime/runner.session.json`, written as it started,
+joined with the `runtime/runner.exit.json` its SIGHUP or SIGTERM handler wrote:
+`pid`, `startedUtc`, `recordedUtc`, `sshSession` (it ran under an SSH session),
+`terminalProgram`, `multiplexer` (`tmux` or `screen`), `parents` (executable
+names and process ids, nearest first), `hostBootUtc` (the boot it started in),
+`signal` and `signalAtUtc`, and `hostRestarted`. A `SIGHUP` is a closed terminal
+window or a dropped SSH session that took the runner with it; a `SIGTERM` is a
+deliberate stop or a logout. A `null` signal is a runner that stopped on its
+own, or one ended without a catchable signal, such as a kill or an
+out-of-memory kill; `hostRestarted` `true` says the host booted since, which is
+what ended it. `hostRestarted` is `null` when either boot time is unknown. A
+record whose `pid` is not the one in `runner.pid` belongs to another runner and
+is not reported.
 
 **`test/service/Start-StatusService.ps1`.**
 
@@ -968,6 +986,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

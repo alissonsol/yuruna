@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 421942f3-d52f-4211-83d4-3fe55a882f99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -611,9 +611,11 @@ Describe 'report_floor_check' {
         $root = New-PlatformSandbox -Version $script:Below
         try {
             $r = Invoke-PlatformShell -Root $root -Body @'
+POWERSHELL_YAML_VERSION=9.9.9
 pwsh() { printf 'NO_COLOR=%s\n' "${NO_COLOR:-}"; echo 'ConvertFrom-Content: powershell-yaml is required' >&2; return 1; }
 report_floor_check; echo FINISHED
 '@
+            Assert-Match 'Install-Module powershell-yaml -RequiredVersion 9\.9\.9 -Scope CurrentUser' $r.Output 'the advice names the installer''s pin'
             Assert-Match 'ISSUE The version floors could not be checked: automation/Test-Requirement\.ps1 exited 1' $r.Output 'the failure reaches the closing summary'
             Assert-Match 'powershell-yaml is required' $r.Output 'the check''s own output is shown whole'
             Assert-Match 'NO_COLOR=1' $r.Output 'pwsh runs without color codes'

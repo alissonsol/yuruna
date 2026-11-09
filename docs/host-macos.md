@@ -180,7 +180,9 @@ sudo mkdir -p /usr/local/bin && sudo ln -sfn /Applications/UTM.app/Contents/MacO
 `install/macos.utm.sh` creates this link and refuses to report success without
 it, so a host installed with the current bootstrapper never reaches this state.
 A host provisioned before that, or one where UTM was installed by hand from the
-`.dmg`, needs one of the two commands above.
+`.dmg`, needs one of the two commands above. A re-run of the installer also
+hands a UTM installed from the `.dmg` to the cask, so it is upgraded from then
+on, unless a service VM is running.
 
 `/usr/local/bin` and not Homebrew's `bin`: the stock `/etc/paths` lists
 `/usr/local/bin`, so a login shell, a LaunchAgent and an `ssh host command` all
@@ -197,7 +199,11 @@ on this account is replacing `PATH` rather than adding to it -- check
 
 `install/macos.utm.sh` prefers the Homebrew **formula** for PowerShell, which is
 framework-dependent on brew's `dotnet` and locates its runtime through
-`DOTNET_ROOT`, exported by the wrapper on `PATH`. Any `pwsh` started without
+`DOTNET_ROOT`, exported by the wrapper on `PATH`. A Mac that also carries
+Microsoft's `.pkg` keeps it installed, but every installer run upgrades the
+formula and links the newest `pwsh` into `/usr/local/bin`, so the status
+service and the runner's children, which never ran `brew shellenv`, run that
+copy too. Any `pwsh` started without
 that environment -- notably a nested `sudo pwsh`, whose `env_reset` strips it --
 fails to find `libhostfxr` and exits **131** before running a line of script.
 The error names .NET, never the caller, so it surfaces far from its cause -- for
@@ -646,6 +652,15 @@ many bytes came from the rolled segment and when the newest byte arrived, and,
 when the log holds kernel reports the runner recognizes,
 `serial-console.kernel.json`.
 
+Stopping the reader is bounded. The stop makes its request without waiting on
+it, gives the reader 5 s, and then kills the process the job named as its first
+output, as [the Hyper-V reader's stop](host-source-rationale.md#42f52e37-001e)
+does. The reader polls and never parks in a read, so it normally honors the
+request at once; the kill is for a request PowerShell dropped, which would
+otherwise leave `Stop-Job` waiting two minutes on a teardown or a failure's
+save. A killed reader's job stays listed for about a minute, and arming the VM
+again in that minute starts a new reader beside it.
+
 The log is the raw byte stream: firmware and GRUB output with their terminal
 escapes, then the kernel's console. No `console=` argument is added. With
 none on the command line the arm64 kernel takes the ACPI SPCR UART, which is
@@ -740,15 +755,16 @@ the install powered off, and Ubuntu 24.04 still ends provisioning with
 post-provision login wait covers with a bounded cold restart.
 
 The costs: every UTM Ubuntu cycle pays one cold start, on hosts that never
-wedged too. The power-off wait does not look for installer failures on the
-screen, so an installer that crashes keeps the VM running until the
-2400-second limit. The step then fails as `provisioning_failure`, with the
-console frames of the wait, the last frame's OCR text and the observed VM
-state on the failure record; an installer that caught its own error has also
-sent its logs to the status service through the seed's
-[error-commands upload](vmconfig.md#429f3d06-002f). The guest is not recorded
-as silent: an installer still drawing its own screen has not stopped
-answering.
+wedged too. The power-off wait reads the installer's failure text from the
+frames it saves, so an installer that caught its own error ends the wait within
+one frame interval and fails as `pattern_matched_failure`, as it does on the
+other hosts, with its logs on the status service through the seed's
+[error-commands upload](vmconfig.md#429f3d06-002f). An installer that hangs
+without printing that text keeps the VM running until the 2400-second limit.
+The step then fails as `provisioning_failure`, with the console frames of the
+wait, the last frame's OCR text and the observed VM state on the failure
+record. The guest is not recorded as silent: an installer still drawing its own
+screen has not stopped answering.
 
 To confirm that a cycle took this path, look for `reboot: Power down` at the
 end of the install in `serial-console.log` (the installer's reboot prints
@@ -799,6 +815,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

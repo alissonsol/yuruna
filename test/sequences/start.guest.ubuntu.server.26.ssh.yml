@@ -57,7 +57,7 @@ component:
 workload:
   - action: sshFetchAndExecute
     command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.update.sh"
-    timeoutSeconds: 1800
+    timeoutSeconds: 3600
     description: "ubuntu.server.26.update.sh"
 
   # Observe the boot and CPU counters while the provisioned guest is still up.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42ba21e6-945f-48b7-aacb-cdc136e03c30
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,7 +97,7 @@ function Get-HeaderText {
 
 function Get-PsInfoText {
     param([string]$Guid = (New-SourceGuid), [switch]$NoGuid, [switch]$NoCopyright, [switch]$NoPointer)
-    $lines = @('<#PSScriptInfo', '.VERSION 2026.11.05')
+    $lines = @('<#PSScriptInfo', '.VERSION 2026.11.08')
     if (-not $NoGuid) { $lines += ".GUID $Guid" }
     $lines += '.AUTHOR Alisson Sol et al.'
     if (-not $NoCopyright) { $lines += '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.' }
@@ -969,8 +969,8 @@ Describe 'The Markdown footer report' {
     It 'passes a footer with a translated stamp and navigation links, and names a missing footer and content left after one' {
         $repository = New-FixtureRepository -Name 'markdown-footer'
         $footer = "---`n`nLICENSEURI https://yuruna.link/license`n`nCopyright (c) 2019-2026 by Alisson Sol et al.`n"
-        [IO.File]::WriteAllText((Join-Path $repository 'good.md'), "# Good`n`nBody.`n`n" + $footer + "`nLast review: 2026.11.05`n`nBack to [Yuruna](README.md)`n")
-        [IO.File]::WriteAllText((Join-Path $repository 'translated.md'), "# Bom`n`n" + $footer + "`n`u{00DA}ltima revis`u{00E3}o: 2026.11.05`n`nVoltar para [projeto](README.md) - [Yuruna](https://yuruna.com)`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'good.md'), "# Good`n`nBody.`n`n" + $footer + "`nLast review: 2026.11.08`n`nBack to [Yuruna](README.md)`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'translated.md'), "# Bom`n`n" + $footer + "`n`u{00DA}ltima revis`u{00E3}o: 2026.11.08`n`nVoltar para [projeto](README.md) - [Yuruna](https://yuruna.com)`n")
         [IO.File]::WriteAllText((Join-Path $repository 'AGENTS.md'), "# Agent rules`n`nRead them first.`n")
         $null = New-Item -ItemType Directory -Path (Join-Path $repository 'nested')
         [IO.File]::WriteAllText((Join-Path $repository 'nested/CLAUDE.md'), "Read and follow AGENTS.md.`n")
@@ -978,7 +978,7 @@ Describe 'The Markdown footer report' {
         $clean = Invoke-MetadataGate -Argument @('-Markdown', '-Root', $repository)
         $clean.Code | Should -Be 0 -Because $clean.Output
         $clean.Output | Should -Match '2 file\(s\) with the footer, 0 with content after it, 0 without one'
-        [IO.File]::WriteAllText((Join-Path $repository 'late.md'), "# Late`n`n" + $footer + "`nLast review: 2026.11.05`n`nA paragraph that landed under the license.`n")
+        [IO.File]::WriteAllText((Join-Path $repository 'late.md'), "# Late`n`n" + $footer + "`nLast review: 2026.11.08`n`nA paragraph that landed under the license.`n")
         [IO.File]::WriteAllText((Join-Path $repository 'nofooter.md'), "# Notes`n`nNo footer here.`n")
         Save-FixtureCommit -Repository $repository
         $late = Invoke-MetadataGate -Argument @('-Markdown', '-Root', $repository)

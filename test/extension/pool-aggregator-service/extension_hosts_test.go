@@ -152,6 +152,7 @@ func TestStatusLabelPaused(t *testing.T) {
 	}
 	parked := func(hv *hostView) *hostView { hv.StepPauseReached = true; return hv }
 	dead := func(hv *hostView) *hostView { hv.RunnerStopped = true; return hv }
+	lost := func(hv *hostView) *hostView { hv.RunnerStopped, hv.RunnerLostMidCycle = true, true; return hv }
 	fault := func(hv *hostView) *hostView {
 		hv.Status.RunnerFault = &runnerFault{FailureClass: "config_gate_failed", Severity: "fatal"}
 		return hv
@@ -185,6 +186,15 @@ func TestStatusLabelPaused(t *testing.T) {
 		{"unknown bootstrap phase stays red", mk(true, &hostStatus{OverallStatus: "pass", RunnerFault: &runnerFault{FailureClass: "bootstrap_sync"}}), "fail", 3},
 		{"stopped above attempt failure", dead(fault(mk(true, &hostStatus{OverallStatus: "pass"}))), "stopped", 8},
 		{"unreachable above attempt failure", fault(mk(false, &hostStatus{OverallStatus: "pass"})), "unreachable", 0},
+		{"lost runner outranks the cycle it was running", lost(mk(true, &hostStatus{OverallStatus: "running"})), "lost", 10},
+		{"lost runner outranks an armed pause", lost(mk(true, &hostStatus{OverallStatus: "running", CyclePaused: true})), "lost", 10},
+		{"lost runner above attempt failure", lost(fault(mk(true, &hostStatus{OverallStatus: "pass"}))), "lost", 10},
+		{"unreachable outranks lost", lost(mk(false, &hostStatus{OverallStatus: "running"})), "unreachable", 0},
+		{"a lost reading needs a stopped runner", func() *hostView {
+			hv := mk(true, &hostStatus{OverallStatus: "running"})
+			hv.RunnerLostMidCycle = true
+			return hv
+		}(), "running", 1},
 	}
 	for _, c := range cases {
 		if got := c.hv.StatusLabel(); got != c.wantLabel {
@@ -286,17 +296,26 @@ func TestFetchCurrentActionPauseCode(t *testing.T) {
 // Only an explicit running:false is evidence of a stopped runner. A host that
 // predates the route (404) or answers without the field cannot say, and must not be
 // reported stopped -- otherwise a route that moved would blank every real status in
-// the pool at once.
+// the pool at once. A stopped runner is lost mid-cycle only when its state still
+// reads in-cycle AND its pid file was left behind: an operator's Ctrl+C stops a
+// running cycle with the state at in-cycle too, but removes the pid file.
 func TestFetchRunnerStopped(t *testing.T) {
 	cases := []struct {
-		name string
-		body string // "" -> 404
-		want bool
+		name     string
+		body     string // "" -> 404
+		want     bool
+		wantLost bool
 	}{
-		{"runner alive", `{"running":true,"pid":4242,"liveness":"ok"}`, false},
-		{"runner verified dead", `{"running":false,"pid":null,"liveness":"idle"}`, true},
-		{"answer without the field", `{"pid":null,"liveness":"unknown"}`, false},
-		{"route absent on an older build", "", false},
+		{"runner alive", `{"running":true,"pid":4242,"liveness":"ok"}`, false, false},
+		{"runner verified dead", `{"running":false,"pid":null,"liveness":"idle"}`, true, false},
+		{"answer without the field", `{"pid":null,"liveness":"unknown"}`, false, false},
+		{"route absent on an older build", "", false, false},
+		{"runner died mid-cycle", `{"running":false,"pid":11128,"liveness":"idle","runnerState":"in-cycle"}`, true, true},
+		{"operator stopped a running cycle", `{"running":false,"pid":null,"liveness":"idle","runnerState":"in-cycle"}`, true, false},
+		{"runner died between cycles", `{"running":false,"pid":4242,"liveness":"idle","runnerState":"idle"}`, true, false},
+		{"runner died in its pause", `{"running":false,"pid":4242,"liveness":"idle","runnerState":"paused"}`, true, false},
+		{"answer without a runner state", `{"running":false,"pid":4242,"liveness":"idle"}`, true, false},
+		{"live runner mid-cycle is not lost", `{"running":true,"pid":4242,"liveness":"ok","runnerState":"in-cycle"}`, false, false},
 	}
 	for _, c := range cases {
 		body := c.body
@@ -308,14 +327,14 @@ func TestFetchRunnerStopped(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(body))
 		}))
-		got, err := hostpoll.FetchRunnerStopped(srv.Client(), srv.URL)
+		got, lost, err := hostpoll.FetchRunnerStopped(srv.Client(), srv.URL)
 		srv.Close()
 		if err != nil {
 			t.Errorf("%s: unexpected error: %v", c.name, err)
 			continue
 		}
-		if got != c.want {
-			t.Errorf("%s: fetchRunnerStopped = %v, want %v", c.name, got, c.want)
+		if got != c.want || lost != c.wantLost {
+			t.Errorf("%s: fetchRunnerStopped = (%v, %v), want (%v, %v)", c.name, got, lost, c.want, c.wantLost)
 		}
 	}
 }

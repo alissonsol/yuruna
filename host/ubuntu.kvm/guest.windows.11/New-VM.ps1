@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 4210ad59-ce3d-4890-bc1a-eb6a22a42087
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -125,10 +125,10 @@ if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_kvmRepoRoot
 $YurunaHostPort = $_statusSeed.Port
 $ghSource = Get-YurunaGitHubSource -RepoRoot $_kvmRepoRoot
-# The answer file and the bootstrap carry the repository token. They are staged
-# in a private (0700) workspace beside the disk and published as an owner-only
-# image, and the finally below removes the workspace on every exit, a failed
-# build included.
+# The bootstrap carries the repository token and the guest-channel key, the
+# answer file the default password. They are staged in a private (0700)
+# workspace beside the disk and published as an owner-only image, and the
+# finally below removes the workspace on every exit, a failed build included.
 Import-Module (Join-Path $_kvmRepoRoot 'host/modules/Yuruna.SeedMedia.psm1') -Force
 # A plaintext source an older builder left beside the disk goes first.
 Remove-Item -LiteralPath (Join-Path $vmDir 'autounattend.src') -Recurse -Force -ErrorAction SilentlyContinue

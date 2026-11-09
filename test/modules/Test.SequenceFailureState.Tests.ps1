@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -113,6 +113,7 @@ function Reset-FailState {
     $f.WaitForTextConsoleSecondOpinion = $null
     $f.WaitForTextGuestLivelocked = $false
     $f.WaitForTextKernelStallEnd = $null
+    $f.WaitForTextDisplayStallEnd = $null
     $f.WaitForTextBlankScreenSeconds = 0
     # A kernel reading left set would be claimed by every later record whose
     # step it names.
@@ -390,6 +391,24 @@ Describe 'New-SequenceFailureRecord actionability enrichment (step)' {
         $r.File.context.causeDetail.Contains('guestKernelStallEnd') | Should -BeTrue -Because 'the field is always present, so absence never reads as a missing producer'
         $r.File.context.causeDetail.guestKernelStallEnd | Should -BeNullOrEmpty
     }
+    It 'says why a wait ended on a display that stopped presenting frames, keeps the class of the failed wait, and says nothing for any other wait' {
+        $f = Reset-FailState
+        $f.WaitForTextDisplayStallEnd = [ordered]@{ driver = 'hyperv_drm'; reports = 16; firstUptimeSeconds = 71.097; lastUptimeSeconds = 145.849
+            spanSeconds = 74.752; newestRecordUptimeSeconds = 145.849; consoleUnchangedSeconds = 30; text = 'hyperv_drm x: [drm] *ERROR* flip_done timed out'; waitedSeconds = 95 }
+        $r = New-SequenceFailureRecord -Reason step -VMName v -GuestKey g -HostType h -SequencePath $script:seqPath -LogDir d
+        $roundTrip = $r.File | ConvertTo-Json -Depth 12 | ConvertFrom-Json -AsHashtable
+        $end = $roundTrip.context.causeDetail.guestDisplayStallEnd
+        $end.driver | Should -Be 'hyperv_drm'
+        $end.reports | Should -Be 16
+        $end.spanSeconds | Should -Be 74.752
+        $end.consoleUnchangedSeconds | Should -Be 30
+        $end.waitedSeconds | Should -Be 95
+        $r.File.failureClass | Should -Be 'ocr_timeout' -Because 'a display stall is no kernel fault and keeps the class of the wait it ended'
+        [void](Reset-FailState)
+        $r = New-SequenceFailureRecord -Reason step -VMName v -GuestKey g -HostType h -SequencePath $script:seqPath -LogDir d
+        $r.File.context.causeDetail.Contains('guestDisplayStallEnd') | Should -BeTrue -Because 'the field is always present, so absence never reads as a missing producer'
+        $r.File.context.causeDetail.guestDisplayStallEnd | Should -BeNullOrEmpty
+    }
     It 'carries sequenceName, reason, classificationSource and a repro block' {
         [void](Reset-FailState)
         $r = New-SequenceFailureRecord -Reason step -VMName 'k8s.text-to-sql' -GuestKey 'guest.ubuntu.server.24' -HostType 'host.windows.hyper-v' -SequencePath $script:seqPath -LogDir 'C:\cyc' -TotalSteps 11
@@ -623,6 +642,125 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
         Assert-Equal -Expected 5 -Actual $mismatch.occurrences
         Assert-Equal -Expected 200 -Actual $mismatch.proxyPurgeStatus
         Assert-Equal -Expected $url -Actual $r.Event.causeAptIndexMismatch
+    }
+
+    Context 'an installer that reported its failure through the seed hook' {
+        BeforeAll {
+            function script:New-InstallerBucket {
+                param([string]$Root, [string]$Stamp, [string[]]$Cause, [datetime]$WrittenUtc)
+                $bucket = Join-Path $Root "installer-fail/ubuntu-server/$Stamp"
+                $null = New-Item -ItemType Directory -Force -Path $bucket
+                $network = Join-Path $bucket 'network-at-failure.txt'
+                Set-Content -LiteralPath $network -Value 'route'
+                [IO.File]::SetLastWriteTimeUtc($network, $WrittenUtc)
+                if ($Cause) { Set-Content -LiteralPath (Join-Path $bucket 'installer-cause.txt') -Value $Cause }
+            }
+            # What the hook extracted from real failures: a kernel metapackage
+            # published ahead of the packages it requires, in both resolver wordings,
+            # and a caching proxy restarting while curtin downloaded.
+            $script:resoluteSkew = @(
+                'linux-generic : Depends: linux-image-generic (= 7.0.0-43.43) but 7.0.0-30.30 is to be installed',
+                'Depends: linux-headers-generic (= 7.0.0-43.43) but 7.0.0-30.30 is to be installed',
+                'E: Unable to satisfy dependencies. Reached two conflicting assignments:',
+                '2. linux-generic:amd64=7.0.0-43.43 Depends linux-image-generic (= 7.0.0-43.43)',
+                '2. linux-image-generic:amd64=7.0.0-43.43 Depends linux-modules-7.0.0-43-generic',
+                'but none of the choices are installable:')
+            $script:nobleSkew = @(
+                'linux-headers-generic : Depends: linux-headers-6.8.0-149-generic but it is not installable',
+                'linux-image-generic : Depends: linux-image-6.8.0-149-generic but it is not going to be installed',
+                'Depends: linux-modules-extra-6.8.0-149-generic but it is not installable',
+                'E: Unable to correct problems, you have held broken packages.')
+            $script:proxyRestart = @(
+                'W: Failed to fetch http://archive.ubuntu.com/ubuntu/dists/noble/InRelease  Could not connect to 192.168.7.42:3128 (192.168.7.42). - connect (111: Connection refused)',
+                'E: Failed to fetch http://security.ubuntu.com/ubuntu/pool/main/g/glibc/libc6_2.39-0ubuntu8.9_amd64.deb  Could not connect to 192.168.7.42:3128 (192.168.7.42). - connect (111: Connection refused)',
+                'E: Failed to fetch http://security.ubuntu.com/ubuntu/pool/main/g/glibc/libc-bin_2.39-0ubuntu8.9_amd64.deb  Unable to connect to 192.168.7.42:3128:')
+        }
+
+        It 'names the package the index lacks from the <Case> resolver wording' -TestCases @(
+            @{ Case = 'newer'; Lines = 'resoluteSkew'; Missing = @('linux-modules-7.0.0-43-generic') },
+            @{ Case = 'older'; Lines = 'nobleSkew'; Missing = @('linux-headers-6.8.0-149-generic', 'linux-modules-extra-6.8.0-149-generic') }
+        ) {
+            param($Case, $Lines, $Missing)
+            $null = $Case
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $start = [datetime]::UtcNow.AddMinutes(-5)
+            New-InstallerBucket -Root $root -Stamp '20261106T011737Z' -Cause (Get-Variable -Scope Script -Name $Lines -ValueOnly) -WrittenUtc $start.AddMinutes(2)
+            $cause = Get-InstallerFailureCause -LogDir $root -SinceUtc $start
+            Assert-Equal -Expected 'package-index-inconsistent' -Actual $cause.kind
+            Assert-Equal -Expected ($Missing -join ',') -Actual ($cause.missingPackages -join ',')
+            Assert-True ($cause.summary -like "*$($Missing[0])*") 'the summary must name what is missing'
+            Assert-Equal -Expected 'log/installer-fail/ubuntu-server/20261106T011737Z/' -Actual $cause.artifacts
+        }
+
+        It 'files a refused proxy as unreachable and names the endpoint' {
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $start = [datetime]::UtcNow.AddMinutes(-5)
+            New-InstallerBucket -Root $root -Stamp '20261106T062513Z' -Cause $script:proxyRestart -WrittenUtc $start.AddMinutes(2)
+            $cause = Get-InstallerFailureCause -LogDir $root -SinceUtc $start
+            Assert-Equal -Expected 'apt-unreachable' -Actual $cause.kind
+            Assert-Equal -Expected 'apt could not connect to 192.168.7.42:3128' -Actual $cause.summary
+        }
+
+        It 'ranks a connection failure above the resolver failure it can cause' {
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $start = [datetime]::UtcNow.AddMinutes(-5)
+            New-InstallerBucket -Root $root -Stamp '20261106T062513Z' -Cause ($script:proxyRestart + $script:nobleSkew) -WrittenUtc $start.AddMinutes(2)
+            Assert-Equal -Expected 'apt-unreachable' -Actual (Get-InstallerFailureCause -LogDir $root -SinceUtc $start).kind
+        }
+
+        It 'ignores a bucket written before the step started' {
+            # The bucket directory is shared by every install on this host, so an
+            # earlier failure must not be blamed for this one.
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $start = [datetime]::UtcNow.AddMinutes(-5)
+            New-InstallerBucket -Root $root -Stamp '20261106T011737Z' -Cause $script:resoluteSkew -WrittenUtc $start.AddMinutes(-90)
+            Assert-True ($null -eq (Get-InstallerFailureCause -LogDir $root -SinceUtc $start)) 'a stale bucket states nothing about this step'
+        }
+
+        It 'reads the newest of two buckets written since the step started' {
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $start = [datetime]::UtcNow.AddMinutes(-5)
+            New-InstallerBucket -Root $root -Stamp '20261106T000001Z' -Cause $script:resoluteSkew -WrittenUtc $start.AddMinutes(1)
+            New-InstallerBucket -Root $root -Stamp '20261106T000002Z' -Cause $script:proxyRestart -WrittenUtc $start.AddMinutes(2)
+            Assert-Equal -Expected 'apt-unreachable' -Actual (Get-InstallerFailureCause -LogDir $root -SinceUtc $start).kind
+        }
+
+        It 'still points at the bucket when apt stated nothing' {
+            # A storage or autoinstall failure stops before apt runs.
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $start = [datetime]::UtcNow.AddMinutes(-5)
+            New-InstallerBucket -Root $root -Stamp '20261106T011737Z' -Cause @() -WrittenUtc $start.AddMinutes(2)
+            $cause = Get-InstallerFailureCause -LogDir $root -SinceUtc $start
+            Assert-Equal -Expected 'unclassified' -Actual $cause.kind
+            Assert-Equal -Expected 'log/installer-fail/ubuntu-server/20261106T011737Z/' -Actual $cause.artifacts
+        }
+
+        It 'answers nothing without a log folder, a start time or any bucket' {
+            Assert-True ($null -eq (Get-InstallerFailureCause -LogDir '' -SinceUtc ([datetime]::UtcNow)))
+            Assert-True ($null -eq (Get-InstallerFailureCause -LogDir $TestDrive -SinceUtc $null))
+            Assert-True ($null -eq (Get-InstallerFailureCause -LogDir (Join-Path $TestDrive 'absent') -SinceUtc ([datetime]::UtcNow)))
+        }
+
+        It 'carries the cause on the record and on the event the pool reads' {
+            $f = Reset-FailState
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $start = [datetime]::UtcNow.AddMinutes(-5)
+            New-InstallerBucket -Root $root -Stamp '20261106T011737Z' -Cause $script:resoluteSkew -WrittenUtc $start.AddMinutes(2)
+            $f.LastFailedStepStartedUtc = $start.ToString('o')
+            try {
+                $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir $root -TotalSteps 5
+            } finally { $f.LastFailedStepStartedUtc = $null }
+            Assert-Equal -Expected 'package-index-inconsistent' -Actual $r.File.context.causeDetail.installerFailure.kind
+            Assert-Equal -Expected 'package-index-inconsistent: the apt index requires packages it does not carry: linux-modules-7.0.0-43-generic' -Actual $r.Event.causeInstallerFailure
+        }
+
+        It 'leaves the installer cause empty when no installer reported one' {
+            $null = Reset-FailState
+            $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+            Assert-True ($r.File.context.causeDetail.Contains('installerFailure')) 'the field must always be present'
+            Assert-True ($null -eq $r.File.context.causeDetail.installerFailure) 'and null without a report'
+            Assert-Equal -Expected '' -Actual $r.Event.causeInstallerFailure
+        }
     }
 
     It 'leaves the apt index mismatch empty when apt reported none' {

@@ -7212,15 +7212,32 @@ dropping when the proxy came up and the storage it was built against stands.
 
 ## install/ubuntu.kvm.sh: PowerShell floor repair
 
-The interpreter every later step runs on, brought up to the floor in
-automation/Yuruna.Requirement.yml. The install region only fires when
-`pwsh` is ABSENT, and presence is not the question a floor asks: a pwsh that
-arrived from a source this installer does not manage -- the Canonical snap, a
-hand-unpacked tarball, a package left by another tool -- otherwise answers the
-name for the life of the machine at whatever version it was, while the closing
-check reports a gap the run had every means to close. PowerShell is the one
-floor-checked tool here whose sources lead the Ubuntu archive, so it is the one
-the installer can actually raise.
+The interpreter every later step runs on, moved to the newest release its own
+source offers and then checked against the floor in
+automation/Yuruna.Requirement.yml. The install region only fires when `pwsh`
+is ABSENT, and presence is not the question a floor asks: a pwsh installed
+once would otherwise answer the name for the life of the machine at whatever
+version it was. So a Microsoft repository package joins the apt list (unless
+the operator holds it or apt cannot install the candidate a source offers),
+and when apt leaves it older than GitHub's latest release it moves through apt
+from the release's .deb or Microsoft's 24.04 suite; a snap is refreshed
+through snapd, and a tarball copy older than GitHub's latest release is
+replaced, never downgraded. GitHub's latest is followed with no version-line
+bound, a new minor line included. An apt pin does not stop the release's
+.deb; only apt-mark hold does. A package whose files under
+/opt/microsoft/powershell/7 dpkg -V finds changed or missing goes through apt
+from a release .deb -- the newest release's when the package is behind it,
+otherwise the one for the version pwsh answers -- so dpkg and the files agree
+again; a held one becomes an issue naming `sudo apt-mark unhold powershell`.
+Only that tree counts: dpkg -V also lists as missing a file dpkg's own
+path-exclude setting kept out, such as the manual page on a minimized Ubuntu
+install, and a reinstall leaves it out again, so counting it would reinstall
+the package and report it on every run. The floor
+repair then runs as the fallback for a copy still below the floor, including
+one from a source this installer does not manage -- a package left by another
+tool, a hand-unpacked tarball elsewhere -- which the closing report names.
+PowerShell is the one floor-checked tool here whose sources lead the Ubuntu
+archive, so it is the one the installer can actually raise past it.
 
 Placed after the checkout rather than beside the install: the floor lives in
 the repo, which does not exist yet where pwsh is installed.
@@ -7306,28 +7323,71 @@ Enable-TestAutomation.ps1 reports it as an optional gap on the next run.
 ## install/ubuntu.kvm.sh: The PowerShell tarball is the fallback source
 
 `install_pwsh_tarball` is the fallback PowerShell source for all downstream
-Yuruna automation: aarch64 has no Microsoft apt package, and x86_64 lands
-there only when the apt path fails. It resolves the latest-stable tag by
-following the /releases/latest redirect (a HEAD-follow -- no rate-limited
-api.github.com call) so the tarball tracks the same current release the apt
-path would install instead of freezing on one line. PowerShell ships both a
-linux-x64 and a linux-arm64 tarball (plus hashes.sha256) for every GA
-release, so both arches resolve. PWSH_VERSION overrides the discovery for a
-pinned or air-gapped build.
+Yuruna automation where no Microsoft package serves: aarch64 without one, and
+x86_64 only when Microsoft's apt repo, the release's .deb and Microsoft's
+Ubuntu 24.04 suite all failed to install pwsh. It unpacks into
+/opt/microsoft/powershell/7, the tree Microsoft's package installs, so it
+never runs while that package is installed: dpkg would go on recording the
+package's old version and checksums, and a later apt operation would rewrite
+or remove files under the newer interpreter. A host with the package moves
+through apt instead, from the release's own .deb (`install_pwsh_deb`) -- the
+file Microsoft's repository serves for the same version, verified against the
+release's hashes.sha256 as the tarball is.
+
+Both resolve the latest-stable tag by following the /releases/latest redirect
+(a HEAD-follow -- no rate-limited api.github.com call) instead of freezing on
+one line. PowerShell ships linux-x64 and linux-arm64 tarballs and amd64 and
+arm64 .deb files (plus hashes.sha256) for every GA release, so both arches
+resolve. PWSH_VERSION overrides the discovery for a pinned or air-gapped
+build. Every step of both checks its own result: the callers run them where
+errexit does not apply, and a tarball that did not unpack must not be linked.
+
+`fetch_pwsh_release_asset` downloads with the latest-release lookup's retries
+(--retry 3 --retry-delay 5 --retry-connrefused --connect-timeout 15); one
+attempt may take 15 minutes (--max-time) and no retry starts after 15 minutes
+(--retry-max-time). Each download streams from curl into a file root writes,
+in a directory only root can write, made under /tmp by name -- sudo can keep
+the account's TMPDIR, and /tmp's sticky bit keeps other accounts from renaming
+root's directory -- and the asset is checked there, so the file apt or tar
+reads as root is the file that was checked. With the asset and hashes.sha256
+both in a directory the account can write, another process of that account
+could swap the two together, the list carrying a digest of its own bytes; and
+root copying from there would follow a link planted in place of a download,
+publishing a file only root may read. So root opens nothing outside its own
+directory. That account still decides which curl and checksum tools its PATH
+finds and what curl configuration they read, so this narrows what its other
+processes can do rather than closing it. apt installs the .deb with
+--reinstall, which also replaces files that no longer match what dpkg
+recorded, and with -o DPkg::Lock::Timeout=120, so it waits for an unattended
+upgrade's lock rather than failing at once. `install_pwsh_deb` hands apt no
+package the operator holds: apt refuses to change a held version, but it
+performs a same-version --reinstall, and dpkg then resets the hold.
 
 <a id="4213a0b3-01b8"></a>
 
 ## install/ubuntu.kvm.sh: A failed PowerShell upgrade ends the attempt, not the install
 
-Both managed sources land under /usr/local/bin (the tarball through the
-symlink beside it), which the stock PATH puts ahead of /snap/bin, so the
+Microsoft's package installs /usr/bin/pwsh and the tarball links
+/usr/local/bin/pwsh; the stock PATH puts both ahead of /snap/bin, so the
 newer copy wins the name without removing the one already there.
 
-Run in a subshell so a source that gives up -- an unreachable release
-feed, a checksum that does not match -- ends the upgrade attempt rather
-than the install. Unlike the first-install path, this host already has a
+Each source runs in its own subshell, so one that gives up -- an unreachable
+release feed, a checksum that does not match, a key that does not verify --
+ends its own attempt rather than the install or the next source. Each is
+judged by the version the name answers with afterward, never by its exit
+status: apt exits 0 with "already the newest version" for a package that no
+configured source offers newer, so its status says nothing about whether the
+version moved. A package the operator holds with apt-mark hold is replaced by
+no source, and the closing summary names it with `sudo apt-mark unhold
+powershell`. The host's own Microsoft apt repo is asked only when no package
+is installed: the package list already asked those sources about an installed
+one. Nothing is installed when the release the repair would install
+(PWSH_VERSION, or GitHub's latest) is itself below the floor, and the issue
+says so. Unlike the first-install path, this host already has a
 working interpreter; the version check that follows says it is still old, and
-that belongs in the closing summary, not in an aborted run.
+that belongs in the closing summary, not in an aborted run. The issue carries
+why each source fell short, because each source's own failure scrolls past
+in the run while the closing summary is what the operator reads.
 
 <a id="4213a0b3-01b9"></a>
 

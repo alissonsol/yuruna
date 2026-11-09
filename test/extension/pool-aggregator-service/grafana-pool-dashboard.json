@@ -161,7 +161,7 @@
       "id": 6,
       "type": "table",
       "title": "Pool hosts",
-      "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Pass and Fail combine cycles from this ID and any prior ID handed over to it within the selected time range. Yellow preflight failures are runner attempts, excluded from cycle counts. Watch Status first: 'runner stopped' means the results below are a record, not a live reading. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Pass and Fail combine cycles from this ID and any prior ID handed over to it within the selected time range. Yellow preflight failures are runner attempts, excluded from cycle counts. Watch Status first: 'runner stopped' means the results below are a record, not a live reading, and 'runner lost mid-cycle' means the runner died inside a cycle and nothing restarted it. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
       "datasource": { "type": "datasource", "uid": "-- Mixed --" },
       "targets": [
@@ -253,7 +253,8 @@
                     "pausing-cycle": { "text": "pausing (after cycle)", "color": "#eab308", "index": 6 },
                     "pausing-step": { "text": "pausing (after step)", "color": "#f59e0b", "index": 7 },
                     "stopped": { "text": "runner stopped", "color": "#475569", "index": 8 },
-                    "preflight-failed": { "text": "preflight failed", "color": "#eab308", "index": 9 }
+                    "preflight-failed": { "text": "preflight failed", "color": "#eab308", "index": 9 },
+                    "lost": { "text": "runner lost mid-cycle", "color": "#7c3aed", "index": 10 }
                   } }
                 ]
               }
@@ -351,7 +352,7 @@
       "id": 7,
       "type": "state-timeline",
       "title": "Host state over time (host x UTC time)",
-      "description": "One row per host, one color per observed host state; times are UTC. Yellow preflight failures happen before a cycle starts and do not count as failed cycles. Red means a test cycle or another runner failure. Open results or diagnostics to inspect the matching attempt or cycle; share applies to cycles. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "One row per host, one color per observed host state; times are UTC. Yellow preflight failures happen before a cycle starts and do not count as failed cycles. Red means a test cycle or another runner failure. Violet means the runner died inside a cycle. Open results or diagnostics to inspect the matching attempt or cycle; share applies to cycles. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
@@ -396,10 +397,11 @@
               "6": { "text": "pausing (after cycle)", "color": "#eab308", "index": 6 },
               "7": { "text": "pausing (after step)", "color": "#f59e0b", "index": 7 },
               "8": { "text": "runner stopped", "color": "#64748b", "index": 8 },
-              "9": { "text": "preflight failed", "color": "#eab308", "index": 9 }
+              "9": { "text": "preflight failed", "color": "#eab308", "index": 9 },
+              "10": { "text": "runner lost mid-cycle", "color": "#8b5cf6", "index": 10 }
             } }
           ],
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "#cbd5e1", "value": null }, { "color": "#3b82f6", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#ef4444", "value": 3 }, { "color": "#94a3b8", "value": 4 }, { "color": "#ca8a04", "value": 5 }, { "color": "#eab308", "value": 6 }, { "color": "#f59e0b", "value": 7 }, { "color": "#64748b", "value": 8 }, { "color": "#eab308", "value": 9 } ] }
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "#cbd5e1", "value": null }, { "color": "#3b82f6", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#ef4444", "value": 3 }, { "color": "#94a3b8", "value": 4 }, { "color": "#ca8a04", "value": 5 }, { "color": "#eab308", "value": 6 }, { "color": "#f59e0b", "value": 7 }, { "color": "#64748b", "value": 8 }, { "color": "#eab308", "value": 9 }, { "color": "#8b5cf6", "value": 10 } ] }
         },
         "overrides": []
       }

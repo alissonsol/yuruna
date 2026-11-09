@@ -163,8 +163,8 @@ func Render(view *poolstate.View, in Inputs) string {
 	// forms one continuous series per host -- the input the state-timeline panel
 	// needs. No hostname label (pool view is hostname-free). 0=unreachable
 	// 1=running 2=pass 3=fail 4=idle 5=paused 6=pausing-cycle 7=pausing-step
-	// 8=stopped 9=preflight-failed.
-	b.WriteString("# HELP yuruna_pool_host_status Per-host state code (0=unreachable 1=running 2=pass 3=fail 4=idle 5=paused 6=pausing-cycle 7=pausing-step 8=stopped 9=preflight-failed).\n# TYPE yuruna_pool_host_status gauge\n")
+	// 8=stopped 9=preflight-failed 10=lost.
+	b.WriteString("# HELP yuruna_pool_host_status Per-host state code (0=unreachable 1=running 2=pass 3=fail 4=idle 5=paused 6=pausing-cycle 7=pausing-step 8=stopped 9=preflight-failed 10=lost).\n# TYPE yuruna_pool_host_status gauge\n")
 	for _, h := range ids {
 		hv := view.Hosts[h]
 		if hv == nil {
@@ -468,7 +468,7 @@ func Render(view *poolstate.View, in Inputs) string {
 	for _, p := range gatePools {
 		fmt.Fprintf(&b, "yuruna_pool_members_total{pool=%q} %d\n", p, view.PoolGate[p].LastTotal)
 	}
-	b.WriteString("# HELP yuruna_pool_members_healthy Pool members counted healthy (reachable, not in an incident, and running, pass, idle, stopped or pending a pause).\n# TYPE yuruna_pool_members_healthy gauge\n")
+	b.WriteString("# HELP yuruna_pool_members_healthy Pool members counted healthy (reachable, not in an incident, and running, pass, idle, stopped, lost or pending a pause).\n# TYPE yuruna_pool_members_healthy gauge\n")
 	for _, p := range gatePools {
 		fmt.Fprintf(&b, "yuruna_pool_members_healthy{pool=%q} %d\n", p, view.PoolGate[p].LastHealthy)
 	}

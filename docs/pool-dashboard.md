@@ -141,6 +141,11 @@ pause state -- the same ladder the host's own status banner shows:
 - **runner stopped** -- the host answers but its test runner is verifiably gone, so the
   cycle result below it is a record of what ran, not of what is running. It outranks
   every other reading for exactly that reason.
+- **runner lost mid-cycle** -- as **runner stopped**, but the runner died inside a
+  cycle rather than being stopped: a closed terminal window, a dropped SSH session, a
+  kill or a host restart took it down, and nothing restarts it. `lastExit` on the
+  host's runner-status route records how it ended; restarting the runner archives the
+  cycle it left.
 - **paused** -- a host that has actually stopped.
 - **pausing (after cycle)** / **pausing (after step)** -- a host an operator has armed
   to stop but that is still executing, reported as such rather than as a plain
@@ -545,6 +550,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

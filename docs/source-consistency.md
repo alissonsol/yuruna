@@ -1309,7 +1309,7 @@ copies, `start.guest.ubuntu.server.24.macos.utm.yml` and
 `start.guest.ubuntu.server.26.macos.utm.yml`. Each adds two steps after the
 autoinstall answer, outside any retry: a `startVm` with `installPowerOff: true`
 that waits for the install's own power-off and cold-starts the installed system,
-and a 15-second settle. Everything else matches the generic file, and a parity
+ending early on the installer's failure text, and a 15-second settle. Everything else matches the generic file, and a parity
 case in `test/modules/Test.SourceConsistency.Tests.ps1` fails when the two
 drift, so port each edit of a generic file into its UTM copy. The UTM SSH start
 variants have no copy.
@@ -1803,7 +1803,7 @@ captured output.
 
 ### Sequence parity and readiness
 
-The identical website deployment script receives 1800 seconds in GUI, cold SSH,
+The identical website deployment script receives 3600 seconds in GUI, cold SSH,
 warm SSH, and chapter-two flows. Prompt, boot, and input budgets remain separate.
 
 GUI and SSH website sequences both wait for every Kubernetes node to become Ready. GUI sequences clear the screen after a successful wait and match `control-plane` in the resulting node table. Matching `Ready` alone could accept either the echoed command or `NotReady` under fuzzy OCR. The outer 360-second limit exceeds the inner 300-second wait.
@@ -2790,6 +2790,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

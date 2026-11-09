@@ -1,7 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
-<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-hosts" tagId="urn:uuid:cbdeac7f-7d27-51d3-8817-c880e1e3a90e" version="2026.11.05" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-hosts" tagId="urn:uuid:34049340-be6e-5c31-af3c-aaf596afe12f" version="2026.11.08" versionScheme="alphanumeric" tagVersion="0" corpus="true">
   <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
   <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="hosts" sbom:inventory-kind="declared-source" />
+  <Link rel="requires" href="swid/hosts-71d8a121f927884b22c4.swidtag" />
   <Link rel="requires" href="swid/hosts-a6e384e9893fef1dfd09.swidtag" />
   <Link rel="requires" href="swid/hosts-82ed5808078d7fc58ad3.swidtag" />
   <Link rel="requires" href="swid/hosts-371023a2bec8717b74c8.swidtag" />
@@ -51,7 +52,6 @@
   <Link rel="requires" href="swid/hosts-9eafaffb755d9f543605.swidtag" />
   <Link rel="requires" href="swid/hosts-8314f589c11b66905987.swidtag" />
   <Link rel="requires" href="swid/hosts-58ef4bffde4983e8e94f.swidtag" />
-  <Link rel="requires" href="swid/hosts-3a9b83e4c7e2f402e878.swidtag" />
   <Link rel="requires" href="swid/hosts-106f0c0ca9b1bd6bc561.swidtag" />
   <Link rel="requires" href="swid/hosts-2989682fe7cd7762b1fa.swidtag" />
   <Link rel="requires" href="swid/hosts-2fa246ccd8096c978b54.swidtag" />
@@ -77,6 +77,7 @@
   <Link rel="requires" href="swid/hosts-3ea749ddb58679df01a3.swidtag" />
   <Link rel="requires" href="swid/hosts-1d8744ef1eae4583adf8.swidtag" />
   <Link rel="requires" href="swid/hosts-718094e6792592775da5.swidtag" />
+  <Link rel="requires" href="swid/hosts-5d7f351d4f4ce4174984.swidtag" />
   <Link rel="requires" href="swid/hosts-fd5d09e835c6136da0d9.swidtag" />
   <Link rel="requires" href="swid/hosts-601532ad5d30e53aa394.swidtag" />
   <Link rel="requires" href="swid/hosts-3b06be56d840526f65cb.swidtag" />

@@ -75,6 +75,12 @@ type HostView struct {
 	// probe miss like Version/Control, since a host whose runner is stopped keeps
 	// answering everything else normally -- its status.json simply stops moving.
 	RunnerStopped bool `json:"runnerStopped,omitempty"`
+	// RunnerLostMidCycle is true when that stopped runner died inside a cycle (a
+	// closed terminal, a kill, a host restart): its lifecycle state still reads
+	// in-cycle and its pid file was left behind. An operator's Ctrl+C ends the
+	// runner through its orderly shutdown, which removes the pid file, so it
+	// stays "stopped". Refreshed and kept together with RunnerStopped.
+	RunnerLostMidCycle bool `json:"runnerLostMidCycle,omitempty"`
 	// StepPauseReached is true when the host's current-action sidecar says the runner
 	// is SITTING at a step boundary rather than still executing the step the armed
 	// flag will stop after. It is meaningful only while Status.StepPaused is set,
@@ -145,12 +151,15 @@ func (hv *HostView) ControlLabel() string {
 // pause flags into one value for the per-host table; StatusCode is its numeric
 // twin for the state-timeline panel (unreachable=0, running=1, pass=2, fail=3,
 // idle=4, paused=5, pausing-cycle=6, pausing-step=7, stopped=8,
-// preflight-failed=9). See https://yuruna.link/42c29d04-0005.
+// preflight-failed=9, lost=10). See https://yuruna.link/42c29d04-0005.
 func (hv *HostView) StatusLabel() string {
 	if hv == nil || !hv.Reachable {
 		return "unreachable"
 	}
 	if hv.RunnerStopped {
+		if hv.RunnerLostMidCycle {
+			return "lost"
+		}
 		return "stopped"
 	}
 	if hv.Status == nil {
@@ -210,6 +219,8 @@ func (hv *HostView) StatusCode() int {
 		return 8
 	case "preflight-failed":
 		return 9
+	case "lost":
+		return 10
 	default: // unreachable
 		return 0
 	}

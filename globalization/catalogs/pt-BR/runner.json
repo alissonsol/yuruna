@@ -12546,6 +12546,11 @@
       "sourceHash": "77142cc3bc61f0cc0bdb8ea6c34ae6ef2fb3dedab62dac4770b400479fa5d4d4",
       "origin": "machine",
       "message": "O sistema concedeu um buffer de recepção UDP de {granted} bytes, menor que os {requested} bytes solicitados, então uma rajada de mensagens do kernel, como os backtraces que um hospedeiro envia antes de um pânico, pode estourá-lo e perder linhas. No Linux, aumente o limite com 'sudo sysctl -w net.core.rmem_max={requested}' e inicie o receptor novamente."
+    },
+    "runner.wait_ended_on_display_stall": {
+      "sourceHash": "944ffb9accfc3705f301600d1828648de475ed31a6a7c00106c00c78904240e6",
+      "origin": "machine",
+      "message": "A espera pelo texto '{patternLabel}' terminou após ~{waited}s de {timeoutSeconds}s: o driver de vídeo {driver} do convidado relatou no seu console serial {reports} expirações de troca de página em {spanSeconds}s enquanto o console ficou inalterado por {unchangedSeconds}s, então a tela não mostrará o texto nesta inicialização e a nova tentativa pode reiniciar o convidado a frio"
     }
   }
 }

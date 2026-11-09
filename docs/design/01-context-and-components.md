@@ -34,6 +34,7 @@ flowchart LR
     automation -->|imports| yuruna-common-psm1
     test -->|imports| yuruna-common-psm1
     host -->|imports| yuruna-common-psm1
+    install -->|downloads tools| global-resources
     automation -->|deploys and publishes| global-resources
     test -->|fetches and notifies| global-resources
     host -->|downloads images| global-resources
@@ -48,7 +49,7 @@ current sources:
 | Provisioning | OS bootstrappers in [install/](../../install/), [setup.ps1](../../install/setup.ps1), [Yuruna.HostSetup](../../automation/Yuruna.HostSetup.psm1), host commands in [test/lab/](../../test/lab/), pool administration in [test/pool/](../../test/pool/), and service VM launchers in [test/service/](../../test/service/). |
 | Deploy engine | [Set-Resource](../../automation/Set-Resource.ps1), [Set-Component](../../automation/Set-Component.ps1), [Set-Workload](../../automation/Set-Workload.ps1), their phase modules, validators, and [Invoke-Clear](../../automation/Invoke-Clear.ps1). |
 | Test harness | [Start-TestRunner](../../test/Start-TestRunner.ps1), supervision and sequence modules in [test/modules/](../../test/modules/), [diagnostic preservation](../../test/modules/Test.DiagnosticPreservation.psm1), [test/sequences/](../../test/sequences/), [test/status/](../../test/status/), pool runtime modules, and [test/extension/](../../test/extension/). |
-| Providers | The shared [host contract](../../host/Yuruna.Host.Contract.psm1), platform drivers in [host/](../../host/), shared [host/modules/](../../host/modules/), and OS scripts in [guest/](../../guest/). |
+| Providers | The shared [host contract](../../host/Yuruna.Host.Contract.psm1), platform drivers in [host/](../../host/), shared [host/modules/](../../host/modules/), cloud-init seeds in [host/vmconfig/](../../host/vmconfig/), and OS scripts in [guest/](../../guest/). |
 | Project data | The companion repository's [layout](https://github.com/alissonsol/yuruna-project/blob/main/README.md), [template](https://github.com/alissonsol/yuruna-project/blob/main/template/README.md), [examples](https://github.com/alissonsol/yuruna-project/blob/main/example/README.md), and [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml). |
 | Shared modules | Cross-cutting [automation/](../../automation/) libraries and guest shell helpers, reusable [global/](../../global/) assets, [globalization/](../../globalization/), and [tools/](../../tools/). |
 | External services | Implemented integration points in [global/resources/](../../global/resources/), [Yuruna.CredentialProvider](../../automation/Yuruna.CredentialProvider.psm1), [Yuruna.GitHubSource](../../automation/Yuruna.GitHubSource.psm1), [Yuruna.HostDownload](../../host/modules/Yuruna.HostDownload.psm1), and [notification/](../../test/extension/notification/). |
@@ -67,14 +68,22 @@ automated setup sequence is shipped. Its
 [update script](../../guest/macos.26/macos.26.update.sh) applies to a guest
 the operator has already configured.
 Host drivers execute on the hypervisor host and import harness modules for
-configuration, logging, SSH, and sequences; guest scripts execute in the VM and
-source the automation shell helpers. GUI fetch execution crosses that boundary:
+configuration, logging, SSH, and sequences; guest scripts execute in the VM,
+source the automation shell helpers, and install their tools from distribution
+archives and vendor sources, fetching PowerShell, OpenTofu, and mkcert from
+GitHub releases. GUI fetch execution crosses that boundary:
 the harness [prepares and types the command](../../test/modules/Test.SequenceHandler.psm1),
 while the guest [validates the envelope](../../automation/yuruna-fetch-context.sh)
 before invoking the downloaded script. Project guest scripts, rather than
 framework guest scripts, invoke the deploy engine inside a test guest. The
 bootstrappers check tool version floors through
-[Test-Requirement](../../automation/Test-Requirement.ps1).
+[Test-Requirement](../../automation/Test-Requirement.ps1) and download the tools
+from their sources: the Ubuntu archive, Microsoft's package repository, and
+GitHub releases in [ubuntu.kvm.sh](../../install/ubuntu.kvm.sh), Homebrew in
+[macos.utm.sh](../../install/macos.utm.sh), winget in
+[windows.hyper-v.ps1](../../install/windows.hyper-v.ps1), and pinned PowerShell
+Gallery modules in all three; each run ends by reporting the newer versions
+those sources still offer.
 The runner obtains project data from `repositories.projectUrl`, including
 pool repository assignments, through
 [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1); its runtime
@@ -109,6 +118,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 [Architecture](../architecture.md) | [Design overview](README.md)

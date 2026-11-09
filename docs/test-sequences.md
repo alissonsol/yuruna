@@ -765,6 +765,25 @@ so other hosts keep their full budget. The failure record keeps the verdict in
 `causeDetail.guestLivelock`, whose `reason` names the display evidence, and the
 probe's reading in `causeDetail.consoleSecondOpinion`.
 
+The same login waits also end on a display that stopped presenting frames.
+A display driver whose page flips time out leaves the framebuffer on its last
+presented frame while the guest runs on, so the prompt can be printed and never
+reach the screen in that boot. The guest's kernel reports each timed-out commit
+on the serial console, which the Hyper-V driver reads live. Once at least six
+`hyperv_drm` reports that reached the console after the wait began span 20
+seconds or more, the newest of them within 30 seconds of the console's newest
+record, and the console's text, or its blank run, has stayed unchanged for 30
+seconds, the wait ends and the retry cold-restarts the guest as it does after
+a login timeout. The DRM core waits ten seconds for a flip and a stalled commit
+prints two lines, so a single timed-out commit, such as a mode set can leave,
+never ends a wait. The retry hands the login wait a copy of its step marked
+`endWaitOnDisplayStall`; the post-restart recovery steps, the installer
+confirmation of `arm64HyperVInstallerBoot`, `fetchAndExecute` and every step
+outside such a retry, the password-change prompts among them, keep the stall
+as a diagnostic (`causeDetail.guestKernelFault.serial.displayStall`). The
+failure record carries the evidence in `causeDetail.guestDisplayStallEnd`, and
+`retry_attempt` and `retry_vm_restart` carry it as `guestDisplayStall`.
+
 `retry_attempt.evidencePath` points to the retained frames and
 `vm-diagnostics.json` for that attempt. `retry_vm_restart` records the
 recovery phase, outcome, and observed VM states, so a failed stop, failed
@@ -864,6 +883,7 @@ wait for the install's own power-off and cold-start the installed system (see
 | `installPowerOff` | boolean | Optional; default `false`. The wait is for an install that powers the VM off on its own, not for a requested shutdown: a VM that never reports stopped then fails as `provisioning_failure`, because the install did not finish, and the guest is not recorded as silent. |
 | `arm64HyperVProcessorCount` | integer or string | Optional positive target; supports variable substitution. |
 | `frameIntervalSeconds` | integer | While waiting for the stopped state, capture a console frame with its OCR sidecar this often; default `30`, `0` disables. |
+| `failurePatterns` | string or string[] | Optional. Console text on a captured frame that ends the wait, because the VM will not reach the stopped state on its own after it. Read case-insensitively across every OCR engine, and only on captured frames, so `frameIntervalSeconds` sets how fast it reacts. The step fails as `pattern_matched_failure`, with no stopped-wait evidence. |
 
 When the VM never reports stopped, the step fails as `vm_not_stopped` rather
 than `provisioning_failure`: nothing was started. A VM the host reports
@@ -1579,6 +1599,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

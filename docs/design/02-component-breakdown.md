@@ -32,8 +32,29 @@ flowchart LR
 
 Sources: the [Windows](../../install/windows.hyper-v.ps1),
 [Ubuntu](../../install/ubuntu.kvm.sh), and [macOS](../../install/macos.utm.sh)
-bootstrappers install prerequisites, clone the repository, and end with a
-[Test-Requirement](../../automation/Test-Requirement.ps1) version-floor check.
+bootstrappers install prerequisites, move each tool they manage to the newest
+compatible release its own source offers, clone the repository, run a
+[Test-Requirement](../../automation/Test-Requirement.ps1) check against the
+[version floors](../../automation/Yuruna.Requirement.yml), and end with an
+advisory "Newer versions available" report: every managed tool whose source
+still offers a newer version, with the reason the run left it there, and
+"unknown" for a lookup that did not answer; the report never fails the run.
+PowerShell moves through its platform source, each attempt judged by the
+version `pwsh` answers afterward. Ubuntu moves an apt-installed package through
+its configured source unless the operator holds it, then through the release's
+own `.deb`, verified against the release's `hashes.sha256` in a directory only
+root can write, then through a pinned installer-owned Microsoft Ubuntu 24.04
+suite for `powershell` alone, removed once another source offers it, and a
+tarball last; `dpkg -V` sends an unheld package whose files no longer match
+back through the `.deb`. macOS installs the brew formula over a `.pkg` copy and
+links the newest `pwsh` into `/usr/local/bin`, upgrades a brew `curl` on every
+run, and lets the cask take over a DMG-installed UTM unless a service VM is
+running. Windows hands the PowerShell upgrade to a hidden Windows PowerShell
+process that runs `winget` after the installer exits and logs beside the
+install log. A powershell-yaml or PSScriptAnalyzer copy older than its pinned,
+hash-checked version gets the pin installed beside it, since an import loads
+the highest version; [Install-TestModule](../../tools/Install-TestModule.ps1)
+holds that pinned installer, which the Windows bootstrapper also embeds.
 Before they update a checkout, they save a private recovery snapshot of a
 running runner's options and stop the runner and status service; when a runner
 was recorded, they print the
@@ -55,9 +76,10 @@ it and enrolls the proxy's Git mirror verification key under
 `repositories.mirror` through
 [Test.CachingProxyService](../../test/modules/Test.CachingProxyService.psm1),
 leaving a different proxy address that the operator set unchanged.
-`-AnswerFile` runs it unattended;
-[setup.answers.standalone.yml](../../install/setup.answers.standalone.yml) is
-the checked-in example, and `setup.runTests: false` skips host settings for a
+`-AnswerFile` runs it unattended; a run without it ends by writing the
+resolved values it used to `install/setup.answers.standalone.yml` or
+`install/setup.answers.lab.yml`, an untracked file the operator feeds back to
+set up the next machine, and `setup.runTests: false` skips host settings for a
 services-only machine. The host dispatcher uses
 [Yuruna.HostRedirect](../../automation/Yuruna.HostRedirect.psm1) to select the
 platform script; those scripts import
@@ -174,7 +196,7 @@ Sources and aggregate membership:
 
 | Box | Sources |
 | --- | --- |
-| Runner supervision | [Start-TestRunner](../../test/Start-TestRunner.ps1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Invoke-TestCycleRunner](../../test/modules/Invoke-TestCycleRunner.ps1), [Invoke-TestRunnerInnerLoop](../../test/modules/Invoke-TestRunnerInnerLoop.ps1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.ConfigPreflight](../../test/modules/Test.ConfigPreflight.psm1), [Test.RunnerAttemptHistory](../../test/modules/Test.RunnerAttemptHistory.psm1), [Test.SourceSelection](../../test/modules/Test.SourceSelection.psm1), [Test.HostGit](../../test/modules/Test.HostGit.psm1), [Test.FrameworkRing](../../test/modules/Test.FrameworkRing.psm1), [Test.PrivateStateRepair](../../test/modules/Test.PrivateStateRepair.psm1), the one-shot [Invoke-TestProject](../../test/Invoke-TestProject.ps1) and [Debug-TestSequence](../../test/Debug-TestSequence.ps1) entry points, and runner identity/recovery modules in [test/modules/](../../test/modules/). |
+| Runner supervision | [Start-TestRunner](../../test/Start-TestRunner.ps1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Invoke-TestCycleRunner](../../test/modules/Invoke-TestCycleRunner.ps1), [Invoke-TestRunnerInnerLoop](../../test/modules/Invoke-TestRunnerInnerLoop.ps1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.ConfigPreflight](../../test/modules/Test.ConfigPreflight.psm1), [Test.RunnerAttemptHistory](../../test/modules/Test.RunnerAttemptHistory.psm1), [Test.SourceSelection](../../test/modules/Test.SourceSelection.psm1), [Test.HostGit](../../test/modules/Test.HostGit.psm1), [Test.FrameworkRing](../../test/modules/Test.FrameworkRing.psm1), [Test.PrivateStateRepair](../../test/modules/Test.PrivateStateRepair.psm1), the one-shot [Invoke-TestProject](../../test/Invoke-TestProject.ps1) and [Debug-TestSequence](../../test/Debug-TestSequence.ps1) entry points, [Test.SingleInstance](../../test/modules/Test.SingleInstance.psm1), and runner identity/recovery modules in [test/modules/](../../test/modules/). |
 | Sequence execution | [Test.SequenceRunner](../../test/modules/Test.SequenceRunner.psm1), [Test.SequenceEngine](../../test/modules/Test.SequenceEngine.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1), [Test.SequencePlanner](../../test/modules/Test.SequencePlanner.psm1), [Test.Orchestrator](../../test/modules/Test.Orchestrator.psm1), [Test.Start-GuestOS](../../test/modules/Test.Start-GuestOS.psm1), [Test.Start-GuestWorkload](../../test/modules/Test.Start-GuestWorkload.psm1), [sequences/](../../test/sequences/), and [schemas/](../../test/schemas/). |
 | OCR and diagnostics | [Test.OcrEngine](../../test/modules/Test.OcrEngine.psm1), [Test.OcrMatch](../../test/modules/Test.OcrMatch.psm1), [Test.Tesseract](../../test/modules/Test.Tesseract.psm1), [Test.Diagnostic](../../test/modules/Test.Diagnostic.psm1), [Test.DiagnosticPreservation](../../test/modules/Test.DiagnosticPreservation.psm1), the [guest](../../test/Invoke-GuestDiagnosticWorker.ps1) and [host](../../test/modules/Invoke-HostDiagnosticWorker.ps1) diagnostic workers, [Get-SystemDiagnostic](../../automation/Get-SystemDiagnostic.ps1), and the [guest stall sampler](../../automation/guest-performance-snapshot.sh). |
 | Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1) and its listener [Invoke-StatusServiceRuntime](../../test/service/Invoke-StatusServiceRuntime.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), [Repair-PrivateState.py](../../test/service/Repair-PrivateState.py), the [host address beacon](../../test/modules/Invoke-HostAddressBeacon.ps1) sidecar and [Test.HostAddressBeacon](../../test/modules/Test.HostAddressBeacon.psm1), [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1), and [status/](../../test/status/). |
@@ -204,15 +226,26 @@ non-canary members followers: each installs only the newest framework revision
 the pool aggregator reports with enough canary passes, and otherwise stays where
 it is. Canaries and pools without the block install the tip. The runner and
 status service repair
-private startup state before they start. These are processes on the host, rather
+private startup state before they start. Each runner then records how it was
+started in `runtime/runner.session.json`, and its SIGHUP and SIGTERM handlers
+write the signal to `runtime/runner.exit.json` before the signal ends the
+process; the runner-status route reports both as `lastExit` while the runner is
+gone, the next runner's boot-recovery event carries them as `previousRunner`,
+and the pool aggregator shows a runner that died inside a cycle, its pid file
+still present, as lost rather than stopped. These are processes on the host, rather
 than additional network services. The watchdog follows the step heartbeat; OCR
 and guest diagnostics supply sequence evidence. Test.Diagnostic also reads the
 guest kernel's lockup, RCU stall, hung-task, oops, and panic reports from the
-Hyper-V serial console and the guest recorder, and the beacon's address records
+Hyper-V serial console and the guest recorder, and names a display driver whose
+page flips time out as a display stall, which adds no fault kind and changes no
+failure class; the beacon's address records
 name the host's own moves during a failed step. Sequence execution also includes
 [Test.Transport](../../test/modules/Test.Transport.psm1) for console input and
 [Test.SequenceFailureState](../../test/modules/Test.SequenceFailureState.psm1)
-for shared failure evidence. `fetchAndExecute` records envelope transfer details;
+for shared failure evidence; the latter reads the newest bucket an Ubuntu
+installer's error hook uploaded since the step started into the record's
+installer failure cause, which the inner loop also puts on the infra event a
+lab stage sends to the pool. `fetchAndExecute` records envelope transfer details;
 it retypes a damaged compact envelope once only when the guest confirms that the
 payload was not prepared. The guest-side verifier is
 [yuruna-fetch-context.sh](../../automation/yuruna-fetch-context.sh), in the shared
@@ -223,7 +256,12 @@ answering. A `retry` step with `restartVmBeforeRetry: coldPowerCycle`
 power-cycles a stalled startup guest on all three hosts before its next
 attempt. Text waits ask a driver that exports a console second opinion
 whether the guest stopped drawing; on UTM, a sustained inactive display with
-static frames ends the wait as a livelock. The host status listener also runs
+static frames ends the wait as a livelock. The login wait that a cold-restart
+retry repeats also ends early when a `hyperv_drm` display stopped presenting
+frames, once the console has stayed unchanged and the serial console carries
+repeated reports from that driver since the wait began, and the retry then
+cold-restarts the guest; every other wait keeps the stall as a diagnostic on
+the failure record. The host status listener also runs
 when testing is idle, and serves the native Linux and macOS memory gauges
 from Test.HostMemoryMetrics on its metrics endpoint. The
 caching-proxy launcher starts the host status and configuration services through
@@ -298,7 +336,11 @@ between the runner's `Start-VM` and a sequence's own `startVm` finds the running
 reader instead of arming a second one. Hyper-V's `Start-VM` first stops the
 previous boot's reader, which would otherwise take the new boot's pipe; UTM arms
 its reader before power-on, because QEMU drops what the guest writes while no
-client is attached. The KVM and Hyper-V drivers delete a VM
+client is attached. UTM's stop requests the reader's end on a pool thread, waits
+a few seconds, and kills the reader process only when its id and start time
+still match those the job recorded, so a reader that ignores the request never
+holds a teardown or a failure's save; arming skips a reader whose process is
+gone even while its sidecar still names the port. The KVM and Hyper-V drivers delete a VM
 directory only when no registered VM uses a file in it, after first finishing a
 rename that stopped between the registration and the storage move; the KVM
 orphan sweep likewise skips referenced disks. The Hyper-V and UTM drivers also export
@@ -333,6 +375,13 @@ Windows 11 `autounattend.xml` in each provider's builder, the UTM
 carries a Zot sync self-test, and
 [caching-proxy-service.zot-qualified.json](../../host/vmconfig/caching-proxy-service.zot-qualified.json)
 records the release [Test-ZotRelease.py](../../tools/Test-ZotRelease.py) qualified.
+The seed also installs `yuruna-release-asset-learn.py` under a one-minute timer:
+it reads squid's log of GitHub release-download redirects and writes one exact
+Store ID rule per release URL, filing the asset under the CDN object it
+redirected to, so a stored asset is served without asking GitHub while GitHub's
+own redirect is never stored under the asset's key;
+[test_release_asset_learn.py](../../host/vmconfig/tests/test_release_asset_learn.py)
+runs the learner out of the seed against stand-in logs.
 The caching-proxy seed also installs the Git mirror worker and reader units and
 their HTTP routes, and the ssl-bump CA that the building host keeps in its
 private state, so a rebuilt proxy keeps its root, and a statement of that CA's
@@ -348,12 +397,19 @@ manifest of the sources it builds, and the Linux guest and service seeds name
 the proxy CA's fingerprint in `host.env`. The Ubuntu base seed installs
 `yuruna-ssh-hostkeys.service`, a oneshot `ssh-keygen -A` ordered before
 `ssh.service`, so a guest whose cold restart emptied the host keys that
-cloud-init had just written still starts its SSH daemon. The Hyper-V and UTM Ubuntu
+cloud-init had just written still starts its SSH daemon. Its installer error hook
+uploads `installer-cause.txt`, apt's error lines extracted from curtin's
+archive, beside `network-at-failure.txt`, which probes the proxy baked into the
+seed, because curtin writes that proxy into the target rather than into the
+installer's own apt configuration. The Hyper-V and UTM Ubuntu
 overlays install `yuruna-serial-journal.service`, which copies the journal to the
 UART in its own process, so a stalled UART costs serial output rather than
 blocking journald, `sudo`, and `sshd`. The UTM overlay ends the install with
 `shutdown: poweroff`, and the `start.guest.ubuntu.server.*.macos.utm.yml` sequences
-wait for that stop with `startVm` `installPowerOff: true`, then cold-start the
+wait for that stop with `startVm` `installPowerOff: true` and `failurePatterns`
+naming the installer's own error screens, so an installer that caught its error
+and waits at a shell ends the wait as a pattern match instead of spending the
+deadline on a known result, then cold-start the
 installed system. The stash, download-agent, and
 pool-control seeds carry configuration-service client certificates and
 [yuruna-nas-credential.sh](../../automation/yuruna-nas-credential.sh) instead of
@@ -468,13 +524,19 @@ service is unreachable, fetch-and-execute.sh reads a pinned commit's files from
 the caching-proxy Git mirror before GitHub, and yuruna-retry.sh provides the
 pinned Git materializer that the guest update scripts also embed, plus the CA
 self-heal that installs a proxy CA only when it matches the seeded fingerprint.
+Its `curl` and `wget` wrappers retry a GitHub release download or
+`releases/latest` lookup through a 30-minute window with each backoff capped at
+two minutes, so a fetch lands soon after GitHub's release endpoints recover.
 Results and logging include
 completion manifests, log levels, and entry-point root and transcript resolution in Yuruna.LogLevel.
 Validation, requirement, and deployment-kind modules are imported only by
 deploy-engine code and appear in its checks family. Retry and credentials group the
 transient-operation helper, the secret redaction that retry labels, workload
 logs, and component output share, and the registry authentication provider
-catalog.
+catalog. The helper takes the same retry window, under which `tofu init` runs,
+and its transient classifier includes etcd's request timeout and leader change
+and the API server's not-serving answers, so kubectl deployments back off and
+retry.
 Global contains config, component, and workload roots; global/resources appears
 under External services. The globalization aggregate includes
 [Yuruna.Globalization](../../automation/Yuruna.Globalization.psm1), the
@@ -532,7 +594,9 @@ The localhost registry template checks a registry already started by the caller,
 and context-copy copies an existing local Kubernetes context under the configured
 destination name. Image and package upstreams include the container registries
 the cache's Zot mirror syncs from, which the Zot sync self-test probes, and the
-apt repositories whose metadata pairs the cache's apt index self-test reads. The
+apt repositories whose metadata pairs the cache's apt index self-test reads, and
+the GitHub release endpoints whose assets the cache serves from store once its
+release-asset learner has filed them. The
 registry providers authenticate the component phase's push; cluster pull access
 comes from project workload configuration, such as the Azure website's
 `docker-registry` secret.
@@ -545,6 +609,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 [Architecture](../architecture.md) | [Design overview](README.md)

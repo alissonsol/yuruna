@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42ae98ea-d3b9-46df-ad7b-f011055484ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,11 +85,11 @@ try {
     Write-Output "yuruna-host-locate: scheduled task registration failed -- $($_.Exception.Message)"
 }
 
-# The seed CD carries this script, with the repository token, and the answer
-# file, with the default password, in plain text, and every account on the
-# guest can read CD media. Nothing reads it after the copy above, so ask
-# Windows to eject it. Best-effort: a hypervisor that ignores a guest eject
-# leaves the media attached as before.
+# The seed CD carries this script, with the repository token and the host's
+# guest-channel key, and the answer file, with the default password, all in
+# plain text, and every account on the guest can read CD media. Nothing reads
+# it after the copy above, so ask Windows to eject it. Best-effort: a
+# hypervisor that ignores a guest eject leaves the media attached as before.
 try {
     $seedDrive = (Split-Path -Qualifier $PSScriptRoot) + '\'
     $seedItem = (New-Object -ComObject Shell.Application).Namespace(17).ParseName($seedDrive)

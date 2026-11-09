@@ -206,11 +206,12 @@ func (s *Poller) EvaluatePoolGate(view *poolstate.View, now time.Time) []inciden
 		healthy := false
 		if hv.Reachable {
 			switch hv.StatusCode() {
-			// running, pass, idle, pause-armed but still running, runner stopped.
-			// A stale fail behind a stopped runner is no longer counted against the
-			// pool; a host that is genuinely failing is excluded by its open
-			// incident, which does not care what its current status reads.
-			case 1, 2, 4, 6, 7, 8:
+			// running, pass, idle, pause-armed but still running, runner stopped,
+			// runner lost mid-cycle. A stale fail behind a stopped or lost runner is
+			// no longer counted against the pool; a host that is genuinely failing is
+			// excluded by its open incident, which does not care what its current
+			// status reads.
+			case 1, 2, 4, 6, 7, 8, 10:
 				healthy = true
 			}
 		}
@@ -364,6 +365,7 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 		stepParked bool                 // current-action sidecar says the runner is sitting at a step boundary
 		parkedOK   bool                 // the sidecar was read this poll (false = keep the prior reading)
 		runnerDead bool                 // runner-status says the outer runner is verifiably not alive
+		runnerLost bool                 // ...and that it died inside a cycle (in-cycle, pid file left behind)
 		runnerOK   bool                 // runner-status answered this poll (false = keep the prior reading)
 	}
 	// This proxy's own token tag, computed once per poll: the value every host's
@@ -411,8 +413,8 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 				// one probe that cannot be skipped on a hint from status.json,
 				// since a stopped runner is precisely the case where status.json
 				// has stopped changing.
-				if dead, rerr := hostpoll.FetchRunnerStopped(client, base); rerr == nil {
-					pr.runnerDead, pr.runnerOK = dead, true
+				if dead, lost, rerr := hostpoll.FetchRunnerStopped(client, base); rerr == nil {
+					pr.runnerDead, pr.runnerLost, pr.runnerOK = dead, lost, true
 				}
 				// Only while the step-pause flag is armed: the sidecar is the one
 				// thing that separates "parked at the boundary" from "still running
@@ -505,7 +507,7 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 			// Keep the prior runner verdict when the route did not answer this tick, the
 			// same guard as Control: a missed probe is not a runner that started.
 			if r.runnerOK {
-				hv.RunnerStopped = r.runnerDead
+				hv.RunnerStopped, hv.RunnerLostMidCycle = r.runnerDead, r.runnerLost
 			}
 			// An unarmed host has no boundary to be parked at, so the reading is cleared
 			// rather than kept -- otherwise a stale true would resurface the moment the

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -230,6 +230,21 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
         $src = Get-Content -Raw -LiteralPath $script:modulePath
         Assert-True ($src -match 'expectBlankConsole\s*=\s*\$step\.expectBlankConsole\s+-eq\s+\$true') `
             'the shared step-parameter resolver must read the boolean the way it reads the other wait options'
+    }
+
+    It 'declares a blank console on the two login waits after a reboot: <Sequence>' -ForEach @(
+        @{ Sequence = 'start.guest.ubuntu.server.24.yml' }, @{ Sequence = 'start.guest.ubuntu.server.26.yml' }
+        @{ Sequence = 'start.guest.ubuntu.server.24.macos.utm.yml' }, @{ Sequence = 'start.guest.ubuntu.server.26.macos.utm.yml' }
+    ) {
+        # The UTM copies are held to these files, so a declaration lost from both
+        # would pass parity, and the wait would repair a healthy blank console.
+        $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $text = Get-Content -Raw -LiteralPath (Join-Path $repoRoot "test/sequences/$Sequence")
+        $declared = [regex]::Matches($text, '(?m)^(\s*)- action: \w+\r?\n(?:\1  .*\r?\n|\s*\r?\n)*?\1  expectBlankConsole: true\b')
+        Assert-Equal 2 $declared.Count "$Sequence declares it on the wait after the install and the one after the cold restart"
+        foreach ($match in $declared) {
+            Assert-Match 'pattern: "\$\{hostLabel\} login:"' $match.Value 'only a login wait starts on a blank console'
+        }
     }
 
     It 'forwards the normal wait parameters and the periodic nudge controls to Wait-ForText' {
@@ -734,6 +749,7 @@ Describe 'Initial ARM64 Hyper-V installer recovery' {
     It 'asks the installer wait to end on a livelock without changing the declared step' {
         (& $script:bootRetryHandler $script:bootContext) | Should -BeTrue
         $script:bootStub.SeenSteps[0].endWaitOnGuestLivelock | Should -BeTrue
+        $script:bootStub.SeenSteps[0].ContainsKey('endWaitOnDisplayStall') | Should -BeFalse -Because 'the installer confirmation restarts only on the proofs its own guard reads'
         $script:bootContext.Step.steps[0].ContainsKey('endWaitOnGuestLivelock') | Should -BeFalse
     }
     It 'cold-restarts a livelocked guest whose screen shows <Screen>' -TestCases @(
@@ -908,6 +924,7 @@ Describe 'Provider-neutral login-wait cold recovery' {
             }
             $script:ColdInvokeSteps = {
                 param($Steps)
+                $script:ColdStub.Seen.Add(@($Steps))
                 if (-not @($Steps | Where-Object action -EQ waitForTextWithNudge).Count) {
                     $script:ColdStub.Calls.Add('recovery'); return $true
                 }
@@ -920,13 +937,15 @@ Describe 'Provider-neutral login-wait cold recovery' {
                 $script:Fail.WaitForTextMatchedFailurePattern = $script:ColdStub.Pattern
                 $script:Fail.WaitForTextConsoleFlood = $script:ColdStub.Flood
                 $script:Fail.WaitForTextConsoleSecondOpinion = if ($script:ColdStub.EmitOpinion) { @{Verdict='guest-wedged';VMState='running';CpuPercent=1080} } else { $null }
+                $script:Fail.WaitForTextDisplayStallEnd = $script:ColdStub.DisplayStall
                 return $false
             }
         }
     }
     BeforeEach {
         $script:coldStub = & $script:coldModule {
-            $script:ColdStub = @{Calls=[Collections.Generic.List[string]]::new();Events=[Collections.Generic.List[object]]::new();State='running';Failure='';Attempts=0;SuccessAttempt=2;OcrTail='Display output is not active.';Pattern=$null;Flood=$null;EmitOpinion=$true;EvidenceAvailable=$true}
+            $script:ColdStub = @{Calls=[Collections.Generic.List[string]]::new();Events=[Collections.Generic.List[object]]::new();State='running';Failure='';Attempts=0;SuccessAttempt=2;OcrTail='Display output is not active.';Pattern=$null;Flood=$null;EmitOpinion=$true;EvidenceAvailable=$true
+                DisplayStall=$null;Seen=[Collections.Generic.List[object]]::new()}
             return $script:ColdStub
         }
         $script:coldContext = @{
@@ -1039,6 +1058,30 @@ Describe 'Provider-neutral login-wait cold recovery' {
         ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence'
         $script:coldStub.Events[-2].reason | Should -BeExactly 'startup-diagnostics-unavailable'
     }
+    It 'hands the login wait a copy that also ends on a display stall, and leaves the recovery steps and the declared step alone' {
+        (& $script:coldHandler $script:coldContext) | Should -BeTrue
+        $attemptSteps = @($script:coldStub.Seen[0])
+        $attemptSteps[2].endWaitOnDisplayStall | Should -BeTrue
+        $attemptSteps[0].ContainsKey('endWaitOnDisplayStall') | Should -BeFalse -Because 'only the login wait can be ended and restarted'
+        @($script:coldStub.Seen[1])[0].ContainsKey('endWaitOnDisplayStall') | Should -BeFalse -Because 'a post-restart recovery wait has no further restart behind it'
+        $script:coldContext.Step.steps[2].ContainsKey('endWaitOnDisplayStall') | Should -BeFalse
+    }
+    It 'cold-restarts after a login wait that ended on a display stall and names the stall on the attempt and restart records' {
+        $script:coldStub.DisplayStall = [ordered]@{ driver = 'hyperv_drm'; reports = 16; spanSeconds = 74.752; consoleUnchangedSeconds = 30; waitedSeconds = 95 }
+        (& $script:coldHandler $script:coldContext) | Should -BeTrue
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence,stop,start,console,ring,recovery,attempt'
+        $attemptEvent = @($script:coldStub.Events | Where-Object { $_.event -eq 'retry_attempt' })[0]
+        $attemptEvent.guestDisplayStall.driver | Should -BeExactly 'hyperv_drm'
+        $attemptEvent.guestDisplayStall.reports | Should -Be 16
+        $restartEvent = @($script:coldStub.Events | Where-Object { $_.event -eq 'retry_vm_restart' })[0]
+        $restartEvent.ok | Should -BeTrue
+        $restartEvent.guestDisplayStall.driver | Should -BeExactly 'hyperv_drm'
+    }
+    It 'records no display stall on an ordinary login timeout' {
+        (& $script:coldHandler $script:coldContext) | Should -BeTrue
+        @($script:coldStub.Events | Where-Object { $_.event -eq 'retry_attempt' })[0].guestDisplayStall | Should -BeNullOrEmpty
+        @($script:coldStub.Events | Where-Object { $_.event -eq 'retry_vm_restart' })[0].guestDisplayStall | Should -BeNullOrEmpty
+    }
 }
 
 Describe 'ARM64 Hyper-V login-wait recovery ends a livelocked wait early' {
@@ -1086,7 +1129,9 @@ Describe 'ARM64 Hyper-V login-wait recovery ends a livelocked wait early' {
         $seen = @(& $script:loginHandlerModule { $script:LoginStub.SeenSteps })
         $seen[0].ContainsKey('endWaitOnGuestLivelock') | Should -BeFalse
         $seen[1].endWaitOnGuestLivelock | Should -BeTrue
+        $seen[1].endWaitOnDisplayStall | Should -BeTrue
         $script:loginContext.Step.steps[1].ContainsKey('endWaitOnGuestLivelock') | Should -BeFalse
+        $script:loginContext.Step.steps[1].ContainsKey('endWaitOnDisplayStall') | Should -BeFalse
     }
     It 'leaves the wait policy alone where no cold restart follows (<Architecture> <Provider>)' -TestCases @(
         @{ Architecture = 'X64'; Provider = 'host.windows.hyper-v' }
@@ -1098,6 +1143,7 @@ Describe 'ARM64 Hyper-V login-wait recovery ends a livelocked wait early' {
         (& $script:loginRetryHandler $script:loginContext) | Should -BeTrue
         $seen = @(& $script:loginHandlerModule { $script:LoginStub.SeenSteps })
         $seen[1].ContainsKey('endWaitOnGuestLivelock') | Should -BeFalse
+        $seen[1].ContainsKey('endWaitOnDisplayStall') | Should -BeFalse
     }
     It 'turns the step flag into the Wait-ForText switch, and nothing at all without it' {
         $context = @{ Step = @{ pattern = 'x'; endWaitOnGuestLivelock = $true }; Vars = @{}; ExpandVariable = { param($v) $v }; DefaultTimeoutSeconds = 5; DefaultPollSeconds = 1 }
@@ -1106,6 +1152,15 @@ Describe 'ARM64 Hyper-V login-wait recovery ends a livelocked wait early' {
         $context.Step.Remove('endWaitOnGuestLivelock')
         $p = & $script:loginHandlerModule { param($c) Resolve-WaitForTextStepParam -Context $c } $context
         $p.livelockExit.Count | Should -Be 0
+    }
+    It 'turns the display-stall flag into its own Wait-ForText switch' {
+        $context = @{ Step = @{ pattern = 'x'; endWaitOnGuestLivelock = $true; endWaitOnDisplayStall = $true }; Vars = @{}; ExpandVariable = { param($v) $v }; DefaultTimeoutSeconds = 5; DefaultPollSeconds = 1 }
+        $p = & $script:loginHandlerModule { param($c) Resolve-WaitForTextStepParam -Context $c } $context
+        $p.livelockExit.EndOnGuestLivelock | Should -BeTrue
+        $p.livelockExit.EndOnDisplayStall | Should -BeTrue
+        $context.Step.Remove('endWaitOnGuestLivelock')
+        $p = & $script:loginHandlerModule { param($c) Resolve-WaitForTextStepParam -Context $c } $context
+        @($p.livelockExit.Keys) | Should -Be @('EndOnDisplayStall')
     }
 }
 
@@ -1257,6 +1312,33 @@ Describe 'startVm waits for an install''s own power-off' {
         (& $script:startHandler $script:startContext) | Should -BeTrue
         ($script:startStub.Calls -join ',') | Should -BeExactly 'start'
         (Get-SequenceFailureState).StepVmNotStopped | Should -BeNullOrEmpty
+    }
+    It 'ends the wait on a declared failure pattern and files it as a pattern match' {
+        $frame = Join-Path $TestDrive 'installer-error.png'
+        Set-Content -LiteralPath $frame -Value 'png'
+        Mock -ModuleName Test.SequenceHandler Save-GuestConsoleFrame {
+            @{ Path = $frame; Text = 'finish: subiquity/Error/run'; AllText = "== tesseract ==`nAn error occurred. PRESS ENTER to start a shell"; Hash = 'h' }
+        }.GetNewClosure()
+        $script:startContext.Step = @{ timeoutSeconds = 30; frameIntervalSeconds = 1; installPowerOff = $true
+            failurePatterns = @('install_fail.crash', 'Press enter to start a shell') }
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        (& $script:startHandler $script:startContext) | Should -BeFalse
+        $watch.Elapsed.TotalSeconds | Should -BeLessThan 20 -Because 'an installer waiting at a shell will never power off, so the deadline must not be spent'
+        $script:startStub.Calls.Count | Should -Be 0 -Because 'a failed install must not be started again'
+        $state = Get-SequenceFailureState
+        $state.WaitForTextMatchedFailurePattern | Should -BeExactly 'Press enter to start a shell' -Because 'the match is read across every OCR engine and ignores case'
+        $state.StepVmNotStopped | Should -BeNullOrEmpty -Because 'this is an installer that reported its failure, not a VM that never stopped'
+        $state.FirstGuestSilenceUtc | Should -BeNullOrEmpty
+    }
+    It 'keeps waiting while no frame shows a declared failure pattern' {
+        Mock -ModuleName Test.SequenceHandler Save-GuestConsoleFrame {
+            @{ Path = ''; Text = 'installing'; AllText = 'installing'; Hash = 'h' }
+        }
+        $script:startContext.Step = @{ timeoutSeconds = 2; frameIntervalSeconds = 1; installPowerOff = $true; failurePatterns = 'Press enter to start a shell' }
+        (& $script:startHandler $script:startContext) | Should -BeFalse
+        $state = Get-SequenceFailureState
+        $state.WaitForTextMatchedFailurePattern | Should -BeNullOrEmpty
+        $state.StepVmNotStopped.installPowerOff | Should -BeTrue -Because 'with no match the wait ends at the deadline as before'
     }
     It 'still marks a guest that ignored a requested shutdown as silent' {
         $script:startContext.Step = @{ timeoutSeconds = 1; frameIntervalSeconds = 0 }
@@ -1434,6 +1516,77 @@ Describe 'The ssh verbs publish their proof that a failed step did nothing' {
     }
 }
 
+# A guest that accepts connections but never answers ends the last detached
+# re-attach of a step at the re-attach's own cap. Each module on the way has
+# its own unit cases; this one carries that single result through all three --
+# the transport, the verb's failure slots and the record's classification --
+# because a slot the verb stops setting would leave every unit case green and
+# file the step as script_error, whose pause never ends early.
+Describe 'A detached step whose last re-attach its own cap cut off is filed as a lost transport' {
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking -Global
+        Import-Module (Join-Path (Split-Path -Parent $script:modulePath) 'Test.Ssh.psm1') -Force -DisableNameChecking -Global
+        # Only the command line and the evidence file around the transport are
+        # stood in; the verb reaches the real Invoke-GuestSsh.
+        . (Get-Module Test.SequenceHandler) {
+            function Get-FetchExecutionContext {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real function so the caller binds.')]
+                param($Context, $CommandLine)
+                return @{ Command = [string]$CommandLine; Launch = [string]$CommandLine }
+            }
+            function Save-FetchExecutionEvidence {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real function so the caller binds.')]
+                param($Context, $Succeeded, $ElapsedSeconds)
+            }
+            function Get-GuestRunToken { return 'fixture-token' }
+        }
+    }
+    AfterAll {
+        Remove-Module Test.SequenceHandler -Force
+        Remove-Module Test.Ssh -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'files network_timeout with the reconnect recoveries, not the verb''s script_error' {
+        Mock Get-GuestSshUser -ModuleName Test.Ssh { 'fixture-user' }
+        Mock Get-YurunaSshPrivateKeyPath -ModuleName Test.Ssh { 'fixture-key' }
+        Mock Get-GuestAddress -ModuleName Test.Ssh { '127.0.0.1' }
+        $script:AttachCalls = 0
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.Ssh {
+            $script:AttachCalls++
+            # The first session drops; the re-attach then hears nothing from
+            # the guest's supervisor before its own cap.
+            if ($script:AttachCalls -eq 1) {
+                return @{ Started = $true; ExitCode = 255; StdOut = ''; StdErr = 'Timeout, server 127.0.0.1 not responding.' }
+            }
+            return @{ Started = $true; ExitCode = -1; StdOut = ''; StdErr = ''; TimedOut = $true }
+        }
+        & (Get-Module Test.SequenceFailureState) { Reset-SequenceFailureSlot -Lifetime sequence }
+        $context = @{
+            Step = @{ command = 'run.sh'; timeoutSeconds = 5 }; Vars = @{}
+            ExpandVariable = { param($Value, $Vars) $null = $Vars; $Value }
+            DefaultTimeoutSeconds = 5; ShowSensitive = $false; VMName = 'fixture-vm'; GuestKey = 'guest.ubuntu.server.26'
+            StepInvocationId = 'step-1'; SequenceInvocationId = 'seq-1'; StepNum = 3; SequencePath = 'x.yml'
+        }
+        $ok = & (Get-SequenceAction -Name sshFetchAndExecute).Handler $context 3>$null
+        Assert-False $ok 'the step fails'
+        Assert-Equal -Expected 2 -Actual $script:AttachCalls -Because 'the launch and one re-attach both ran through the real transport'
+        $fail = Get-SequenceFailureState
+        Assert-True ([bool]$fail.StepGuestTransportLost) 'the verb keeps the transport''s verdict for the record'
+        # What the engine stamps on the state when a step's handler returns false.
+        $fail.LastFailedAction = 'sshFetchAndExecute'
+        $fail.LastFailureLabel = 'sshFetchAndExecute: "run.sh"'
+        $fail.LastFailedStepNumber = 3
+        try {
+            $record = New-SequenceFailureRecord -Reason step -VMName 'fixture-vm' -GuestKey 'guest.ubuntu.server.26' -HostType 'host.ubuntu.kvm' `
+                -SequencePath 'x.yml' -LogDir $TestDrive -TotalSteps 5
+            Assert-Equal -Expected 'network_timeout' -Actual $record.File.failureClass
+            Assert-Equal -Expected 'reconnect,retry_with_backoff' -Actual (@($record.File.suggestedRecoveries) -join ',')
+        } finally { & (Get-Module Test.SequenceFailureState) { Reset-SequenceFailureSlot -Lifetime sequence } }
+    }
+}
+
 Describe 'A typed command is acknowledged by what the console says' {
     BeforeAll { Import-Module $script:modulePath -Force -DisableNameChecking -Global }
     AfterAll { Remove-Module Test.SequenceHandler -Force }
@@ -1575,5 +1728,19 @@ Describe 'the sequence schema types the install power-off wait on startVm' {
             'a startVm step may declare installPowerOff: true'
         Assert-False (Test-Json -Json (ConvertTo-StartVmSequenceJson -InstallPowerOff 'yes') -Schema $script:startSchemaJson -ErrorAction SilentlyContinue) `
             'a startVm step with a non-boolean installPowerOff is a schema violation'
+    }
+    It 'types failurePatterns on startVm as a pattern or a pattern list' {
+        function ConvertTo-FailurePatternSequenceJson {
+            param($FailurePatterns)
+            return ([ordered]@{
+                description = 'schema probe'; keystrokeMechanism = 'gui'
+                resource = [ordered]@{ 'ubuntu.server.26' = @('start.guest.ubuntu.server.26') }
+                component = @([ordered]@{ action = 'startVm'; timeoutSeconds = 2400; failurePatterns = $FailurePatterns })
+            } | ConvertTo-Json -Depth 32)
+        }
+        Assert-True (Test-Json -Json (ConvertTo-FailurePatternSequenceJson -FailurePatterns @('Press enter to start a shell')) -Schema $script:startSchemaJson -ErrorAction SilentlyContinue) `
+            'a startVm step may declare failure patterns'
+        Assert-False (Test-Json -Json (ConvertTo-FailurePatternSequenceJson -FailurePatterns 7) -Schema $script:startSchemaJson -ErrorAction SilentlyContinue) `
+            'a failure pattern must be text'
     }
 }

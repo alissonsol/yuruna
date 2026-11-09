@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1174,7 +1174,7 @@ Describe 'the Windows updater verifies host archives through the guest channel' 
             . ([scriptblock]::Create($script:DigestFn))
             $script:Repo = Join-Path $TestDrive 'framework'
             $null = New-Item -ItemType Directory -Path (Join-Path $script:Repo 'docs') -Force
-            Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '2026.11.05'
+            Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '2026.11.08'
             Set-Content -LiteralPath (Join-Path $script:Repo 'docs/x.md') -Value 'excluded'
             $null = New-YurunaTestGitRepository -Path $script:Repo -AddExisting -CommitMessage 'seed'
             $script:Commit = ([string](Invoke-YurunaTestGit -Path $script:Repo -Argument @('rev-parse', 'HEAD'))).Trim()

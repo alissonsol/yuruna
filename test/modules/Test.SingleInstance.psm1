@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42228108-7cf2-409b-8ae4-1bb3028f378f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -4807,7 +4807,192 @@ function Start-YurunaCapturedRunner {
     throw "Captured runner did not claim a new single-instance record within $TimeoutSeconds seconds. Private logs: $privateDirectory"
 }
 
+# --- REGION: Runner session and exit records
+# A runner whose terminal or SSH session ends receives SIGHUP and stops with
+# its cycle and its readers, leaving status.json saying the cycle runs and the
+# host idle until an operator looks; nothing else records why. The session
+# record says how the runner was started, and the exit record names the signal
+# that ended it, so /control/runner-status and the next runner's boot sweep can
+# tell a closed session or a SIGTERM from a kill. SIGKILL, an out-of-memory kill
+# and a power loss cannot be caught: they leave no exit record, and the boot
+# time recorded with the session tells a host restart from a kill.
+$script:RunnerSessionRecordName = 'runner.session.json'
+$script:RunnerExitRecordName = 'runner.exit.json'
+# A boot this many seconds after the recorded one is a restart; Linux states
+# its boot time in whole seconds and Windows derives it from a counter.
+$script:RunnerSessionBootToleranceSeconds = 5
+# .NET runs a signal handler on a thread with no PowerShell runspace, so the
+# handler is compiled. It writes the record with a temporary file and a rename,
+# swallows its own failure because nothing can report it from there, and leaves
+# the signal's default action -- ending the process -- in place.
+$script:RunnerExitRecorderSource = @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
+namespace Yuruna {
+    public static class RunnerExitRecorder {
+        private static readonly List<PosixSignalRegistration> Registrations = new List<PosixSignalRegistration>();
+        private static string recordPath;
+        private static int processId;
+        private static string startedUtc;
+        public static int Register(string path, int pid, string started) {
+            lock (Registrations) {
+                recordPath = path;
+                processId = pid;
+                startedUtc = started ?? "";
+                if (Registrations.Count > 0) { return Registrations.Count; }
+                foreach (PosixSignal signal in new[] { PosixSignal.SIGHUP, PosixSignal.SIGTERM }) {
+                    try { Registrations.Add(PosixSignalRegistration.Create(signal, Record)); }
+                    catch (PlatformNotSupportedException) { }
+                }
+                return Registrations.Count;
+            }
+        }
+        private static void Record(PosixSignalContext context) {
+            try {
+                string name = context.Signal == PosixSignal.SIGHUP ? "SIGHUP" : (context.Signal == PosixSignal.SIGTERM ? "SIGTERM" : context.Signal.ToString());
+                string json = "{\"signal\":\"" + name + "\",\"atUtc\":\"" + DateTime.UtcNow.ToString("o") + "\",\"pid\":" + processId
+                    + ",\"startedUtc\":\"" + startedUtc.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"}";
+                string temporary = recordPath + "." + processId + ".tmp";
+                File.WriteAllText(temporary, json);
+                File.Move(temporary, recordPath, true);
+            } catch (Exception) { }
+        }
+    }
+}
+'@
+
+function Register-YurunaRunnerExitRecord {
+    <#
+    .SYNOPSIS
+        Record how this runner was started, and have SIGHUP and SIGTERM record
+        which one ended it.
+    .DESCRIPTION
+        Writes runner.session.json: the process id and start time (those of
+        runner.pid and runner.start), when it was written, the host's boot
+        time, whether the process runs under an SSH session, a terminal
+        program or a terminal multiplexer, and its parent processes. Removes a
+        previous runner's runner.exit.json, which the boot sweep has already
+        reported, then registers the signal handlers. Best-effort: a runner
+        that cannot record keeps running.
+    .PARAMETER RuntimeDir
+        The runtime directory that holds runner.pid.
+    .PARAMETER HostBootUtc
+        The host's boot time, or $null when it cannot be read.
+    .OUTPUTS
+        [bool] $true when the session record was written and at least one
+        signal handler registered.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [AllowNull()][object]$HostBootUtc
+    )
+    if (-not $PSCmdlet.ShouldProcess($RuntimeDir)) { return $false }
+    $sessionPath = Join-Path $RuntimeDir $script:RunnerSessionRecordName
+    $exitPath = Join-Path $RuntimeDir $script:RunnerExitRecordName
+    try {
+        $self = Get-Process -Id $PID
+        $startedUtc = $self.StartTime.ToUniversalTime().ToString('o')
+        $parents = [Collections.Generic.List[string]]::new()
+        try {
+            # The executable's name only: on Linux a process can carry its
+            # command line in its name, and runner-status serves this record
+            # to anyone.
+            $parent = $self.Parent
+            while ($parent -and $parents.Count -lt 8) {
+                $name = [IO.Path]::GetFileName((("$($parent.ProcessName)" -split '\s', 2)[0]))
+                if ($name.Length -gt 32) { $name = $name.Substring(0, 32) }
+                $parents.Add("$name[$($parent.Id)]")
+                $parent = $parent.Parent
+            }
+        } catch { Write-Verbose "Register-YurunaRunnerExitRecord: the parent chain stops at $($parents.Count): $($_.Exception.Message)" }
+        $multiplexer = if ($env:TMUX) { 'tmux' } elseif ($env:STY) { 'screen' } else { $null }
+        $boot = $null
+        if ($HostBootUtc) { $boot = ([datetime]$HostBootUtc).ToUniversalTime().ToString('o') }
+        $session = [ordered]@{
+            schemaVersion = 1; pid = $PID; startedUtc = $startedUtc
+            recordedUtc = [datetime]::UtcNow.ToString('o'); hostBootUtc = $boot
+            sshSession = [bool]($env:SSH_CONNECTION -or $env:SSH_TTY); terminalProgram = $env:TERM_PROGRAM
+            multiplexer = $multiplexer; parents = @($parents)
+        }
+        $temporary = "$sessionPath.$PID.tmp"
+        [IO.File]::WriteAllText($temporary, ($session | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+        [IO.File]::Move($temporary, $sessionPath, $true)
+        if ([IO.File]::Exists($exitPath)) { [IO.File]::Delete($exitPath) }
+        if (-not ('Yuruna.RunnerExitRecorder' -as [type])) {
+            Add-Type -TypeDefinition $script:RunnerExitRecorderSource -Language CSharp -ErrorAction Stop
+        }
+        return ([Yuruna.RunnerExitRecorder]::Register($exitPath, $PID, $startedUtc) -gt 0)
+    } catch {
+        Write-Verbose "Register-YurunaRunnerExitRecord: not recorded: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Get-YurunaRunnerExitReport {
+    <#
+    .SYNOPSIS
+        What the session and exit records say about the runner that wrote them.
+    .DESCRIPTION
+        Joins runner.session.json with the runner.exit.json of the same process.
+        signal is $null when no catchable signal was recorded: the runner still
+        runs, stopped on its own, or was killed without one. hostRestarted is
+        $true when the host booted after the recorded boot, $false when it did
+        not, and $null when either boot time is unknown.
+    .PARAMETER RuntimeDir
+        The runtime directory that holds the records.
+    .PARAMETER HostBootUtc
+        The host's boot time now, or $null when it cannot be read.
+    .OUTPUTS
+        [ordered] pid, startedUtc, recordedUtc, sshSession, terminalProgram,
+        multiplexer, parents, hostBootUtc, signal, signalAtUtc, hostRestarted;
+        $null when there is no readable session record.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [AllowNull()][object]$HostBootUtc
+    )
+    $sessionPath = Join-Path $RuntimeDir $script:RunnerSessionRecordName
+    if (-not [IO.File]::Exists($sessionPath)) { return $null }
+    $jsonOption = @{}
+    if ((Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $jsonOption.DateKind = 'String' }
+    try { $session = [IO.File]::ReadAllText($sessionPath) | ConvertFrom-Json -AsHashtable @jsonOption -ErrorAction Stop }
+    catch {
+        Write-Verbose "Get-YurunaRunnerExitReport: $sessionPath is unreadable: $($_.Exception.Message)"
+        return $null
+    }
+    if ($session -isnot [System.Collections.IDictionary] -or -not $session.Contains('pid')) { return $null }
+    $signal = $null; $signalAt = $null
+    $exitPath = Join-Path $RuntimeDir $script:RunnerExitRecordName
+    if ([IO.File]::Exists($exitPath)) {
+        try {
+            $exit = [IO.File]::ReadAllText($exitPath) | ConvertFrom-Json -AsHashtable @jsonOption -ErrorAction Stop
+            if ($exit -is [System.Collections.IDictionary] -and [int]$exit['pid'] -eq [int]$session['pid']) {
+                $signal = [string]$exit['signal']; $signalAt = [string]$exit['atUtc']
+            }
+        } catch { Write-Verbose "Get-YurunaRunnerExitReport: $exitPath is unreadable: $($_.Exception.Message)" }
+    }
+    $restarted = $null
+    $recordedBoot = [datetime]::MinValue
+    if ($HostBootUtc -and $session['hostBootUtc'] -and
+        [datetime]::TryParse([string]$session['hostBootUtc'], [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$recordedBoot)) {
+        $restarted = (([datetime]$HostBootUtc).ToUniversalTime() - $recordedBoot.ToUniversalTime()).TotalSeconds -gt $script:RunnerSessionBootToleranceSeconds
+    }
+    return [ordered]@{
+        pid = [int]$session['pid']; startedUtc = [string]$session['startedUtc']; recordedUtc = [string]$session['recordedUtc']
+        sshSession = [bool]$session['sshSession']; terminalProgram = $session['terminalProgram']; multiplexer = $session['multiplexer']
+        parents = @($session['parents']); hostBootUtc = $session['hostBootUtc']
+        signal = $signal; signalAtUtc = $signalAt; hostRestarted = $restarted
+    }
+}
+
 Export-ModuleMember -Function `
+    Register-YurunaRunnerExitRecord, Get-YurunaRunnerExitReport, `
     Get-RunnerInstanceState, Stop-StaleRunner, Write-RunnerPidFile, Get-YurunaProcessTreeKillScript, Stop-YurunaProcessTree, `
     Resolve-YurunaRunnerProcessTarget, Get-YurunaProcessTable, Get-YurunaProcessIdentityState, `
     Get-YurunaProcessStartUnixMs, Get-YurunaRunnerRecordState, Remove-YurunaRunnerRecordGeneration, `

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42305b75-dbdd-448e-8c59-ffaf93235629
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,6 +175,42 @@ Describe 'Get-OuterAutoRemediation (pool override WINS over config > default)' {
             $r = Get-OuterAutoRemediation -ConfigPath $path -WarningAction SilentlyContinue
             Assert-True $r.Enabled 'the broken edit does not turn recovery off'
             Assert-Equal -Expected 4 -Actual $r.MaxAttempts -Because 'the last good budget'
+        } finally { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# The resident runner decides from test.config.yml for its whole life, so one
+# read that drops -LastGoodOnError turns a half-saved edit back into "no
+# configuration" for that decision alone, and every case above still passes.
+Describe 'Every configuration read of the resident runner keeps the last configuration that parsed' {
+    It 'passes -LastGoodOnError at every Read-TestConfig call in the outer loop and the host-refresh threshold' {
+        $here = Split-Path -Parent $PSCommandPath
+        # The floors are the reads that exist; a count under one means the
+        # scan stopped finding them, which must not pass as "none is missing".
+        $missing = [System.Collections.Generic.List[string]]::new()
+        foreach ($file in @(@{ Name = 'Test.RunnerOuterLoop.psm1'; Floor = 13 }, @{ Name = 'Test.HostRefreshTrigger.psm1'; Floor = 1 })) {
+            $ast = Get-YurunaTestFileAst -Path (Join-Path $here $file.Name)
+            $reads = @($ast.FindAll({ param($n)
+                $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Read-TestConfig' }, $true))
+            Assert-True ($reads.Count -ge $file.Floor) "$($file.Name): found $($reads.Count) Read-TestConfig call(s), expected at least $($file.Floor)"
+            foreach ($read in $reads) {
+                $switches = @($read.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] } | ForEach-Object ParameterName)
+                if ($switches -notcontains 'LastGoodOnError') {
+                    $owner = $read.Parent
+                    while ($owner -and $owner -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) { $owner = $owner.Parent }
+                    $missing.Add(('{0}:{1} in {2}' -f $file.Name, $read.Extent.StartLineNumber, $(if ($owner) { $owner.Name } else { '<script>' })))
+                }
+            }
+        }
+        Assert-Equal -Expected 0 -Actual $missing.Count -Because "these reads fall back to defaults on a half-saved edit: $($missing -join '; ')"
+    }
+    It 'keeps the failure pause polling the last project remote while an edit leaves the file broken' {
+        $path = New-TempConfig "repositories:`n  projectUrl: https://example.test/project.git`n"
+        try {
+            Assert-Equal -Expected 'https://example.test/project.git' -Actual (Get-OuterProjectUrl -ConfigPath $path) -Because 'fixture sanity'
+            Set-Content -LiteralPath $path -Value "repositories: [unclosed" -Encoding utf8
+            Assert-Equal -Expected 'https://example.test/project.git' -Actual (Get-OuterProjectUrl -ConfigPath $path -WarningAction SilentlyContinue) `
+                -Because 'a broken save must not stop the pause from watching the project for a new commit'
         } finally { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
     }
 }

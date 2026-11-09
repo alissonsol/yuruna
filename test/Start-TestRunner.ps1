@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -459,6 +459,12 @@ $releaseRunnerRecord = {
 }
 & $refuseOneShot
 if ($RefreshResume) { & $runStartupRecovery }
+# After the sweep has reported the previous runner's records: how this runner
+# was started, and the SIGHUP or SIGTERM that ends it if one does.
+if (Get-Command Register-YurunaRunnerExitRecord -ErrorAction SilentlyContinue) {
+    $sessionBootUtc = if (Get-Command Get-YurunaHostBootTimeUtc -ErrorAction SilentlyContinue) { Get-YurunaHostBootTimeUtc } else { $null }
+    $null = Register-YurunaRunnerExitRecord -RuntimeDir $env:YURUNA_RUNTIME_DIR -HostBootUtc $sessionBootUtc -Confirm:$false
+}
 
 # --- REGION: Launch record
 # The validated launch options, recorded privately so a host refresh can

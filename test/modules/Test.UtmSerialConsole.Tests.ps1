@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42f1809a-b8c8-4dd4-ba80-fcc20a881d12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -845,6 +845,83 @@ Describe 'The serial reader' {
             $clock = [System.Diagnostics.Stopwatch]::StartNew()
             Assert-True (Invoke-InDriver { Stop-VMSerialCapture -VMName 'closing-vm' }) "nothing left running (round $round)"
             Assert-True ($clock.Elapsed.TotalSeconds -lt 10) "round $round stopped in $([int]$clock.Elapsed.TotalSeconds) s"
+        }
+    }
+
+    It 'names its process first, so a stop can kill exactly that reader' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        Set-ConsoleBundle -Name 'named-vm' -SerialPort (Get-YurunaTestFreePort)
+        Assert-True (Invoke-InDriver { Start-VMSerialCapture -VMName 'named-vm' }) 'armed'
+        try {
+            $job = @(Get-Job | Where-Object { $_.Name -eq 'yuruna-serial-named-vm' })[0]
+            Wait-Until { @(Receive-Job -Job $job -Keep).Count -gt 0 } -Because 'the reader''s first output is its identity'
+            $identity = @(Receive-Job -Job $job -Keep)[0]
+            Assert-True ([int]$identity.ProcessId -ne $PID) 'the reader runs in its own process'
+            Assert-StringEqual 'alive' (Get-YurunaProcessIdentityLiveness -ProcessId $identity.ProcessId -StartTimeUnixMs $identity.StartTimeUnixMs)
+        } finally {
+            Assert-True (Invoke-InDriver { Stop-VMSerialCapture -VMName 'named-vm' }) 'nothing left running'
+        }
+    }
+
+    # One kill for both cases: PowerShell ends a killed reader's job about a
+    # minute later, and teardown waits for that.
+    It 'kills a reader that does not honor the stop at the cap; a later stop does not wait on it, and arming reads the port anew' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        $port = Get-YurunaTestFreePort
+        Set-ConsoleBundle -Name 'deaf-vm' -SerialPort $port
+        $files = Get-CaptureFile -VMName 'deaf-vm'
+        $null = New-Item -ItemType Directory -Force -Path $files.Directory
+        # PowerShell cannot deliver a stop into a .NET call, which is the shape of
+        # a request it dropped: Stop-Job would wait two minutes on this job.
+        $job = Start-Job -Name 'yuruna-serial-deaf-vm' -ScriptBlock {
+            $self = [System.Diagnostics.Process]::GetCurrentProcess()
+            [pscustomobject]@{ ProcessId = $self.Id; StartTimeUnixMs = [DateTimeOffset]::new($self.StartTime).ToUnixTimeMilliseconds() }
+            [System.Threading.Thread]::Sleep(600000)
+        }
+        Wait-Until { @(Receive-Job -Job $job -Keep).Count -gt 0 } -Because 'the stand-in reader has named its process'
+        $identity = @(Receive-Job -Job $job -Keep)[0]
+        $clock = [System.Diagnostics.Stopwatch]::StartNew()
+        Assert-True (Invoke-InDriver { Stop-VMSerialCapture -VMName 'deaf-vm' }) 'the process the job named is gone, so no reader is left'
+        Assert-True ($clock.Elapsed.TotalSeconds -lt 10) "the stop is held to its cap ($([int]$clock.Elapsed.TotalSeconds) s)"
+        Assert-StringEqual 'dead' (Get-YurunaProcessIdentityLiveness -ProcessId $identity.ProcessId -StartTimeUnixMs $identity.StartTimeUnixMs)
+        Assert-False $job.Finished.WaitOne(0) 'the next stop must meet the job while it still reads Running'
+        $clock.Restart()
+        Assert-True (Invoke-InDriver { Stop-VMSerialCapture -VMName 'deaf-vm' }) 'the same reader, stopped by name again'
+        Assert-True ($clock.Elapsed.TotalSeconds -lt 2.5) "a job whose process is gone is not waited on ($($clock.Elapsed.TotalSeconds) s)"
+
+        # Its sidecar still names this port and log, which is what lets a live
+        # reader be kept.
+        [System.IO.File]::WriteAllText($files.State, (@{ port = $port; logPath = $files.Log } | ConvertTo-Json -Compress))
+        Assert-False $job.Finished.WaitOne(0) 'the killed reader''s job must still read Running here'
+        $listener = New-YurunaTestTcpListener -Port $port
+        $guest = $null
+        try {
+            Assert-True (Invoke-InDriver { Start-VMSerialCapture -VMName 'deaf-vm' }) 'armed'
+            $guest = Wait-GuestConnection -Listener $listener
+            Assert-True ($null -ne $guest) 'a live reader reached the port'
+        } finally {
+            if ($guest) { $guest.Dispose() }
+            $listener.Stop()
+            Assert-True (Invoke-InDriver { Stop-VMSerialCapture -VMName 'deaf-vm' }) 'nothing left running'
+        }
+    }
+
+    It 'reports a reader that named no process, and leaves it running with its job listed' {
+        if (-not $script:CanShim) { Set-ItResult -Skipped -Because $script:Skip; return }
+        $marker = Join-Path $TestDrive 'unnamed-vm.started'
+        $job = Start-Job -Name 'yuruna-serial-unnamed-vm' -ScriptBlock {
+            [System.IO.File]::WriteAllText($using:marker, 'started')
+            [System.Threading.Thread]::Sleep(10000)
+        }
+        try {
+            Wait-Until { [System.IO.File]::Exists($marker) } -Because 'a job not yet running ends at once when stopped'
+            $clock = [System.Diagnostics.Stopwatch]::StartNew()
+            Assert-False (Invoke-InDriver { Stop-VMSerialCapture -VMName 'unnamed-vm' }) 'a reader the stop could not end is reported'
+            Assert-True ($clock.Elapsed.TotalSeconds -lt 8) "the stop waits no longer than its cap ($([int]$clock.Elapsed.TotalSeconds) s)"
+            Assert-Equal 1 @(Get-Job | Where-Object { $_.Name -eq 'yuruna-serial-unnamed-vm' }).Count
+        } finally {
+            $null = Wait-Job -Job $job -Timeout 25
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
         }
     }
 

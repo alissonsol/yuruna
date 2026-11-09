@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -157,10 +157,10 @@ if ($LASTEXITCODE -ne 0) {
 
 # --- REGION: Render the autounattend.xml + build a CD with it
 # Autounattend seed ISO: Windows Setup scans all drives for autounattend.xml.
-# The answer file and the bootstrap carry the repository token. They are staged
-# in a private (0700) workspace inside the bundle and published as an
-# owner-only image, and the finally below removes the workspace on every exit,
-# a failed build included.
+# The bootstrap carries the repository token and the guest-channel key, the
+# answer file the default password. They are staged in a private (0700)
+# workspace inside the bundle and published as an owner-only image, and the
+# finally below removes the workspace on every exit, a failed build included.
 Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
 # A plaintext source an older builder left in the image directory goes first.
 Remove-Item -LiteralPath (Join-Path $downloadDir "seed_temp/$VMName") -Recurse -Force -ErrorAction SilentlyContinue

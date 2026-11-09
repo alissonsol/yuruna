@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 426e19c5-9718-4a13-b5d3-7b13bd7d1d65
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,14 +97,36 @@ Describe 'Invoke-WithYurunaRetry -ShouldRetry predicate control flow' {
     }
 }
 
+Describe 'Invoke-WithYurunaRetry -WindowSeconds' {
+    It 'starts no attempt after the window closes and reports the attempts it made as the allowance' {
+        # Real sleeps: the window is measured on a monotonic clock, so it cannot
+        # be advanced by a stand-in. One-second backoffs against a three-second
+        # window keep the run near four attempts, far below the explicit count.
+        $script:runs = 0
+        $clock = [System.Diagnostics.Stopwatch]::StartNew()
+        $r = Invoke-WithYurunaRetry -Label 'test-window' -MaxAttempts 50 -WindowSeconds 3 `
+             -InitialDelaySeconds 1 -MaxDelaySeconds 1 -JitterFraction 0 `
+             -ScriptBlock { $script:runs++; throw 'boom' }
+        $clock.Stop()
+        Assert-Equal -Expected $false -Actual $r.Success
+        Assert-True ($r.Attempts -lt 50) "the window, not the attempt count, must end the run (made $($r.Attempts))"
+        Assert-True ($r.Attempts -ge 3) "the window allowed at least three one-second backoffs (made $($r.Attempts))"
+        Assert-Equal -Expected $r.Attempts -Actual $r.MaxAttempts -Because 'a run the window ended reports the attempts it made, so "all N attempts exhausted" stays true'
+        Assert-Equal -Expected $script:runs -Actual $r.Attempts
+        Assert-True ($clock.Elapsed.TotalSeconds -ge 3) "the run must last the window (lasted $($clock.Elapsed.TotalSeconds) s)"
+        Assert-True ($clock.Elapsed.TotalSeconds -lt 6) "no backoff may run past the window's end (lasted $($clock.Elapsed.TotalSeconds) s)"
+    }
+}
+
 Describe 'Invoke-TofuInitWithRetry attempt budget' {
     BeforeEach {
-        Mock -ModuleName 'Yuruna.Retry' Start-Sleep { }
+        $script:slept = [System.Collections.Generic.List[int]]::new()
+        Mock -ModuleName 'Yuruna.Retry' Start-Sleep { $script:slept.Add([int]$Seconds) }
         $script:savedAttempts = Save-YurunaTestEnvironment -Name 'YURUNA_RETRY_MAX_ATTEMPTS'
         $env:YURUNA_RETRY_MAX_ATTEMPTS = ''
-        # An init that cannot reach the provider registry, as OpenTofu reports it.
+        # An init that cannot reach the provider releases, as OpenTofu reports it.
         Set-Item -Path Function:global:tofu -Value {
-            'Error: Failed to resolve provider packages: could not query provider registry: Client.Timeout exceeded while awaiting headers'
+            'Error: Failed to install provider: request failed after 2 attempts: 504 Gateway Timeout returned from https://github.com/opentofu/terraform-provider-external/releases/download/v2.4.2/terraform-provider-external_2.4.2_SHA256SUMS'
             $global:LASTEXITCODE = 1
         }
     }
@@ -114,12 +136,18 @@ Describe 'Invoke-TofuInitWithRetry attempt budget' {
         Restore-YurunaTestEnvironment -Saved $script:savedAttempts
     }
 
-    It 'runs init six times, one more than the shared default, before it gives up' {
-        $log = Join-Path $TestDrive 'six.stderr.log'
+    It 'backs init off for at least half an hour, two minutes at most per sleep, before it gives up' {
+        # GitHub's release endpoints have answered 504 for most of half an hour.
+        # The stand-in sleeps take no time, so the attempt backstop ends this
+        # run; it must hold enough backoff to cover the window by itself.
+        $log = Join-Path $TestDrive 'window.stderr.log'
         $r = Invoke-TofuInitWithRetry -ResourceName 'sample' -LogPath $log
         Assert-Equal -Expected $false -Actual $r.Success
-        Assert-Equal -Expected 6 -Actual $r.MaxAttempts -Because 'five attempts span only about four minutes of backoff, shorter than a registry stall the proxy has passed through'
-        Assert-Equal -Expected 6 -Actual @(Select-String -LiteralPath $log -Pattern '^== .* attempt \d+/6 \(exit=1\) ==$').Count -Because 'each attempt the tool ran writes its own section'
+        $total = ($script:slept | Measure-Object -Sum).Sum
+        Assert-True ($total -ge 1800) "init's backoff must span the 30-minute window (spans $total s over $($r.Attempts) attempts)"
+        Assert-True (@($script:slept | Where-Object { $_ -gt 120 }).Count -eq 0) "no backoff may exceed two minutes (slept: $($script:slept -join ', '))"
+        Assert-Equal -Expected $r.MaxAttempts -Actual $r.Attempts
+        Assert-Equal -Expected $r.Attempts -Actual @(Select-String -LiteralPath $log -Pattern "^== .* attempt \d+/$($r.MaxAttempts) \(exit=1\) ==`$").Count -Because 'each attempt the tool ran writes its own section'
     }
 
     It 'keeps the operator''s YURUNA_RETRY_MAX_ATTEMPTS over its own default' {

@@ -34480,6 +34480,48 @@
           "example": "4194304"
         }
       }
+    },
+    "runner.wait_ended_on_display_stall": {
+      "message": "Text '{patternLabel}' wait ended after ~{waited}s of {timeoutSeconds}s: the guest's {driver} display driver reported {reports} page-flip timeouts over {spanSeconds}s on its serial console while the console stayed unchanged for {unchangedSeconds}s, so the screen will not show the text in this boot and the retry can cold-restart the guest",
+      "description": "Whole Write-Warning message in test/modules/Test.SequenceEngine.psm1 when a console wait whose caller can cold-restart the guest ends on a display driver that stopped presenting frames; preserve the driver name and argument boundaries.",
+      "lifecycle": "active",
+      "placeholders": {
+        "patternLabel": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$patternLabel"
+        },
+        "waited": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($displayStallEnd.waitedSeconds)"
+        },
+        "timeoutSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "${TimeoutSeconds}"
+        },
+        "driver": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($displayStallEnd.driver)"
+        },
+        "reports": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($displayStallEnd.reports)"
+        },
+        "spanSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($displayStallEnd.spanSeconds)"
+        },
+        "unchangedSeconds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "$($displayStallEnd.consoleUnchangedSeconds)"
+        }
+      }
     }
   }
 }

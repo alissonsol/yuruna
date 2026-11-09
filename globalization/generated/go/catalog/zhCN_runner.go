@@ -25230,6 +25230,51 @@ const DatazhCNrunner = `{
     },
     "）。周期继续进行，删除操作仍会检查引用，下一个周期会再次尝试。"
   ],
+  "runner.wait_ended_on_display_stall": [
+    "等待文本“",
+    {
+      "arg": "patternLabel",
+      "type": "detail",
+      "trust": "external"
+    },
+    "”在约",
+    {
+      "arg": "waited",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s后结束（上限",
+    {
+      "arg": "timeoutSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s）：客户机的",
+    {
+      "arg": "driver",
+      "type": "detail",
+      "trust": "external"
+    },
+    "显示驱动在其串行控制台上报告了",
+    {
+      "arg": "spanSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s内的",
+    {
+      "arg": "reports",
+      "type": "detail",
+      "trust": "external"
+    },
+    "次页面翻转超时，而控制台已有",
+    {
+      "arg": "unchangedSeconds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "s未变化，因此本次启动中屏幕不会显示该文本，重试可以冷重启客户机"
+  ],
   "runner.wait_ended_on_kernel_stall": [
     "等待文本“",
     {

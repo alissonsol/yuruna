@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42318205-4701-4ec4-97ce-64b0837ff71b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ BeforeAll {
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
     $moduleScript = Join-Path $script:RepoRoot 'tools/Install-TestModule.ps1'
-    foreach ($name in @('Get-InstalledPester', 'Install-NewestPester', 'Install-PSScriptAnalyzerIfAbsent', 'Install-YurunaPinnedGalleryModule')) {
+    foreach ($name in @('Get-InstalledPester', 'Install-NewestPester', 'Install-PSScriptAnalyzerAtPin', 'Install-YurunaPinnedGalleryModule')) {
         $ast = Get-YurunaTestFunctionAst -Path $moduleScript -Name $name
         if (-not $ast) { throw "$name not found in tools/Install-TestModule.ps1" }
         . ([scriptblock]::Create($ast.Extent.Text))
@@ -190,20 +190,35 @@ Describe 'Install-NewestPester -Major 6' {
     }
 }
 
-Describe 'Install-PSScriptAnalyzerIfAbsent' {
+Describe 'Install-PSScriptAnalyzerAtPin' {
     BeforeEach {
         Mock Install-YurunaPinnedGalleryModule { }
         $script:PinnedVersion = [regex]::Escape($script:YurunaGalleryModulePin['PSScriptAnalyzer'].Version)
     }
-    It 'leaves an installed copy alone, whatever its version' {
-        Mock Get-Module { Get-StandInModule -Name PSScriptAnalyzer -Version '1.24.0' } -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
-        $out = @(Install-PSScriptAnalyzerIfAbsent) -join "`n"
+    It 'leaves a copy at <Case> alone' -TestCases @(
+        @{ Case = 'the pinned version'; Version = '' }
+        @{ Case = 'a later version'; Version = '99.0.0' }
+    ) {
+        param([string]$Case, [string]$Version)
+        $null = $Case
+        # The pin table is read in BeforeAll, after test cases are built.
+        if (-not $Version) { $Version = $script:YurunaGalleryModulePin['PSScriptAnalyzer'].Version }
+        $script:StandInVersion = $Version
+        Mock Get-Module { Get-StandInModule -Name PSScriptAnalyzer -Version $script:StandInVersion } -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
+        $out = @(Install-PSScriptAnalyzerAtPin) -join "`n"
         Should -Invoke Install-YurunaPinnedGalleryModule -Times 0 -Exactly
-        Assert-Match 'PSScriptAnalyzer 1\.24\.0 already installed' $out 'the installed version is named'
+        Assert-Match "PSScriptAnalyzer $([regex]::Escape($Version)) already installed" $out 'the installed version is named'
+    }
+    It 'installs the pin beside a copy older than the pin, and says which it found' {
+        Mock Get-Module { Get-StandInModule -Name PSScriptAnalyzer -Version '1.0.0' } -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
+        $out = @(Install-PSScriptAnalyzerAtPin) -join "`n"
+        Should -Invoke Install-YurunaPinnedGalleryModule -Times 1 -Exactly -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
+        Assert-Match "PSScriptAnalyzer 1\.0\.0 is older than the pinned $script:PinnedVersion; installing $script:PinnedVersion \(CurrentUser scope\)" $out 'the older copy and the pin are both named'
+        Assert-True ($out -notmatch 'already installed') 'an older copy is not reported as installed'
     }
     It 'installs the pinned version when absent' {
         Mock Get-Module { } -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
-        $out = @(Install-PSScriptAnalyzerIfAbsent) -join "`n"
+        $out = @(Install-PSScriptAnalyzerAtPin) -join "`n"
         Should -Invoke Install-YurunaPinnedGalleryModule -Times 1 -Exactly -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
         Assert-Match "installing PSScriptAnalyzer $script:PinnedVersion \(CurrentUser scope\)" $out 'the install is announced with the pinned version'
         Assert-True ($out -notmatch 'MODULE-ISSUE') 'a successful install reports no issue'
@@ -211,7 +226,7 @@ Describe 'Install-PSScriptAnalyzerIfAbsent' {
     It 'reports a failed install with the version it aimed for' {
         Mock Get-Module { } -ParameterFilter { $Name -eq 'PSScriptAnalyzer' }
         Mock Install-YurunaPinnedGalleryModule { throw 'gallery unavailable' }
-        $out = @(Install-PSScriptAnalyzerIfAbsent) -join "`n"
+        $out = @(Install-PSScriptAnalyzerAtPin) -join "`n"
         Assert-Match "(?m)^MODULE-ISSUE: Installing PSScriptAnalyzer $script:PinnedVersion failed: gallery unavailable" $out 'the failure names the version and the cause'
     }
 }

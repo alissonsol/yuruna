@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "recordedUtc": "2026-10-21T13:44:45.0925658Z",
+  "recordedUtc": "2026-11-09T01:03:53.9679432Z",
   "pesterVersion": "6.2.0",
   "totals": {
-    "suites": 470,
-    "tests": 11360,
+    "suites": 473,
+    "tests": 13038,
     "failed": 0,
     "skipped": 36
   },
@@ -12,62 +12,62 @@
     "host/modules/Yuruna.GuestBootstrap.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 1.44
+      "seconds": 1.58
     },
     "host/modules/Yuruna.HostConsistency.Tests.ps1": {
-      "total": 15,
+      "total": 57,
       "skipped": 0,
-      "seconds": 13.29
+      "seconds": 18.88
     },
     "host/modules/Yuruna.HostReliability.Tests.ps1": {
-      "total": 75,
+      "total": 160,
       "skipped": 0,
-      "seconds": 12.17
+      "seconds": 71.11
     },
     "host/modules/Yuruna.Image.Tests.ps1": {
-      "total": 23,
+      "total": 29,
       "skipped": 0,
-      "seconds": 3.06
+      "seconds": 3.6
     },
     "host/modules/Yuruna.InstallerReliability.Tests.ps1": {
-      "total": 22,
+      "total": 23,
       "skipped": 0,
-      "seconds": 6.37
+      "seconds": 6.72
     },
     "host/modules/Yuruna.SeedMedia.Tests.ps1": {
       "total": 9,
       "skipped": 0,
-      "seconds": 1.63
+      "seconds": 2.06
     },
     "host/modules/Yuruna.TransferLifetime.Tests.ps1": {
-      "total": 5,
+      "total": 11,
       "skipped": 0,
-      "seconds": 6.3
+      "seconds": 8.62
     },
     "test/modules/Test.A11yGateProfiles.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 22.24
+      "seconds": 20.8
     },
     "test/modules/Test.AffectedSliceMap.Tests.ps1": {
       "total": 30,
       "skipped": 0,
-      "seconds": 20.47
+      "seconds": 23.05
     },
     "test/modules/Test.AptIndexFreshness.Tests.ps1": {
       "total": 9,
       "skipped": 0,
-      "seconds": 1.78
+      "seconds": 2.04
     },
     "test/modules/Test.ArmHyperVProvisioningCpu.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.34
+      "seconds": 1.31
     },
     "test/modules/Test.Assert.Tests.ps1": {
-      "total": 47,
+      "total": 57,
       "skipped": 0,
-      "seconds": 2.66,
+      "seconds": 4.82,
       "platformSkipped": {
         "linux": 4,
         "windows": 0,
@@ -77,197 +77,202 @@
     "test/modules/Test.AuEntry.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 1.36
+      "seconds": 1.55
     },
     "test/modules/Test.AutomationStateSafety.Tests.ps1": {
-      "total": 15,
+      "total": 17,
       "skipped": 0,
-      "seconds": 3.4
+      "seconds": 3.51
     },
     "test/modules/Test.AutoRemediationPolicy.Tests.ps1": {
       "total": 8,
       "skipped": 0,
-      "seconds": 1.69
+      "seconds": 1.51
     },
     "test/modules/Test.Backoff.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.48
+      "seconds": 1.72
     },
     "test/modules/Test.BaseImagePreamble.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 2.73
+      "seconds": 2.68
     },
     "test/modules/Test.BrowserCatalogKernel.Tests.ps1": {
-      "total": 9,
+      "total": 15,
       "skipped": 0,
-      "seconds": 6.84
+      "seconds": 28.0
     },
     "test/modules/Test.BrowserRequestTimeout.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 2.19
+      "seconds": 2.25
     },
     "test/modules/Test.BrowserSurfaces.Tests.ps1": {
-      "total": 6,
+      "total": 8,
       "skipped": 0,
-      "seconds": 25.06
+      "seconds": 19.04
     },
     "test/modules/Test.CacheWarmSet.Tests.ps1": {
       "total": 25,
       "skipped": 0,
-      "seconds": 2.05
+      "seconds": 2.27
     },
     "test/modules/Test.CachingProxyGalleryPackage.Tests.ps1": {
       "total": 10,
       "skipped": 0,
-      "seconds": 1.36
+      "seconds": 1.67
     },
     "test/modules/Test.CachingProxyGitToken.Tests.ps1": {
       "total": 23,
       "skipped": 0,
-      "seconds": 3.3
+      "seconds": 3.68
+    },
+    "test/modules/Test.CachingProxyReleaseAsset.Tests.ps1": {
+      "total": 8,
+      "skipped": 0,
+      "seconds": 1.45
     },
     "test/modules/Test.CachingProxyServiceCaCert.Tests.ps1": {
       "total": 25,
       "skipped": 0,
-      "seconds": 3.79
+      "seconds": 3.5
     },
     "test/modules/Test.CachingProxyServiceEndpoint.Tests.ps1": {
       "total": 9,
       "skipped": 0,
-      "seconds": 1.53
+      "seconds": 1.78
     },
     "test/modules/Test.CachingProxyServiceLock.Tests.ps1": {
-      "total": 19,
+      "total": 22,
       "skipped": 0,
-      "seconds": 4.51
+      "seconds": 4.45
     },
     "test/modules/Test.CachingProxyServicePorts.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.21
+      "seconds": 1.31
     },
     "test/modules/Test.CachingProxyServiceStart.Tests.ps1": {
-      "total": 18,
+      "total": 49,
       "skipped": 0,
-      "seconds": 2.11
+      "seconds": 3.91
     },
     "test/modules/Test.CachingProxyZotRelease.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 1.87
+      "seconds": 2.01
     },
     "test/modules/Test.CanonicalJson.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 1.26
+      "seconds": 1.32
     },
     "test/modules/Test.Capability.Tests.ps1": {
-      "total": 12,
+      "total": 16,
       "skipped": 0,
-      "seconds": 2.59
+      "seconds": 3.19
     },
     "test/modules/Test.Catalog.Tests.ps1": {
-      "total": 29,
+      "total": 30,
       "skipped": 0,
-      "seconds": 2.18
+      "seconds": 2.49
     },
     "test/modules/Test.CatalogCompiler.Tests.ps1": {
-      "total": 31,
+      "total": 33,
       "skipped": 0,
-      "seconds": 41.24
+      "seconds": 39.83
     },
     "test/modules/Test.CatalogCompilerLocale.Tests.ps1": {
       "total": 13,
       "skipped": 0,
-      "seconds": 45.75
+      "seconds": 49.23
     },
     "test/modules/Test.CatalogCompilerOutput.Tests.ps1": {
-      "total": 17,
+      "total": 20,
       "skipped": 0,
-      "seconds": 35.98
+      "seconds": 42.67
     },
     "test/modules/Test.CatalogTriage.Tests.ps1": {
       "total": 16,
       "skipped": 0,
-      "seconds": 16.26
+      "seconds": 19.2
     },
     "test/modules/Test.CfgConfig.Tests.ps1": {
-      "total": 13,
+      "total": 15,
       "skipped": 0,
-      "seconds": 3.36
+      "seconds": 2.77
     },
     "test/modules/Test.CfgSyncState.Tests.ps1": {
-      "total": 10,
+      "total": 14,
       "skipped": 0,
-      "seconds": 2.31
+      "seconds": 3.29
     },
     "test/modules/Test.ChildTranscript.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 2.46
+      "seconds": 2.76
     },
     "test/modules/Test.ClearResourceEnumeration.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 2.02
+      "seconds": 1.76
     },
     "test/modules/Test.CloudApiAllowList.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.65
+      "seconds": 1.69
     },
     "test/modules/Test.CodeRegistry.Tests.ps1": {
       "total": 8,
       "skipped": 0,
-      "seconds": 2.19
+      "seconds": 2.43
     },
     "test/modules/Test.CompleteYurunaRun.Tests.ps1": {
-      "total": 5,
+      "total": 16,
       "skipped": 0,
-      "seconds": 1.41
+      "seconds": 2.17
     },
     "test/modules/Test.ComponentExecution.Tests.ps1": {
-      "total": 17,
+      "total": 32,
       "skipped": 0,
-      "seconds": 17.43
+      "seconds": 60.17
     },
     "test/modules/Test.ConfigGateCauses.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 13.93
+      "seconds": 17.6
     },
     "test/modules/Test.ConfigHash.Tests.ps1": {
       "total": 8,
       "skipped": 0,
-      "seconds": 1.35
+      "seconds": 1.41
     },
     "test/modules/Test.ConfigLocaleSeed.Tests.ps1": {
       "total": 16,
       "skipped": 0,
-      "seconds": 5.38
+      "seconds": 6.24
     },
     "test/modules/Test.ConfigNaming.Tests.ps1": {
-      "total": 28,
-      "skipped": 0,
-      "seconds": 13.76
-    },
-    "test/modules/Test.ConfigPreflight.Tests.ps1": {
       "total": 29,
       "skipped": 0,
-      "seconds": 6.16
+      "seconds": 18.38
+    },
+    "test/modules/Test.ConfigPreflight.Tests.ps1": {
+      "total": 30,
+      "skipped": 0,
+      "seconds": 6.28
     },
     "test/modules/Test.ConfigServiceCA.Tests.ps1": {
-      "total": 5,
+      "total": 6,
       "skipped": 0,
-      "seconds": 2.22
+      "seconds": 2.0
     },
     "test/modules/Test.ConfigServiceSync.Tests.ps1": {
-      "total": 63,
+      "total": 68,
       "skipped": 0,
-      "seconds": 4.9,
+      "seconds": 5.0,
       "platformTotal": {
         "windows": 62
       }
@@ -275,297 +280,297 @@
     "test/modules/Test.ConfigServiceTls.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 2.87
+      "seconds": 2.83
     },
     "test/modules/Test.ConfigSnapshotPrivacy.Tests.ps1": {
       "total": 2,
       "skipped": 0,
-      "seconds": 2.03
+      "seconds": 1.77
     },
     "test/modules/Test.ConfigSync.Tests.ps1": {
-      "total": 55,
+      "total": 62,
       "skipped": 0,
-      "seconds": 5.46
+      "seconds": 6.22
     },
     "test/modules/Test.ConfigSyncDiff.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 1.35
+      "seconds": 1.48
     },
     "test/modules/Test.ConfigSyncRetiredKey.Tests.ps1": {
       "total": 12,
       "skipped": 0,
-      "seconds": 2.34
+      "seconds": 2.08
     },
     "test/modules/Test.ConfigWriteSerialization.Tests.ps1": {
       "total": 12,
       "skipped": 0,
-      "seconds": 16.24
+      "seconds": 15.05
     },
     "test/modules/Test.ConsoleSecondOpinion.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 2.19
+      "seconds": 2.16
     },
     "test/modules/Test.ContextCopyPermissions.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 1.47
+      "seconds": 1.66
     },
     "test/modules/Test.CredentialProvider.Tests.ps1": {
-      "total": 28,
+      "total": 44,
       "skipped": 0,
-      "seconds": 1.9
+      "seconds": 17.11
     },
     "test/modules/Test.CriticalRecord.Tests.ps1": {
       "total": 29,
       "skipped": 0,
-      "seconds": 6.64
+      "seconds": 6.05
     },
     "test/modules/Test.CultureMatrix.Tests.ps1": {
       "total": 10,
       "skipped": 0,
-      "seconds": 17.81
+      "seconds": 20.19
     },
     "test/modules/Test.CycleStartProvenance.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 2.02
+      "seconds": 1.79
     },
     "test/modules/Test.DashboardAlias.Tests.ps1": {
       "total": 12,
       "skipped": 0,
-      "seconds": 2.01
+      "seconds": 1.76
     },
     "test/modules/Test.DashboardBrand.Tests.ps1": {
-      "total": 27,
+      "total": 31,
       "skipped": 0,
-      "seconds": 3.23
+      "seconds": 3.8
     },
     "test/modules/Test.DashboardHostId.Tests.ps1": {
-      "total": 20,
+      "total": 21,
       "skipped": 0,
-      "seconds": 1.4
+      "seconds": 1.54
     },
     "test/modules/Test.DeepDiagnostics.Tests.ps1": {
       "total": 48,
       "skipped": 0,
-      "seconds": 13.51
+      "seconds": 14.28
     },
     "test/modules/Test.DeployPhaseLedger.Tests.ps1": {
       "total": 17,
       "skipped": 0,
-      "seconds": 7.14
+      "seconds": 6.03
     },
     "test/modules/Test.DetachedProcess.Tests.ps1": {
-      "total": 16,
+      "total": 21,
       "skipped": 0,
-      "seconds": 10.58
+      "seconds": 10.85
     },
     "test/modules/Test.DiagnosticClass.Tests.ps1": {
       "total": 9,
       "skipped": 0,
-      "seconds": 2.75
+      "seconds": 2.89
     },
     "test/modules/Test.DiagnosticDeadline.Tests.ps1": {
       "total": 40,
       "skipped": 0,
-      "seconds": 25.41
+      "seconds": 25.75
     },
     "test/modules/Test.DiagnosticDockerSnapshots.Tests.ps1": {
       "total": 56,
       "skipped": 0,
-      "seconds": 3.37
+      "seconds": 3.59
     },
     "test/modules/Test.DiagnosticEchoVerify.Tests.ps1": {
       "total": 17,
       "skipped": 0,
-      "seconds": 1.46
+      "seconds": 1.66
     },
     "test/modules/Test.DiagnosticFallback.Tests.ps1": {
       "total": 16,
       "skipped": 0,
-      "seconds": 1.72
+      "seconds": 1.92
     },
     "test/modules/Test.DiagnosticJournalNoise.Tests.ps1": {
-      "total": 15,
+      "total": 21,
       "skipped": 0,
-      "seconds": 1.82
+      "seconds": 2.17
     },
     "test/modules/Test.DiagnosticPreservation.Tests.ps1": {
       "total": 17,
       "skipped": 0,
-      "seconds": 4.88
+      "seconds": 4.74
     },
     "test/modules/Test.DiagnosticSnapshots.Tests.ps1": {
       "total": 36,
       "skipped": 0,
-      "seconds": 2.78
+      "seconds": 3.16
     },
     "test/modules/Test.DiagnosticSourceProvenance.Tests.ps1": {
       "total": 10,
       "skipped": 0,
-      "seconds": 1.92
+      "seconds": 2.05
     },
     "test/modules/Test.DiagnosticTtyHygiene.Tests.ps1": {
       "total": 17,
       "skipped": 0,
-      "seconds": 10.19
+      "seconds": 10.0
     },
     "test/modules/Test.DigestExtension.Tests.ps1": {
       "total": 43,
       "skipped": 0,
-      "seconds": 2.31
+      "seconds": 2.52
     },
     "test/modules/Test.DisplayScaleIssue.Tests.ps1": {
       "total": 18,
       "skipped": 0,
-      "seconds": 2.57
+      "seconds": 2.39
     },
     "test/modules/Test.DocReachability.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 2.63
+      "seconds": 3.09
     },
     "test/modules/Test.DocTranslationAccept.Tests.ps1": {
       "total": 33,
       "skipped": 0,
-      "seconds": 8.19
+      "seconds": 10.52
     },
     "test/modules/Test.DomainInventory.Tests.ps1": {
-      "total": 16,
+      "total": 17,
       "skipped": 0,
-      "seconds": 26.5
+      "seconds": 8.31
     },
     "test/modules/Test.DownloadAgentService.Tests.ps1": {
       "total": 42,
       "skipped": 0,
-      "seconds": 13.25
+      "seconds": 13.57
     },
     "test/modules/Test.DownloadAgentServiceStart.Tests.ps1": {
       "total": 8,
       "skipped": 0,
-      "seconds": 1.57
+      "seconds": 1.77
     },
     "test/modules/Test.DownloadAgentTable.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 13.46
+      "seconds": 19.79
     },
     "test/modules/Test.DriverSource.Tests.ps1": {
       "total": 9,
       "skipped": 0,
-      "seconds": 11.01
+      "seconds": 13.86
     },
     "test/modules/Test.EksResourceContract.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.2
+      "seconds": 1.27
     },
     "test/modules/Test.EntConfig.Tests.ps1": {
       "total": 31,
       "skipped": 0,
-      "seconds": 2.37
+      "seconds": 2.6
     },
     "test/modules/Test.EntRunnerProject.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.51
+      "seconds": 1.68
     },
     "test/modules/Test.EntrypointBugFixes.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.1
+      "seconds": 1.22
     },
     "test/modules/Test.EntryPointContract.Tests.ps1": {
       "total": 10,
       "skipped": 0,
-      "seconds": 5.97
+      "seconds": 6.55
     },
     "test/modules/Test.EntSequence.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 1.29
+      "seconds": 1.4
     },
     "test/modules/Test.ExecutionLogAttribution.Tests.ps1": {
       "total": 50,
       "skipped": 0,
-      "seconds": 2.29
+      "seconds": 2.48
     },
     "test/modules/Test.Extension.Tests.ps1": {
       "total": 40,
       "skipped": 0,
-      "seconds": 2.94
+      "seconds": 2.6
     },
     "test/modules/Test.ExtensionArea.Tests.ps1": {
       "total": 6,
       "skipped": 0,
-      "seconds": 9.76
+      "seconds": 9.97
     },
     "test/modules/Test.ExtensionService.Tests.ps1": {
-      "total": 48,
+      "total": 54,
       "skipped": 0,
-      "seconds": 3.08
+      "seconds": 3.21
     },
     "test/modules/Test.ExtensionServiceStart.Tests.ps1": {
-      "total": 24,
+      "total": 37,
       "skipped": 0,
-      "seconds": 1.68
+      "seconds": 2.72
     },
     "test/modules/Test.ExtensionUiChrome.Tests.ps1": {
       "total": 39,
       "skipped": 0,
-      "seconds": 1.55
+      "seconds": 1.66
     },
     "test/modules/Test.ExternalToolOutput.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 2.05
+      "seconds": 3.41
     },
     "test/modules/Test.FailureTaxonomy.Tests.ps1": {
-      "total": 6,
+      "total": 21,
       "skipped": 0,
-      "seconds": 1.94
+      "seconds": 2.28
     },
     "test/modules/Test.FaultInjection.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 3.38
+      "seconds": 2.93
     },
     "test/modules/Test.FetchExecuteFastFail.Tests.ps1": {
       "total": 17,
       "skipped": 0,
-      "seconds": 1.5
+      "seconds": 1.74
     },
     "test/modules/Test.FetchExecuteIntegrity.Tests.ps1": {
-      "total": 59,
+      "total": 117,
       "skipped": 0,
-      "seconds": 4.05
+      "seconds": 10.89
     },
     "test/modules/Test.FetchExecuteNestedPrune.Tests.ps1": {
       "total": 9,
       "skipped": 0,
-      "seconds": 3.47
+      "seconds": 3.66
     },
     "test/modules/Test.FrameworkArchiveScope.Tests.ps1": {
       "total": 6,
       "skipped": 0,
-      "seconds": 1.8
+      "seconds": 1.88
     },
     "test/modules/Test.FrameworkRing.Tests.ps1": {
       "total": 24,
       "skipped": 0,
-      "seconds": 9.85
+      "seconds": 7.86
     },
     "test/modules/Test.GitMirrorConfiguration.Tests.ps1": {
       "total": 33,
       "skipped": 0,
-      "seconds": 7.17
+      "seconds": 7.13
     },
     "test/modules/Test.GitMirrorHttpFixture.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 34.06,
+      "seconds": 34.15,
       "platformSkipped": {
         "linux": 0,
         "windows": 11,
@@ -573,14 +578,14 @@
       }
     },
     "test/modules/Test.GitMirrorNativeInstall.Tests.ps1": {
-      "total": 23,
+      "total": 26,
       "skipped": 0,
-      "seconds": 17.45
+      "seconds": 31.03
     },
     "test/modules/Test.GitMirrorNativeProvision.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 4.77,
+      "seconds": 5.26,
       "platformSkipped": {
         "linux": 0,
         "windows": 1,
@@ -590,169 +595,169 @@
     "test/modules/Test.GitMirrorNativeRoute.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 6.05
+      "seconds": 10.98
     },
     "test/modules/Test.GitMirrorProvision.Tests.ps1": {
-      "total": 14,
+      "total": 15,
       "skipped": 0,
-      "seconds": 4.38
+      "seconds": 4.62
     },
     "test/modules/Test.GitMirrorQualification.Tests.ps1": {
       "total": 44,
       "skipped": 0,
-      "seconds": 5.98
+      "seconds": 6.38
     },
     "test/modules/Test.GitOutageRelay.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 2.23
+      "seconds": 2.62
     },
     "test/modules/Test.GlobalizationAuthority.Tests.ps1": {
       "total": 14,
       "skipped": 0,
-      "seconds": 11.32
+      "seconds": 13.03
     },
     "test/modules/Test.GlobalizationGates.Tests.ps1": {
-      "total": 64,
+      "total": 72,
       "skipped": 0,
-      "seconds": 40.2,
+      "seconds": 115.49,
       "timeoutSeconds": 1800
     },
     "test/modules/Test.GlobalizationGatesArtifacts.Tests.ps1": {
-      "total": 8,
+      "total": 9,
       "skipped": 0,
-      "seconds": 49.75,
+      "seconds": 80.94,
       "timeoutSeconds": 1800
     },
     "test/modules/Test.GlobalizationGatesProduct.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 46.36,
+      "seconds": 47.26,
       "timeoutSeconds": 1800
     },
     "test/modules/Test.GuestAddressChurn.Tests.ps1": {
       "total": 16,
       "skipped": 0,
-      "seconds": 39.91
+      "seconds": 39.74
     },
     "test/modules/Test.GuestAddressDiscovery.Tests.ps1": {
       "total": 33,
       "skipped": 0,
-      "seconds": 2.58
+      "seconds": 2.99
     },
     "test/modules/Test.GuestBootstrapPerformance.Tests.ps1": {
       "total": 52,
       "skipped": 0,
-      "seconds": 16.83
+      "seconds": 17.72
     },
     "test/modules/Test.GuestCacheTopology.Tests.ps1": {
       "total": 24,
       "skipped": 0,
-      "seconds": 1.45
+      "seconds": 1.57
     },
     "test/modules/Test.GuestCacheWait.Tests.ps1": {
       "total": 23,
       "skipped": 0,
-      "seconds": 1.85
+      "seconds": 1.95
     },
     "test/modules/Test.GuestCaptureMetadata.Tests.ps1": {
-      "total": 17,
+      "total": 19,
       "skipped": 0,
-      "seconds": 8.81
+      "seconds": 11.54
     },
     "test/modules/Test.GuestClockAccounting.Tests.ps1": {
       "total": 24,
       "skipped": 0,
-      "seconds": 7.37
+      "seconds": 7.29
     },
     "test/modules/Test.GuestCredentialSeed.Tests.ps1": {
       "total": 23,
       "skipped": 0,
-      "seconds": 3.37
+      "seconds": 2.52
     },
     "test/modules/Test.GuestDhcpIdentity.Tests.ps1": {
       "total": 21,
       "skipped": 0,
-      "seconds": 2.39
+      "seconds": 2.1
     },
     "test/modules/Test.GuestGitMirror.Tests.ps1": {
-      "total": 13,
+      "total": 21,
       "skipped": 0,
-      "seconds": 2.43
+      "seconds": 2.95
     },
     "test/modules/Test.GuestHostname.Tests.ps1": {
-      "total": 93,
+      "total": 103,
       "skipped": 0,
-      "seconds": 3.59
+      "seconds": 3.77
     },
     "test/modules/Test.GuestInstallerOutcome.Tests.ps1": {
-      "total": 151,
+      "total": 156,
       "skipped": 0,
-      "seconds": 31.37
+      "seconds": 40.26
     },
     "test/modules/Test.GuestInstallerPins.Tests.ps1": {
       "total": 67,
       "skipped": 0,
-      "seconds": 2.56
+      "seconds": 2.01
     },
     "test/modules/Test.GuestK8sCertificate.Tests.ps1": {
       "total": 47,
       "skipped": 0,
-      "seconds": 7.72,
+      "seconds": 9.46,
       "platformTotal": {
         "linux": 43,
         "macos": 43
       }
     },
     "test/modules/Test.GuestKernelFault.Tests.ps1": {
-      "total": 15,
+      "total": 40,
       "skipped": 0,
-      "seconds": 2.84
+      "seconds": 3.86
     },
     "test/modules/Test.GuestLeaseRelease.Tests.ps1": {
       "total": 14,
       "skipped": 0,
-      "seconds": 2.02
+      "seconds": 1.81
     },
     "test/modules/Test.GuestMacAddress.Tests.ps1": {
-      "total": 32,
+      "total": 38,
       "skipped": 0,
-      "seconds": 4.08
+      "seconds": 4.31
     },
     "test/modules/Test.GuestMirror.Tests.ps1": {
       "total": 19,
       "skipped": 0,
-      "seconds": 4.61
+      "seconds": 72.65
     },
     "test/modules/Test.GuestNetworkCrossCheck.Tests.ps1": {
-      "total": 35,
+      "total": 36,
       "skipped": 0,
-      "seconds": 3.1
+      "seconds": 3.69
     },
     "test/modules/Test.GuestNetworkDiag.Tests.ps1": {
       "total": 47,
       "skipped": 0,
-      "seconds": 17.14
+      "seconds": 17.55
     },
     "test/modules/Test.GuestNodeWorkflow.Tests.ps1": {
       "total": 24,
       "skipped": 0,
-      "seconds": 2.58
+      "seconds": 2.97
     },
     "test/modules/Test.GuestPerformanceEvidence.Tests.ps1": {
       "total": 30,
       "skipped": 0,
-      "seconds": 27.61
+      "seconds": 27.59
     },
     "test/modules/Test.GuestPkillSelfMatch.Tests.ps1": {
       "total": 1,
       "skipped": 0,
-      "seconds": 1.33
+      "seconds": 1.22
     },
     "test/modules/Test.GuestProjectConsistency.Tests.ps1": {
-      "total": 83,
+      "total": 95,
       "skipped": 0,
-      "seconds": 8.02,
+      "seconds": 11.75,
       "platformSkipped": {
         "windows": 27
       }
@@ -760,142 +765,142 @@
     "test/modules/Test.GuestQuarantine.Tests.ps1": {
       "total": 19,
       "skipped": 0,
-      "seconds": 2.33
+      "seconds": 2.26
     },
     "test/modules/Test.GuestRail.Tests.ps1": {
       "total": 8,
       "skipped": 0,
-      "seconds": 1.31
+      "seconds": 1.38
     },
     "test/modules/Test.GuestServiceBootstrap.Tests.ps1": {
-      "total": 114,
+      "total": 120,
       "skipped": 0,
-      "seconds": 10.91
+      "seconds": 13.48
     },
     "test/modules/Test.GuestSshHostKeys.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 1.1
+      "seconds": 1.3
     },
     "test/modules/Test.GuestStartWait.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 2.84
+      "seconds": 3.25
     },
     "test/modules/Test.GuestTransportEvidence.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 5.07
+      "seconds": 5.23
     },
     "test/modules/Test.GuiFetchStaging.Tests.ps1": {
-      "total": 87,
+      "total": 103,
       "skipped": 0,
-      "seconds": 4.45
+      "seconds": 5.2
     },
     "test/modules/Test.HaCaVmutil.Tests.ps1": {
       "total": 9,
       "skipped": 6,
-      "seconds": 1.32
+      "seconds": 1.37
     },
     "test/modules/Test.HaIdentityBootstrap.Tests.ps1": {
       "total": 13,
       "skipped": 0,
-      "seconds": 1.58
+      "seconds": 1.75
     },
     "test/modules/Test.HaStartGuest.Tests.ps1": {
       "total": 13,
       "skipped": 0,
-      "seconds": 4.56
+      "seconds": 4.9
     },
     "test/modules/Test.HostAddressBeaconCache.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 1.83
+      "seconds": 1.89
     },
     "test/modules/Test.HostAddressChurn.Tests.ps1": {
-      "total": 37,
+      "total": 49,
       "skipped": 0,
-      "seconds": 3.73
+      "seconds": 3.35
     },
     "test/modules/Test.HostAddressMobility.Tests.ps1": {
-      "total": 18,
+      "total": 29,
       "skipped": 0,
-      "seconds": 50.82
+      "seconds": 51.46
     },
     "test/modules/Test.HostAutomationState.Tests.ps1": {
-      "total": 28,
+      "total": 39,
       "skipped": 0,
-      "seconds": 2.41
+      "seconds": 4.54
     },
     "test/modules/Test.HostBootstrap.Tests.ps1": {
-      "total": 15,
+      "total": 16,
       "skipped": 0,
-      "seconds": 1.98
+      "seconds": 2.78
     },
     "test/modules/Test.HostClockSkew.Tests.ps1": {
       "total": 20,
       "skipped": 0,
-      "seconds": 2.43
+      "seconds": 2.88
     },
     "test/modules/Test.HostConditionMacPmset.Tests.ps1": {
       "total": 20,
       "skipped": 0,
-      "seconds": 1.52
+      "seconds": 1.72
     },
     "test/modules/Test.HostConditionRegistry.Tests.ps1": {
-      "total": 21,
+      "total": 22,
       "skipped": 0,
-      "seconds": 2.59
+      "seconds": 2.52
     },
     "test/modules/Test.HostConditionVerdict.Tests.ps1": {
-      "total": 27,
+      "total": 55,
       "skipped": 0,
-      "seconds": 9.61
+      "seconds": 6.13
     },
     "test/modules/Test.HostConditionVhdxFilter.Tests.ps1": {
       "total": 16,
       "skipped": 0,
-      "seconds": 1.96
+      "seconds": 1.74
     },
     "test/modules/Test.HostContract.Tests.ps1": {
-      "total": 92,
+      "total": 94,
       "skipped": 0,
-      "seconds": 1.67
+      "seconds": 1.79
     },
     "test/modules/Test.HostDiagnosticWorker.Tests.ps1": {
       "total": 14,
       "skipped": 0,
-      "seconds": 37.7
+      "seconds": 34.69
     },
     "test/modules/Test.HostDriverContractParity.Tests.ps1": {
-      "total": 11,
+      "total": 15,
       "skipped": 0,
-      "seconds": 4.03
+      "seconds": 4.79
     },
     "test/modules/Test.HostFacts.Tests.ps1": {
       "total": 31,
       "skipped": 0,
-      "seconds": 1.47
+      "seconds": 1.56
     },
     "test/modules/Test.HostGitAuth.Tests.ps1": {
       "total": 40,
       "skipped": 0,
-      "seconds": 3.05
+      "seconds": 3.2
     },
     "test/modules/Test.HostGitInstall.Tests.ps1": {
-      "total": 4,
+      "total": 17,
       "skipped": 0,
-      "seconds": 1.57
+      "seconds": 4.32
     },
     "test/modules/Test.HostGitMirror.Tests.ps1": {
       "total": 62,
       "skipped": 0,
-      "seconds": 12.01
+      "seconds": 16.05
     },
     "test/modules/Test.HostGitProjectSwap.Tests.ps1": {
-      "total": 29,
+      "total": 30,
       "skipped": 0,
-      "seconds": 4.25,
+      "seconds": 4.78,
       "platformSkipped": {
         "linux": 3,
         "windows": 0,
@@ -905,72 +910,72 @@
     "test/modules/Test.HostGitRepoAccess.Tests.ps1": {
       "total": 19,
       "skipped": 0,
-      "seconds": 2.25
+      "seconds": 2.08
     },
     "test/modules/Test.HostGitUpdate.Tests.ps1": {
       "total": 29,
       "skipped": 0,
-      "seconds": 6.82
+      "seconds": 7.92
     },
     "test/modules/Test.HostGitWebUrl.Tests.ps1": {
       "total": 36,
       "skipped": 0,
-      "seconds": 1.52
+      "seconds": 1.77
     },
     "test/modules/Test.HostIdentity.Tests.ps1": {
       "total": 30,
       "skipped": 0,
-      "seconds": 2.68
+      "seconds": 2.53
     },
     "test/modules/Test.HostIdentitySeed.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.23
+      "seconds": 1.34
     },
     "test/modules/Test.HostIO.Tests.ps1": {
-      "total": 5,
+      "total": 9,
       "skipped": 0,
-      "seconds": 1.88
+      "seconds": 2.09
     },
     "test/modules/Test.HostMemoryMetrics.Tests.ps1": {
       "total": 25,
       "skipped": 0,
-      "seconds": 1.64
+      "seconds": 1.8
     },
     "test/modules/Test.HostMemoryPreflight.Tests.ps1": {
       "total": 44,
       "skipped": 0,
-      "seconds": 2.96
+      "seconds": 2.82
     },
     "test/modules/Test.HostMetricsExporter.Tests.ps1": {
       "total": 86,
       "skipped": 0,
-      "seconds": 6.59
+      "seconds": 6.95
     },
     "test/modules/Test.HostMetricsSync.Tests.ps1": {
       "total": 2,
       "skipped": 0,
-      "seconds": 2.39
+      "seconds": 2.34
     },
     "test/modules/Test.HostProvisionConsistency.Tests.ps1": {
-      "total": 65,
+      "total": 71,
       "skipped": 0,
-      "seconds": 49.76
+      "seconds": 40.97
     },
     "test/modules/Test.HostRedirect.Tests.ps1": {
       "total": 17,
       "skipped": 1,
-      "seconds": 2.93
+      "seconds": 2.9
     },
     "test/modules/Test.HostRefresh.Tests.ps1": {
-      "total": 69,
+      "total": 71,
       "skipped": 0,
-      "seconds": 12.23
+      "seconds": 11.64
     },
     "test/modules/Test.HostRefreshAuth.Tests.ps1": {
       "total": 106,
       "skipped": 0,
-      "seconds": 25.27,
+      "seconds": 22.08,
       "platformSkipped": {
         "linux": 2,
         "windows": 0,
@@ -980,282 +985,282 @@
     "test/modules/Test.HostRefreshEntryPoint.Tests.ps1": {
       "total": 14,
       "skipped": 0,
-      "seconds": 81.0
+      "seconds": 71.68
     },
     "test/modules/Test.HostRefreshIntent.Tests.ps1": {
       "total": 38,
       "skipped": 0,
-      "seconds": 30.38
+      "seconds": 28.53
     },
     "test/modules/Test.HostRefreshProgress.Tests.ps1": {
-      "total": 11,
+      "total": 12,
       "skipped": 0,
-      "seconds": 33.85
+      "seconds": 25.73
     },
     "test/modules/Test.HostRefreshTrigger.Tests.ps1": {
-      "total": 126,
+      "total": 127,
       "skipped": 0,
-      "seconds": 14.3
+      "seconds": 13.84
     },
     "test/modules/Test.HostRefreshWindowsNative.Tests.ps1": {
       "total": 6,
       "skipped": 6,
-      "seconds": 1.2
+      "seconds": 1.18
     },
     "test/modules/Test.HostRefreshWorker.Tests.ps1": {
-      "total": 43,
+      "total": 45,
       "skipped": 0,
-      "seconds": 46.48
+      "seconds": 38.57
     },
     "test/modules/Test.HostRuntimeSafety.Tests.ps1": {
-      "total": 13,
+      "total": 14,
       "skipped": 0,
-      "seconds": 2.76
+      "seconds": 2.57
     },
     "test/modules/Test.HostSampling.Tests.ps1": {
-      "total": 58,
+      "total": 64,
       "skipped": 0,
-      "seconds": 5.45
+      "seconds": 5.23
     },
     "test/modules/Test.HostSamplingCadence.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 10.07
+      "seconds": 10.27
     },
     "test/modules/Test.HostServiceLifecycle.Tests.ps1": {
-      "total": 12,
+      "total": 20,
       "skipped": 0,
-      "seconds": 1.53
+      "seconds": 1.8
     },
     "test/modules/Test.HostSettingsNoPrompt.Tests.ps1": {
       "total": 18,
       "skipped": 0,
-      "seconds": 4.29
+      "seconds": 4.94
     },
     "test/modules/Test.HttpHeadAndVersionGate.Tests.ps1": {
-      "total": 3,
+      "total": 4,
       "skipped": 0,
-      "seconds": 1.13
+      "seconds": 1.46
     },
     "test/modules/Test.HyperVDhcpCapture.Tests.ps1": {
-      "total": 28,
+      "total": 62,
       "skipped": 0,
-      "seconds": 2.1
+      "seconds": 80.53
     },
     "test/modules/Test.HyperVGracefulStop.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.72
+      "seconds": 2.09
     },
     "test/modules/Test.HyperVHostSeedIp.Tests.ps1": {
       "total": 18,
       "skipped": 0,
-      "seconds": 3.41
+      "seconds": 4.62
     },
     "test/modules/Test.HypervisorControlGate.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 2.44
+      "seconds": 2.6
     },
     "test/modules/Test.HyperVSwitchHealth.Tests.ps1": {
       "total": 38,
       "skipped": 0,
-      "seconds": 3.02
+      "seconds": 3.11
     },
     "test/modules/Test.HyperVThumbnailCapture.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.86
+      "seconds": 1.62
     },
     "test/modules/Test.HyperVVirtualizationResponsive.Tests.ps1": {
-      "total": 117,
+      "total": 138,
       "skipped": 0,
-      "seconds": 6.74
+      "seconds": 7.81
     },
     "test/modules/Test.HyperVWiFiNat.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 1.84
+      "seconds": 2.14
     },
     "test/modules/Test.ImportYaml.Tests.ps1": {
       "total": 14,
       "skipped": 0,
-      "seconds": 2.24
+      "seconds": 2.13
     },
     "test/modules/Test.InnerRunnerPrelude.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 1.34
+      "seconds": 1.38
     },
     "test/modules/Test.InstallCheckoutProbe.Tests.ps1": {
-      "total": 9,
+      "total": 12,
       "skipped": 0,
-      "seconds": 1.75
+      "seconds": 2.11
     },
     "test/modules/Test.InstallerCheckoutRepair.Tests.ps1": {
-      "total": 13,
+      "total": 23,
       "skipped": 0,
-      "seconds": 2.19
+      "seconds": 3.36
     },
     "test/modules/Test.InstallerState.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 7.37
+      "seconds": 7.01
     },
     "test/modules/Test.InstallManifest.Tests.ps1": {
-      "total": 3,
+      "total": 9,
       "skipped": 1,
-      "seconds": 1.17
+      "seconds": 1.63
     },
     "test/modules/Test.InstallSystemRequirement.Tests.ps1": {
       "total": 23,
       "skipped": 0,
-      "seconds": 2.16
+      "seconds": 2.46
     },
     "test/modules/Test.InstallTestModule.Tests.ps1": {
-      "total": 31,
+      "total": 36,
       "skipped": 0,
-      "seconds": 3.35
+      "seconds": 3.76
     },
     "test/modules/Test.JsonSchemaError.Tests.ps1": {
       "total": 6,
       "skipped": 0,
-      "seconds": 1.24
+      "seconds": 1.31
     },
     "test/modules/Test.JsSuites.Tests.ps1": {
       "total": 6,
       "skipped": 0,
-      "seconds": 14.63
+      "seconds": 15.5
     },
     "test/modules/Test.K8sBootstrapOverlap.Tests.ps1": {
       "total": 12,
       "skipped": 0,
-      "seconds": 1.29
+      "seconds": 1.43
     },
     "test/modules/Test.KeyCodeRegistry.Tests.ps1": {
       "total": 42,
       "skipped": 0,
-      "seconds": 1.44
+      "seconds": 1.54
     },
     "test/modules/Test.KvmBridgeBackend.Tests.ps1": {
       "total": 28,
       "skipped": 0,
-      "seconds": 1.63
+      "seconds": 1.99
     },
     "test/modules/Test.KvmDhcpCapture.Tests.ps1": {
       "total": 23,
       "skipped": 0,
-      "seconds": 2.48
+      "seconds": 2.42
     },
     "test/modules/Test.KvmGuestAddressDiscovery.Tests.ps1": {
-      "total": 32,
+      "total": 33,
       "skipped": 0,
-      "seconds": 19.43
+      "seconds": 19.32
     },
     "test/modules/Test.KvmScreenshot.Tests.ps1": {
-      "total": 13,
+      "total": 15,
       "skipped": 0,
-      "seconds": 3.27
+      "seconds": 4.41
     },
     "test/modules/Test.KvmStartIfStopped.Tests.ps1": {
       "total": 100,
       "skipped": 0,
-      "seconds": 6.99
+      "seconds": 7.21
     },
     "test/modules/Test.KvmText.Tests.ps1": {
       "total": 33,
       "skipped": 0,
-      "seconds": 5.83
+      "seconds": 6.2
     },
     "test/modules/Test.KvmVirtualizationResponsive.Tests.ps1": {
       "total": 54,
       "skipped": 0,
-      "seconds": 13.82
+      "seconds": 14.3
     },
     "test/modules/Test.Lab.Tests.ps1": {
       "total": 39,
       "skipped": 0,
-      "seconds": 4.71
+      "seconds": 4.41
     },
     "test/modules/Test.LabHealth.Tests.ps1": {
       "total": 23,
       "skipped": 0,
-      "seconds": 5.33
+      "seconds": 5.84
     },
     "test/modules/Test.LeadingTab.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 1.52
+      "seconds": 1.61
     },
     "test/modules/Test.LeaseDiscovery.Tests.ps1": {
       "total": 16,
       "skipped": 0,
-      "seconds": 1.4
+      "seconds": 1.47
     },
     "test/modules/Test.LibvirtGroupReExec.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 7.13
+      "seconds": 6.58
     },
     "test/modules/Test.Locale.Tests.ps1": {
-      "total": 12,
+      "total": 19,
       "skipped": 0,
-      "seconds": 1.77
+      "seconds": 4.09
     },
     "test/modules/Test.LocalizationRowModel.Tests.ps1": {
-      "total": 4,
+      "total": 5,
       "skipped": 0,
-      "seconds": 2.71
+      "seconds": 3.18
     },
     "test/modules/Test.LocalLabRuntime.Tests.ps1": {
       "total": 27,
       "skipped": 0,
-      "seconds": 6.51
+      "seconds": 6.63
     },
     "test/modules/Test.LocalLabStorage.Tests.ps1": {
       "total": 45,
       "skipped": 0,
-      "seconds": 1.39
+      "seconds": 1.57
     },
     "test/modules/Test.LocalReviewRegression.Tests.ps1": {
       "total": 13,
       "skipped": 0,
-      "seconds": 4.51
+      "seconds": 5.14
     },
     "test/modules/Test.Log.Tests.ps1": {
-      "total": 34,
+      "total": 41,
       "skipped": 0,
-      "seconds": 3.13
+      "seconds": 3.65
     },
     "test/modules/Test.LogCore.Tests.ps1": {
       "total": 8,
       "skipped": 0,
-      "seconds": 2.33
+      "seconds": 1.99
     },
     "test/modules/Test.LogEventDelivery.Tests.ps1": {
       "total": 9,
       "skipped": 0,
-      "seconds": 2.65
+      "seconds": 2.51
     },
     "test/modules/Test.LogPendingEvent.Tests.ps1": {
       "total": 20,
       "skipped": 0,
-      "seconds": 4.76
+      "seconds": 5.18
     },
     "test/modules/Test.MacInstallVersionFloor.Tests.ps1": {
-      "total": 17,
+      "total": 32,
       "skipped": 0,
-      "seconds": 1.5
+      "seconds": 4.37
     },
     "test/modules/Test.MacOperatorGrant.Tests.ps1": {
       "total": 20,
       "skipped": 0,
-      "seconds": 3.41
+      "seconds": 3.15
     },
     "test/modules/Test.MacRefreshDispatch.Tests.ps1": {
       "total": 68,
       "skipped": 0,
-      "seconds": 6.95,
+      "seconds": 7.14,
       "platformSkipped": {
         "linux": 2
       }
@@ -1263,197 +1268,197 @@
     "test/modules/Test.MacScreenLockPassword.Tests.ps1": {
       "total": 9,
       "skipped": 0,
-      "seconds": 6.74
+      "seconds": 7.51
     },
     "test/modules/Test.MacUtmBoundedNative.Tests.ps1": {
       "total": 63,
       "skipped": 0,
-      "seconds": 15.4
+      "seconds": 14.77
     },
     "test/modules/Test.MacUtmctlLink.Tests.ps1": {
       "total": 16,
       "skipped": 0,
-      "seconds": 4.71
+      "seconds": 4.51
     },
     "test/modules/Test.MacUtmLifecycle.Tests.ps1": {
-      "total": 87,
+      "total": 88,
       "skipped": 0,
-      "seconds": 87.54
+      "seconds": 87.33
     },
     "test/modules/Test.MacVirtualizationResponsive.Tests.ps1": {
       "total": 64,
       "skipped": 0,
-      "seconds": 17.15
+      "seconds": 17.78
     },
     "test/modules/Test.ManagedSnapshot.Tests.ps1": {
       "total": 12,
       "skipped": 0,
-      "seconds": 2.23
+      "seconds": 2.02
     },
     "test/modules/Test.MarkdownLocalAnchors.Tests.ps1": {
       "total": 59,
       "skipped": 0,
-      "seconds": 1.45
+      "seconds": 1.62
     },
     "test/modules/Test.McpServer.Tests.ps1": {
       "total": 36,
       "skipped": 0,
-      "seconds": 9.96
+      "seconds": 8.77
     },
     "test/modules/Test.Message.Tests.ps1": {
       "total": 20,
       "skipped": 0,
-      "seconds": 1.7
+      "seconds": 1.76
     },
     "test/modules/Test.MessageHttpMigration.Tests.ps1": {
       "total": 1,
       "skipped": 0,
-      "seconds": 1.95
+      "seconds": 2.13
     },
     "test/modules/Test.MobileSourceRules.Tests.ps1": {
-      "total": 27,
+      "total": 33,
       "skipped": 0,
-      "seconds": 1.24
+      "seconds": 1.7
     },
     "test/modules/Test.ModuleImportScope.Tests.ps1": {
       "total": 12,
       "skipped": 0,
-      "seconds": 6.92
+      "seconds": 6.82
     },
     "test/modules/Test.NasCredential.Tests.ps1": {
-      "total": 18,
+      "total": 29,
       "skipped": 0,
-      "seconds": 1.64
+      "seconds": 3.2
     },
     "test/modules/Test.NetconsoleReceiver.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 6.85
+      "seconds": 7.29
     },
     "test/modules/Test.NonzeroExitSentinel.Tests.ps1": {
       "total": 8,
       "skipped": 0,
-      "seconds": 1.22
+      "seconds": 1.27
     },
     "test/modules/Test.NotificationConfig.Tests.ps1": {
       "total": 6,
       "skipped": 0,
-      "seconds": 1.93
+      "seconds": 1.64
     },
     "test/modules/Test.Notify.Tests.ps1": {
       "total": 41,
       "skipped": 0,
-      "seconds": 7.74
+      "seconds": 7.18
     },
     "test/modules/Test.NoUngatedPrompt.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 13.91
+      "seconds": 16.5
     },
     "test/modules/Test.OcrEngine.Tests.ps1": {
       "total": 19,
       "skipped": 0,
-      "seconds": 1.51
+      "seconds": 1.63
     },
     "test/modules/Test.OcrEngineEvent.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.33
+      "seconds": 1.3
     },
     "test/modules/Test.OcrKnownAnswer.Tests.ps1": {
       "total": 8,
       "skipped": 0,
-      "seconds": 2.02
+      "seconds": 2.49
     },
     "test/modules/Test.OcrMatch.Tests.ps1": {
-      "total": 117,
+      "total": 122,
       "skipped": 0,
-      "seconds": 3.55
+      "seconds": 4.77
     },
     "test/modules/Test.OcrPath.Tests.ps1": {
       "total": 13,
       "skipped": 0,
-      "seconds": 1.4
+      "seconds": 1.63
     },
     "test/modules/Test.OcrResultCache.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 1.42
+      "seconds": 1.56
     },
     "test/modules/Test.OrchestratorHostAction.Tests.ps1": {
-      "total": 18,
+      "total": 29,
       "skipped": 0,
-      "seconds": 3.3
+      "seconds": 4.44
     },
     "test/modules/Test.OrchestratorWarmResume.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 9.02
+      "seconds": 5.18
     },
     "test/modules/Test.OuterLog.Tests.ps1": {
       "total": 8,
       "skipped": 0,
-      "seconds": 3.51
+      "seconds": 3.81
     },
     "test/modules/Test.Output.Tests.ps1": {
       "total": 6,
       "skipped": 0,
-      "seconds": 1.94
+      "seconds": 1.77
     },
     "test/modules/Test.PerfPhase.Tests.ps1": {
       "total": 12,
       "skipped": 0,
-      "seconds": 4.62
+      "seconds": 3.58
     },
     "test/modules/Test.PerfRecord.Tests.ps1": {
       "total": 20,
       "skipped": 0,
-      "seconds": 2.98
+      "seconds": 2.67
     },
     "test/modules/Test.PerGuestNewVm.Tests.ps1": {
-      "total": 32,
+      "total": 35,
       "skipped": 0,
-      "seconds": 7.16
+      "seconds": 8.72
     },
     "test/modules/Test.PidFileIdentity.Tests.ps1": {
       "total": 9,
       "skipped": 0,
-      "seconds": 2.27
+      "seconds": 2.06
     },
     "test/modules/Test.PoolAdmin.Tests.ps1": {
       "total": 21,
       "skipped": 0,
-      "seconds": 2.49
+      "seconds": 2.42
     },
     "test/modules/Test.PoolAdminGate.Tests.ps1": {
       "total": 24,
       "skipped": 0,
-      "seconds": 12.33
+      "seconds": 11.76
     },
     "test/modules/Test.PoolAggregatorServiceSeedUrl.Tests.ps1": {
       "total": 13,
       "skipped": 0,
-      "seconds": 2.88
+      "seconds": 2.47
     },
     "test/modules/Test.PoolAutoEnrollmentExclusion.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 9.27
+      "seconds": 7.73
     },
     "test/modules/Test.PoolConfigurationAliasSync.Tests.ps1": {
-      "total": 14,
+      "total": 17,
       "skipped": 0,
-      "seconds": 2.94
+      "seconds": 3.05
     },
     "test/modules/Test.PoolConfigurationSeedUrl.Tests.ps1": {
       "total": 17,
       "skipped": 0,
-      "seconds": 1.53
+      "seconds": 1.78
     },
     "test/modules/Test.PoolControlServiceLocaleLaunch.Tests.ps1": {
       "total": 13,
       "skipped": 0,
-      "seconds": 2.0
+      "seconds": 2.32
     },
     "test/modules/Test.PoolControlTables.Tests.ps1": {
       "total": 8,
@@ -1463,37 +1468,37 @@
     "test/modules/Test.PoolExtensionLookup.Tests.ps1": {
       "total": 18,
       "skipped": 0,
-      "seconds": 2.51
+      "seconds": 2.46
     },
     "test/modules/Test.PoolGlobalizationSlice.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 55.46
+      "seconds": 32.74
     },
     "test/modules/Test.PoolNotifier.Tests.ps1": {
-      "total": 24,
+      "total": 29,
       "skipped": 0,
-      "seconds": 2.88
+      "seconds": 4.15
     },
     "test/modules/Test.PoolPlanner.Tests.ps1": {
       "total": 23,
       "skipped": 0,
-      "seconds": 4.13
+      "seconds": 4.37
     },
     "test/modules/Test.PoolPush.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 4.11
+      "seconds": 4.01
     },
     "test/modules/Test.PoolRepository.Tests.ps1": {
-      "total": 35,
+      "total": 36,
       "skipped": 0,
-      "seconds": 45.34
+      "seconds": 40.92
     },
     "test/modules/Test.PoolStorage.Tests.ps1": {
-      "total": 130,
+      "total": 134,
       "skipped": 2,
-      "seconds": 12.1,
+      "seconds": 12.81,
       "platformSkipped": {
         "linux": 2,
         "macos": 12,
@@ -1503,87 +1508,87 @@
     "test/modules/Test.PoolStorageBareShare.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 1.29
+      "seconds": 1.22
     },
     "test/modules/Test.PoolStorageLocalPath.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.22
+      "seconds": 1.37
     },
     "test/modules/Test.PoolStorageMountParse.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 1.18
+      "seconds": 1.22
     },
     "test/modules/Test.PoolStorageMove.Tests.ps1": {
       "total": 27,
       "skipped": 0,
-      "seconds": 4.12
+      "seconds": 4.27
     },
     "test/modules/Test.PoolSync.Tests.ps1": {
       "total": 23,
       "skipped": 0,
-      "seconds": 2.96
+      "seconds": 2.59
     },
     "test/modules/Test.PoolSyncMembership.Tests.ps1": {
       "total": 13,
       "skipped": 0,
-      "seconds": 3.41
+      "seconds": 3.58
     },
     "test/modules/Test.PoolWorker.Tests.ps1": {
       "total": 51,
       "skipped": 0,
-      "seconds": 2.26
+      "seconds": 1.92
     },
     "test/modules/Test.PortOwner.Tests.ps1": {
       "total": 8,
       "skipped": 2,
-      "seconds": 11.44
+      "seconds": 11.26
     },
     "test/modules/Test.PortOwnerPerf.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 3.21
+      "seconds": 3.07
     },
     "test/modules/Test.PostStallEvidence.Tests.ps1": {
-      "total": 12,
+      "total": 14,
       "skipped": 0,
-      "seconds": 7.69
+      "seconds": 11.96
     },
     "test/modules/Test.PreambleStallRecovery.Tests.ps1": {
-      "total": 33,
+      "total": 34,
       "skipped": 0,
-      "seconds": 13.87
+      "seconds": 14.13
     },
     "test/modules/Test.PreCommitHook.Tests.ps1": {
-      "total": 49,
+      "total": 54,
       "skipped": 0,
-      "seconds": 43.34
+      "seconds": 42.97
     },
     "test/modules/Test.PreflightExitCode.Tests.ps1": {
       "total": 6,
       "skipped": 0,
-      "seconds": 4.13
+      "seconds": 3.7
     },
     "test/modules/Test.Prelude.Tests.ps1": {
-      "total": 23,
+      "total": 31,
       "skipped": 0,
-      "seconds": 3.5
+      "seconds": 6.81
     },
     "test/modules/Test.PrivateStateRepair.Tests.ps1": {
       "total": 59,
       "skipped": 0,
-      "seconds": 4.51
+      "seconds": 5.04
     },
     "test/modules/Test.PrivateStateRoot.Tests.ps1": {
       "total": 40,
       "skipped": 0,
-      "seconds": 3.16
+      "seconds": 3.37
     },
     "test/modules/Test.ProjectBuildProcess.Tests.ps1": {
-      "total": 23,
+      "total": 26,
       "skipped": 0,
-      "seconds": 9.57,
+      "seconds": 10.15,
       "platformSkipped": {
         "linux": 3,
         "windows": 0,
@@ -1593,47 +1598,47 @@
     "test/modules/Test.ProjectFetchFallback.Tests.ps1": {
       "total": 31,
       "skipped": 0,
-      "seconds": 2.42
+      "seconds": 2.72
     },
     "test/modules/Test.ProjectHostStorage.Tests.ps1": {
       "total": 16,
       "skipped": 0,
-      "seconds": 1.71
+      "seconds": 1.91
     },
     "test/modules/Test.ProjectLocaleMap.Tests.ps1": {
       "total": 35,
       "skipped": 0,
-      "seconds": 27.48
+      "seconds": 29.51
     },
     "test/modules/Test.ProjectSourceSelection.Tests.ps1": {
-      "total": 3,
+      "total": 5,
       "skipped": 0,
-      "seconds": 3.54
+      "seconds": 4.91
     },
     "test/modules/Test.ProjectTextEncoding.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 3.27
+      "seconds": 3.9
     },
     "test/modules/Test.Provenance.Tests.ps1": {
       "total": 16,
       "skipped": 0,
-      "seconds": 1.83
+      "seconds": 1.72
     },
     "test/modules/Test.QemuImgResolution.Tests.ps1": {
       "total": 31,
       "skipped": 0,
-      "seconds": 2.24
+      "seconds": 2.45
     },
     "test/modules/Test.Recovery.Tests.ps1": {
       "total": 6,
       "skipped": 0,
-      "seconds": 1.98
+      "seconds": 1.83
     },
     "test/modules/Test.RecoveryActions.Tests.ps1": {
-      "total": 116,
+      "total": 118,
       "skipped": 0,
-      "seconds": 8.28,
+      "seconds": 9.32,
       "platformSkipped": {
         "linux": 3,
         "windows": 0,
@@ -1643,102 +1648,102 @@
     "test/modules/Test.RecoveryAdoption.Tests.ps1": {
       "total": 14,
       "skipped": 0,
-      "seconds": 1.67
+      "seconds": 1.94
     },
     "test/modules/Test.RecoveryContract.Tests.ps1": {
-      "total": 118,
+      "total": 139,
       "skipped": 0,
-      "seconds": 3.4
+      "seconds": 3.52
     },
     "test/modules/Test.RecoveryHostRestart.Tests.ps1": {
-      "total": 22,
+      "total": 24,
       "skipped": 0,
-      "seconds": 3.8
+      "seconds": 4.22
     },
     "test/modules/Test.RecoveryLedger.Tests.ps1": {
       "total": 104,
       "skipped": 0,
-      "seconds": 7.06
+      "seconds": 7.18
     },
     "test/modules/Test.RecoveryOuterLoop.Tests.ps1": {
-      "total": 19,
+      "total": 35,
       "skipped": 0,
-      "seconds": 13.69
+      "seconds": 18.96
     },
     "test/modules/Test.RecoveryProbe.Tests.ps1": {
-      "total": 12,
+      "total": 13,
       "skipped": 0,
-      "seconds": 3.98
+      "seconds": 4.1
     },
     "test/modules/Test.ReferenceFixture.Tests.ps1": {
       "total": 12,
       "skipped": 0,
-      "seconds": 16.69
+      "seconds": 15.56
     },
     "test/modules/Test.ReferenceSliceMatrix.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 34.7
+      "seconds": 25.78
     },
     "test/modules/Test.RefreshBootRecovery.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 5.71
+      "seconds": 6.13
     },
     "test/modules/Test.RegionAnchors.Tests.ps1": {
-      "total": 85,
+      "total": 102,
       "skipped": 0,
-      "seconds": 56.81
+      "seconds": 70.46
     },
     "test/modules/Test.Registry.Tests.ps1": {
-      "total": 7,
+      "total": 8,
       "skipped": 0,
-      "seconds": 1.18
+      "seconds": 1.65
     },
     "test/modules/Test.Remediation.Tests.ps1": {
-      "total": 25,
+      "total": 38,
       "skipped": 0,
-      "seconds": 2.46
+      "seconds": 2.65
     },
     "test/modules/Test.RemovePoolHost.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 13.39
+      "seconds": 27.17
     },
     "test/modules/Test.ResolveRunnerProcessTarget.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 1.46
+      "seconds": 1.6
     },
     "test/modules/Test.Result.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 1.75
+      "seconds": 1.47
     },
     "test/modules/Test.RetryClassifier.Tests.ps1": {
-      "total": 25,
+      "total": 31,
       "skipped": 0,
-      "seconds": 2.18
+      "seconds": 1.95
     },
     "test/modules/Test.RetryDiagnosticLog.Tests.ps1": {
       "total": 45,
       "skipped": 0,
-      "seconds": 2.99
+      "seconds": 2.72
     },
     "test/modules/Test.RetryPredicate.Tests.ps1": {
-      "total": 4,
+      "total": 7,
       "skipped": 0,
-      "seconds": 2.12
+      "seconds": 5.79
     },
     "test/modules/Test.RetryTelemetry.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 2.91
+      "seconds": 2.71
     },
     "test/modules/Test.RootArtifact.Tests.ps1": {
       "total": 17,
       "skipped": 1,
-      "seconds": 2.74,
+      "seconds": 2.56,
       "platformTotal": {
         "windows": 16
       }
@@ -1746,120 +1751,120 @@
     "test/modules/Test.RunnerAttemptHistory.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 1.74
+      "seconds": 1.88
     },
     "test/modules/Test.RunnerConfigResync.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 3.16
+      "seconds": 3.6
     },
     "test/modules/Test.RunnerCycleName.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.5
+      "seconds": 1.76
     },
     "test/modules/Test.RunnerCycleOptionForwarding.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 4.19
+      "seconds": 4.16
     },
     "test/modules/Test.RunnerCycleSplit.Tests.ps1": {
-      "total": 20,
+      "total": 24,
       "skipped": 2,
-      "seconds": 5.32
+      "seconds": 8.48
     },
     "test/modules/Test.RunnerEntryPointContract.Tests.ps1": {
-      "total": 20,
+      "total": 38,
       "skipped": 0,
-      "seconds": 10.14
+      "seconds": 9.29
     },
     "test/modules/Test.RunnerHandoff.Tests.ps1": {
-      "total": 47,
+      "total": 51,
       "skipped": 0,
-      "seconds": 25.08
+      "seconds": 24.69
     },
     "test/modules/Test.RunnerHeartbeat.Tests.ps1": {
-      "total": 8,
+      "total": 10,
       "skipped": 0,
-      "seconds": 3.82
+      "seconds": 4.02
     },
     "test/modules/Test.RunnerInnerLoop.Tests.ps1": {
-      "total": 81,
+      "total": 108,
       "skipped": 0,
-      "seconds": 11.75
+      "seconds": 15.1
     },
     "test/modules/Test.RunnerOutcomeRecord.Tests.ps1": {
-      "total": 53,
+      "total": 56,
       "skipped": 0,
-      "seconds": 4.11
+      "seconds": 4.06
     },
     "test/modules/Test.RunnerOuterLoop.Tests.ps1": {
-      "total": 67,
+      "total": 72,
       "skipped": 0,
-      "seconds": 11.35
+      "seconds": 12.95
     },
     "test/modules/Test.RunnerOuterLoopCleanup.Tests.ps1": {
       "total": 9,
       "skipped": 0,
-      "seconds": 2.3
+      "seconds": 2.61
     },
     "test/modules/Test.RunnerOuterLoopFaultEvent.Tests.ps1": {
-      "total": 12,
+      "total": 22,
       "skipped": 0,
-      "seconds": 2.38
+      "seconds": 4.86
     },
     "test/modules/Test.RunnerReclaim.Tests.ps1": {
       "total": 45,
       "skipped": 0,
-      "seconds": 11.99,
+      "seconds": 12.17,
       "platformSkipped": {
         "linux": 1
       }
     },
     "test/modules/Test.RunnerSelfRescue.Tests.ps1": {
-      "total": 24,
+      "total": 48,
       "skipped": 0,
-      "seconds": 7.7
+      "seconds": 38.99
     },
     "test/modules/Test.RunnerState.Tests.ps1": {
       "total": 46,
       "skipped": 0,
-      "seconds": 2.66
+      "seconds": 2.67
     },
     "test/modules/Test.RunnerTakeover.Tests.ps1": {
-      "total": 7,
+      "total": 10,
       "skipped": 0,
-      "seconds": 3.15
+      "seconds": 8.75
     },
     "test/modules/Test.RunnerThreeProcess.Tests.ps1": {
-      "total": 6,
+      "total": 12,
       "skipped": 0,
-      "seconds": 46.07
+      "seconds": 123.26
     },
     "test/modules/Test.RunnerWatchdogIdentity.Tests.ps1": {
-      "total": 9,
+      "total": 12,
       "skipped": 0,
-      "seconds": 3.57
+      "seconds": 3.63
     },
     "test/modules/Test.RuntimeCapability.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 1.67
+      "seconds": 1.51
     },
     "test/modules/Test.RuntimeInfrastructureSafety.Tests.ps1": {
       "total": 6,
       "skipped": 0,
-      "seconds": 6.85
+      "seconds": 7.11
     },
     "test/modules/Test.RuntimeToolingSafety.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 8.34
+      "seconds": 9.34
     },
     "test/modules/Test.ScriptGuid.Tests.ps1": {
-      "total": 10,
+      "total": 11,
       "skipped": 0,
-      "seconds": 1.62,
+      "seconds": 1.82,
       "platformSkipped": {
         "linux": 2,
         "windows": 0,
@@ -1869,142 +1874,142 @@
     "test/modules/Test.SecretRedaction.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 2.27
+      "seconds": 2.24
     },
     "test/modules/Test.SequenceActionFailureLabel.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 2.29
+      "seconds": 1.96
     },
     "test/modules/Test.SequenceEngine.Tests.ps1": {
-      "total": 77,
+      "total": 115,
       "skipped": 0,
-      "seconds": 57.21
+      "seconds": 156.18
     },
     "test/modules/Test.SequenceEngineFlags.Tests.ps1": {
       "total": 45,
       "skipped": 0,
-      "seconds": 2.62
+      "seconds": 2.68
     },
     "test/modules/Test.SequenceExecutionSafety.Tests.ps1": {
-      "total": 14,
+      "total": 19,
       "skipped": 0,
-      "seconds": 7.13
+      "seconds": 10.87
     },
     "test/modules/Test.SequenceFailureState.Tests.ps1": {
-      "total": 52,
+      "total": 108,
       "skipped": 0,
-      "seconds": 2.4
+      "seconds": 4.21
     },
     "test/modules/Test.SequenceHandler.Tests.ps1": {
-      "total": 79,
+      "total": 115,
       "skipped": 0,
-      "seconds": 10.45
+      "seconds": 20.15
     },
     "test/modules/Test.SequenceHandlerBlindAnswer.Tests.ps1": {
       "total": 32,
       "skipped": 0,
-      "seconds": 2.48
+      "seconds": 2.47
     },
     "test/modules/Test.SequenceHandlerTab.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 1.25
+      "seconds": 1.23
     },
     "test/modules/Test.SequencePlannerCascade.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 1.31
+      "seconds": 1.2
     },
     "test/modules/Test.SequenceResolve.Tests.ps1": {
       "total": 30,
       "skipped": 0,
-      "seconds": 2.54
+      "seconds": 2.43
     },
     "test/modules/Test.SequenceRunner.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 2.09
+      "seconds": 1.84
     },
     "test/modules/Test.SequenceRuntimeSafety.Tests.ps1": {
-      "total": 14,
+      "total": 15,
       "skipped": 0,
-      "seconds": 4.06
+      "seconds": 4.0
     },
     "test/modules/Test.SequenceSearchList.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.23
+      "seconds": 1.24
     },
     "test/modules/Test.SequenceVarPlaceholder.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.16
+      "seconds": 1.26
     },
     "test/modules/Test.ServiceCensus.Tests.ps1": {
       "total": 55,
       "skipped": 0,
-      "seconds": 32.59
+      "seconds": 34.2
     },
     "test/modules/Test.ServiceMiscScripts.Tests.ps1": {
       "total": 38,
       "skipped": 0,
-      "seconds": 3.41
+      "seconds": 3.86
     },
     "test/modules/Test.ServiceVm.Tests.ps1": {
-      "total": 22,
+      "total": 23,
       "skipped": 0,
-      "seconds": 3.37
+      "seconds": 3.27
     },
     "test/modules/Test.ServiceVmBuildPlan.Tests.ps1": {
-      "total": 43,
+      "total": 59,
       "skipped": 0,
-      "seconds": 10.56
+      "seconds": 12.64
     },
     "test/modules/Test.ServiceVmIntegrity.Tests.ps1": {
-      "total": 22,
+      "total": 109,
       "skipped": 0,
-      "seconds": 6.4
+      "seconds": 20.65
     },
     "test/modules/Test.ServiceVmPolicy.Tests.ps1": {
       "total": 41,
       "skipped": 0,
-      "seconds": 14.9
+      "seconds": 15.05
     },
     "test/modules/Test.ServiceVmReadiness.Tests.ps1": {
       "total": 35,
       "skipped": 0,
-      "seconds": 9.33
+      "seconds": 9.48
     },
     "test/modules/Test.ServiceVmUnknownState.Tests.ps1": {
       "total": 39,
       "skipped": 0,
-      "seconds": 6.59
+      "seconds": 7.05
     },
     "test/modules/Test.SetupAnswerFile.Tests.ps1": {
-      "total": 16,
+      "total": 18,
       "skipped": 0,
-      "seconds": 1.62
+      "seconds": 6.81
     },
     "test/modules/Test.SetupLogLevel.Tests.ps1": {
       "total": 6,
       "skipped": 0,
-      "seconds": 1.4
+      "seconds": 1.54
     },
     "test/modules/Test.SetupPrompt.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 2.09
+      "seconds": 2.27
     },
     "test/modules/Test.SetupServiceAdopt.Tests.ps1": {
       "total": 13,
       "skipped": 0,
-      "seconds": 1.65
+      "seconds": 1.83
     },
     "test/modules/Test.SetupStorage.Tests.ps1": {
-      "total": 24,
+      "total": 25,
       "skipped": 0,
-      "seconds": 2.64,
+      "seconds": 7.1,
       "platformSkipped": {
         "linux": 0,
         "macos": 1,
@@ -2014,115 +2019,115 @@
     "test/modules/Test.ShellCheck.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 4.6
+      "seconds": 6.16
     },
     "test/modules/Test.ShellScriptExecBit.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 2.57
+      "seconds": 2.79
     },
     "test/modules/Test.SiblingScriptPath.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 1.2
+      "seconds": 1.23
     },
     "test/modules/Test.SignedInstallSnippet.Tests.ps1": {
       "total": 31,
       "skipped": 0,
-      "seconds": 3.97
+      "seconds": 4.57
     },
     "test/modules/Test.SilentCatchRule.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 9.49
+      "seconds": 10.89
     },
     "test/modules/Test.SingleFlightLock.Tests.ps1": {
       "total": 39,
       "skipped": 0,
-      "seconds": 20.96,
+      "seconds": 21.79,
       "platformSkipped": {
         "linux": 2
       }
     },
     "test/modules/Test.SingleInstance.Tests.ps1": {
-      "total": 43,
+      "total": 53,
       "skipped": 0,
-      "seconds": 7.77
+      "seconds": 12.29
     },
     "test/modules/Test.SnapshotManifest.Tests.ps1": {
       "total": 25,
       "skipped": 0,
-      "seconds": 2.1
+      "seconds": 1.9
     },
     "test/modules/Test.SourceConsistency.Tests.ps1": {
-      "total": 191,
+      "total": 206,
       "skipped": 0,
-      "seconds": 9.45
+      "seconds": 9.96
     },
     "test/modules/Test.SourceMetadata.Tests.ps1": {
-      "total": 59,
+      "total": 82,
       "skipped": 0,
-      "seconds": 17.3
+      "seconds": 25.82
     },
     "test/modules/Test.SourceSelection.Tests.ps1": {
-      "total": 18,
+      "total": 20,
       "skipped": 0,
-      "seconds": 3.26
+      "seconds": 3.31
     },
     "test/modules/Test.Ssh.Tests.ps1": {
-      "total": 42,
+      "total": 53,
       "skipped": 0,
-      "seconds": 2.21
+      "seconds": 2.93
     },
     "test/modules/Test.SshBoundedNative.Tests.ps1": {
-      "total": 22,
+      "total": 28,
       "skipped": 1,
-      "seconds": 18.1
+      "seconds": 24.81
     },
     "test/modules/Test.StartCycleWorker.Tests.ps1": {
       "total": 12,
       "skipped": 0,
-      "seconds": 90.19
+      "seconds": 83.31
     },
     "test/modules/Test.StartVmMemoryPreflight.Tests.ps1": {
-      "total": 49,
+      "total": 50,
       "skipped": 1,
-      "seconds": 4.42
+      "seconds": 5.24
     },
     "test/modules/Test.StashAddressResolution.Tests.ps1": {
       "total": 22,
       "skipped": 0,
-      "seconds": 8.11
+      "seconds": 7.93
     },
     "test/modules/Test.Status.Tests.ps1": {
-      "total": 15,
+      "total": 22,
       "skipped": 0,
-      "seconds": 2.62
+      "seconds": 5.11
     },
     "test/modules/Test.StatusArchiveProvenance.Tests.ps1": {
-      "total": 16,
+      "total": 19,
       "skipped": 0,
-      "seconds": 4.77
+      "seconds": 5.23
     },
     "test/modules/Test.StatusAtomicWrite.Tests.ps1": {
-      "total": 4,
+      "total": 7,
       "skipped": 0,
-      "seconds": 1.26
+      "seconds": 4.75
     },
     "test/modules/Test.StatusControlRoute.Tests.ps1": {
-      "total": 77,
+      "total": 90,
       "skipped": 0,
-      "seconds": 8.61
+      "seconds": 10.04
     },
     "test/modules/Test.StatusCycleArchive.Tests.ps1": {
       "total": 20,
       "skipped": 0,
-      "seconds": 1.38
+      "seconds": 1.48
     },
     "test/modules/Test.StatusFirewall.Tests.ps1": {
-      "total": 12,
+      "total": 34,
       "skipped": 0,
-      "seconds": 2.22,
+      "seconds": 10.39,
       "platformTotal": {
         "macos": 6,
         "windows": 11
@@ -2131,549 +2136,322 @@
     "test/modules/Test.StatusPagePolish.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.33
+      "seconds": 1.29
     },
     "test/modules/Test.StatusPauseSlice.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 13.54
+      "seconds": 13.78
     },
     "test/modules/Test.StatusServiceCycleRefresh.Tests.ps1": {
       "total": 5,
       "skipped": 0,
-      "seconds": 1.44
+      "seconds": 1.57
     },
     "test/modules/Test.StatusServiceErrorLog.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 1.56
+      "seconds": 1.65
     },
     "test/modules/Test.StatusServiceLocale.Tests.ps1": {
       "total": 25,
       "skipped": 0,
-      "seconds": 7.27
+      "seconds": 8.06
     },
     "test/modules/Test.StatusServicePrivateState.Tests.ps1": {
       "total": 13,
       "skipped": 0,
-      "seconds": 2.47
+      "seconds": 2.57
     },
     "test/modules/Test.StatusServiceRefreshSafe.Tests.ps1": {
-      "total": 14,
+      "total": 15,
       "skipped": 0,
-      "seconds": 41.95
+      "seconds": 50.45
     },
     "test/modules/Test.StatusServiceResponsiveness.Tests.ps1": {
-      "total": 22,
+      "total": 25,
       "skipped": 0,
-      "seconds": 21.82
+      "seconds": 21.92
     },
     "test/modules/Test.StatusServiceSecurity.Tests.ps1": {
-      "total": 48,
+      "total": 139,
       "skipped": 0,
-      "seconds": 2.38
+      "seconds": 6.42
     },
     "test/modules/Test.StatusServiceSeed.Tests.ps1": {
       "total": 10,
       "skipped": 0,
-      "seconds": 1.76
+      "seconds": 1.97
     },
     "test/modules/Test.StatusUploadAllowlist.Tests.ps1": {
-      "total": 5,
+      "total": 7,
       "skipped": 0,
-      "seconds": 1.17
+      "seconds": 1.26
     },
     "test/modules/Test.StorageTransition.Tests.ps1": {
       "total": 30,
       "skipped": 0,
-      "seconds": 2.27
+      "seconds": 1.98
     },
     "test/modules/Test.SudoDiscipline.Tests.ps1": {
       "total": 9,
       "skipped": 0,
-      "seconds": 4.54
+      "seconds": 4.59
     },
     "test/modules/Test.SuiteBaseline.Tests.ps1": {
-      "total": 28,
+      "total": 32,
       "skipped": 0,
-      "seconds": 22.27
+      "seconds": 29.28
     },
     "test/modules/Test.SuiteHelperAdoption.Tests.ps1": {
-      "total": 6,
+      "total": 23,
       "skipped": 0,
-      "seconds": 9.84
+      "seconds": 41.4
     },
     "test/modules/Test.SuiteImpact.Tests.ps1": {
-      "total": 10,
+      "total": 16,
       "skipped": 0,
-      "seconds": 30.12
+      "seconds": 46.29
     },
     "test/modules/Test.SuiteRunnerBaselineRow.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 48.12
+      "seconds": 49.6
     },
     "test/modules/Test.SuiteRunnerContainment.Tests.ps1": {
-      "total": 9,
+      "total": 10,
       "skipped": 0,
-      "seconds": 45.0
+      "seconds": 54.5
     },
     "test/modules/Test.SuiteRunnerDiscovery.Tests.ps1": {
-      "total": 29,
+      "total": 30,
       "skipped": 0,
-      "seconds": 62.3
+      "seconds": 67.12
     },
     "test/modules/Test.SuiteRunnerVerdict.Tests.ps1": {
       "total": 12,
       "skipped": 0,
-      "seconds": 37.81
+      "seconds": 38.06
     },
     "test/modules/Test.SvcStatus.Tests.ps1": {
       "total": 2,
       "skipped": 0,
-      "seconds": 1.3
+      "seconds": 1.77
     },
     "test/modules/Test.SymbolReference.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 15.68
+      "seconds": 18.72
     },
     "test/modules/Test.SystemDiagnosticBios.Tests.ps1": {
-      "total": 17,
+      "total": 25,
       "skipped": 0,
-      "seconds": 2.59
+      "seconds": 3.42
     },
     "test/modules/Test.SystemDiagnosticCommitCharge.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.47
+      "seconds": 1.82
     },
     "test/modules/Test.SystemDiagnosticLinuxEvidence.Tests.ps1": {
-      "total": 38,
+      "total": 42,
       "skipped": 0,
-      "seconds": 9.1
+      "seconds": 9.68
     },
     "test/modules/Test.SystemDiagnosticSelfContained.Tests.ps1": {
       "total": 54,
       "skipped": 0,
-      "seconds": 29.12
+      "seconds": 32.75
     },
     "test/modules/Test.TcpOutcome.Tests.ps1": {
       "total": 23,
       "skipped": 0,
-      "seconds": 8.8
+      "seconds": 9.16
     },
     "test/modules/Test.TempHousekeeping.Tests.ps1": {
-      "total": 56,
+      "total": 69,
       "skipped": 0,
-      "seconds": 5.08
+      "seconds": 6.06
     },
     "test/modules/Test.Terminology.Tests.ps1": {
       "total": 27,
       "skipped": 0,
-      "seconds": 7.3
+      "seconds": 8.96
     },
     "test/modules/Test.Tesseract.Tests.ps1": {
       "total": 26,
       "skipped": 0,
-      "seconds": 3.63
+      "seconds": 3.72
     },
     "test/modules/Test.TestPrograms.Tests.ps1": {
-      "total": 14,
+      "total": 15,
       "skipped": 0,
-      "seconds": 26.45
+      "seconds": 26.81
     },
     "test/modules/Test.ToolCallDeadline.Tests.ps1": {
-      "total": 14,
+      "total": 18,
       "skipped": 0,
-      "seconds": 17.47
+      "seconds": 25.46
     },
     "test/modules/Test.TranscriptStructure.Tests.ps1": {
       "total": 11,
       "skipped": 0,
-      "seconds": 2.7
+      "seconds": 2.55
     },
     "test/modules/Test.Transport.Tests.ps1": {
-      "total": 30,
+      "total": 40,
       "skipped": 0,
-      "seconds": 3.07
+      "seconds": 3.35
+    },
+    "test/modules/Test.UbuntuInstallNewerVersions.Tests.ps1": {
+      "total": 28,
+      "skipped": 0,
+      "seconds": 2.72
     },
     "test/modules/Test.UbuntuInstallPowerShellFloor.Tests.ps1": {
-      "total": 12,
+      "total": 95,
       "skipped": 0,
-      "seconds": 2.02
+      "seconds": 5.93
     },
     "test/modules/Test.UbuntuInstallRyzenAiPlatform.Tests.ps1": {
       "total": 32,
       "skipped": 0,
-      "seconds": 3.35
+      "seconds": 3.71
     },
     "test/modules/Test.UbuntuYamlModuleReuse.Tests.ps1": {
       "total": 17,
       "skipped": 0,
-      "seconds": 5.6
+      "seconds": 6.51
     },
     "test/modules/Test.UnreachableDependencyGuard.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 1.36
+      "seconds": 1.38
     },
     "test/modules/Test.UtmctlOutsideDriver.Tests.ps1": {
       "total": 38,
       "skipped": 0,
-      "seconds": 20.86
+      "seconds": 18.89
     },
     "test/modules/Test.UtmGhostRegistration.Tests.ps1": {
       "total": 15,
       "skipped": 0,
-      "seconds": 4.92
+      "seconds": 4.86
     },
     "test/modules/Test.UtmSerialConsole.Tests.ps1": {
-      "total": 35,
+      "total": 40,
       "skipped": 0,
-      "seconds": 22.12
+      "seconds": 99.4
     },
     "test/modules/Test.UtmServiceVmSuspend.Tests.ps1": {
       "total": 23,
       "skipped": 0,
-      "seconds": 3.69
+      "seconds": 4.31
     },
     "test/modules/Test.VmAdmission.Tests.ps1": {
-      "total": 22,
+      "total": 25,
       "skipped": 0,
-      "seconds": 2.62
+      "seconds": 2.6
     },
     "test/modules/Test.VMConnectSettle.Tests.ps1": {
       "total": 2,
       "skipped": 0,
-      "seconds": 1.54
+      "seconds": 1.64
     },
     "test/modules/Test.VmNameSweep.Tests.ps1": {
       "total": 30,
       "skipped": 0,
-      "seconds": 2.93
+      "seconds": 3.48
     },
     "test/modules/Test.VmSizing.Tests.ps1": {
       "total": 37,
       "skipped": 0,
-      "seconds": 2.77
+      "seconds": 2.74
     },
     "test/modules/Test.VMStorageReference.Tests.ps1": {
-      "total": 11,
+      "total": 25,
       "skipped": 0,
-      "seconds": 3.33
+      "seconds": 4.78
     },
     "test/modules/Test.VncDisplay.Tests.ps1": {
       "total": 14,
       "skipped": 6,
-      "seconds": 1.71
+      "seconds": 2.02
     },
     "test/modules/Test.WarmResume.Tests.ps1": {
-      "total": 78,
+      "total": 84,
       "skipped": 0,
-      "seconds": 3.11
+      "seconds": 3.12
     },
     "test/modules/Test.WatchdogCycleHistory.Tests.ps1": {
       "total": 30,
       "skipped": 0,
-      "seconds": 3.41
+      "seconds": 3.81
     },
     "test/modules/Test.WindowsInstallerStart.Tests.ps1": {
       "total": 20,
       "skipped": 0,
-      "seconds": 8.69
+      "seconds": 8.74
+    },
+    "test/modules/Test.WindowsInstallUpgrade.Tests.ps1": {
+      "total": 25,
+      "skipped": 0,
+      "seconds": 6.66
     },
     "test/modules/Test.WindowsRunnerProtocol.Tests.ps1": {
       "total": 7,
       "skipped": 7,
-      "seconds": 1.25
+      "seconds": 1.17
     },
     "test/modules/Test.WorkloadToolLog.Tests.ps1": {
-      "total": 16,
+      "total": 21,
       "skipped": 0,
-      "seconds": 2.97
+      "seconds": 4.26
     },
     "test/modules/Test.YurunaDeadline.Tests.ps1": {
       "total": 22,
       "skipped": 0,
-      "seconds": 2.33
+      "seconds": 2.59
     },
     "test/modules/Test.YurunaDir.Tests.ps1": {
-      "total": 11,
+      "total": 12,
       "skipped": 0,
-      "seconds": 2.37
+      "seconds": 2.95
     },
     "test/modules/Test.YurunaLog.Tests.ps1": {
       "total": 14,
       "skipped": 0,
-      "seconds": 2.03
+      "seconds": 1.9
     },
     "test/modules/Test.YurunaLogLevel.Tests.ps1": {
       "total": 8,
       "skipped": 0,
-      "seconds": 1.6
+      "seconds": 1.69
     },
     "test/modules/Test.YurunaRetryLib.Tests.ps1": {
-      "total": 14,
+      "total": 18,
       "skipped": 0,
-      "seconds": 1.51
+      "seconds": 2.45
     },
     "test/modules/Test.YurunaRootSet.Tests.ps1": {
       "total": 3,
       "skipped": 0,
-      "seconds": 1.22
+      "seconds": 1.25
     },
     "test/modules/Test.YurunaRunReplay.Tests.ps1": {
       "total": 7,
       "skipped": 0,
-      "seconds": 4.91
+      "seconds": 5.16
     },
     "test/modules/Test.ZotQualification.Tests.ps1": {
       "total": 4,
       "skipped": 0,
-      "seconds": 1.25
+      "seconds": 1.42
     },
     "test/modules/Test.ZotSyncContract.Tests.ps1": {
       "total": 29,
       "skipped": 0,
-      "seconds": 21.03
+      "seconds": 21.12
     }
-  },
-  "registrations": [
-    {
-      "registeredUtc": "2026-10-22T03:35:38.334895Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.AptIndexFreshness.Tests.ps1"
-      ],
-      "tests": 9,
-      "sourceSha256": {
-        "test/modules/Test.AptIndexFreshness.Tests.ps1": "3E9F9808939A419F7FFCE106468C223B59E0E1930EB9F4D2CE2BFBF553F9FAAB"
-      }
-    },
-    {
-      "registeredUtc": "2026-10-22T06:21:05.9005449Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.SuiteImpact.Tests.ps1"
-      ],
-      "tests": 10,
-      "sourceSha256": {
-        "test/modules/Test.SuiteImpact.Tests.ps1": "FA8B21A533681884D16EC8B2FDFC87903D84A85C6D340D50D1274B655A2EB4AD"
-      }
-    },
-    {
-      "registeredUtc": "2026-10-22T15:58:14.625863Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.CatalogCompilerLocale.Tests.ps1",
-        "test/modules/Test.CatalogCompilerOutput.Tests.ps1",
-        "test/modules/Test.GlobalizationGatesArtifacts.Tests.ps1",
-        "test/modules/Test.GlobalizationGatesProduct.Tests.ps1"
-      ],
-      "tests": 41,
-      "sourceSha256": {
-        "test/modules/Test.CatalogCompilerLocale.Tests.ps1": "0C28672CD46AEC70A239A8D00C351BB392061501AD3A78EABC97526B1941DE69",
-        "test/modules/Test.CatalogCompilerOutput.Tests.ps1": "944830DC2A8D209A860A206ABD72B61A931E09396ACF4B1FFE9616A9BC77D9CA",
-        "test/modules/Test.GlobalizationGatesArtifacts.Tests.ps1": "35274C7B14F9979ACD0FBAB3C4E7660F714247D04D395C6452C622A04743A751",
-        "test/modules/Test.GlobalizationGatesProduct.Tests.ps1": "71CF88E7C08F104D9EBC1A869EFD1C6A178431D783B9418F0290BE1ED0C8C919"
-      }
-    },
-    {
-      "registeredUtc": "2026-10-24T19:40:43.797221Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.NasCredential.Tests.ps1",
-        "test/modules/Test.RunnerSelfRescue.Tests.ps1",
-        "test/modules/Test.SecretRedaction.Tests.ps1",
-        "test/modules/Test.ServiceVmIntegrity.Tests.ps1",
-        "test/modules/Test.VMStorageReference.Tests.ps1"
-      ],
-      "tests": 80,
-      "sourceSha256": {
-        "test/modules/Test.NasCredential.Tests.ps1": "B52CA4F09A0A009785F225FF2F04A55C18F5D5312C7B956607C7ECCFD7180ACE",
-        "test/modules/Test.RunnerSelfRescue.Tests.ps1": "5136FF738A73CFB4948CAB589885DA3FA4933027AE355DECE1A33290EC230DEF",
-        "test/modules/Test.SecretRedaction.Tests.ps1": "E2125E4664EC1ADA19A8A635404F018A7BDC23B6F745647CB36DAE15AF06F5A5",
-        "test/modules/Test.ServiceVmIntegrity.Tests.ps1": "D97AC89ABA0ECBF6724A35568C1E67F2FCFF1BB6DA5CBE3EBE74C2526D2B408F",
-        "test/modules/Test.VMStorageReference.Tests.ps1": "E63B122EF46DC57E19374760B7B86023BC7FFE93242AF7C5AA2E41BB0543ACB1"
-      }
-    },
-    {
-      "registeredUtc": "2026-10-25T23:01:45.5785296Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.MobileSourceRules.Tests.ps1"
-      ],
-      "tests": 27,
-      "sourceSha256": {
-        "test/modules/Test.MobileSourceRules.Tests.ps1": "E89805517465F9896EF2578A959820346FCDF2714E51F4120E5E7FDB627556BC"
-      }
-    },
-    {
-      "registeredUtc": "2026-10-26T01:38:56.8285691Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.OcrKnownAnswer.Tests.ps1",
-        "test/modules/Test.RecoveryProbe.Tests.ps1",
-        "test/modules/Test.SymbolReference.Tests.ps1",
-        "test/modules/Test.TestPrograms.Tests.ps1"
-      ],
-      "tests": 38,
-      "sourceSha256": {
-        "test/modules/Test.OcrKnownAnswer.Tests.ps1": "3D7791CA715F08DE45D836E8AF65A3EC3C69E1EBABB3D537386FB59F606144E8",
-        "test/modules/Test.RecoveryProbe.Tests.ps1": "D719D86E9EC0FB19441EC677EEC574649C4D75D6D88D7EEECD6D5D0DE4B77EAE",
-        "test/modules/Test.SymbolReference.Tests.ps1": "8F763C6A3946009A52639A2219D02B5E211E57C8A7D46256EFD177ED473EE62C",
-        "test/modules/Test.TestPrograms.Tests.ps1": "C299CB33C4E3F9FA86A3BB84A8008C4BE4B25DB8200A98C1CC90891EFAA1F90B"
-      }
-    },
-    {
-      "registeredUtc": "2026-10-27T00:33:52.6995015Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.A11yGateProfiles.Tests.ps1",
-        "test/modules/Test.ConfigWriteSerialization.Tests.ps1",
-        "test/modules/Test.DeployPhaseLedger.Tests.ps1",
-        "test/modules/Test.FaultInjection.Tests.ps1",
-        "test/modules/Test.FrameworkRing.Tests.ps1",
-        "test/modules/Test.GuestCredentialSeed.Tests.ps1",
-        "test/modules/Test.GuestInstallerPins.Tests.ps1",
-        "test/modules/Test.HostConditionVerdict.Tests.ps1",
-        "test/modules/Test.HyperVThumbnailCapture.Tests.ps1",
-        "test/modules/Test.OrchestratorWarmResume.Tests.ps1",
-        "test/modules/Test.PerfPhase.Tests.ps1",
-        "test/modules/Test.RunnerEntryPointContract.Tests.ps1",
-        "test/modules/Test.ServiceVmBuildPlan.Tests.ps1",
-        "test/modules/Test.SuiteRunnerBaselineRow.Tests.ps1",
-        "test/modules/Test.SuiteRunnerContainment.Tests.ps1",
-        "test/modules/Test.SuiteRunnerDiscovery.Tests.ps1",
-        "test/modules/Test.SuiteRunnerVerdict.Tests.ps1",
-        "test/modules/Test.ToolCallDeadline.Tests.ps1"
-      ],
-      "tests": 357,
-      "sourceSha256": {
-        "test/modules/Test.A11yGateProfiles.Tests.ps1": "04A6036136CF93D2AE5E49EF510D9474E1AD8D91F55C2EC862E5EF8A6617CF41",
-        "test/modules/Test.ConfigWriteSerialization.Tests.ps1": "0F2E32716769F4998B5C1880D9145E3476CA48E1F85494104B0335E0C523A31C",
-        "test/modules/Test.DeployPhaseLedger.Tests.ps1": "0C4BE09ADD27C4F25D3DAFCE95FB0D37BFAD415B753B0FE601D1EF9040EE10BA",
-        "test/modules/Test.FaultInjection.Tests.ps1": "D21E5D032954901EAFB9F562031872DDB04C77AE5A034377E868A8BF6A6A564B",
-        "test/modules/Test.FrameworkRing.Tests.ps1": "185035A472D22AC9188C5B363512F471DF3AE7D14A906AB89078EEFFFC70AB40",
-        "test/modules/Test.GuestCredentialSeed.Tests.ps1": "695E552915DAE7C517EAAC9D8037554935ED8B5ADDC8DDC726F9949174C6A206",
-        "test/modules/Test.GuestInstallerPins.Tests.ps1": "24C29D3FB77C9238DB56FD98B78D8C4B98E1C81B1FE5E5D927535B29F213D4D5",
-        "test/modules/Test.HostConditionVerdict.Tests.ps1": "19ED81E2DF7C51D9662A71F5F36B24AFA80CFD6B9B4F97D09711B131DDB64D81",
-        "test/modules/Test.HyperVThumbnailCapture.Tests.ps1": "40F206BB996AAC6FB4B7E175A4681BB314547CA3F05F6033988778A7FAE5BD64",
-        "test/modules/Test.OrchestratorWarmResume.Tests.ps1": "5875B3F5C1E20B255D2C02338EA9893B7BF512021BEDF57A95ACFCE5E26A5DA9",
-        "test/modules/Test.PerfPhase.Tests.ps1": "3813ECC24BC65A995034D8FCED7F2544D034BF33A5C4BC76548B09B31D0D5697",
-        "test/modules/Test.RunnerEntryPointContract.Tests.ps1": "EA1CAA90E86576FF42723B2E0316712B3E34833649FB6959FAA8E2DA990FFAFD",
-        "test/modules/Test.ServiceVmBuildPlan.Tests.ps1": "2142BC3D32F08AA342B652F88AF5A602BC4765452D94BC55C36ADBC8C2A432B3",
-        "test/modules/Test.SuiteRunnerBaselineRow.Tests.ps1": "6E96D16134651C2B71054039E864E175A90A80566E30029DB98E935D673656FC",
-        "test/modules/Test.SuiteRunnerContainment.Tests.ps1": "8B6E91F2A995F01D29D0E7E01841569B4556AE2C324FE0F3C671D638AABDB5BF",
-        "test/modules/Test.SuiteRunnerDiscovery.Tests.ps1": "7DA408A8B41B9A3731C8DA8CE6FF66F8B961164749DED6DB37CC2F8A0D7BAB23",
-        "test/modules/Test.SuiteRunnerVerdict.Tests.ps1": "295FFFB8281C124DC581F61564B8054F7C551573545EF6933180F1000CDCC4F6",
-        "test/modules/Test.ToolCallDeadline.Tests.ps1": "B143BC9F808F4DA79A93187257BDFD8B7B5A0C503D69CD591923FC768D1D9D6F"
-      }
-    },
-    {
-      "registeredUtc": "2026-10-27T03:40:32.9019871Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.DriverSource.Tests.ps1"
-      ],
-      "tests": 9,
-      "sourceSha256": {
-        "test/modules/Test.DriverSource.Tests.ps1": "2322E6BE7E69DB2FC9A34EB8033C526E95580666C9D9A3F0BFDEBE5068CBE71D"
-      }
-    },
-    {
-      "registeredUtc": "2026-10-27T18:03:59.5283125Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.CachingProxyGalleryPackage.Tests.ps1"
-      ],
-      "tests": 10,
-      "sourceSha256": {
-        "test/modules/Test.CachingProxyGalleryPackage.Tests.ps1": "1A08877DE32C71BE40C111E5FCF6D7B6B6B8FC4AABDB80190A65057D92CFCABB"
-      }
-    },
-    {
-      "registeredUtc": "2026-10-28T12:53:33.845681Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.GuestKernelFault.Tests.ps1"
-      ],
-      "tests": 15,
-      "sourceSha256": {
-        "test/modules/Test.GuestKernelFault.Tests.ps1": "1468783332BC5047A9D472D087AB5BB34017EF2D6CE0BA6D20B5BF6AF4F56B46"
-      }
-    },
-    {
-      "registeredUtc": "2026-10-28T20:43:12.8537172Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.GuestSshHostKeys.Tests.ps1"
-      ],
-      "tests": 5,
-      "sourceSha256": {
-        "test/modules/Test.GuestSshHostKeys.Tests.ps1": "CD3C638D9427CC6AA73C0A6359B7EE96804E7717BD29EB3798E2644BB43D13BB"
-      }
-    },
-    {
-      "registeredUtc": "2026-10-30T21:04:10.6100014Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.ExtensionServiceStart.Tests.ps1"
-      ],
-      "tests": 24,
-      "sourceSha256": {
-        "test/modules/Test.ExtensionServiceStart.Tests.ps1": "0261874E97EE7A57D0E44C586575FD6BD181BE4DF63CF605BCF4E03F06703904"
-      }
-    },
-    {
-      "registeredUtc": "2026-11-02T16:36:49.0083178Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.SilentCatchRule.Tests.ps1"
-      ],
-      "tests": 15,
-      "sourceSha256": {
-        "test/modules/Test.SilentCatchRule.Tests.ps1": "795E6F78DCEB55222FEFB722F14D121F01F4E062FDB6C4D82EAA499E401E908A"
-      }
-    },
-    {
-      "registeredUtc": "2026-11-03T05:28:37.5405274Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.DeepDiagnostics.Tests.ps1",
-        "test/modules/Test.FetchExecuteNestedPrune.Tests.ps1",
-        "test/modules/Test.LogPendingEvent.Tests.ps1",
-        "test/modules/Test.NetconsoleReceiver.Tests.ps1",
-        "test/modules/Test.RecoveryHostRestart.Tests.ps1",
-        "test/modules/Test.RunnerAttemptHistory.Tests.ps1",
-        "test/modules/Test.RunnerOuterLoopFaultEvent.Tests.ps1",
-        "test/modules/Test.SystemDiagnosticLinuxEvidence.Tests.ps1",
-        "test/modules/Test.UtmSerialConsole.Tests.ps1"
-      ],
-      "tests": 196,
-      "sourceSha256": {
-        "test/modules/Test.DeepDiagnostics.Tests.ps1": "8005ADC102568F26575BD70569F8C7BE1D80A52051712B34B27B4764A8155EA2",
-        "test/modules/Test.FetchExecuteNestedPrune.Tests.ps1": "9DEAE41853F328F152E77A750D24CC613B5A5178D2DCEC61DAEAFD26EBBDE741",
-        "test/modules/Test.LogPendingEvent.Tests.ps1": "0429CCA5388A33CB8BC159584600F158272E60D811702852CE801C495B82E06D",
-        "test/modules/Test.NetconsoleReceiver.Tests.ps1": "6EAF035FEA34328C431B9C5B8CF9D20B3F3C31105D6384518EF661180793BFFB",
-        "test/modules/Test.RecoveryHostRestart.Tests.ps1": "276ACFF57273309F661036066B25DD9435C332AEF6157E10F9602ECDBE87EE91",
-        "test/modules/Test.RunnerAttemptHistory.Tests.ps1": "44CDFA34BC906225724E68E0BEBEC5AF6368DAEA352AC1CED2B9B0E2CA831F81",
-        "test/modules/Test.RunnerOuterLoopFaultEvent.Tests.ps1": "FCE6E1E49CD2DD84FBB27EA57584E753BBA5D188959E58B52A6FD4556DB7F137",
-        "test/modules/Test.SystemDiagnosticLinuxEvidence.Tests.ps1": "E5C81DD59B70E00E79644ECD82166E27BF0370AD26F4C556A287962D29921C57",
-        "test/modules/Test.UtmSerialConsole.Tests.ps1": "6B779385DFEE7F199FE1058CE67A2A86CCD86B8F4E17ACA93E0FBDC0F09DEEC6"
-      }
-    },
-    {
-      "registeredUtc": "2026-11-04T06:00:55.2837518Z",
-      "pesterVersion": "6.2.0",
-      "suites": [
-        "test/modules/Test.SystemDiagnosticCommitCharge.Tests.ps1"
-      ],
-      "tests": 4,
-      "sourceSha256": {
-        "test/modules/Test.SystemDiagnosticCommitCharge.Tests.ps1": "6A7346036DD2871813EDEA4EA861C8CE7322D8F4D9FE60C9102E639F5027FED1"
-      }
-    }
-  ]
+  }
 }

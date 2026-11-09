@@ -17,12 +17,14 @@ import (
 )
 
 // The HELP line of yuruna_pool_members_healthy names every state the gate
-// counts healthy, and the gauge beside it counts a stopped runner the way the
-// line says.
+// counts healthy, and the gauge beside it counts a stopped runner, and one lost
+// mid-cycle, the way the line says.
 func TestMembersHealthyHelpNamesEveryCountedState(t *testing.T) {
 	const hid = "42cafe0000000000000000000000c0de"
+	const lostID = "42cafe0000000000000000000000c0df"
 	s := newPoolState("default", 8080)
 	s.view().Hosts[hid] = &hostView{HostId: hid, Reachable: true, RunnerStopped: true, LastSeenUnixMs: time.Now().UnixMilli()}
+	s.view().Hosts[lostID] = &hostView{HostId: lostID, Reachable: true, RunnerStopped: true, RunnerLostMidCycle: true, LastSeenUnixMs: time.Now().UnixMilli()}
 	s.st.Do(func(view *poolstate.View) { s.evaluatePoolGate(view, time.Now()) })
 	rec := httptest.NewRecorder()
 	s.handleMetricsBody(rec)
@@ -35,13 +37,13 @@ func TestMembersHealthyHelpNamesEveryCountedState(t *testing.T) {
 	if help == "" {
 		t.Fatalf("no HELP line for yuruna_pool_members_healthy in:\n%s", rec.Body.String())
 	}
-	for _, state := range []string{"running", "pass", "idle", "stopped", "pending a pause", "not in an incident"} {
+	for _, state := range []string{"running", "pass", "idle", "stopped", "lost", "pending a pause", "not in an incident"} {
 		if !strings.Contains(help, state) {
 			t.Fatalf("the HELP text omits %q, a state the gate counts healthy: %s", state, help)
 		}
 	}
-	if !strings.Contains(rec.Body.String(), "yuruna_pool_members_healthy{pool=\"default\"} 1\n") {
-		t.Fatalf("a stopped runner was not counted healthy:\n%s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "yuruna_pool_members_healthy{pool=\"default\"} 2\n") {
+		t.Fatalf("a stopped or lost runner was not counted healthy:\n%s", rec.Body.String())
 	}
 }
 

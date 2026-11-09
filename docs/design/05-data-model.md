@@ -199,8 +199,8 @@ Components read `resources.output.yml` from the selected configuration when it
 exists. Workloads first try the same location, then
 `config/<config_subfolder>/../resources.output.yml` when the selected file is
 absent. [Cleanup](../../automation/Yuruna.Clear.psm1) takes the resources to
-destroy from the `resources.output.yml` keys other than `globalVariables` and from
-the resource work folders, restoring a `<name>.old` folder left by an interrupted
+destroy from the `resources.output.yml` keys other than `globalVariables`,
+restoring a `<name>.old` folder left by an interrupted
 swap; it does not infer ownership from a successful component build. It validates
 `resources.yml` but only warns on failure, and exports the output globals without
 expansion. It destroys each listed resource
@@ -393,6 +393,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 [Architecture](../architecture.md) | [Design overview](README.md)

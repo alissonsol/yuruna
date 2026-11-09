@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1365,16 +1365,224 @@ function Install-WingetPackage {
     }
 }
 
+# --- REGION: winget package versions
+# The installed version of one package and, when winget has a newer one, the
+# version it would upgrade to, read from its `winget list` row. The table's
+# headers follow the display language, so the row is read by its tokens: the
+# package id, the installed version, the available version when there is one,
+# then the source. A row that cannot be found reads as $null: unknown, not current.
+function ConvertFrom-WingetListRow {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [AllowNull()][AllowEmptyCollection()][string[]]$Line,
+        [Parameter(Mandatory)][string]$Id
+    )
+    foreach ($text in @($Line)) {
+        $tokens = @(([string]$text).Trim() -split '\s+' | Where-Object { $_ })
+        $at = -1
+        for ($i = 0; $i -lt $tokens.Count; $i++) {
+            if ($tokens[$i] -ieq $Id) { $at = $i; break }
+        }
+        if ($at -lt 0) { continue }
+        $rest = New-Object System.Collections.Generic.List[string]
+        $i = $at + 1
+        while ($i -lt $tokens.Count) {
+            # winget writes '< 2.1' for a version it can only bound.
+            if (($tokens[$i] -eq '<' -or $tokens[$i] -eq '>') -and ($i + 1) -lt $tokens.Count) {
+                $rest.Add($tokens[$i] + ' ' + $tokens[$i + 1])
+                $i += 2
+                continue
+            }
+            $rest.Add($tokens[$i])
+            $i++
+        }
+        if ($rest.Count -gt 0 -and $rest[$rest.Count - 1] -ieq 'winget') { $rest.RemoveAt($rest.Count - 1) }
+        if ($rest.Count -eq 0) { continue }
+        $available = $null
+        if ($rest.Count -ge 2) { $available = $rest[1] }
+        return [pscustomobject]@{ Installed = $rest[0]; Available = $available }
+    }
+    return $null
+}
+
+function Get-WingetPackageVersion {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$Id)
+    $listed = @(winget list --id $Id --exact --source winget --accept-source-agreements 2>$null | ForEach-Object { "$_" })
+    return (ConvertFrom-WingetListRow -Line $listed -Id $Id)
+}
+
+# --- REGION: PowerShell upgrade after this run
+# winget's PowerShell MSI closes every process holding pwsh's files, so a run
+# under pwsh cannot upgrade the interpreter it is executing in. When winget
+# offers a newer PowerShell, the run hands the upgrade to a Windows PowerShell
+# process that waits for this one to exit, runs the winget upgrade, writes its
+# outcome to a log beside the install log, and then opens the handoff window,
+# which would otherwise be closed by the same MSI.
+# See https://yuruna.link/429fb30b-001b
+function Get-PwshUpgradePlan {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$Edition,
+        [AllowNull()]$Listed
+    )
+    # Windows PowerShell upgrades pwsh itself in the bootstrap stage.
+    if ($Edition -ne 'Core' -or $null -eq $Listed -or -not $Listed.Available) { return $null }
+    return [pscustomobject]@{ From = [string]$Listed.Installed; To = [string]$Listed.Available }
+}
+
+function New-PwshUpgradeHelperScript {
+    <#
+    .SYNOPSIS
+        The Windows PowerShell script that runs the PowerShell upgrade once the installer has exited.
+    .DESCRIPTION
+        Pure; returns the script text. It runs under powershell.exe, so it uses
+        nothing PowerShell 5.1 lacks. It waits at most WaitSeconds for the
+        installer's process, and writes a line that starts with 'RESULT:' last,
+        which the next run of the installer reads back.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds a script string; changes nothing.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][int]$InstallerProcessId,
+        [Parameter(Mandatory)][string]$UpgradeLogPath,
+        [Parameter(Mandatory)][string]$From,
+        [Parameter(Mandatory)][string]$To,
+        [AllowEmptyString()][string]$HandoffCommand = '',
+        [AllowEmptyString()][string]$HelperDirectory = '',
+        [ValidateRange(1, 86400)][int]$WaitSeconds = 7200,
+        # The pwsh the upgrade leaves behind, found by name after the upgrade.
+        [ValidateNotNullOrEmpty()][string]$PwshName = 'pwsh'
+    )
+    $quote = { param($value) "'" + ([string]$value).Replace("'", "''") + "'" }
+    $head = @(
+        "`$log = $(& $quote $UpgradeLogPath)"
+        "`$from = $(& $quote $From)"
+        "`$to = $(& $quote $To)"
+        "`$installer = $InstallerProcessId"
+        "`$waitMs = $([int64]$WaitSeconds * 1000)"
+        "`$handoff = $(& $quote $HandoffCommand)"
+        "`$helperDir = $(& $quote $HelperDirectory)"
+        "`$pwshName = $(& $quote $PwshName)"
+    ) -join "`r`n"
+    $body = @'
+$ErrorActionPreference = 'Continue'
+function Write-UpgradeLog {
+    param([string]$Message)
+    Add-Content -LiteralPath $log -Value ((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') + ' ' + $Message) -ErrorAction SilentlyContinue
+}
+Write-UpgradeLog ('PowerShell ' + $from + ' -> ' + $to + ': waiting for the installer (process ' + $installer + ') to exit')
+$process = Get-Process -Id $installer -ErrorAction SilentlyContinue
+if ($process -and -not $process.WaitForExit($waitMs)) {
+    Write-UpgradeLog ('RESULT: not run -- the installer was still running after ' + ($waitMs / 60000) + ' minutes; upgrade from Windows PowerShell with: winget upgrade --id Microsoft.PowerShell')
+    exit 1
+}
+Write-UpgradeLog 'running: winget upgrade --id Microsoft.PowerShell --exact --silent --source winget'
+$output = & winget upgrade --id 'Microsoft.PowerShell' --exact --silent --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1
+$code = $LASTEXITCODE
+foreach ($line in @($output)) {
+    $text = ([string]$line).Trim()
+    if ($text) { Write-UpgradeLog ('  ' + $text) }
+}
+$machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+if ($machinePath) { $env:Path = $machinePath + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') }
+$pwsh = Get-Command $pwshName -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+$now = ''
+if ($pwsh) { $now = [string](& $pwsh.Source -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>$null | Select-Object -First 1) }
+if (-not $now) { $now = 'unknown' }
+# -1978335189 is winget's "no applicable upgrade".
+if ($code -eq 0) { $verdict = 'upgraded' } elseif ($code -eq -1978335189) { $verdict = 'no applicable upgrade' } else { $verdict = 'failed' }
+Write-UpgradeLog ('RESULT: ' + $verdict + ' (winget exit ' + $code + '); pwsh is now ' + $now)
+if ($handoff) {
+    if ($pwsh) {
+        try { Start-Process -FilePath $pwsh.Source -ArgumentList @('-NoExit', '-NoLogo', '-EncodedCommand', $handoff) | Out-Null }
+        catch { Write-UpgradeLog ('could not open the pwsh window for the next steps: ' + $_.Exception.Message) }
+    } else {
+        Write-UpgradeLog 'could not open the pwsh window for the next steps: pwsh is not on PATH'
+    }
+}
+if ($helperDir) { Remove-Item -LiteralPath $helperDir -Recurse -Force -ErrorAction SilentlyContinue }
+'@
+    return ($head + "`r`n" + ($body -replace "`r?`n", "`r`n"))
+}
+
+function Start-PwshUpgradeAfterExit {
+    <#
+    .SYNOPSIS
+        Write the upgrade script into a new folder only Administrators and SYSTEM can write, and start it hidden under Windows PowerShell.
+    .DESCRIPTION
+        The script runs elevated, so it never sits in a folder this account
+        could write unelevated, for the reason the elevated stage itself runs
+        from such a folder. Any failure is thrown for the caller to report.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Runs only from the installer, which already acts without confirmation.')]
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)]$Plan,
+        [Parameter(Mandatory)][string]$UpgradeLogPath,
+        [AllowEmptyString()][string]$HandoffCommand = ''
+    )
+    $dir = Join-Path $env:ProgramData ('yuruna\pwsh-upgrade-' + [guid]::NewGuid().ToString('N'))
+    $security = New-Object System.Security.AccessControl.DirectorySecurity
+    $security.SetAccessRuleProtection($true, $false)
+    foreach ($sid in @('S-1-5-32-544', 'S-1-5-18')) {
+        $security.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule((New-Object System.Security.Principal.SecurityIdentifier $sid), 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))
+    }
+    [void][System.IO.FileSystemAclExtensions]::CreateDirectory($security, $dir)
+    $helper = Join-Path $dir 'upgrade-powershell.ps1'
+    $text = New-PwshUpgradeHelperScript -InstallerProcessId $PID -UpgradeLogPath $UpgradeLogPath -From $Plan.From -To $Plan.To `
+        -HandoffCommand $HandoffCommand -HelperDirectory $dir
+    [IO.File]::WriteAllText($helper, $text, [Text.Encoding]::ASCII)
+    $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    Start-Process -FilePath $shell -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$helper`"") | Out-Null
+}
+
+# The RESULT line of the newest upgrade log an earlier run left in this folder.
+function Get-LastPwshUpgradeResult {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([AllowEmptyString()][string]$LogDirectory)
+    if (-not $LogDirectory -or -not (Test-Path -LiteralPath $LogDirectory -PathType Container)) { return $null }
+    $newest = Get-ChildItem -LiteralPath $LogDirectory -Filter '*.pwsh-upgrade.log' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    if (-not $newest) { return $null }
+    $result = @(Get-Content -LiteralPath $newest.FullName -ErrorAction SilentlyContinue | Where-Object { "$_" -match '\sRESULT: ' }) | Select-Object -Last 1
+    # Each line starts with its UTC time.
+    if ($result) { $result = "$result" -replace '^\S+\s+', '' } else { $result = 'no RESULT line: the upgrade did not finish, or is still running' }
+    return [pscustomobject]@{ Path = $newest.FullName; Result = $result }
+}
+
 # --- REGION: Install platform packages
 Write-Step 'Installing / upgrading required packages via winget'
 # Do not winget-upgrade the PowerShell 7 running this script: winget's MSI closes every process
 # holding pwsh's files, including this one, and the install dies mid-step. The bootstrap stage
-# above runs under Windows PowerShell and can replace pwsh safely. See https://yuruna.link/429fb30b-001b
+# above runs under Windows PowerShell and can replace pwsh safely; a run under pwsh leaves the
+# upgrade to a Windows PowerShell process that starts once it exits. See https://yuruna.link/429fb30b-001b
+$script:PwshUpgrade = $null
+$script:HandoffCommand = ''
 if ($PSVersionTable.PSEdition -eq 'Core') {
-    # Not an error, but not nothing either: this run cannot raise the
-    # interpreter it is executing in, so if that interpreter is below the floor
-    # the version check at the end is the only thing that will say so.
-    Write-Step "  PowerShell 7 is the running interpreter ($($PSVersionTable.PSVersion)) -- skipping its winget upgrade (would terminate this installer). Update it later from Windows PowerShell or a separate window: winget upgrade --id Microsoft.PowerShell"
+    $earlierUpgrade = Get-LastPwshUpgradeResult -LogDirectory (Split-Path -Parent $LogPath)
+    if ($earlierUpgrade) {
+        Write-Step "  the PowerShell upgrade an earlier run left: $($earlierUpgrade.Result) (log: $($earlierUpgrade.Path))"
+    }
+    $pwshListed = $null
+    try { $pwshListed = Get-WingetPackageVersion -Id 'Microsoft.PowerShell' } catch { $pwshListed = $null }
+    $script:PwshUpgrade = Get-PwshUpgradePlan -Edition $PSVersionTable.PSEdition -Listed $pwshListed
+    if ($script:PwshUpgrade) {
+        Write-Step "  PowerShell 7 is the running interpreter ($($PSVersionTable.PSVersion)); winget offers $($script:PwshUpgrade.To) -- the upgrade runs in a separate Windows PowerShell process once this installer exits (upgrading now would terminate it)"
+    } elseif ($pwshListed) {
+        Write-Step "  PowerShell 7 is the running interpreter ($($PSVersionTable.PSVersion)), the newest winget offers"
+    } else {
+        # The version check at the end still says whether it meets the floor.
+        Write-Step "  PowerShell 7 is the running interpreter ($($PSVersionTable.PSVersion)); winget did not report its package, so no upgrade is scheduled. Update it from Windows PowerShell: winget upgrade --id Microsoft.PowerShell"
+    }
 } else {
     Install-WingetPackage -Id 'Microsoft.PowerShell'          -FriendlyName 'PowerShell 7' -Scope machine
 }
@@ -1511,20 +1719,42 @@ function Install-YurunaPinnedGalleryModule {
     }
 }
 
-Write-Step 'Installing required PowerShell modules'
-if (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue) {
-    Write-Step '  powershell-yaml already installed'
-} else {
+# A copy older than the pin is raised to it. The pin installs beside the older
+# copy, and Import-Module by name loads the highest version, so the pin is the
+# one every runner loads.
+function Install-YurunaYamlModule {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Runs only from the installer, which already acts without confirmation.')]
+    [CmdletBinding()]
+    [OutputType([void])]
+    param()
     $yamlVersion = $script:YurunaGalleryModulePin['powershell-yaml'].Version
-    Write-Step "  installing powershell-yaml $yamlVersion (CurrentUser scope)"
+    $installed = Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue |
+        Sort-Object Version -Descending | Select-Object -First 1
+    if ($installed -and $installed.Version -ge [version]$yamlVersion) {
+        Write-Step "  powershell-yaml $($installed.Version) already installed"
+        return
+    }
+    if ($installed) {
+        Write-Step "  powershell-yaml $($installed.Version) is older than the pinned $yamlVersion -- installing $yamlVersion (CurrentUser scope)"
+    } else {
+        Write-Step "  installing powershell-yaml $yamlVersion (CurrentUser scope)"
+    }
     try {
         Install-YurunaPinnedGalleryModule -Name 'powershell-yaml'
     } catch {
-        Add-InstallIssue "Installing powershell-yaml $yamlVersion failed: $($_.Exception.Message)"
-        Write-Warn "  Invoke-TestProject.ps1 will refuse to run until this is fixed."
+        if ($installed) {
+            Add-InstallIssue "Installing powershell-yaml $yamlVersion failed, so the older $($installed.Version) stays in use: $($_.Exception.Message)"
+        } else {
+            Add-InstallIssue "Installing powershell-yaml $yamlVersion failed: $($_.Exception.Message)"
+            Write-Warn "  Invoke-TestProject.ps1 will refuse to run until this is fixed."
+        }
         Write-Warn "  Try manually: Install-Module powershell-yaml -RequiredVersion $yamlVersion -Scope CurrentUser"
     }
 }
+
+Write-Step 'Installing required PowerShell modules'
+Install-YurunaYamlModule
 
 # --- REGION: Hyper-V feature
 # See https://yuruna.link/429fb30b-001d and https://yuruna.link/429fb30b-001e
@@ -2111,7 +2341,14 @@ $script:InstallSucceeded = $true
 
         $shellOpened = $false
         $pwshCmd3 = Get-Command pwsh -ErrorAction SilentlyContinue
-        if ($pwshCmd3) {
+        if ($script:PwshUpgrade) {
+            # The PowerShell upgrade that starts once this run exits closes every
+            # pwsh, so a window opened now would close under the operator; the
+            # upgrade opens it when it is done.
+            $script:HandoffCommand = $encoded
+            Write-Step ('  the pwsh window at ' + $testDirFinal + ' opens once the PowerShell upgrade after this run finishes')
+            $shellOpened = $true
+        } elseif ($pwshCmd3) {
             Write-Step ('  opening a new pwsh window at ' + $testDirFinal)
             try {
                 Start-Process -FilePath $pwshCmd3.Source -ArgumentList @(
@@ -2248,8 +2485,102 @@ if (Test-Path -LiteralPath $requirementScript) {
     }
 }
 
+# --- REGION: Newer versions available
+# Advisory: what each source this installer uses still offers above what is
+# installed after the upgrades above, and why this run did not take it. It
+# never adds an issue, and a lookup that cannot answer reads as unknown, not
+# current. See https://yuruna.link/429fb30b-0002
+function Format-NewerVersionReport {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([AllowNull()][AllowEmptyCollection()][object[]]$Entry)
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add('Newer versions available')
+    foreach ($item in @($Entry)) {
+        if ($null -eq $item) { continue }
+        if ($item.Unknown) {
+            $lines.Add("  $($item.Name): unknown ($($item.Note))")
+        } elseif ($item.Available) {
+            $text = "  $($item.Name): $($item.Installed) -> $($item.Available)"
+            if ($item.Note) { $text += " ($($item.Note))" }
+            $lines.Add($text)
+        }
+    }
+    if ($lines.Count -eq 1) { $lines.Add('  none: every tool this installer manages is at the newest version its source offers') }
+    return $lines.ToArray()
+}
+
+# The pinned version a pin table in another script names (tools\Install-TestModule.ps1
+# keeps the test modules' pins), read from its source without running it.
+function Get-YurunaModulePinVersion {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Name)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    $tokens = $null; $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors)
+    $table = $ast.Find({
+            param($node)
+            $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$script:YurunaGalleryModulePin'
+        }, $true)
+    if (-not $table) { return $null }
+    $hash = $table.Right.Find({ param($node) $node -is [Management.Automation.Language.HashtableAst] }, $true)
+    if (-not $hash) { return $null }
+    try { $value = $hash.SafeGetValue() } catch { return $null }
+    if ($value -and $value[$Name] -and $value[$Name]['Version']) { return [string]$value[$Name]['Version'] }
+    return $null
+}
+
+# The packages Install-WingetPackage keeps current above, plus PowerShell.
+$script:YurunaWingetReportPackage = @(
+    @{ Id = 'Microsoft.PowerShell'; Name = 'PowerShell 7' }
+    @{ Id = 'Git.Git'; Name = 'Git' }
+    @{ Id = 'Microsoft.WindowsADK'; Name = 'Windows ADK' }
+    @{ Id = 'SoftwareFreedomConservancy.QEMU'; Name = 'QEMU' }
+    @{ Id = 'UB-Mannheim.TesseractOCR'; Name = 'Tesseract OCR' }
+    @{ Id = 'Prometheus.WindowsExporter'; Name = 'windows_exporter' }
+    @{ Id = 'GitHub.cli'; Name = 'GitHub CLI' }
+)
+
+if ($script:InstallSucceeded) {
+    $newer = New-Object System.Collections.Generic.List[object]
+    foreach ($package in $script:YurunaWingetReportPackage) {
+        $row = $null
+        try { $row = Get-WingetPackageVersion -Id $package.Id } catch { $row = $null }
+        if (-not $row) {
+            $newer.Add([pscustomobject]@{ Name = $package.Name; Unknown = $true; Note = 'winget list did not report it' })
+            continue
+        }
+        $note = $null
+        if ($row.Available) {
+            if ($package.Id -eq 'Microsoft.PowerShell' -and $script:PwshUpgrade) { $note = 'upgrade runs once this installer exits' }
+            elseif ($package.Id -eq 'Microsoft.PowerShell') { $note = 'this run cannot replace the PowerShell it runs in' }
+            else { $note = 'winget did not upgrade it in this run' }
+        }
+        $newer.Add([pscustomobject]@{ Name = $package.Name; Installed = $row.Installed; Available = $row.Available; Note = $note })
+    }
+    $modulePins = @(
+        @{ Name = 'powershell-yaml'; Pin = $script:YurunaGalleryModulePin['powershell-yaml'].Version }
+        @{ Name = 'PSScriptAnalyzer'; Pin = (Get-YurunaModulePinVersion -Path (Join-Path $YurunaDir 'tools/Install-TestModule.ps1') -Name 'PSScriptAnalyzer') }
+    )
+    foreach ($module in $modulePins) {
+        if (-not $module.Pin) {
+            $newer.Add([pscustomobject]@{ Name = $module.Name; Unknown = $true; Note = 'its pinned version could not be read' })
+            continue
+        }
+        $have = Get-Module -ListAvailable -Name $module.Name -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
+        if (-not $have) {
+            $newer.Add([pscustomobject]@{ Name = $module.Name; Installed = 'not installed'; Available = $module.Pin; Note = 'the pinned install did not complete in this run' })
+        } elseif ($have.Version -lt [version]$module.Pin) {
+            $newer.Add([pscustomobject]@{ Name = $module.Name; Installed = [string]$have.Version; Available = $module.Pin; Note = 'the pinned install did not complete in this run' })
+        }
+    }
+    foreach ($line in (Format-NewerVersionReport -Entry $newer.ToArray())) { Write-Step $line }
+}
+
 # --- REGION: Installation summary
-# The last thing printed before the transcript closes. Every verdict is gated on the
+# The last thing printed before the transcript closes, but for the notice of a
+# PowerShell upgrade that starts after the run. Every verdict is gated on the
 # run's outcome, not on the issue count alone: a caught failure or a pending Hyper-V
 # activation must not read as "usable".
 # See https://yuruna.link/4213a0b3-01b9
@@ -2273,6 +2604,29 @@ if ($script:YurunaIssue.Count -gt 0) {
 } elseif ($installComplete) {
     Write-Output ''
     Write-Output 'Install finished with no issues.'
+}
+
+# --- REGION: Start the PowerShell upgrade after this run
+# See https://yuruna.link/429fb30b-001b
+if ($script:PwshUpgrade) {
+    $upgradeLog = [IO.Path]::ChangeExtension($LogPath, $null).TrimEnd('.') + '.pwsh-upgrade.log'
+    Write-Output ''
+    try {
+        Start-PwshUpgradeAfterExit -Plan $script:PwshUpgrade -UpgradeLogPath $upgradeLog -HandoffCommand $script:HandoffCommand
+        Write-Output ("PowerShell $($script:PwshUpgrade.From) -> $($script:PwshUpgrade.To): the upgrade starts once this installer exits, in a separate Windows PowerShell process.")
+        Write-Output 'It closes every pwsh window still open, so save any work in them first.'
+        if ($script:HandoffCommand) { Write-Output 'The pwsh window for the next steps opens when the upgrade is done.' }
+        Write-Output ("Upgrade log: " + $upgradeLog)
+    } catch {
+        Write-Warn ("Could not start the PowerShell upgrade after this run ($($_.Exception.Message)). Upgrade from Windows PowerShell with: winget upgrade --id Microsoft.PowerShell")
+        if ($script:HandoffCommand -and (Get-Command pwsh -ErrorAction SilentlyContinue)) {
+            try {
+                Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @('-NoExit', '-NoLogo', '-EncodedCommand', $script:HandoffCommand) | Out-Null
+            } catch {
+                Write-Warn ('  could not open a new pwsh window: ' + $_.Exception.Message)
+            }
+        }
+    }
 }
 
 # --- REGION: Clean up temporary files

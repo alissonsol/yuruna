@@ -2,11 +2,16 @@
 
 A single static binary with TWO listeners:
 
-- **TCP/22** -- the SCP/SFTP sink. Accepts any SSH authentication (section 4.3
-  pass-through) and stores every upload as a content artifact (plus an
-  on-share `.yuruna.meta.json` sidecar and a VM-local SQLite index row,
-  section 6, section 8). Serves BOTH the legacy SCP sink-mode wire protocol (section 5) and the
-  SFTP subsystem (modern scp's default, section 4.1).
+- **TCP/22** -- the SCP/SFTP sink. Accepts any SSH authentication (a
+  pass-through that keeps the username as metadata; see
+  [Listener and authentication](../../../../docs/stash-implementation-notes.md#429e934f-0003))
+  and stores every upload as a content artifact, plus an on-share
+  `.yuruna.meta.json` sidecar and a VM-local SQLite index row (see
+  [Storage layout](../../../../docs/stash-implementation-notes.md#429e934f-000a) and
+  [Metadata index](../../../../docs/stash-implementation-notes.md#429e934f-000c)).
+  Serves BOTH the legacy SCP sink-mode wire protocol and the SFTP subsystem,
+  modern scp's default (see
+  [Upload protocols](../../../../docs/stash-implementation-notes.md#429e934f-0007)).
 - **TCP/80** -- the browser **UI + JSON API**
   (docs/stash-guide.md): pool-wide
   browse/search, create (paste or upload), inline viewing, and gated
@@ -20,24 +25,23 @@ server/
 +-- go.mod / go.sum                       # module stash-service (go.sum committed)
 +-- main.go                               # flags, signals, listener loop, sidecar rebuild
 +-- internal/
-|   +-- config/config.go                  # spec section 10 constants in one place
+|   +-- config/config.go                  # the daemon's configuration constants in one place
 |   +-- fsutil/fsutil.go                  # crash-durability primitives (SyncDir, AtomicCommit) shared by store + meta
-|   +-- id/id.go                          # 4-char allocator, scans share+buffer, checks the index (section 7)
-|   +-- store/store.go                    # share/buffer layout, extension extraction, mount probe (section 6.3, section 8.4, section 13)
-|   +-- meta/meta.go                      # VM-local SQLite index + sidecars + rebuild (section 8, section 8.5)
-|   +-- scp/scp.go                        # legacy SCP sink-mode wire protocol (section 5)
-|   +-- sshsrv/{sshsrv,sftp,flush}.go     # crypto/ssh server, SFTP backend, NAS-offline flush (section 4, section 4.1, section 8.4)
-|   +-- sshsrv/ingest.go                  # UI-facing ingest (paste/upload) + local delete (ui section 5, section 8)
-|   +-- detect/                           # content-type detection: pure-Go heuristic + magika build-tag adapter (ui section 6.1)
-|   +-- yex/                              # mirrored extension SDK: beacon (section 4.7), labgate, pool
-|   +-- httpsrv/                          # UI/API HTTP server, pool-wide index, host resolution, embedded web/ (ui section 2-section 9)
+|   +-- id/id.go                          # 4-char allocator, scans share+buffer, checks the index
+|   +-- store/store.go                    # share/buffer layout, extension extraction, mount probe
+|   +-- meta/meta.go                      # VM-local SQLite index + sidecars + rebuild
+|   +-- scp/scp.go                        # legacy SCP sink-mode wire protocol
+|   +-- sshsrv/{sshsrv,sftp,flush}.go     # crypto/ssh server, SFTP backend, NAS-offline flush
+|   +-- sshsrv/ingest.go                  # UI-facing ingest (paste/upload) + local delete
+|   +-- detect/                           # content-type detection: pure-Go heuristic + magika build-tag adapter
+|   +-- httpsrv/                          # UI/API HTTP server, pool-wide index, host resolution, embedded web/
 |       +-- gate.go                       # the lab-token gate in front of DELETE
 |       +-- delete.go                     # one stash or a selection, on any host in the pool
 |       +-- reconcile.go                  # drops index rows whose share files are gone
 +-- *_test.go                             # unit tests for the pure-logic bits
 ```
 
-`ui` section references above are docs/stash-guide.md.
+[Stash implementation notes](../../../../docs/stash-implementation-notes.md) explains each of these parts.
 
 ## Build
 
@@ -88,7 +92,7 @@ and `/var/lib/stash-service` provisioning -- this section is for ad-hoc dev.
 ## Run (manual / dev)
 
 ```bash
-# 1. Disable the OS sshd so the custom server can bind :22 (section 4.2).
+# 1. Disable the OS sshd so the custom server can bind :22.
 sudo systemctl disable --now ssh
 
 # 2. Allow non-root binding of port 22 (or run the daemon as root).
@@ -161,7 +165,7 @@ Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
 `--list-default-limit` (`50`), `--aggregator-url` (empty), `--listen-addr`
 (`0.0.0.0:22`, dev override when the OS sshd holds :22), `--host-id` (empty)
 and `--presence-interval` (`2m`, `0` disables) for the presence beacon
-(section 4.7). It must stay under the aggregator's five-minute extension health
+(see "Presence beacon" below). It must stay under the aggregator's five-minute extension health
 grace: a re-announce is also how a renumbered service reports its new address.
 `--allowed-host-names` (empty) is a comma list of names the UI answers to in
 the `Host` header besides any address, this VM's host name and `localhost`; a
@@ -194,7 +198,7 @@ launch line records the gate once at startup (`grep 'delete authz'`). The bring-
 `-ldflags "-X main.version=<v>"` (shown in the UI header); ad-hoc dev builds
 show `vdev`.
 
-## Presence beacon (section 4.7)
+## Presence beacon
 
 With `--aggregator-url` + `--host-id` set (the bring-up bakes both from the
 host seed), the daemon POSTs `<aggregator>/announce` at startup, every
@@ -214,7 +218,7 @@ a peer's stash is unlinked directly on the share, and that host drops the
 now-orphaned index row on its own next reconcile pass, so reclaiming disk
 never depends on another VM being reachable. The list adds a per-row
 Delete plus a checkbox selection driving **Delete selected**, which is one
-`POST /api/stashes/delete` for the whole selection (ui section 8.5).
+`POST /api/stashes/delete` for the whole selection (see [Deleting stashes](../../../../docs/stash-implementation-notes.md#429e934f-0018)).
 
 Column sorting is served, not scripted: a header click re-requests the list
 with `sort`/`dir` rather than reordering the rows the browser holds. The page
@@ -230,41 +234,42 @@ between requests and a "Load more" would skip or repeat one.
 go test ./...
 ```
 
-Coverage focuses on the spec-driven pure-logic bits:
+Coverage focuses on the pure-logic bits:
 
-- `internal/store/` -- section 6.3 extension-extraction rules + section 13 boundaries;
-  mountinfo parsing (the cifs-nofail trap), DirSize, AtomicCopyFile (section 8.4).
+- `internal/store/` -- the stored-name extension rules and their boundaries
+  (an extension with a character outside `[A-Za-z0-9._-]` is dropped whole);
+  mountinfo parsing (the cifs-nofail trap), DirSize, AtomicCopyFile (the
+  NAS-offline flush).
 - `internal/id/id_test.go` -- per-day uniqueness, on-disk scan picks up
   pre-existing IDs incl. sidecars (restart safety), and the index check that
   keeps an ID an older day's row still owns out of a later day's draws.
-- `internal/meta/` -- sidecar write -> reimage rebuild round-trip (section 8.5);
-  buffered lifecycle (UpdateOnComplete preserves the flag, section 8.4);
+- `internal/meta/` -- sidecar write -> reimage rebuild round-trip;
+  buffered lifecycle (UpdateOnComplete preserves the flag);
   a duplicate ID is reported as such and a schema violation is not.
 - `internal/sshsrv/` -- the redraw ladder that keeps an upload alive when an
   ID is claimed between the draw and the index write, and the categorical
   reason every post-ID abort owes the client; flush worker (move+sidecar+clear+remove, offline
-  no-op, idempotent, section 8.4); SFTP ingest (store+sidecar+metadata,
-  truncation, offline buffering, section 4.1).
+  no-op, idempotent); SFTP ingest (store+sidecar+metadata,
+  truncation, offline buffering).
 - `internal/detect/` -- heuristic classification (extension/sniff/text,
-  SVG+HTML->download-only) (ui section 6.1, section 7.4).
+  SVG+HTML->download-only).
 - [`extension-sdk`](../../extension-sdk/) -- the shared SDK, resolved as a
   sibling module rather than copied in here, so its suite is the one that runs:
   `beacon` covers the hello/periodic/goodbye lifecycle, catch-up retry until the
-  first success, and the https->http downgrade only on transport errors
-  (section 4.7); `pool` is the aggregator read behind the remote-stash
-  deep-link (section 3.4).
+  first success, and the https->http downgrade only on transport errors;
+  `pool` is the aggregator read behind the remote-stash deep-link.
 - `internal/httpsrv/` -- create->list->get->raw->delete round-trip, the delete
   gate (locked/unlocked/unconfigured), cross-host delete on the share, bulk
   delete with partial failure, the reconcile predicate (including the
   offline-share case that must prune nothing), pool-wide remote-sidecar
   aggregation, html-served-as-text, multi-file archive + listing, static
-  pages (ui section 3-section 9).
+  pages.
 
 The front-end has two framework-free unit files run by hand (there is no JS
 runner in the repo -- `node internal/httpsrv/web/assets/common.test.js` and
 `node internal/httpsrv/web/assets/index.test.js`, exit 0 = pass). They cover
 the shared helpers' URL/timeout guards and the list page's selection +
-delete surface (ui section 8.5) against a minimal DOM/fetch shim.
+delete surface against a minimal DOM/fetch shim.
 
 The legacy SCP wire protocol and the live SFTP path are exercised against
 a real `scp`/`sftp` client only in the in-VM end-to-end (host `:22` is
@@ -275,9 +280,9 @@ typically taken by sshd, so a local daemon can't bind it; use
 
 - The magika detection backend is built only with `-tags magika` (the
   default is the pure-Go heuristic); ONNX Runtime + model vendoring is a
-  VM-image-build concern (ui section 6.1, section 14).
-- Cleanup / retention / aging (section 12).
-- Backup / restore beyond the durable share + sidecars (section 12).
+  VM-image-build concern.
+- Cleanup / retention / aging.
+- Backup / restore beyond the durable share + sidecars.
 
 ## Module path note
 
@@ -291,6 +296,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../../../../README.md)

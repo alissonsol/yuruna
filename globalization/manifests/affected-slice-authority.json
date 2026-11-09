@@ -530,8 +530,8 @@
     {
       "wireCode": "host_refresh.failed",
       "path": "install/windows.hyper-v.ps1",
-      "matchCount": 3,
-      "reason": "Installer outcome in install-result.json; not a host-refresh state."
+      "matchCount": 4,
+      "reason": "Installer outcome in install-result.json, and the PowerShell upgrade helper's winget verdict; not a host-refresh state."
     },
     {
       "wireCode": "host_refresh.failed",
@@ -1616,8 +1616,8 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "install/windows.hyper-v.ps1",
-      "matchCount": 2,
-      "reason": "Windows edition and caption fallback; not the host-refresh state."
+      "matchCount": 3,
+      "reason": "Windows edition and caption fallback, and the PowerShell upgrade helper's timestamp fallback; not the host-refresh state."
     },
     {
       "wireCode": "host_refresh.unknown",

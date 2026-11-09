@@ -99,7 +99,8 @@ a failed attempt and the resulting retry or final exit code.
 
 **Outer-loop behavior** (all five wrappers share `_yuruna_retry`):
 
-1. Runs up to **5 attempts** (override via `YURUNA_RETRY_MAX_ATTEMPTS`).
+1. Runs up to **5 attempts** (override via `YURUNA_RETRY_MAX_ATTEMPTS`),
+   except a GitHub release fetch, which retries through a window (item 8).
 2. Sleeps with **exponential backoff + equal jitter**: a random point
    in `[delay/2, delay]` rather than exactly `delay` (base 10 s, 20 s,
    40 s, 80 s; override via `YURUNA_RETRY_DELAY_SECONDS`), so parallel
@@ -132,11 +133,34 @@ a failed attempt and the resulting retry or final exit code.
    that disagrees with its `InRelease`, never to stop the ladder.
 7. **Structured attempt record.** Each failed attempt emits a
    machine-readable `YURUNA_RETRY {...}` line to stderr (`stack`, `label`,
-   `attempt`, `maxAttempts`, `rc`, `permanent`). On the SSH verbs the
+   `attempt`, `maxAttempts`, `rc`, `permanent`, and `windowSeconds` for a
+   windowed retry). On the SSH verbs the
    host parses these into `retry_attempt` NDJSON events on the cycle
    stream; the host-side stacks (`Yuruna.Retry`, the sequence `retry`
    verb) emit the same `retry_attempt` / `retry_exhausted` events
    directly. See [Failure record schema](failure-schema.md).
+8. **GitHub release window** (`curl_retry` + `wget_try`). A fetch from
+   `github.com/<owner>/<repo>/releases/download/...` or the
+   `releases/latest` redirect retries through a **30-minute window**
+   with each backoff capped at **two minutes**, instead of five attempts
+   over about four minutes. GitHub's release endpoints have answered
+   `504` for most of half an hour at a time while the rest of github.com
+   answered, and every guest that fetched a release in those minutes
+   failed its cycle; the window lets the cycle wait the outage out, and
+   the cap brings the next attempt within two minutes of GitHub
+   recovering. No attempt starts after the window closes, and the last
+   sleep is shortened to end as it does. The attempt count becomes a
+   backstop, sized so the window binds first, and a run the window ends
+   records the attempts it made as its `maxAttempts`, so "exhausted N
+   attempts" stays true. A `404` still stops at once (item 6).
+   `YURUNA_RETRY_WINDOW_SECONDS` and `YURUNA_RETRY_MAX_DELAY_SECONDS`, when
+   set, replace the window and the cap; `YURUNA_RETRY_MAX_ATTEMPTS` still
+   bounds the attempts. On the host, `tofu init` retries through the same
+   window (see
+   [Shared transient-failure retry policy](architecture.md#42e568c8-000c)).
+   The steps that run these fetches have budgets that hold a full window
+   on top of their slowest normal run: the update script steps take
+   3600 s.
 
 **wget exit codes.** `_yuruna_classify_wget` mirrors the curl classifier:
 
@@ -2901,6 +2925,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

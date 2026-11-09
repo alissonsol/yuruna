@@ -7563,16 +7563,34 @@ continua válido.
 
 ## install/ubuntu.kvm.sh: Reparo da versão mínima do PowerShell
 
-O interpretador em que toda etapa posterior executa, elevado até a versão mínima
-definida em automation/Yuruna.Requirement.yml. A região de instalação só dispara quando
-`pwsh` está AUSENTE, e presença não é a pergunta que uma versão mínima faz: um pwsh que
-chegou de uma fonte que este instalador não gerencia -- o snap da Canonical, um
-tarball desempacotado à mão, um pacote deixado por outra ferramenta -- de outro modo
-responde pelo nome durante toda a vida da máquina na versão que for, enquanto a
-verificação final informa uma lacuna que a execução tinha todos os meios de fechar. O
-PowerShell é a única ferramenta verificada por versão mínima aqui cujas fontes estão
-à frente do archive do Ubuntu, de modo que é a única que o instalador pode de fato
-elevar.
+O interpretador em que toda etapa posterior executa, levado à release mais recente que
+a sua própria fonte oferece e depois verificado contra a versão mínima definida em
+automation/Yuruna.Requirement.yml. A região de instalação só dispara quando `pwsh` está
+AUSENTE, e presença não é a pergunta que uma versão mínima faz: um pwsh instalado uma vez
+responderia de outro modo pelo nome durante toda a vida da máquina na versão que fosse.
+Por isso um pacote do repositório da Microsoft entra na lista do apt (a menos que o
+operador o retenha ou que o apt não consiga instalar o candidato que uma fonte oferece)
+e, quando o apt o deixa mais antigo que a release mais recente do GitHub, avança pelo apt
+a partir do .deb da release ou da suíte 24.04 da Microsoft; um snap é atualizado pelo
+snapd e uma cópia de tarball mais antiga que a release mais recente do GitHub é
+substituída, nunca rebaixada. A release mais recente do GitHub é seguida sem limite de
+linha de versão, inclusive uma nova linha secundária. Um pin do apt não impede o .deb
+da release; só o apt-mark hold o impede. Um pacote cujos arquivos sob
+/opt/microsoft/powershell/7 o dpkg -V acha alterados ou ausentes passa pelo apt a
+partir de um .deb de release (o da release mais recente quando o pacote está atrás
+dela; caso contrário, o da versão que o pwsh responde), de modo que o dpkg e os
+arquivos voltem a concordar; um pacote retido vira uma pendência que cita
+`sudo apt-mark unhold powershell`. Só essa árvore conta: o dpkg -V também lista como
+ausente um arquivo que a própria configuração path-exclude do dpkg deixou de fora,
+como a página de manual em uma instalação mínima do Ubuntu, e uma reinstalação o
+deixa de fora outra vez; contá-lo reinstalaria o pacote e o relataria a cada
+execução. O reparo da versão
+mínima roda depois como alternativa para uma cópia ainda abaixo dela, inclusive uma de
+uma fonte que este instalador não gerencia -- um pacote deixado por outra ferramenta,
+um tarball desempacotado à mão em outro lugar --, que o relatório final cita. O
+PowerShell é a única ferramenta verificada por versão mínima aqui cujas fontes estão à
+frente do archive do Ubuntu, de modo que é a única que o instalador pode de fato elevar
+além dela.
 
 Colocado depois do checkout e não ao lado da instalação: a versão mínima fica no
 repositório, que ainda não existe onde o pwsh é instalado.
@@ -7661,28 +7679,71 @@ opcional na próxima execução.
 ## install/ubuntu.kvm.sh: O tarball do PowerShell é a fonte alternativa
 
 `install_pwsh_tarball` é a fonte alternativa do PowerShell para toda a automação
-Yuruna posterior: o aarch64 não tem pacote apt da Microsoft, e o x86_64 só cai aqui
-quando o caminho do apt falha. Ele resolve a tag estável mais recente seguindo o
-redirecionamento /releases/latest (um HEAD-follow -- sem chamada limitada por taxa a
-api.github.com) para que o tarball acompanhe a mesma versão atual que o caminho do apt
-instalaria, em vez de congelar em uma única linha. O PowerShell distribui um tarball
-linux-x64 e um linux-arm64 (mais hashes.sha256) para cada release GA; assim, as duas
+Yuruna posterior onde nenhum pacote da Microsoft serve: o aarch64 sem um, e o x86_64 só
+quando o repositório apt da Microsoft, o .deb da release e a suíte Ubuntu 24.04 da
+Microsoft falharam todos em instalar o pwsh. Ele desempacota em
+/opt/microsoft/powershell/7, a árvore que o pacote da Microsoft instala, e por isso
+nunca roda enquanto esse pacote está instalado: o dpkg continuaria registrando a versão
+antiga do pacote e os seus checksums, e uma operação posterior do apt reescreveria ou
+removeria arquivos sob o interpretador mais novo. Um hospedeiro com o pacote avança pelo
+apt, a partir do próprio .deb da release (`install_pwsh_deb`) -- o arquivo que o
+repositório da Microsoft serve para a mesma versão, verificado contra o hashes.sha256
+da release, como o tarball.
+
+Ambos resolvem a tag estável mais recente seguindo o redirecionamento /releases/latest
+(um HEAD-follow -- sem chamada limitada por taxa a api.github.com), em vez de congelar
+em uma única linha. O PowerShell distribui tarballs linux-x64 e linux-arm64 e arquivos
+.deb amd64 e arm64 (mais hashes.sha256) para cada release GA; assim, as duas
 arquiteturas resolvem. PWSH_VERSION substitui a descoberta em uma construção fixada ou
-air-gapped.
+air-gapped. Cada etapa de ambos confere o próprio resultado: quem os chama os executa
+onde o errexit não se aplica, e o link nunca deve apontar para um tarball que não
+desempacotou.
+
+`fetch_pwsh_release_asset` baixa com as novas tentativas da consulta da release mais
+recente (--retry 3 --retry-delay 5 --retry-connrefused --connect-timeout 15); uma
+tentativa pode levar 15 minutos (--max-time) e nenhuma nova tentativa começa depois de
+15 minutos (--retry-max-time). Cada download é gravado pelo root, à medida que o curl
+o entrega, em um diretório em que só o root pode gravar, criado sob /tmp pelo nome -- o
+sudo pode manter o TMPDIR da conta, e o sticky bit de /tmp impede que outras contas
+renomeiem o diretório do root -- e o asset é conferido ali, de modo que o arquivo que o
+apt ou o tar lê como root é o arquivo que foi conferido. Com o asset e o hashes.sha256
+ambos em um diretório que a conta pode gravar, outro processo dessa conta poderia
+trocar os dois juntos, com a lista trazendo um digest dos próprios bytes; e o root, ao
+copiar dali, seguiria um link plantado no lugar de um download e publicaria um arquivo
+que só o root pode ler. Por isso o root não abre nada fora do próprio diretório. Essa
+conta ainda decide quais ferramentas curl e de checksum o seu PATH encontra e que
+configuração do curl elas leem; assim, isso estreita o que os outros processos dela
+podem fazer, em vez de impedi-lo. O apt instala o .deb com --reinstall, que também
+substitui arquivos que não conferem mais com o que o dpkg registrou, e com
+-o DPkg::Lock::Timeout=120, de modo que espera pela trava de uma atualização automática
+em vez de falhar de imediato. `install_pwsh_deb` não entrega ao apt um pacote que o
+operador retém: o apt recusa mudar a versão de um pacote retido, mas faz uma
+reinstalação --reinstall na mesma versão, e o dpkg então desfaz a retenção.
 
 <a id="4213a0b3-01b8"></a>
 
 ## install/ubuntu.kvm.sh: Uma atualização do PowerShell malsucedida encerra a tentativa, não a instalação
 
-As duas fontes gerenciadas ficam em /usr/local/bin (o tarball por meio do symlink ao
-lado dele), que o PATH padrão coloca à frente de /snap/bin; assim, a cópia mais nova
-vence pelo nome sem remover a que já estava ali.
+O pacote da Microsoft instala /usr/bin/pwsh e o tarball cria o link
+/usr/local/bin/pwsh; o PATH padrão coloca ambos à frente de /snap/bin; assim, a cópia
+mais nova vence pelo nome sem remover a que já estava ali.
 
-Executado em um subshell para que uma fonte que desiste -- um feed de releases
-inacessível, um checksum que não confere -- encerre a tentativa de atualização e não
-a instalação. Ao contrário do caminho de primeira instalação, este hospedeiro já tem
-um interpretador funcional; a verificação de versão que vem a seguir diz que ele
-continua antigo, e isso pertence ao resumo final, não a uma execução abortada.
+Cada fonte roda no próprio subshell, de modo que uma que desiste -- um feed de releases
+inacessível, um checksum que não confere, uma chave que não se verifica -- encerra a
+própria tentativa, e não a instalação nem a fonte seguinte. Cada uma é julgada pela
+versão com que o nome responde depois, nunca pelo seu código de saída: o apt sai com 0
+e "already the newest version" para um pacote que nenhuma fonte configurada oferece em
+versão mais nova, então esse código não diz se a versão mudou. Nenhuma fonte substitui
+um pacote que o operador retém com apt-mark hold, e o resumo final o cita com
+`sudo apt-mark unhold powershell`. O repositório apt da Microsoft do próprio
+hospedeiro só é consultado quando nenhum pacote está instalado: a lista de pacotes já
+consultou essas fontes sobre um pacote instalado. Nada é instalado quando a release que
+o reparo instalaria (PWSH_VERSION, ou a mais recente do GitHub) está ela própria abaixo
+da versão mínima, e a pendência diz isso. Ao contrário do caminho de primeira instalação, este
+hospedeiro já tem um interpretador funcional; a verificação de versão que vem a seguir
+diz que ele continua antigo, e isso pertence ao resumo final, não a uma execução
+abortada. A pendência traz o motivo de cada fonte não ter bastado, porque a falha de
+cada fonte passa rolando na execução, enquanto o resumo final é o que o operador lê.
 
 <a id="4213a0b3-01b9"></a>
 

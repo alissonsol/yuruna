@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42961225-d68b-4663-995b-dff524fe4af1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1164,7 +1164,8 @@ function Invoke-YurunaBootRecovery {
         ArchivedBreakActive, ClearedPauseFlags, Warnings,
         StartedAtUtc, CompletedAtUtc, Mode (default|refresh-preservation),
         PreservedControls, PreservedPidFiles ({ file; state }),
-        PreservedOrphans.
+        PreservedOrphans, and PreviousRunner: what the previous runner's
+        session and exit records say (Get-YurunaRunnerExitReport), or $null.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
@@ -1194,6 +1195,21 @@ function Invoke-YurunaBootRecovery {
     if ($RefreshPreservation) {
         return (Invoke-YurunaRefreshPreservationSweep -Summary $summary -RuntimeDir $RuntimeDir -LogDir $LogDir `
             -ReclaimedInner $ReclaimedInner -ProcessTable $ProcessTable)
+    }
+
+    # Read before the sweep clears runner.pid and before this runner replaces
+    # the records: they say how the previous runner was started and what
+    # ended it, which nothing else keeps once it is gone.
+    $summary.PreviousRunner = $null
+    if ($RuntimeDir -and (Test-Path -LiteralPath $RuntimeDir)) {
+        try {
+            $report = Get-YurunaRunnerExitReport -RuntimeDir $RuntimeDir
+            if ($report -and [int]$report.pid -ne $PID) {
+                $summary.PreviousRunner = Get-YurunaRunnerExitReport -RuntimeDir $RuntimeDir -HostBootUtc (Get-YurunaHostBootTimeUtc)
+            }
+        } catch {
+            $summary.Warnings += "Get-YurunaRunnerExitReport failed: $($_.Exception.Message)"
+        }
     }
 
     if ($RuntimeDir -and (Test-Path -LiteralPath $RuntimeDir)) {
@@ -1254,7 +1270,7 @@ function Invoke-YurunaBootRecovery {
                ($summary.ClearedPauseFlags.Count -gt 0) -or
                ($summary.Warnings.Count -gt 0)
     if ($touched) {
-        Send-BootRecoveryEvent -RuntimeDir $RuntimeDir -EventRecord @{
+        $completed = @{
             timestamp             = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event                 = 'boot_recovery_completed'
             archivedCycleCount    = [int]$summary.ArchivedCycles.Count
@@ -1265,6 +1281,8 @@ function Invoke-YurunaBootRecovery {
             startedAtUtc          = [string]$summary.StartedAtUtc
             completedAtUtc        = [string]$summary.CompletedAtUtc
         }
+        if ($summary.PreviousRunner) { $completed.previousRunner = $summary.PreviousRunner }
+        Send-BootRecoveryEvent -RuntimeDir $RuntimeDir -EventRecord $completed
     }
     if ($touched) {
         Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_052fdf620b9d9d43' -FormatValues ($summary.ArchivedCycles.Count,
@@ -1276,4 +1294,4 @@ function Invoke-YurunaBootRecovery {
     return $summary
 }
 
-Export-ModuleMember -Function Invoke-YurunaBootRecovery, Find-OrphanIncompleteCycle, Resolve-OrphanIncompleteCycle, Clear-StalePidFile, Resolve-StaleBreakActive, Clear-StalePauseFlag, Clear-StaleControlState
+Export-ModuleMember -Function Get-YurunaHostBootTimeUtc, Invoke-YurunaBootRecovery, Find-OrphanIncompleteCycle, Resolve-OrphanIncompleteCycle, Clear-StalePidFile, Resolve-StaleBreakActive, Clear-StalePauseFlag, Clear-StaleControlState

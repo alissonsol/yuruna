@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,6 +111,7 @@ $script:TypedField = @{
     causeVmStateWaitedSeconds = 'int'
     causeLauncherRejection = 'string'
     causeAptIndexMismatch = 'string'
+    causeInstallerFailure = 'string'
     causeHostInputFault = 'string'
     causeGuestKernelFault = 'string'
     causeHostAddressChange = 'string'

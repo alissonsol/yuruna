@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42e0b38b-31d7-437e-bc6b-f7a324adb32c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -109,6 +109,8 @@ Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1')      -For
 # each re-deriving that logic. This detached server has its own runspace,
 # so the module must be imported here for the command to resolve.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.SingleInstance.psm1') -Force -DisableNameChecking -Verbose:$false -ErrorAction SilentlyContinue
+# Get-YurunaHostBootTimeUtc, read once below for runner-status's lastExit.
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Recovery.psm1') -DisableNameChecking -Verbose:$false -ErrorAction SilentlyContinue
 # Get-HostStorageFact answers /control/host-facts' storage figures. It lives
 # in a module because the counting rule it implements -- one figure per space
 # pool, permanent devices only -- is platform-specific enough to be worth
@@ -1513,6 +1515,11 @@ function Test-RunnerAlive {
     $pidVal = if ($state -and $state.pid -gt 0) { [int]$state.pid } else { $null }
     [pscustomobject]@{ Running = $running; RunnerPid = $pidVal }
 }
+# A host that restarts restarts this service, so the boot time is read once.
+$script:RunnerExitBootUtc = $null
+if (Get-Command Get-YurunaHostBootTimeUtc -ErrorAction SilentlyContinue) {
+    try { $script:RunnerExitBootUtc = Get-YurunaHostBootTimeUtc } catch { Write-ServerErr "host boot time unreadable: $($_.Exception.Message)" }
+}
 try {
     $listener.Start()
     Write-ServerErr "listener started on http://*:$Port/ (pid $PID)"
@@ -2217,6 +2224,15 @@ try {
                 } catch {
                     Write-ServerErr "runner-status liveness probe failed: $($_.Exception.Message)"
                 }
+                # Why a runner is gone: how it was started, the signal that
+                # ended it when one was caught, and whether the host booted since.
+                $lastExit = $null
+                if (-not $running -and (Get-Command Get-YurunaRunnerExitReport -ErrorAction SilentlyContinue)) {
+                    try {
+                        $lastExit = Get-YurunaRunnerExitReport -RuntimeDir $runtimeDir -HostBootUtc $script:RunnerExitBootUtc
+                        if ($lastExit -and $null -ne $pidVal -and [int]$lastExit.pid -ne [int]$pidVal) { $lastExit = $null }
+                    } catch { Write-ServerErr "runner-status exit report failed: $($_.Exception.Message)" }
+                }
                 $payload = @{
                     running                 = $running
                     pid                     = $pidVal
@@ -2227,7 +2243,8 @@ try {
                     watchdogLapsed          = $lapsed
                     recoveryDisabled        = $recoveryDisabled
                     runnerState             = $runState
-                } | ConvertTo-Json -Compress
+                    lastExit                = $lastExit
+                } | ConvertTo-Json -Compress -Depth 4
                 $body = [System.Text.Encoding]::UTF8.GetBytes($payload)
                 $res.ContentLength64 = $body.Length
                 $res.OutputStream.Write($body, 0, $body.Length)

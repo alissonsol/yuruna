@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42454869-be98-4903-a538-5a115b82367a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -283,6 +283,53 @@ Describe 'The host_restart event and the boot-recovery event wait for the next c
             @($queued | ForEach-Object { $_.event }) | Should -Be @('boot_recovery_completed')
             $queued[0].clearedPidFileCount | Should -Be 1
             Test-Path -LiteralPath (Join-Path $log 'cycle.events.ndjson') | Should -BeFalse -Because 'the log-root fallback is a file nothing collects'
+        } finally { Remove-YurunaTestTempDir $root }
+    }
+
+    It 'carries what ended the previous runner, read before its runner.pid is cleared' {
+        $root = New-YurunaTestTempDir -Prefix 'yrn-host-restart-session'
+        try {
+            $runtime = Join-Path $root 'runtime'
+            $log = Join-Path $root 'log'
+            $null = New-Item -ItemType Directory -Path $runtime, $log -Force
+            $gone = 999999
+            while (Get-Process -Id $gone -ErrorAction SilentlyContinue) { $gone-- }
+            Set-Content -LiteralPath (Join-Path $runtime 'runner.pid') -Value "$gone"
+            $script:BootUtc = [datetime]::new(2026, 11, 7, 6, 0, 0, [DateTimeKind]::Utc)
+            Mock -ModuleName Test.Recovery Get-YurunaHostBootTimeUtc { $script:BootUtc }
+            [IO.File]::WriteAllText((Join-Path $runtime 'runner.session.json'), (@{ schemaVersion = 1; pid = $gone
+                startedUtc = '2026-11-07T08:00:00.0000000Z'; recordedUtc = '2026-11-07T08:00:01.0000000Z'
+                hostBootUtc = $script:BootUtc.ToString('o'); sshSession = $true; terminalProgram = $null; multiplexer = $null
+                parents = @('zsh[100]', 'sshd[90]') } | ConvertTo-Json -Compress))
+            [IO.File]::WriteAllText((Join-Path $runtime 'runner.exit.json'), "{`"signal`":`"SIGHUP`",`"atUtc`":`"2026-11-07T15:35:02.0000000Z`",`"pid`":$gone}")
+            $env:YURUNA_LOG_DIR = $log
+            $summary = Invoke-YurunaBootRecovery -RuntimeDir $runtime -LogDir $log -Confirm:$false
+            $summary.ClearedPidFiles.Count | Should -Be 1
+            $queued = @(Read-QueuedEvent -RuntimeDir $runtime)
+            $queued[-1].event | Should -Be 'boot_recovery_completed'
+            $previous = $queued[-1].previousRunner
+            $previous.pid | Should -Be $gone
+            $previous.signal | Should -Be 'SIGHUP'
+            $previous.signalAtUtc | Should -Be '2026-11-07T15:35:02.0000000Z'
+            $previous.sshSession | Should -BeTrue
+            $previous.hostRestarted | Should -BeFalse
+            @($previous.parents) | Should -Be @('zsh[100]', 'sshd[90]')
+        } finally { Remove-YurunaTestTempDir $root }
+    }
+
+    It 'does not report this runner''s own records as a previous runner''s' {
+        $root = New-YurunaTestTempDir -Prefix 'yrn-host-restart-self'
+        try {
+            $runtime = Join-Path $root 'runtime'
+            $log = Join-Path $root 'log'
+            $null = New-Item -ItemType Directory -Path $runtime, $log -Force
+            Set-Content -LiteralPath (Join-Path $runtime 'inner.pid') -Value 'not-a-pid'
+            [IO.File]::WriteAllText((Join-Path $runtime 'runner.session.json'), (@{ schemaVersion = 1; pid = $PID; parents = @() } | ConvertTo-Json -Compress))
+            $env:YURUNA_LOG_DIR = $log
+            $summary = Invoke-YurunaBootRecovery -RuntimeDir $runtime -LogDir $log -Confirm:$false
+            $summary.PreviousRunner | Should -BeNullOrEmpty
+            $queued = @(Read-QueuedEvent -RuntimeDir $runtime)
+            $queued[-1].ContainsKey('previousRunner') | Should -BeFalse
         } finally { Remove-YurunaTestTempDir $root }
     }
 

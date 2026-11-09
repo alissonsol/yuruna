@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,10 +127,10 @@ $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\New-VHD'
 
 # --- REGION: Render the autounattend.xml + build a CD with it
 # Autounattend seed ISO: Windows Setup scans all drives for autounattend.xml.
-# The answer file and the bootstrap carry the repository token. They are staged
-# in a private workspace beside the disk (owner, SYSTEM and Administrators
-# only), published as an image only the new VM may read, and removed on every
-# exit by the finally below.
+# The bootstrap carries the repository token and the guest-channel key, the
+# answer file the default password. They are staged in a private workspace
+# beside the disk (owner, SYSTEM and Administrators only), published as an
+# image only the new VM may read, and removed on every exit (finally below).
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -Force
 # A plaintext source an older builder left in the temp folder goes first.

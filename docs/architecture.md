@@ -225,12 +225,18 @@ mirrored on the guest side by
 
 **Defaults:** 5 attempts, 10s initial delay, `*= 2` backoff, +/-25%
 jitter, 300s cap. That window reaches past github.com's typical 5xx blip,
-so a transient provider download does not fail the cycle. `tofu init` takes
-6 attempts unless `YURUNA_RETRY_MAX_ATTEMPTS` sets the count: it is the call
-that must reach the provider registry, and an attempt that cannot reach it
-fails within seconds on OpenTofu's own client timeout, so five attempts span
-only about four minutes. Six span about seven, which outlasts a registry that
-stays unreachable through the caching proxy for five minutes.
+so a transient provider download does not fail the cycle. `tofu init`
+retries through a **30-minute window** with each backoff capped at two
+minutes (`-WindowSeconds 1800 -MaxDelaySeconds 120`): it is the call that
+must reach the provider registry and the GitHub releases the providers
+download from, and an attempt that cannot reach them fails within seconds
+on OpenTofu's own client timeout, so five attempts span only about four
+minutes. GitHub's release endpoints have answered `504` for most of half an
+hour at a time, which outlasts that. No attempt starts after the window
+closes; the attempt count is a backstop sized so the window binds first,
+and `YURUNA_RETRY_MAX_ATTEMPTS` still sets it when present. The guest
+library gives a GitHub release fetch the same window (see
+[Defining yuruna retry lib](network.md#defining-yuruna-retry-lib), item 8).
 
 **The classifier** decides whether a failed `tofu plan`, saved-planfile
 `apply`, `tofu output`, chart install (`helm upgrade --install --atomic`),
@@ -245,6 +251,14 @@ fast instead of spending the whole backoff budget. The classifier matches:
   `too many requests`.
 - **Backend locks** -- tofu remote-state contention (`Error acquiring
   the state lock`, DynamoDB `ConditionalCheckFailedException`).
+- **An API server that is not serving yet** -- `etcdserver: request timed
+  out`, `etcdserver: leader changed`, `the server was unable to return a
+  response in the time allotted` and `the server is currently unable to
+  handle the request`. A single-node cluster that has just started answers
+  before etcd settles, so a `kubectl create namespace` a minute into its life
+  can fail with the first and pass seconds later. A create whose request did
+  reach etcd before the timeout then fails on the retry with `AlreadyExists`,
+  which does not match and stops the retries.
 
 A refused connection needs two spellings, not one. Go prints the errno form
 (`connect: connection refused`); kubectl catches the same errno and reformats
@@ -404,6 +418,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

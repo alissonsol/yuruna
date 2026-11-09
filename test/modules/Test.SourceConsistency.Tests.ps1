@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -397,7 +397,8 @@ Describe 'Ubuntu test-sequence parity' {
         # The autoinstall answer stays first; the wait for the install's own
         # power-off and the cold start's settle follow it, outside any retry.
         ($utm.component[1] | ConvertTo-Json -Compress) | Should -BeExactly (
-            [ordered]@{ action = 'startVm'; timeoutSeconds = 2400; frameIntervalSeconds = 30; installPowerOff = $true } | ConvertTo-Json -Compress)
+            [ordered]@{ action = 'startVm'; timeoutSeconds = 2400; frameIntervalSeconds = 30; installPowerOff = $true
+                failurePatterns = @('install_fail.crash', 'Press enter to start a shell', 'An error occurred') } | ConvertTo-Json -Compress)
         ($utm.component[2] | ConvertTo-Json -Compress) | Should -BeExactly ([ordered]@{ action = 'waitForSeconds'; seconds = 15 } | ConvertTo-Json -Compress)
         $utm['component'] = @($utm.component[0]) + @($utm.component[3..($utm.component.Count - 1)])
         ($utm | ConvertTo-Json -Depth 100 -Compress) | Should -BeExactly ($generic | ConvertTo-Json -Depth 100 -Compress) `

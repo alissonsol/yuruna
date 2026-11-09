@@ -234,6 +234,69 @@ func TestPollRunnerFaultPreservesCompletedCycle(t *testing.T) {
 	}
 }
 
+// A runner that died inside a cycle reads as its own status, not as the stop an
+// operator makes: the host still answers, its status.json still says the cycle
+// runs, and only runner-status can tell. An operator's Ctrl+C mid-cycle leaves the
+// runner state at in-cycle too, but its orderly shutdown removes runner.pid, so
+// it stays "stopped". A probe that misses a tick keeps the last reading.
+func TestPollTellsARunnerLostMidCycleFromAStoppedOne(t *testing.T) {
+	const hid = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	for _, tc := range []struct {
+		name, runnerStatus, wantLabel string
+		wantCode                      int
+	}{
+		{"runner died mid-cycle", `{"running":false,"pid":11128,"liveness":"idle","runnerState":"in-cycle","lastExit":null}`, "lost", 10},
+		{"operator stopped a running cycle", `{"running":false,"pid":null,"liveness":"idle","runnerState":"in-cycle","lastExit":null}`, "stopped", 8},
+		{"runner died between cycles", `{"running":false,"pid":11128,"liveness":"idle","runnerState":"idle","lastExit":null}`, "stopped", 8},
+		{"older build without a runner state", `{"running":false,"pid":11128,"liveness":"idle"}`, "stopped", 8},
+		{"live runner mid-cycle", `{"running":true,"pid":11128,"liveness":"ok","runnerState":"in-cycle"}`, "running", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newPoolState("default", 8080)
+			s.view().Hosts[hid] = &hostView{HostId: hid, CurrentIP: "192.0.2.10"}
+			routeUp := true
+			client := &http.Client{Transport: pollLokiTransport(func(r *http.Request) (*http.Response, error) {
+				code, body := http.StatusNotFound, "{}"
+				if r.Method == http.MethodPost {
+					code = http.StatusNoContent
+				} else {
+					switch r.URL.Path {
+					case "/runtime/status.json":
+						code = http.StatusOK
+						body = fmt.Sprintf(`{"hostId":%q,"cycleStartUtc":"2026-11-07T15:31:53Z","overallStatus":"running","runnerState":"in-cycle"}`, hid)
+					case "/control/runner-status":
+						if !routeUp {
+							return nil, fmt.Errorf("connection reset")
+						}
+						code, body = http.StatusOK, tc.runnerStatus
+					}
+				}
+				return &http.Response{StatusCode: code, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+			})}
+			for poll := 0; poll < 2; poll++ {
+				s.pollOnce(client, filepath.Join(t.TempDir(), "absent.log"), "http://loki.invalid/push", time.Now().UTC())
+				hv := s.view().Hosts[hid]
+				if got := hv.StatusLabel(); got != tc.wantLabel {
+					t.Fatalf("poll %d: StatusLabel = %q, want %q", poll, got, tc.wantLabel)
+				}
+				rec := httptest.NewRecorder()
+				s.handleMetricsBody(rec)
+				want := fmt.Sprintf("hostIdDashed=%q} %d\n", poolstate.DashedHostID(hid), tc.wantCode)
+				found := false
+				for _, ln := range strings.SplitAfter(rec.Body.String(), "\n") {
+					if strings.HasPrefix(ln, "yuruna_pool_host_status{") && strings.HasSuffix(ln, want) {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("poll %d: no yuruna_pool_host_status line ending %q in:\n%s", poll, want, rec.Body.String())
+				}
+				routeUp = false
+			}
+		})
+	}
+}
+
 func TestPollFirstAttemptFaultWithoutCycle(t *testing.T) {
 	const hid = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	s := newPoolState("default", 8080)

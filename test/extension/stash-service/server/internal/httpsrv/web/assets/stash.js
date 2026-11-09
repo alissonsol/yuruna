@@ -4,7 +4,7 @@
 // Content-class previews and downloads; deletion requires an unlocked session.
 
 (function () {
-  var TEXT_PREVIEW_CAP = 1024 * 1024; // fallback if the server omits inlineTextCap (section 6.2)
+  var TEXT_PREVIEW_CAP = 1024 * 1024; // fallback if the server omits inlineTextCap
   var state = { inlineTextCap: 0 };
   function $(id) { return document.getElementById(id); }
 
@@ -160,7 +160,7 @@
         var truncated = !!(total && Number(total[1]) > cap);
         if (body.length > cap) { body = body.slice(0, cap); truncated = true; }
         var pre = Y.el('pre', { class: 'viewer wrap', tabindex: '0', role: 'region', 'aria-label': window.YurunaI18n.t("stash.stash_text_preview") });
-        pre.textContent = body; // textContent: never interpret as HTML (section 7.4)
+        pre.textContent = body; // textContent: never interpret as HTML
         if (!body) { wrap.yurunaReadyState = 'empty'; }
         if (truncated) { Y.append(wrap, Y.el('div', { class: 'notice warn', text: window.YurunaI18n.t("stash.preview_truncated_download_for_the_full_content") })); }
         Y.append(wrap, pre);

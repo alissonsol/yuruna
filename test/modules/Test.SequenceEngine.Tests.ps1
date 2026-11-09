@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -919,12 +919,13 @@ Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
         function Invoke-ScriptedWait {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
                 Justification = 'Test helper: drives the function under test against scripted frames.')]
-            param([string[]]$Frames, $Livelock, [int]$TimeoutSeconds, [switch]$EndOnGuestLivelock, $GuestLivelockSinceUtc, [string]$GuestRecorderPath)
+            param([string[]]$Frames, $Livelock, [int]$TimeoutSeconds, [switch]$EndOnGuestLivelock, [switch]$EndOnDisplayStall, $GuestLivelockSinceUtc, [string]$GuestRecorderPath)
             & (Get-Module Test.SequenceEngine) { param($d, $f, $l) Reset-LivelockProbeState -ScreenDir $d -Frames $f -Livelock $l } $script:probeDir $Frames $Livelock
             Clear-CarriedConsoleBaseline
             $bound = @{}
             if ($null -ne $GuestLivelockSinceUtc) { $bound.GuestLivelockSinceUtc = $GuestLivelockSinceUtc }
             if ($GuestRecorderPath) { $bound.GuestRecorderPath = $GuestRecorderPath }
+            if ($EndOnDisplayStall) { $bound.EndOnDisplayStall = $true }
             return [bool](Wait-ForText -VMName 'vm-01' -Pattern @('Continue with autoinstall?') -TimeoutSeconds $TimeoutSeconds -PollSeconds 1 `
                 -EndOnGuestLivelock:$EndOnGuestLivelock -WarningAction SilentlyContinue -InformationAction SilentlyContinue @bound)
         }
@@ -1201,6 +1202,177 @@ Describe 'Wait-ForText records the hypervisor verdict and a blank console' {
                 @($end.kinds) | Should -Be @('hung-task')
                 $end.outputStaticSeconds | Should -Be 1325
                 $end.recorderUploadAgeSeconds | Should -BeGreaterOrEqual 1255
+            }
+        }
+    }
+
+    Context 'a guest whose display driver stopped presenting frames' {
+        BeforeAll {
+            # The driver's serial accessor, scripted inside the engine. The
+            # capture ends at 5000 bytes when the wait marks it.
+            . (Get-Module Test.SequenceEngine) {
+                function Read-VMSerialCapture {
+                    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                        Justification = 'Stub: the signature has to match the driver accessor so the caller binds.')]
+                    param([string]$VMName, [long]$FromOffset = 0, [int]$MaxBytes = 4194304)
+                    if ($MaxBytes -ne 0) { $script:DisplayStallSerialReads += @($FromOffset) }
+                    return [pscustomobject]@{ Length = 5000L; Offset = $FromOffset; Text = $script:DisplayStallSerialText; Truncated = $false; Replaced = $false }
+                }
+            }
+            # An installed guest's serial console on the ARM64 Hyper-V lab
+            # host, from the login that met the forced password change to the
+            # eighth timed-out commit. The screen kept the password
+            # prompt it showed when the stall began; the guest ran on, and getty
+            # restarted behind the frozen frame.
+            $script:stalledDisplay = @(
+                '[   49.997279] login[1350]: pam_unix(login:account): expired password for user yuuser26 (root enforced)'
+                '[   54.673810] systemd[1]: systemd-timedated.service: Deactivated successfully.'
+                '[   59.933095] chronyd[1130]: Backward time jump detected!'
+                '[   59.933114] chronyd[1130]: Can''t synchronise: no selectable sources (0 unreachable sources)'
+                '[   59.933859] systemd[1]: getty@tty1.service: Deactivated successfully.'
+                '[   71.096573] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* flip_done timed out'
+                '[   71.096579] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [CRTC:36:crtc-0] commit wait timed out'
+                '[   75.006111] CRON[1386]: pam_unix(cron:session): session opened for user root(uid=0) by root(uid=0)'
+                '[   75.009248] CRON[1388]: (root) CMD (cd / && run-parts --report /etc/cron.hourly)'
+                '[   75.013249] CRON[1386]: pam_unix(cron:session): session closed for user root'
+                '[   81.975652] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* flip_done timed out'
+                '[   81.975659] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [PLANE:34:plane-0] commit wait timed out'
+                '[   82.171131] systemd[1]: getty@tty1.service: Scheduled restart job, restart counter is at 1.'
+                '[   82.174119] systemd[1]: Started getty@tty1.service - Getty on tty1.'
+                '[   93.624892] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* flip_done timed out'
+                '[   93.624913] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [CRTC:36:crtc-0] commit wait timed out'
+                '[  103.864576] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* flip_done timed out'
+                '[  103.864582] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [PLANE:34:plane-0] commit wait timed out'
+                '[  114.108569] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* flip_done timed out'
+                '[  114.108590] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [CRTC:36:crtc-0] commit wait timed out'
+                '[  124.345149] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* flip_done timed out'
+                '[  124.345177] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [CONNECTOR:38:Virtual-1] commit wait timed out'
+                '[  134.584651] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* flip_done timed out'
+                '[  134.584659] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [PLANE:34:plane-0] commit wait timed out'
+                '[   96.901972] systemd[1]: Starting yuruna-host-locate.service - Refresh Yuruna host coordinates if the host has changed address...'
+                '[  127.136533] systemd[1]: yuruna-host-locate.service: start operation timed out. Terminating.'
+                '[  134.782177] systemd[1]: yuruna-host-locate.service: Main process exited, code=killed, status=15/TERM'
+                '[  134.782235] systemd[1]: yuruna-host-locate.service: Failed with result ''timeout''.'
+                '[  134.784135] systemd[1]: Failed to start yuruna-host-locate.service - Refresh Yuruna host coordinates if the host has changed address.'
+                '[  145.848582] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* flip_done timed out'
+                '[  145.848588] hyperv_drm 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [CRTC:36:crtc-0] commit wait timed out'
+            ) -join "`n"
+            $script:frozenScreen = "You are required to change your password immediately (administrator enforced).`nChanging password for yuuser26.`nCurrent password:`nNew password:"
+            function New-DisplayStallLine {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test helper: returns console text.')]
+                param([double[]]$Uptime, [string]$Driver = 'hyperv_drm')
+                return (@(foreach ($at in $Uptime) {
+                    '[{0,12:F6}] {1} 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* flip_done timed out' -f $at, $Driver
+                    '[{0,12:F6}] {1} 5620e0c7-8062-4dce-aeb7-520c7ef76171: [drm] *ERROR* [CRTC:36:crtc-0] commit wait timed out' -f ($at + 0.00001), $Driver
+                }) -join "`n")
+            }
+            function Set-DisplayStallSerial {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test stub helper: reseeds an in-memory console; no external state.')]
+                param([string]$Text)
+                & (Get-Module Test.SequenceEngine) { param($t) $script:DisplayStallSerialText = $t; $script:DisplayStallSerialReads = @() } $Text
+            }
+            function Get-DisplayStallSerialRead { & (Get-Module Test.SequenceEngine) { $script:DisplayStallSerialReads } }
+            function Get-DisplayStallEnd {
+                param([Nullable[int]]$ConsoleUnchangedSeconds)
+                & (Get-Module Test.SequenceEngine) { param($s) Get-GuestDisplayStallEnd -VMName 'vm-01' -SerialMark 5000 -ConsoleUnchangedSeconds $s } $ConsoleUnchangedSeconds
+            }
+        }
+        AfterAll {
+            . (Get-Module Test.SequenceEngine) { Remove-Item -LiteralPath function:\Read-VMSerialCapture -ErrorAction SilentlyContinue }
+        }
+
+        It 'names the stalled driver from a lab guest''s serial console once the console has been unchanged thirty seconds' {
+            Set-DisplayStallSerial -Text $script:stalledDisplay
+            $end = Get-DisplayStallEnd -ConsoleUnchangedSeconds 30
+            $end.driver | Should -Be 'hyperv_drm'
+            $end.reports | Should -Be 16
+            $end.firstUptimeSeconds | Should -Be 71.097
+            $end.lastUptimeSeconds | Should -Be 145.849
+            $end.spanSeconds | Should -Be 74.752
+            $end.newestRecordUptimeSeconds | Should -Be 145.849
+            $end.consoleUnchangedSeconds | Should -Be 30
+            $end.text | Should -Match 'flip_done timed out$'
+            @(Get-DisplayStallSerialRead) | Should -Be @(5000) -Because 'only what reached the console after the wait began can end it'
+        }
+
+        It 'ends nothing on <Case>' -TestCases @(
+            @{ Case = 'one commit that timed out, as a mode set can leave'; Uptime = @(71.1); Driver = 'hyperv_drm'; After = '' }
+            @{ Case = 'three timed-out commits inside twenty seconds'; Uptime = @(71.1, 76.1, 81.1); Driver = 'hyperv_drm'; After = '' }
+            @{ Case = 'a stall that stopped while the guest kept printing'; Uptime = @(71.1, 81.4, 91.7, 102.0); Driver = 'hyperv_drm'
+                After = '[  160.500000] systemd[1]: Started session-3.scope - Session 3 of User yuuser26.' }
+            @{ Case = 'a display driver no wait ends on'; Uptime = @(71.1, 81.4, 91.7, 102.0); Driver = 'virtio_gpu'; After = '' }
+            @{ Case = 'a stall that began in a boot before the newest'; Uptime = @(71.1, 81.4, 91.7, 102.0); Driver = 'hyperv_drm'
+                After = "[    2.321686] systemd-modules-load[98]: Module 'i2c_dev' is built in`n[   22.529439] systemd[1]: Starting systemd-user-sessions.service - Permit User Sessions..." }
+        ) {
+            param($Case, $Uptime, $Driver, $After)
+            $text = New-DisplayStallLine -Uptime $Uptime -Driver $Driver
+            if ($After) { $text += "`n$After" }
+            Set-DisplayStallSerial -Text $text
+            Get-DisplayStallEnd -ConsoleUnchangedSeconds 1325 | Should -BeNullOrEmpty -Because "$Case is no display that stopped presenting frames"
+        }
+
+        It 'does not read the serial console before the console has been unchanged thirty seconds, or when nothing measured it' {
+            Set-DisplayStallSerial -Text $script:stalledDisplay
+            Get-DisplayStallEnd -ConsoleUnchangedSeconds 29 | Should -BeNullOrEmpty
+            Get-DisplayStallEnd -ConsoleUnchangedSeconds $null | Should -BeNullOrEmpty
+            @(Get-DisplayStallSerialRead).Count | Should -Be 0
+        }
+
+        Context 'inside a wait' {
+            BeforeAll {
+                # Short enough for the console to pass the threshold within an
+                # example, with the check run every second so one follows each
+                # poll of the console. The report count and span keep their
+                # shipped values, which the replayed console has to meet.
+                & (Get-Module Test.SequenceEngine) {
+                    $script:SavedDisplayStallEndSeconds = $script:DisplayStallEndSeconds
+                    $script:SavedDisplayGuestLivelockCheckSeconds = $script:GuestLivelockCheckSeconds
+                    $script:DisplayStallEndSeconds = 2
+                    $script:GuestLivelockCheckSeconds = 1
+                }
+                $script:running = [pscustomobject]@{ Verdict = 'not-livelocked'; LivelockedSeconds = 0; Detail = 'running' }
+            }
+            AfterAll {
+                & (Get-Module Test.SequenceEngine) {
+                    $script:DisplayStallEndSeconds = $script:SavedDisplayStallEndSeconds
+                    $script:GuestLivelockCheckSeconds = $script:SavedDisplayGuestLivelockCheckSeconds
+                }
+            }
+
+            It 'ends the wait on a frozen <Shape> screen and records why' -TestCases @(
+                @{ Shape = 'readable'; Frame = "Changing password for yuuser26.`nCurrent password:`nNew password:" }
+                @{ Shape = 'blank'; Frame = '' }
+            ) {
+                param($Shape, $Frame)
+                Set-DisplayStallSerial -Text $script:stalledDisplay
+                $clock = [Diagnostics.Stopwatch]::StartNew()
+                Invoke-ScriptedWait -Frames @($Frame) -Livelock $null -TimeoutSeconds 60 -EndOnDisplayStall | Should -BeFalse
+                $clock.Elapsed.TotalSeconds | Should -BeLessThan 20 -Because "a $Shape screen that stopped changing ends the wait, not the deadline"
+                $end = Get-ProbeFailSlot 'WaitForTextDisplayStallEnd'
+                $end.driver | Should -Be 'hyperv_drm'
+                $end.reports | Should -Be 16
+                $end.consoleUnchangedSeconds | Should -BeGreaterOrEqual 2
+                $end.waitedSeconds | Should -BeLessThan 20
+                Get-ProbeFailSlot 'WaitForTextKernelStallEnd' | Should -BeNullOrEmpty -Because 'a display stall is no kernel fault'
+            }
+
+            It 'waits out its budget on a display stall while the console keeps changing, without reading the serial console' {
+                Set-DisplayStallSerial -Text $script:stalledDisplay
+                $clock = [Diagnostics.Stopwatch]::StartNew()
+                Invoke-ScriptedWait -Frames @(1..40 | ForEach-Object { "Unpacking layer $_ of 40" }) -Livelock $null -TimeoutSeconds 6 -EndOnDisplayStall | Should -BeFalse
+                $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 5.5
+                Get-ProbeFailSlot 'WaitForTextDisplayStallEnd' | Should -BeNullOrEmpty -Because 'a console that keeps changing is a display that still presents frames'
+                @(Get-DisplayStallSerialRead).Count | Should -Be 0
+            }
+
+            It 'never ends early on a display stall for a caller that did not ask, even one that ends on a livelock' {
+                Set-DisplayStallSerial -Text $script:stalledDisplay
+                $clock = [Diagnostics.Stopwatch]::StartNew()
+                Invoke-ScriptedWait -Frames @($script:frozenScreen) -Livelock $script:running -TimeoutSeconds 6 -EndOnGuestLivelock | Should -BeFalse
+                $clock.Elapsed.TotalSeconds | Should -BeGreaterOrEqual 5.5
+                Get-ProbeFailSlot 'WaitForTextDisplayStallEnd' | Should -BeNullOrEmpty -Because 'the stall stays a diagnostic for a wait without a cold restart behind it'
             }
         }
     }

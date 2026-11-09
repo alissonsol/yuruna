@@ -50,6 +50,13 @@ and bounded guest diagnostic and log uploads. A file under its runtime directory
 is served only when it is one of the allow-listed status records, whichever path
 names it, so credentials, keys, and other private state there answer 403;
 harness state under `test/status/` is refused through the repository mount.
+The `/control/runner-status` route, which the pool aggregator reads, says
+whether the outer runner is alive and, while it is gone, why: each runner
+records how it was started in `runner.session.json`, its SIGHUP and SIGTERM
+handlers write the caught signal to `runner.exit.json`, and the route joins the
+two as `lastExit`, dropping a record that names a different process than
+`runner.pid`; see [Test.SingleInstance](../../test/modules/Test.SingleInstance.psm1)
+and [Invoke-StatusServiceRuntime](../../test/service/Invoke-StatusServiceRuntime.ps1).
 Sequences selecting SSH connect directly from the runner to the guest. Console
 fetches also use SSH for launcher capability checks, refusal records, payload
 state, and execution evidence when the guest is reachable; the payload itself
@@ -329,6 +336,25 @@ hosts, and memory gauges at `/metrics` on the status listener for Ubuntu and
 macOS hosts; see [Test.HostMetricsExporter](../../test/modules/Test.HostMetricsExporter.psm1)
 and [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1).
 
+Each poll, every 30 seconds by default, reads a host's `/runtime/status.json`,
+`/runtime/host.registration.json`, `/yuruna-repo/VERSION`,
+`/control/control-status`, and `/control/runner-status`, and reads
+`/runtime/current-action.json` only while a step pause is armed; see
+[poll](../../test/extension/pool-aggregator-service/internal/poll/poll.go) and
+[hostpoll](../../test/extension/pool-aggregator-service/internal/hostpoll/hostpoll.go).
+[views.go](../../test/extension/pool-aggregator-service/internal/poolstate/views.go)
+folds the readings into one status per host, which `yuruna_pool_host_status`
+carries as a code: unreachable (0), running (1), pass (2), fail (3), idle (4),
+paused (5), pausing-cycle (6), pausing-step (7), stopped (8), preflight-failed
+(9), and lost (10). A host reads stopped when `/control/runner-status` answers
+`running: false`, and lost when that stopped runner's `runnerState` still reads
+`in-cycle` and its `runner.pid` is still present: the runner died inside a
+cycle, whereas an operator's Ctrl+C ends a cycle through the orderly shutdown
+that removes the pid file. The pool gate counts a host healthy when it reads
+running, pass, idle, pausing-cycle, pausing-step, stopped, or lost, and the
+Grafana [pool dashboard](../../test/extension/pool-aggregator-service/grafana-pool-dashboard.json)
+shows lost as "runner lost mid-cycle" in its hosts table and state timeline.
+
 A guest or service VM whose saved host address stops answering asks the
 aggregator's `/api/v1/host-address`, then `/api/v1/pool-status`, over plain HTTP
 on port 9400; the workload guest box stands for both. These read-only routes carry
@@ -444,14 +470,19 @@ One VM frame and six child families total seven boxes. The aggregator family
 includes `pool-history-backfill.service`, the same binary in backfill mode, which
 reads host archives from the pool share and writes past samples and events to
 Prometheus and Loki. The first family groups
-Squid, Zot, the Zot prewarm, `zot-sync-selftest.py`, and
+Squid, Zot, the Zot prewarm, `zot-sync-selftest.py`, `yuruna-release-asset-learn.py`, and
 `yuruna-apt-index-selftest.py`, which every 30 minutes reads each probe
 repository's apt metadata pair through the local Squid and reports any pair that
 disagrees. Squid answers mutable apt metadata from the origin and still stores
 it, so a stored `InRelease` cannot sit beside an index from a later publish.
 Squid files a versioned PowerShell Gallery package request under the CDN object
 the gallery redirects to, so a stored package is served without asking the
-gallery. Zot is a pinned,
+gallery. Squid also logs each GitHub release-download redirect, and one minute
+after boot and every minute `yuruna-release-asset-learn.py` learns from that log
+one exact Store ID rule per release URL, filing the request under the CDN object
+it redirected to, so a stored release asset is served without asking GitHub;
+GitHub's redirect itself is never stored or collapsed under an asset's key, and
+the static gallery rule alone serves when the learner cannot run. Zot is a pinned,
 SHA-256-checked release with `http.compat` enabling Docker manifests, and its
 upstream sync leaves through the local Squid 3129 listener. The self-test syncs
 one probe image per upstream through Zot when Zot is installed and after each
@@ -709,6 +740,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 [Architecture](../architecture.md) | [Design overview](README.md)

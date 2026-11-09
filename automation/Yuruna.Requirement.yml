@@ -6,13 +6,14 @@
 # --- REGION: requirements
 requirements:
   - tool: "PowerShell"
-    # 7.6.7 reports no Test-Json error for a violation nested below a schema's
-    # first level (PowerShell issue #28218), so the catalog, locale-map and
-    # configuration checks reject a file without naming the field. A 7.6.7
-    # floor would push every host onto that release; raise it with the fix.
+    # From 7.6.7, Test-Json reports no error for a violation nested below a
+    # schema's first level (PowerShell issue #28218). The catalog, locale-map
+    # and configuration checks name such a violation through
+    # Get-YurunaJsonSchemaError instead, so they do not depend on that report,
+    # and the floor can follow a release the complete suites pass on.
     command: |-
       "$($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
-    version: "7.6.6 (Core)"
+    version: "7.6.9 (Core)"
     releases: "https://github.com/powershell/powershell/releases"
   - tool: "git"
     command: |-

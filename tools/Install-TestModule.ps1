@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 42ffd71c-f88c-4908-9c29-47d3a28662d0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,10 +36,11 @@
     -Check installs nothing. It exits 0 when a 6.x copy is installed and 1 when
     none is, which is the answer the pre-commit test pass reads.
 
-    PSScriptAnalyzer is installed when absent, the same presence policy
-    Enable-TestAutomation applies to it, at the version pinned below and only
-    after the downloaded package's SHA-512 matches the hash the gallery
-    publishes for it; an installed copy stays whatever version it is.
+    PSScriptAnalyzer is installed at the version pinned below when no copy at
+    or above that version is installed, and only after the downloaded
+    package's SHA-512 matches the hash the gallery publishes for it. An older
+    copy is not removed: it stays beside the pin, and an import loads the
+    highest version, so the pin is what the lint and the suites run.
 
     Each problem is one `MODULE-ISSUE: <text>` line on stdout, for an installer
     collecting them into its closing summary, and the script still exits 0: a
@@ -183,18 +184,22 @@ function Install-YurunaPinnedGalleryModule {
     }
 }
 
-function Install-PSScriptAnalyzerIfAbsent {
+function Install-PSScriptAnalyzerAtPin {
     [CmdletBinding()]
     [OutputType([string])]
     param()
+    $version = $script:YurunaGalleryModulePin['PSScriptAnalyzer'].Version
     $installed = Get-Module -ListAvailable -Name PSScriptAnalyzer -ErrorAction SilentlyContinue |
         Sort-Object Version -Descending | Select-Object -First 1
-    if ($installed) {
+    if ($installed -and [version]$installed.Version -ge [version]$version) {
         Write-Output "  PSScriptAnalyzer $($installed.Version) already installed"
         return
     }
-    $version = $script:YurunaGalleryModulePin['PSScriptAnalyzer'].Version
-    Write-Output "  installing PSScriptAnalyzer $version (CurrentUser scope)"
+    if ($installed) {
+        Write-Output "  PSScriptAnalyzer $($installed.Version) is older than the pinned $version; installing $version (CurrentUser scope)"
+    } else {
+        Write-Output "  installing PSScriptAnalyzer $version (CurrentUser scope)"
+    }
     try {
         Install-YurunaPinnedGalleryModule -Name 'PSScriptAnalyzer'
     } catch {
@@ -216,7 +221,7 @@ try {
     Write-Output "MODULE-ISSUE: Installing Pester 6 failed unexpectedly: $($_.Exception.Message)"
 }
 try {
-    Install-PSScriptAnalyzerIfAbsent
+    Install-PSScriptAnalyzerAtPin
 } catch {
     Write-Output "MODULE-ISSUE: Installing the test modules failed unexpectedly: $($_.Exception.Message)"
 }

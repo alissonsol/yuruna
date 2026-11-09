@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.05
+.VERSION 2026.11.08
 .GUID 4207f1a4-6b1e-4c0a-9a05-9b2a1f6c3d77
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,7 +71,16 @@ function Get-ShellFunctionBody {
 $script:Lifted = Get-ShellFunctionBody -Text $installerText -Name @(
     'tool_version', 'version_ge', 'brew_formula_binary', 'prefer_newest_binary',
     'requirement_repair_key', 'requirement_key_command', 'bring_tools_to_required_versions',
-    'requirement_issue_check')
+    'requirement_issue_check', 'brew_run', 'brew_ensure_formula', 'brew_ensure_cask',
+    'brew_upgrade_if_installed', 'brew_unpin_if_pinned', 'repair_powershell',
+    'brew_outdated_rows', 'non_brew_pwsh_paths', 'github_latest_pwsh',
+    'module_rows_below_pin', 'report_newer_versions')
+
+# The powershell-yaml install runs as one pwsh -Command string; lifted whole so
+# the test runs the bytes the installer runs.
+$script:YamlBlock = [regex]::Match($installerText,
+    "(?ms)YURUNA_MODULE_SHA512=`"\`$POWERSHELL_YAML_SHA512`" pwsh -NoProfile -Command '\n(.*?)\n' \|\| note_issue").Groups[1].Value
+if (-not $script:YamlBlock) { throw 'The powershell-yaml install block was not found in the installer.' }
 
 # Stubs stand in for everything the promotion reaches outside its own logic.
 # sudo runs the command as-is (every path below is inside the temp tree), and
@@ -272,6 +281,254 @@ ls '$root/local/bin'
             Assert-Match ([regex]::Escape("$root/brew/opt/curl/bin/curl")) $r.Output 'the newest copy still has to win the name'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
+    It 'relinks an older copy in the link directory even when this shell already runs the newest' {
+        # Microsoft's .pkg links its pwsh into /usr/local/bin. This shell ran
+        # `brew shellenv` and resolves the upgraded formula, while the status
+        # service and the runner's children resolve the .pkg's link.
+        $root = New-FloorSandbox
+        try {
+            New-FakeTool -Path "$root/brew/opt/powershell/bin/pwsh" -VersionLine 'PowerShell 7.6.9'
+            New-FakeTool -Path "$root/pkg/pwsh"                     -VersionLine 'PowerShell 7.6.6'
+            & ln -sfn "$root/brew/opt/powershell/bin/pwsh" "$root/brew/bin/pwsh"
+            & ln -sfn "$root/pkg/pwsh" "$root/local/bin/pwsh"
+            $r = Invoke-InstallerShell -Body @"
+export FAKE_BREW='$root/brew'
+export PATH_LINK_DIR='$root/local/bin'
+export PATH='$root/brew/bin:$root/local/bin:$root/sysbin:/usr/bin:/bin'
+prefer_newest_binary pwsh powershell '$root/pkg/pwsh'
+printf 'LINK %s\n' "`$(readlink '$root/local/bin/pwsh')"
+"@
+            Assert-Match ([regex]::Escape("LINK $root/brew/opt/powershell/bin/pwsh")) $r.Output `
+                'the link the whole machine resolves has to name the newest copy, not the .pkg'
+            Assert-Match 'answers 7\.6\.6, older than 7\.6\.9' $r.Output 'the log has to say why a shell that already runs the newest copy relinks'
+            Assert-True ($r.Output -notmatch 'BREW-UNLINK') 'the newest copy is Homebrew''s own, so nothing may be unlinked'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'the formula and cask steps' -Skip:$IsWindows {
+    It 'upgrades a formula only once it is installed' {
+        $r = Invoke-InstallerShell -Body @'
+brew_ensure_formula() { printf 'ENSURE %s\n' "$1"; }
+brew() { [[ "$1 $2 $3 $4" == "list --formula --versions curl" ]]; }
+brew_upgrade_if_installed curl
+brew_upgrade_if_installed wget
+'@
+        Assert-Match 'ENSURE curl' $r.Output 'a formula the floor repair once added has to be upgraded like the others'
+        Assert-True ($r.Output -notmatch 'ENSURE wget') 'a formula that is not installed is not installed just for being listed'
+    }
+    It 'lists the brew curl among the upgrades and no longer asks for a PowerShell cask' {
+        Assert-Match '(?m)^brew_upgrade_if_installed curl$' $installerText 'the formula list has to carry the brew curl'
+        Assert-True ($installerText -notmatch 'cask powershell') 'Homebrew no longer publishes a PowerShell cask, so nothing may install or upgrade one'
+    }
+    It 'hands a UTM installed from the DMG to the cask' {
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-cask'
+        try {
+            New-Item -ItemType Directory -Path "$root/UTM.app/Contents" -Force | Out-Null
+            $r = Invoke-InstallerShell -Body @"
+brew() { printf 'BREW %s\n' "`$*"; [[ "`$1" != list ]]; }
+brew_ensure_cask utm '$root/UTM.app'
+"@
+            Assert-Match 'BREW install --cask --force utm' $r.Output 'a copy outside brew never advances on its own, so the cask has to take it over'
+            Assert-Match 'the cask takes it over' $r.Output
+        } finally { Remove-YurunaTestTempDir $root }
+    }
+    It 'leaves a UTM from the App Store to the App Store' {
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-cask'
+        try {
+            New-Item -ItemType Directory -Path "$root/UTM.app/Contents/_MASReceipt" -Force | Out-Null
+            $r = Invoke-InstallerShell -Body @"
+brew() { printf 'BREW %s\n' "`$*"; [[ "`$1" != list ]]; }
+brew_ensure_cask utm '$root/UTM.app'
+"@
+            Assert-True ($r.Output -notmatch 'BREW install') 'an App Store copy is the App Store''s to update'
+            Assert-Match 'came from the App Store' $r.Output
+        } finally { Remove-YurunaTestTempDir $root }
+    }
+    It 'repairs PowerShell through the formula on every pass, never through a cask' {
+        $r = Invoke-InstallerShell -Body @'
+brew_unpin_if_pinned() { :; }
+brew_ensure_formula() { printf 'ENSURE %s\n' "$1"; }
+brew_ensure_cask() { printf 'CASK %s\n' "$1"; }
+prefer_newest_binary() { printf 'PROMOTE %s\n' "$*"; }
+repair_powershell 1
+repair_powershell 2
+'@
+        Assert-Equal -Expected 2 -Actual @($r.Output -split "`n" | Where-Object { $_ -eq 'ENSURE powershell' }).Count
+        Assert-True ($r.Output -notmatch 'CASK') 'the escalation pass may not reach for a cask Homebrew no longer has'
+        Assert-Match 'PROMOTE pwsh powershell /usr/local/microsoft/powershell/7/pwsh' $r.Output
+    }
+}
+
+Describe 'report_newer_versions' -Skip:$IsWindows {
+    BeforeAll {
+        # Every top-level value the lifted functions read, set the way the
+        # installer sets it, since the fixture runs under `set -u`.
+        $script:ReportPrelude = @'
+REPORT_BREW_FORMULAE="git powershell tesseract qemu wget openssl gh curl"
+REPORT_BREW_CASKS="utm"
+POWERSHELL_YAML_VERSION="0.4.12"
+YURUNA_DIR="$PWD"
+brew() {
+  case "$1 $2" in
+    "list --formula") case "$4" in git|gh|powershell) return 0 ;; *) return 1 ;; esac ;;
+    "list --cask")    [[ "$4" == utm ]] ;;
+    "outdated --json=v2")
+      case "$3" in
+        --formula) printf '%s' "${FORMULA_JSON:-}" ;;
+        --cask)    printf '%s' "${CASK_JSON:-}" ;;
+      esac
+      # brew exits 1 whenever a named package is outdated.
+      return 1 ;;
+    *) return 0 ;;
+  esac
+}
+'@
+    }
+    It 'lists each tool its source offers newer, with why this run left it' {
+        $root = New-FloorSandbox
+        try {
+            New-FakeTool -Path "$root/local/bin/pwsh" -VersionLine 'PowerShell 6.2.0'
+            $r = Invoke-InstallerShell -Body (@($script:ReportPrelude, @"
+export PATH_LINK_DIR='$root/local/bin'
+export PRESERVE_SERVICE_VM=1
+export FORMULA_JSON='{"formulae":[{"name":"gh","installed_versions":["2.102.0"],"current_version":"2.103.3","pinned":true},{"name":"git","installed_versions":["2.55.0"],"current_version":"2.56.0","pinned":false}],"casks":[]}'
+export CASK_JSON='{"formulae":[],"casks":[{"name":"utm","installed_versions":["5.0.7"],"current_version":"5.0.8"}]}'
+curl() { printf 'https://github.com/PowerShell/PowerShell/releases/tag/v7.0.0'; }
+module_rows_below_pin() { printf 'powershell-yaml\t0.4.11\t0.4.12\n'; }
+report_newer_versions
+echo "RC=`$?"
+"@) -join "`n")
+            Assert-Match 'LOG Newer versions available' $r.Output
+            Assert-Match ([regex]::Escape("LOG   gh: 2.102.0 -> 2.103.3 (Homebrew formula; held by 'brew pin' -- 'brew unpin gh' lets it upgrade)")) $r.Output
+            Assert-Match ([regex]::Escape('LOG   git: 2.55.0 -> 2.56.0 (Homebrew formula; brew did not move it in this run)')) $r.Output
+            Assert-Match ([regex]::Escape('LOG   utm: 5.0.7 -> 5.0.8 (Homebrew cask; a service VM is running, so UTM cannot quit)')) $r.Output
+            Assert-Match ([regex]::Escape("LOG   PowerShell: 6.2.0 -> 7.0.0 (GitHub release; $root/local/bin/pwsh comes from a source this installer does not manage)")) $r.Output
+            Assert-Match ([regex]::Escape('LOG   powershell-yaml: 0.4.11 -> 0.4.12 (pinned in the PowerShell Gallery; the install of the pin did not complete)')) $r.Output
+            Assert-Match 'RC=0' $r.Output
+            Assert-True ($r.Output -notmatch 'ISSUE ') 'the report is advisory and never adds to the closing issues'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'reads a source that does not answer as unknown, never as current, and still succeeds' {
+        $root = New-FloorSandbox
+        try {
+            New-FakeTool -Path "$root/local/bin/pwsh" -VersionLine 'PowerShell 6.2.0'
+            $r = Invoke-InstallerShell -Body (@($script:ReportPrelude, @"
+export PATH_LINK_DIR='$root/local/bin'
+curl() { return 6; }
+module_rows_below_pin() { return 1; }
+report_newer_versions
+echo "RC=`$?"
+"@) -join "`n")
+            Assert-Match 'LOG   Homebrew formulae: unknown \(brew outdated did not answer\)' $r.Output
+            Assert-Match 'LOG   Homebrew casks: unknown \(brew outdated did not answer\)' $r.Output
+            Assert-Match ([regex]::Escape('LOG   PowerShell: 6.2.0 -> unknown (GitHub did not name the newest release)')) $r.Output
+            Assert-Match ([regex]::Escape('LOG   PowerShell modules: unknown (pwsh could not list them)')) $r.Output
+            Assert-True ($r.Output -notmatch '  none:') 'a source that did not answer may not read as everything current'
+            Assert-Match 'RC=0' $r.Output
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'says none in one line when every source answers that nothing is behind' {
+        $r = Invoke-InstallerShell -Body (@($script:ReportPrelude, @'
+export PATH_LINK_DIR="$PWD/no-such-link-dir"
+export FORMULA_JSON='{"formulae":[],"casks":[]}'
+export CASK_JSON='{"formulae":[],"casks":[]}'
+non_brew_pwsh_paths() { :; }
+module_rows_below_pin() { :; }
+report_newer_versions
+'@) -join "`n")
+        Assert-Match 'LOG   none: every tool this installer manages is at the newest version its source offers' $r.Output
+    }
+    It 'names a module installed below its pin and not one at or above it' {
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-pins'
+        try {
+            # A pin above every real release, so whatever this machine has
+            # installed elsewhere reads as below it, and one sandboxed copy
+            # above it reads as current.
+            New-Item -ItemType Directory -Path "$root/tools", "$root/modules/PSScriptAnalyzer/100.0.0" -Force | Out-Null
+            Set-Content -LiteralPath "$root/tools/Install-TestModule.ps1" -Value "    'PSScriptAnalyzer' = @{ Version = '99.0.0'; Sha512 = 'x' }"
+            Set-Content -LiteralPath "$root/modules/PSScriptAnalyzer/100.0.0/PSScriptAnalyzer.psd1" -Value "@{ ModuleVersion = '100.0.0' }"
+            New-Item -ItemType Directory -Path "$root/modules/powershell-yaml/1.0.0" -Force | Out-Null
+            Set-Content -LiteralPath "$root/modules/powershell-yaml/1.0.0/powershell-yaml.psd1" -Value "@{ ModuleVersion = '1.0.0' }"
+            $r = Invoke-InstallerShell -Body @"
+export PSModulePath='$root/modules'
+POWERSHELL_YAML_VERSION='99.0.0'
+YURUNA_DIR='$root'
+module_rows_below_pin
+"@
+            Assert-Match "(?m)^powershell-yaml\t[0-9.]+\t99\.0\.0$" $r.Output 'a copy below its pin has to be named with the pin'
+            Assert-True ($r.Output -notmatch 'PSScriptAnalyzer') 'a copy above its pin is current'
+        } finally { Remove-YurunaTestTempDir $root }
+    }
+}
+
+Describe 'the powershell-yaml install block' -Skip:$IsWindows {
+    BeforeAll {
+        # A package that stands in for the gallery's, and the pin that names it.
+        $script:YamlFixture = New-YurunaTestTempDir -Prefix 'yuruna-yaml-pkg'
+        $staging = Join-Path $script:YamlFixture 'staging'
+        New-Item -ItemType Directory -Path $staging -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $staging 'powershell-yaml.psd1') -Value "@{ ModuleVersion = '9.9.9'; RootModule = 'powershell-yaml.psm1' }"
+        Set-Content -LiteralPath (Join-Path $staging 'powershell-yaml.psm1') -Value '# fixture'
+        $script:YamlPackage = Join-Path $script:YamlFixture 'powershell-yaml.9.9.9.nupkg'
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [IO.Compression.ZipFile]::CreateFromDirectory($staging, $script:YamlPackage)
+        $script:YamlSha512 = [Convert]::ToBase64String([Security.Cryptography.SHA512]::HashData([IO.File]::ReadAllBytes($script:YamlPackage)))
+
+        function Invoke-YamlBlock {
+            param([Parameter(Mandatory)][string]$Root)
+            # The download is the one thing faked: it hands over the fixture
+            # package and records that it was asked.
+            $stub = @'
+function Invoke-WebRequest {
+    [CmdletBinding()]
+    param($Uri, $OutFile, $TimeoutSec)
+    Add-Content -LiteralPath $env:YURUNA_TEST_CALLS -Value $Uri
+    Copy-Item -LiteralPath $env:YURUNA_TEST_PACKAGE -Destination $OutFile
+}
+'@
+            $scriptPath = Join-Path $Root 'yaml.ps1'
+            Set-Content -LiteralPath $scriptPath -Value ($stub + "`n" + $script:YamlBlock)
+            $names = @('YURUNA_MODULE_VERSION', 'YURUNA_MODULE_SHA512', 'XDG_DATA_HOME', 'PSModulePath', 'YURUNA_TEST_CALLS', 'YURUNA_TEST_PACKAGE')
+            $saved = Save-YurunaTestEnvironment -Name $names
+            try {
+                $env:YURUNA_MODULE_VERSION = '9.9.9'
+                $env:YURUNA_MODULE_SHA512 = $script:YamlSha512
+                $env:XDG_DATA_HOME = Join-Path $Root 'data'
+                $env:PSModulePath = Join-Path $Root 'data/powershell/Modules'
+                $env:YURUNA_TEST_CALLS = Join-Path $Root 'calls.txt'
+                $env:YURUNA_TEST_PACKAGE = $script:YamlPackage
+                $out = & pwsh -NoProfile -NonInteractive -File $scriptPath 2>&1
+                return @{ Output = (@($out) -join "`n"); ExitCode = $LASTEXITCODE }
+            } finally { Restore-YurunaTestEnvironment -Saved $saved }
+        }
+    }
+    AfterAll { Remove-YurunaTestTempDir $script:YamlFixture }
+
+    It 'raises an installed copy older than the pin to the pin' {
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-yaml'
+        try {
+            $old = Join-Path $root 'data/powershell/Modules/powershell-yaml/1.0.0'
+            New-Item -ItemType Directory -Path $old -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $old 'powershell-yaml.psd1') -Value "@{ ModuleVersion = '1.0.0' }"
+            $r = Invoke-YamlBlock -Root $root
+            Assert-Equal -Expected 0 -Actual $r.ExitCode $r.Output
+            Assert-Match 'replacing powershell-yaml 1\.0\.0 with the pinned 9\.9\.9' $r.Output
+            Assert-True (Test-Path -LiteralPath (Join-Path $root 'data/powershell/Modules/powershell-yaml/9.9.9/powershell-yaml.psd1')) `
+                'the pinned version has to be unpacked beside the older one, where Import-Module loads the highest'
+        } finally { Remove-YurunaTestTempDir $root }
+    }
+    It 'leaves a copy at the pin alone and downloads nothing' {
+        $root = New-YurunaTestTempDir -Prefix 'yuruna-yaml'
+        try {
+            $current = Join-Path $root 'data/powershell/Modules/powershell-yaml/9.9.9'
+            New-Item -ItemType Directory -Path $current -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $current 'powershell-yaml.psd1') -Value "@{ ModuleVersion = '9.9.9' }"
+            $r = Invoke-YamlBlock -Root $root
+            Assert-Match 'powershell-yaml 9\.9\.9 already installed' $r.Output
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $root 'calls.txt'))) 'a copy at the pin needs no download'
+        } finally { Remove-YurunaTestTempDir $root }
+    }
 }
 
 Describe 'requirement_repair_key' {
@@ -354,11 +611,13 @@ bring_tools_to_required_versions
         # about the versions, and reading it as "no issues" would skip every
         # repair and report a clean machine.
         $r = Invoke-InstallerShell -Body @'
+POWERSHELL_YAML_VERSION=9.9.9
 requirement_issue_check() { floor_rc=1; floor_out=$'noise\npowershell-yaml is required to read the requirement list\n'; }
 run_requirement_repair() { printf 'REPAIR %s\n' "$1"; }
 bring_tools_to_required_versions
 echo FINISHED
 '@
+        Assert-Match 'Install-Module powershell-yaml -RequiredVersion 9\.9\.9 -Scope CurrentUser' $r.Output 'the advice names the installer''s pin'
         Assert-Match 'ISSUE The version floors could not be checked: automation/Test-Requirement\.ps1 exited 1, with its output printed above' $r.Output `
             'the failure reaches the closing summary'
         Assert-Match 'powershell-yaml is required to read the requirement list' $r.Output 'the check''s own output is shown whole'

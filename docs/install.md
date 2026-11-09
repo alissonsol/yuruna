@@ -29,13 +29,20 @@ used by [memory.md](memory.md), [definition.md](definition.md),
 
 ## All hosts (shared rationale)
 
-Installers compare the tools they manage with `automation/Yuruna.Requirement.yml`
-and report remaining shortfalls without turning a completed installation into
-a hard failure. They omit tools the installer cannot advance. Windows excludes
-its in-box curl, which Windows Update owns, and can leave the running PowerShell
-below its floor because an MSI self-upgrade could terminate the installer.
-Ubuntu's AMD platform preserves its ABI-bound system Python. macOS repairs PATH
-precedence and Homebrew copies in two passes before reporting remaining issues.
+Installers move the tools they manage to the newest release each tool's own
+source offers, compare them with the floors in
+`automation/Yuruna.Requirement.yml`, and report remaining shortfalls without
+turning a completed installation into a hard failure. A floor is the oldest
+version the framework accepts, not a version to stay at. Each installer ends
+with a "Newer versions available" report: every managed tool whose source still
+offers a newer version, with the reason the run did not upgrade it, and
+`unknown` for a lookup that did not answer. The floor checks omit tools the
+installer cannot advance. Windows excludes its in-box curl, which Windows Update
+owns; a run under pwsh hands the PowerShell upgrade to a Windows PowerShell
+process that runs it after the installer exits, because the MSI would end the
+running installer. Ubuntu's AMD platform preserves its ABI-bound system Python.
+macOS repairs PATH precedence and Homebrew copies in two passes before reporting
+remaining issues.
 See the [Ubuntu floor policy](https://yuruna.link/429fb30b-0035) and
 [macOS floor repair](https://yuruna.link/429fb30b-0029).
 
@@ -695,6 +702,20 @@ ternary / chain ops) -- the whole file is parsed up front, and even one
 PS 7-only token would keep the file from loading on 5.1 before this
 check can run.
 
+A run under pwsh cannot upgrade the pwsh it runs in: winget's PowerShell
+MSI closes every process holding pwsh's files, the installer included.
+When `winget list` shows a newer `Microsoft.PowerShell`, the run leaves
+the upgrade to a hidden Windows PowerShell process. Its script goes into a
+new folder under `%ProgramData%\yuruna` that only Administrators and
+SYSTEM can write, for the reason the elevated stage runs from one. That
+process waits up to two hours for the installer to exit, runs `winget
+upgrade --id Microsoft.PowerShell`, and writes each step, ending with a
+`RESULT:` line, to `<install log>.pwsh-upgrade.log` beside the install
+log; the run's last lines name that file, and the next run prints its
+`RESULT:` line. The same MSI would close the pwsh window the installer
+opens for the next steps, so that window opens once the upgrade is done,
+and any other open pwsh window closes during it.
+
 Return (not exit) is used at every relaunch site. `exit` at the script's
 top level terminates the hosting PowerShell process, which would close
 the user's own shell when the script is invoked via `irm | iex` in
@@ -925,10 +946,25 @@ when the cache is stopped (or when the operator quits UTM manually).
 
 ### brew_ensure_formula vs brew_ensure_cask
 
-PowerShell ships as a brew formula on some taps and a cask on others.
-The installer tries the formula first via `brew_ensure_formula
-powershell`; if that fails it falls back to `brew_ensure_cask
-powershell`. Either path leaves `pwsh` on PATH for subsequent steps.
+PowerShell comes from the Homebrew formula. `brew_ensure_formula
+powershell` upgrades it when it is installed and installs it when it is
+not, also on a Mac that already carries Microsoft's `.pkg` or an older
+PowerShell cask; Homebrew no longer publishes a PowerShell cask, so the
+formula is the one build the installer adds. A copy from the `.pkg` stays
+installed, and the version floor region below makes the newest copy the
+one `pwsh` runs.
+
+A formula the installer adds only to meet a floor (`curl`, when the
+system's is below it) is upgraded on every later run like the others,
+through `brew_upgrade_if_installed`; it is never installed just for being
+listed.
+
+UTM comes from its cask. A UTM dragged in from the release DMG never
+advances on its own, so when no service VM is running the cask takes it
+over (`brew install --cask --force utm`): the cask downloads that same
+release, so the bundle keeps its id and signature, and the VMs live in
+the app's container rather than in the bundle. A UTM from the App Store
+is left to the App Store's updates.
 
 <a id="429fb30b-0029"></a>
 
@@ -949,7 +985,7 @@ neither is visible in what `brew upgrade` prints:
   keeps resolving to Apple's copy -- which never advances past what
   shipped with the OS. `brew install curl` alone changes nothing that
   `curl --version` says.
-- **a tool installed twice.** Microsoft's PowerShell build (the cask)
+- **a tool installed twice.** Microsoft's PowerShell build (the `.pkg`)
   and the Homebrew formula advance independently, and `pwsh` resolves to
   whichever directory comes first on PATH. `brew upgrade` then succeeds,
   run after run, against a keg nothing actually runs.
@@ -966,13 +1002,44 @@ installed), because `brew shellenv` puts brew's bin ahead of
 only for a formula already failing a floor. A real file occupying the
 link path is moved aside with a timestamp, never deleted.
 
-The second pass exists for the one escalation that needs a first attempt
-to have failed: adding the PowerShell build that is not installed yet.
-AES-GCM is a property of the runtime rather than a tool of its own, so
-it repairs as PowerShell and clears with it. Whatever two passes cannot
-reach is reported WITH the binary the name resolves to -- a floor no
-build can reach and a newer copy hidden behind an older one on PATH read
-identically without it.
+PowerShell is promoted on every run, not only when it fails its floor:
+the formula is upgraded in place, but a link Microsoft's `.pkg` put in
+`/usr/local/bin` keeps answering for every caller that never ran
+`brew shellenv` until it is replaced there. So the promotion also checks
+the link itself, and relinks it when it answers older than the newest
+copy, even when this shell already resolves the newest one.
+
+The second pass retries what the first left short, such as an upgrade
+that failed once. AES-GCM is a property of the runtime rather than a tool
+of its own, so it repairs as PowerShell and clears with it. Whatever two
+passes cannot reach is reported WITH the binary the name resolves to -- a
+floor no build can reach and a newer copy hidden behind an older one on
+PATH read identically without it.
+
+<a id="429fb30b-003c"></a>
+
+### Newer versions are reported
+
+After the floor check, the installer prints `Newer versions available`
+and one line per tool whose own source still offers a newer version than
+the one this Mac runs:
+
+```
+==> Newer versions available
+==>   utm: 5.0.7 -> 5.0.8 (Homebrew cask; a service VM is running, so UTM cannot quit)
+==>   gh: 2.102.0 -> 2.103.3 (Homebrew formula; held by 'brew pin' -- 'brew unpin gh' lets it upgrade)
+==>   PowerShell: 7.6.6 -> 7.6.9 (GitHub release; /usr/local/bin/pwsh comes from a source this installer does not manage)
+==>   powershell-yaml: 0.4.11 -> 0.4.12 (pinned in the PowerShell Gallery; the install of the pin did not complete)
+```
+
+The sources are the ones the installer upgrades from: `brew outdated`
+for its formulae and the UTM cask, GitHub's latest release for a `pwsh`
+that Homebrew does not own, and the pins for `powershell-yaml` and
+PSScriptAnalyzer. Since every upgrade has already run, a line names what
+this run could not or would not move. A source that cannot be asked is
+printed as `unknown`, never as current, and when nothing is behind a
+single `none` line says so. The report is advisory: it never adds to the
+closing summary's issues or changes the exit code.
 
 <a id="429fb30b-002a"></a>
 
@@ -1113,32 +1180,99 @@ perpetuity.
 
 ### PowerShell apt vs tarball by architecture
 
-x86_64 gets `powershell` from Microsoft's apt repo (canonical source).
-aarch64 has no apt package, so the installer falls back to the
-PowerShell tarball under `/opt/microsoft/powershell/7` with a
-`/usr/local/bin/pwsh` symlink. Both paths leave `pwsh` on PATH for
-subsequent steps. The tarball path resolves the latest-stable release
-by following the `/releases/latest` redirect (PowerShell publishes both
-linux-x64 and linux-arm64 tarballs, plus `hashes.sha256`, for every GA
-release), so aarch64 tracks the same current version the apt path
-installs; set `PWSH_VERSION` to pin a specific release for a
-reproducible or air-gapped build.
+On x86_64 the installer tries each source in turn until `pwsh` answers:
+Microsoft's apt repo for the host's release; the `.deb` that PowerShell's
+GitHub release publishes, checked against that release's `hashes.sha256`
+and installed through apt; Microsoft's Ubuntu 24.04 apt suite; and the
+release tarball. Microsoft's 26.04 suite publishes only
+`powershell-preview`, so a fresh 26.04 host gets the release `.deb`, the
+same file Microsoft's 24.04 repository serves for that version; apt
+installs it, so dpkg records the version that is on disk. aarch64 has no
+Microsoft apt package, so the installer uses the PowerShell tarball under
+`/opt/microsoft/powershell/7` with a `/usr/local/bin/pwsh` symlink. The
+release `.deb` and the tarball resolve the latest-stable release by
+following the `/releases/latest` redirect (PowerShell publishes
+linux-x64 and linux-arm64 tarballs, amd64 and arm64 `.deb` files, and
+`hashes.sha256`, for every GA release); set `PWSH_VERSION` to pin a
+specific release for a reproducible or air-gapped build.
 
-Both of those paths run only when `pwsh` is ABSENT, because they run
-before the checkout exists and the floor to compare against lives in it.
-A pwsh that arrived some other way -- the Canonical `powershell` snap is
-the common one, a hand-unpacked tarball the other -- is therefore
-installed by nothing here, and presence is not the question a floor
-asks. Once the repo is on disk the run reads the PowerShell floor out of
-`automation/Yuruna.Requirement.yml` and raises the interpreter to it:
-snapd is asked to refresh a PowerShell it owns first, so a host keeps
-the provenance its operator chose, and only a channel that cannot reach
-the floor falls through to the apt and tarball sources above. Those land
-under `/usr/local/bin`, which the stock PATH puts ahead of `/snap/bin`,
-so the newer copy wins the name without the older one being removed. A
-source that gives up ends the upgrade attempt, not the install -- the
-host still has a working interpreter, and the closing summary carries
-the version it is stuck at.
+Both downloads retry the way the latest-release lookup does (three
+retries, five seconds apart, with a 15-second connect limit); one attempt
+may take 15 minutes, and no retry starts once 15 minutes have passed.
+Each download, and the release's `hashes.sha256` with it, streams into a
+directory under `/tmp` that only root can write, and the file is checked
+there against that list, so the file apt or tar reads as root is the file
+that was checked. Neither file ever sits where another process of the
+operator's account could swap it, and root opens nothing that account
+can write. That account still decides which `curl` and checksum tools run
+and what curl configuration they read, so this narrows what its other
+processes can do rather than closing it. apt installs the `.deb` with
+`--reinstall`, so files that no longer match what dpkg recorded are
+replaced, and waits up to 120 seconds for a dpkg lock that another apt
+run, such as an unattended upgrade, holds. A package the operator holds
+is never handed to apt this way: apt reinstalls a held package at the
+same version, and dpkg then releases the hold.
+
+Microsoft's 24.04 suite is added only on Ubuntu hosts -- never on another
+distribution, such as the AMD Ryzen AI platform's Debian -- only when no apt
+source the host has offers `powershell`, and only for that package. The installer writes
+`/etc/apt/sources.list.d/yuruna-powershell-noble.sources`; a pin,
+`/etc/apt/preferences.d/yuruna-powershell-noble.pref`, that gives every
+other package of that suite priority -1; and the key that signs the
+suite, checked against its pinned fingerprint, as
+`/etc/apt/keyrings/yuruna-powershell-noble.gpg`. The three files are
+removed once another apt source offers `powershell` -- Microsoft
+publishing it for the host's release -- and when `apt-get update` fails
+with them configured, so the suite never stops a run. An operator's own
+Microsoft source files are never touched.
+
+Those sources install `pwsh` when it is absent. A re-run also moves an
+installed PowerShell to the newest release its own source offers, so a
+host is not left on whatever release it first received. A `powershell`
+package from Microsoft's repository joins the apt package list, unless
+the operator holds it with `apt-mark hold` or apt cannot install the
+candidate a source offers; either one stays out of the list and is named
+in the closing report. Once the repo is on disk, snapd is asked to
+refresh a PowerShell snap. Microsoft's package, when apt left it older
+than GitHub's latest release (or than `PWSH_VERSION`, when set), moves
+through apt from the release `.deb`, then from Microsoft's apt sources.
+The latest release is whatever GitHub marks as latest, a new minor line
+included. An apt pin does not stop the release `.deb`; only `apt-mark
+hold` does. Each run also checks the files Microsoft's package installs
+under `/opt/microsoft/powershell/7` with `dpkg -V`: files there that no
+longer match what dpkg recorded -- a tarball unpacked over the package
+leaves them so -- are replaced through apt by a release `.deb`: the
+newest release's when the package is behind it, otherwise the one for the
+version `pwsh` answers. A file outside that tree does not count: on a
+minimized Ubuntu install dpkg's own `path-exclude` setting leaves out the
+package's manual page, and no reinstall restores it. A held package is
+named in the closing summary with `sudo apt-mark unhold powershell`
+instead. A
+tarball copy under `/opt/microsoft/powershell/7` is replaced by the
+verified tarball. Nothing is downgraded, a held package is left alone,
+and no tarball is unpacked over Microsoft's package, whose files share
+that directory. A pwsh from any other source is left alone and named in
+the closing report. Only then does the run read the PowerShell floor out
+of `automation/Yuruna.Requirement.yml` and raise the interpreter to it
+if it is still below: snapd is asked to refresh a PowerShell it owns
+first, so a host keeps the provenance its operator chose, and only a
+channel that cannot reach the floor falls through to the sources above.
+The host's own Microsoft apt repo is asked only when no package is
+installed, because the package list already asked it about an installed
+one, and nothing is installed when the release the repair would install
+(`PWSH_VERSION`, or GitHub's latest) is itself below the floor. None of
+these sources replaces a package the operator holds; the closing summary
+names it with `sudo apt-mark unhold powershell`.
+
+Every source is judged by the version `pwsh` answers afterward, never by
+its exit status: apt exits 0 with "already the newest version" for a
+package that no apt source offers newer. Microsoft's package installs
+`/usr/bin/pwsh` and the tarball links `/usr/local/bin/pwsh`; the stock
+PATH puts both ahead of `/snap/bin`, so the newer copy wins the name
+without the older one being removed. A source that gives up ends its
+own attempt, not the install or the next source -- the host still has a
+working interpreter, and the closing summary carries the version it is
+stuck at and why each source fell short.
 
 <a id="429fb30b-0035"></a>
 
@@ -1151,6 +1285,25 @@ An LTS archive freezes upstream version numbers and backports fixes. Repeating
 `automation/Yuruna.Requirement.yml` therefore describe the selected supported
 archive, rather than promising the latest upstream version. Security patch
 level is a separate question from the upstream number.
+
+A floor is the oldest version the framework accepts, not the version a host
+should stay at: the installer moves each tool it manages to the newest
+release its source offers, and ends with a "Newer versions available" report.
+The report lists every managed tool whose source offers a newer version than
+the one installed after the run -- the apt Candidate, GitHub's latest release
+for any PowerShell but a snap (a package that no apt source carries is its own
+Candidate), snapd, the pinned module versions, and kernel.org for the AMD
+platform's Git -- with the reason the run did not upgrade it. `gh` and the AMD
+platform's Git are installed only when absent and at the floor, so they are
+reported rather than upgraded. A lookup that does not answer reads `unknown`,
+never current, and the report never fails the run. An installed package
+other than PowerShell whose only origin is dpkg's own record reads
+`unknown (no configured apt source offers <package>)` too, because apt cannot
+say whether anything newer exists. A PowerShell below its floor reads
+`unknown` when GitHub's latest release is older than the floor as well, so
+the report never calls current what the floor check calls old, and a
+PowerShell the run could not move carries the reason even when GitHub did
+not answer.
 
 The AMD Ryzen AI Developer Platform uses Debian trixie. Its base archive cannot
 reach every Ubuntu-based floor. The installer takes curl and qemu-img from
@@ -1252,6 +1405,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

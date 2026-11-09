@@ -22,7 +22,7 @@
       "source": "docs/failure-schema.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/failure-schema.md",
-      "sourceHash": "6773368efaeb1e4056e713f2e204f2191ed7fa755a37e6a5ff14b4f65253632e",
+      "sourceHash": "dc5d78db709a89c2413381a51ab550d1b2dbbc1179bfff6d14af1069723c649f",
       "origin": "machine"
     },
     {
@@ -30,7 +30,7 @@
       "source": "docs/framework-implementation-notes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/framework-implementation-notes.md",
-      "sourceHash": "8e153a8c1a6814db412107cb945f58be80147b3e1a97166e846189b82223cf7b",
+      "sourceHash": "91dd521d01e3c8a2ba14c1133dcb9c9fcc12ccdb6e721e3454d1e6059e9342be",
       "origin": "machine"
     },
     {
@@ -46,7 +46,7 @@
       "source": "docs/install.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/install.md",
-      "sourceHash": "49533a600b708b55bf2153e4ce4e3750aa9cb816f210ee18efceb19a3c8abdf8",
+      "sourceHash": "2cd0f2688973cd82fd7be0e5afdacb21564f073469d4a5f3c4a3fdb7319e9101",
       "origin": "machine"
     },
     {
@@ -70,7 +70,7 @@
       "source": "docs/operator.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/operator.md",
-      "sourceHash": "31ed69b977ea5394c47e1cdb23be5816a1a74ab4198d0feecf4d2e62551fc068",
+      "sourceHash": "dfb8cc387ef88ac6f334214a5bf1b99827ca1ee29d5d77151d395270b511e1bd",
       "origin": "machine"
     },
     {
@@ -102,7 +102,7 @@
       "source": "docs/vmconfig.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/vmconfig.md",
-      "sourceHash": "4921f5ce9c11cb649cdc3ff0af4bafc53931dd4bbf5ec89cc3de40e98f18c390",
+      "sourceHash": "b6a8e005169a44d6ab822bef1191e3f1c5a05493e415a489df512fe362678d73",
       "origin": "machine"
     },
     {

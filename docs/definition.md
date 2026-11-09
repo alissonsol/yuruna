@@ -2141,7 +2141,7 @@ typed fields.
 | `step_failure` | [Test.SequenceEngine](../test/modules/Test.SequenceEngine.psm1) | Normal-path or engine-crash failure; mirrors `step_end` plus `lastSucceededStepNumber`, `innerActionVerb`, `failureScreenshotPath`, `failureOcrPath`. |
 | `runner_state_transition` | [Test.RunnerState](../test/modules/Test.RunnerState.psm1) | Every state transition + synthetic boot-recovery fault pair; carries `fromState`, `toState`, optional `reason` / `synthetic`. |
 | `remediation_recommended` | [Test.Remediation](../test/modules/Test.Remediation.psm1) | `Invoke-Remediation` dispatched a handler; carries `recommendation` enum, `handledBy`, `autoApply`. |
-| `boot_recovery_completed` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep found at least one stale class to clean; carries `archivedCycleCount`, `clearedPidFileCount`, `archivedBreakActive`, `warningCount`. Silent on clean boot. Queued, and delivered by the next cycle (see below). |
+| `boot_recovery_completed` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep found at least one stale class to clean; carries `archivedCycleCount`, `clearedPidFileCount`, `archivedBreakActive`, `warningCount`, and `previousRunner` (the previous runner's session and exit records, as runner-status's `lastExit`) when it left them. Silent on clean boot. Queued, and delivered by the next cycle (see below). |
 | `host_restart` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep archived a cycle whose host booted after the cycle's last file write; carries `abortedCycleFolder`, `abortedCycleStartUtc`, `abortedCycleNumber`, `lastWriteUtc`, `bootUtc`, `downSeconds`, `evidenceFiles[]`, `deepDiagnosticsBundles`. Queued. |
 | `runner_fault` | [Update-RunnerFaultStatus](../test/modules/Test.RunnerOuterLoop.psm1), [Start-LogFile](../test/modules/Test.Log.psm1) | The runner published a new `runnerFault` in `status.json`, once per attempt generation, and each time for a fault published without one (an escape from the outer loop, a diagnostic hold); carries the same fields (`failureClass`, `stage`, `severity`, `stepName`, `errorMessage`, `attemptGeneration`, `attemptStartedAtUtc`, `attemptElapsedSeconds`, `frameworkCommitSha`, `recordPath`, `transcriptPath`, `recordedAt`). A cycle that opens also queues one for each failed attempt in the `attempts` list of `runtime/runner-attempts/index.json` that finished after the newest passing attempt and that no `runner_fault` carried, from the fields the history keeps (no `severity` or `stepName`), dated when the attempt failed and placed ahead of any queued event dated after it, with an `eventId` derived from `attemptGeneration`. Queued. |
 | `pending_cycle_events_dropped` | [Send-PendingCycleEvent](../test/modules/Test.Log.psm1) | The pending queue dropped events at a bound, its oldest or one too large to queue; carries `droppedCount` and `lastDroppedEvent`, dated by the newest event dropped but never after the first event that survived, which it precedes. |
@@ -2598,6 +2598,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.05
+Last review: 2026.11.08
 
 Back to [Yuruna](../README.md)

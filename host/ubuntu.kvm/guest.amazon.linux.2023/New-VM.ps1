@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -243,6 +243,11 @@ try {
     # --- REGION: https://yuruna.link/42d69dfa-0008
     $osVariant = Resolve-KvmOsVariant -Candidates @('amazonlinux2023')
 
+    # --- REGION: https://yuruna.link/4220a755-000a
+    # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
+    $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
+    Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
+
     # --- REGION: https://yuruna.link/42fa6f45-0015
     $hostCores = [int](& nproc --all)
     if ($hostCores -lt 4) {
@@ -252,11 +257,6 @@ try {
     # See https://yuruna.link/42fa6f45-0015
     # Reserve at least one host thread while applying the shared guest core policy.
     $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
-
-    # --- REGION: https://yuruna.link/4220a755-000a
-    # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
-    $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
-    Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
     # --- REGION: Create and configure the libvirt domain
     $installArgs = @(

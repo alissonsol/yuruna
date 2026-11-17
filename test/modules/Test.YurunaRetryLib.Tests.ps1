@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -190,6 +190,8 @@ echo "$r"
         # and every sleep advances the same clock.
         if (-not $script:bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         $driver = @'
+# The stubs own this clock; Bash's special variable would also add real time.
+unset SECONDS
 err=$(mktemp)
 sleep() { naps="$naps $1"; SECONDS=$(( SECONDS + $1 )); }
 curl() { case " $* " in *"%{http_code}"*) echo "$probe"; return 0 ;; esac; calls=$((calls + 1)); SECONDS=$(( SECONDS + 16 )); return 22; }
@@ -205,7 +207,9 @@ max=0; for n in $naps; do [ "$n" -gt "$max" ] && max=$n; done
 { [ "$end" -ge 1800 ] && [ "$end" -le 1816 ]; } && r="${r}window " || r="${r}window($end) "
 [ "$max" -le 120 ] && r="${r}cap " || r="${r}cap($max) "
 [ "$calls" -gt 5 ] && r="${r}longer " || r="${r}longer($calls) "
-outcome | grep -q "\"outcome\":\"exhausted\",\"attempt\":${calls},\"maxAttempts\":${calls},\"rc\":22,\"windowSeconds\":1800}" && r="${r}record " || r="${r}record($(outcome)) "
+rec=$(outcome); el=${rec##*'"elapsedSeconds":'}; el=${el%'}'}
+{ printf '%s' "$rec" | grep -qF "\"outcome\":\"exhausted\",\"attempt\":${calls},\"maxAttempts\":${calls},\"rc\":22,\"windowSeconds\":1800,\"url\":\"https://github.com/PowerShell/PowerShell/releases/download/v7.6.9/hashes.sha256\",\"httpStatus\":504,\"elapsedSeconds\":${el}}" \
+  && [ "$el" -ge 1800 ] && [ "$el" -le "$end" ]; } && r="${r}record " || r="${r}record(${rec}) "
 fetch curl_retry -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/PowerShell/PowerShell/releases/latest"
 { [ "$end" -ge 1800 ] && [ "$calls" -gt 5 ]; } && r="${r}latest " || r="${r}latest($end/$calls) "
 fetch wget_try -qO /dev/null "https://github.com/nats-io/nats-server/releases/download/v2.12.1/nats-server.tar.gz"
@@ -220,6 +224,61 @@ echo "$r"
 '@
         $out = Invoke-RetryLibDriver -Driver $driver
         Assert-StringEqual -Actual $out -Expected 'rc window cap longer record latest wget other permanent' -Because "release-window result was: '$out'"
+    }
+
+    It 'names the fetched URL without its credentials, the re-probed status and the elapsed seconds on its records' {
+        # A pool-wide upstream outage is attributed from these records alone:
+        # which URL failed, what it answered, and how long the call kept trying.
+        if (-not $script:bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $driver = @'
+# The stubs own this clock; Bash's special variable would also add real time.
+unset SECONDS
+sleep() { SECONDS=$(( SECONDS + $1 )); }
+curl() { case " $* " in *"%{http_code}"*) echo "$probe"; return 0 ;; esac; SECONDS=$(( SECONDS + 7 )); return 22; }
+wget() { SECONDS=$(( SECONDS + 7 )); return 8; }
+_down() { SECONDS=$(( SECONDS + 3 )); return 100; }
+probe=000; SECONDS=0
+YURUNA_RETRY_MAX_ATTEMPTS=2 curl_retry -fsSL -o /dev/null 'https://mirror:fixture-secret@downloads.example.org/pool/tool.tar.gz?token=fixture-token#part' || true
+probe=404; SECONDS=0
+wget_try -qO /dev/null 'https://downloads.example.org/pool/missing.tar.gz?sig=fixture-sig' || true
+SECONDS=0
+YURUNA_RETRY_MAX_ATTEMPTS=2 _yuruna_retry apt_retry _down || true
+'@
+        $lines = @((ConvertTo-BashStdin ($script:lib + "`n" + $driver)) | & $script:bash.Source 2>&1 | ForEach-Object { "$_" })
+        $markers = @($lines | Where-Object { $_ -like 'YURUNA_RETRY *' })
+        Assert-False ((@($markers) -join "`n") -match 'fixture-secret|fixture-token|fixture-sig|mirror:|#part') 'a record never carries the query, fragment or userinfo'
+        $records = @($markers | ForEach-Object { $_.Substring('YURUNA_RETRY '.Length) | ConvertFrom-Json })
+        Assert-Equal -Expected 8 -Actual $records.Count -Because "two attempts and an outcome per retried call, one attempt and an outcome for the 404: $($markers -join ' | ')"
+        foreach ($record in $records) {
+            Assert-True ($record.elapsedSeconds -is [long] -or $record.elapsedSeconds -is [int]) "every record carries elapsedSeconds: $($record | ConvertTo-Json -Compress)"
+        }
+
+        $curl = @($records | Where-Object { $_.label -ceq 'curl_retry' })
+        Assert-Equal -Expected 3 -Actual $curl.Count -Because 'curl_retry: two attempts and the exhausted outcome'
+        foreach ($record in $curl) {
+            Assert-StringEqual -Actual $record.url -Expected 'https://downloads.example.org/pool/tool.tar.gz' -Because 'scheme, host and path only'
+            Assert-Equal -Expected 0 -Actual ([int]$record.httpStatus) -Because 'a re-probe that got no answer reads 0'
+        }
+        Assert-Equal -Expected 7 -Actual ([int]$curl[0].elapsedSeconds) -Because 'the first simulated attempt took seven seconds'
+        Assert-True ([int]$curl[1].elapsedSeconds -ge 19) 'the second attempt counts the first, its backoff and its own run'
+        Assert-StringEqual -Actual $curl[2].outcome -Expected 'exhausted'
+        Assert-Equal -Expected 0 -Actual ([int]$curl[2].elapsedSeconds - [int]$curl[1].elapsedSeconds) -Because 'the outcome closes the call when its last attempt failed'
+
+        $wget = @($records | Where-Object { $_.label -ceq 'wget_try' })
+        Assert-Equal -Expected 2 -Actual $wget.Count -Because 'a 404 stops wget_try after one attempt'
+        Assert-StringEqual -Actual $wget[1].outcome -Expected 'permanent'
+        foreach ($record in $wget) {
+            Assert-StringEqual -Actual $record.url -Expected 'https://downloads.example.org/pool/missing.tar.gz'
+            Assert-Equal -Expected 404 -Actual ([int]$record.httpStatus)
+        }
+
+        $apt = @($records | Where-Object { $_.label -ceq 'apt_retry' })
+        Assert-Equal -Expected 3 -Actual $apt.Count -Because 'apt_retry: two attempts and the exhausted outcome'
+        Assert-Equal -Expected 3 -Actual ([int]$apt[0].elapsedSeconds) -Because 'the first simulated apt attempt took three seconds'
+        foreach ($record in $apt) {
+            Assert-False ($record.PSObject.Properties.Name -contains 'url') 'only the URL wrappers name a URL, and a call never inherits another call''s'
+            Assert-False ($record.PSObject.Properties.Name -contains 'httpStatus') 'nothing re-probed an apt failure'
+        }
     }
     It 'advertises the safe-stall marker and wraps a bounded call in timeout --foreground' {
         # The marker is what lets a guest script ask for a wall-clock bound

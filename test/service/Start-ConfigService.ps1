@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 426b5e54-fbb6-4398-849c-4e49eda31278
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,7 +46,8 @@
     the blocking listener loop.
 .PARAMETER Port
     TCP port to listen on. 0 (default) resolves configService.port from
-    test.config.yml, falling back to 8443.
+    the configuration inherited through YURUNA_CONFIG_PATH, or the in-tree
+    test.config.yml when unset, falling back to 8443.
 .PARAMETER Serve
     Internal: run the blocking listener loop in THIS process (the launcher
     re-execs itself with this switch, detached).
@@ -104,10 +105,10 @@ $null = @(Import-Extension -Area 'authentication' -RequireSingle)
 
 if ($Port -le 0) {
     $Port = $script:ConfigServiceDefaultPort
-    $configPath = Join-Path $TestRoot 'test.config.yml'
+    $configPath = $paths.ConfigPath
     if (Test-Path -LiteralPath $configPath) {
         try {
-            $cfg = Get-Content -Raw $configPath | ConvertFrom-Yaml -Ordered
+            $cfg = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Yaml -Ordered
             if ($cfg.configService -and $cfg.configService.port) { $Port = [int]$cfg.configService.port }
         } catch { Write-Verbose "configService.port parse failed: $($_.Exception.Message)" }
     }
@@ -309,7 +310,7 @@ function Invoke-YurunaConfigServeLoop {
 
 # --- REGION: -Serve -- run the loop in this (detached) process
 if ($Serve) {
-    $cfgPath = Join-Path $TestRoot 'test.config.yml'
+    $cfgPath = $paths.ConfigPath
     Invoke-YurunaConfigServeLoop -ListenPort $Port -ConfigPath $cfgPath
     return
 }

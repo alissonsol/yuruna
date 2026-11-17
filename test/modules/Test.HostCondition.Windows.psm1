@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,8 +66,8 @@ function Write-WindowsPowerSetting {
     answered and accepted it.
     .DESCRIPTION
     The power service that answers Read-WindowsPowerSetting takes the writes
-    too, and one that stops answering held the setup run on an unbounded call
-    exactly as it once held the gate. A write that times out, cannot start or
+    too, and one that stops answering would hold the setup run on an unbounded
+    call, as it would the gate. A write that times out, cannot start or
     exits non-zero is "not written", which the caller counts as a condition
     the run could not put in place rather than as a change made.
     .PARAMETER ArgumentList

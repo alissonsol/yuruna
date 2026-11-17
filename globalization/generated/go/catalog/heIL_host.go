@@ -9420,6 +9420,24 @@ const DataheILhost = `{
     },
     "' התקבלה: כל הקלטים שהבנייה צריכה קיימים, ושום דבר לא שונה."
   ],
+  "host.service_build_plan_auth_readonly_unsupported": [
+    "ספק האימות ",
+    {
+      "arg": "provider",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " אינו תומך באימות סיסמה לקריאה בלבד. תוכנית יצירת המכונה אינה יכולה לקרוא לפעולת האחזור שמשנה נתונים."
+  ],
+  "host.service_build_plan_cache_state_invalid": [
+    "לא ניתן לאמת את מצב caching-proxy בנתיב ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ללא שינויו: הקובץ הראשי וקובץ הגיבוי מכילים נתונים שאינם שמישים."
+  ],
   "host.service_seed_degraded": [
     "ה-seed של '",
     {

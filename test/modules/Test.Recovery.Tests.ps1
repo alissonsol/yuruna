@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42f3d4d7-d8b5-4931-a70a-4825cc9dc2b2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,5 +156,69 @@ Describe 'Boot recovery archives what it detects (a second sweep is a no-op)' {
             Assert-Equal -Expected 0 -Actual @(Find-OrphanIncompleteCycle -LogDir $fx.LogDir).Count `
                 -Because 'a second sweep must be a no-op'
         } finally { Remove-YurunaTestTempDir $fx.LogDir }
+    }
+}
+
+# A pause left from an operator's maintenance window and one set seconds before
+# the runner died are both just "a pause flag" once cleared; only their times
+# tell them apart, so the sweep's event carries each flag's time.
+Describe 'Boot recovery names each pause flag it clears, with when it was set' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.EventSchema.psm1') -Force -Global -DisableNameChecking
+    }
+    BeforeEach {
+        $script:BootEvents = [System.Collections.Generic.List[hashtable]]::new()
+        Mock -ModuleName Test.Recovery Send-BootRecoveryEvent { $script:BootEvents.Add($EventRecord) }
+        Mock -ModuleName Test.Recovery Write-Information { }
+    }
+
+    It 'carries the time each flag records, in UTC, and every flag''s file time' {
+        $root = New-YurunaTestTempDir -Prefix 'yrn-recovery-pause'
+        try {
+            $runtime = Join-Path $root 'runtime'
+            $log = Join-Path $root 'log'
+            $null = New-Item -ItemType Directory -Path $runtime, $log -Force
+            # What the status service and the lab gate write into these files.
+            [IO.File]::WriteAllText((Join-Path $runtime 'control.cycle-pause'), "2026-11-08T08:30:02.1234567-08:00`n")
+            [IO.File]::WriteAllText((Join-Path $runtime 'control.lab-hold'), 'stash,pool')
+            [IO.File]::WriteAllText((Join-Path $runtime 'lab-hold.json'), '{"schemaVersion":1,"since":"2026-11-08T16:31:00Z","attempt":2,"areas":[]}')
+            $holdWritten = [datetime]::new(2026, 11, 8, 16, 31, 5, [DateTimeKind]::Utc)
+            (Get-Item -LiteralPath (Join-Path $runtime 'control.lab-hold')).LastWriteTimeUtc = $holdWritten
+
+            $summary = Invoke-YurunaBootRecovery -RuntimeDir $runtime -LogDir $log -Confirm:$false
+
+            Assert-Equal -Expected 3 -Actual @($summary.ClearedPauseFlags).Count -Because 'the three flags present are cleared'
+            Assert-Equal -Expected 0 -Actual @(Get-ChildItem -LiteralPath $runtime -Force).Count -Because 'the sweep still removes what it read'
+            Assert-Equal -Expected 1 -Actual $script:BootEvents.Count -Because 'one boot_recovery_completed event'
+            $completed = $script:BootEvents[0]
+            Assert-Equal -Expected 3 -Actual $completed.clearedPauseFlagCount
+            $flags = @{}
+            foreach ($record in @($completed.clearedPauseFlags)) { $flags[$record.name] = $record }
+            Assert-Equal -Expected 3 -Actual $flags.Count -Because 'one record per cleared flag'
+            Assert-StringEqual -Expected '2026-11-08T16:30:02.1234567Z' -Actual $flags['control.cycle-pause'].recordedAtUtc 'the request time, moved to UTC'
+            Assert-StringEqual -Expected '2026-11-08T16:31:00.0000000Z' -Actual $flags['lab-hold.json'].recordedAtUtc 'the hold''s own since'
+            Assert-True (-not $flags['control.lab-hold'].Contains('recordedAtUtc')) 'an area list is no time'
+            Assert-StringEqual -Expected $holdWritten.ToString('o') -Actual $flags['control.lab-hold'].fileWrittenAtUtc 'the file time stands in'
+            foreach ($name in $flags.Keys) {
+                Assert-True ([string]$flags[$name].fileWrittenAtUtc -match 'Z$') "$name keeps its file time in UTC"
+            }
+            $violations = @(Test-CycleEventSchema -Record $completed)
+            Assert-Equal -Expected 0 -Actual $violations.Count -Because "schema violations: $($violations -join '; ')"
+        } finally { Remove-YurunaTestTempDir $root }
+    }
+
+    It 'carries an empty list beside a zero count when it cleared no pause flag' {
+        $root = New-YurunaTestTempDir -Prefix 'yrn-recovery-nopause'
+        try {
+            $runtime = Join-Path $root 'runtime'
+            $log = Join-Path $root 'log'
+            $null = New-Item -ItemType Directory -Path $runtime, $log -Force
+            Set-Content -LiteralPath (Join-Path $runtime 'inner.pid') -Value 'not-a-pid'
+            $null = Invoke-YurunaBootRecovery -RuntimeDir $runtime -LogDir $log -Confirm:$false
+            Assert-Equal -Expected 1 -Actual $script:BootEvents.Count
+            Assert-Equal -Expected 0 -Actual $script:BootEvents[0].clearedPauseFlagCount
+            Assert-True ($script:BootEvents[0].ContainsKey('clearedPauseFlags')) 'the list is always there'
+            Assert-Equal -Expected 0 -Actual @($script:BootEvents[0].clearedPauseFlags).Count
+        } finally { Remove-YurunaTestTempDir $root }
     }
 }

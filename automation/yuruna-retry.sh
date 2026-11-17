@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.08
+# Version: 2026.11.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 426a6ad8-45b3-4008-972c-5b67700fa245
@@ -72,6 +72,21 @@ _yuruna_retry() {
         "$(_yuruna_retry_window_attempts "$window" "$delay" "$max_delay")")
     local window_field="" started="$SECONDS"
     [ "$window" -gt 0 ] && window_field=",\"windowSeconds\":${window}"
+    # curl_retry and wget_try name the URL they fetch, and a record names it
+    # by scheme, host and path only: a query, a fragment or the userinfo part
+    # can carry a credential.
+    local url="${YURUNA_RETRY_CURL_URL:-${YURUNA_RETRY_WGET_URL:-}}" authority url_field=""
+    if [[ "$url" == *://* ]]; then
+        url="${url%%[?#]*}"
+        authority="${url#*://}"
+        authority="${authority%%/*}"
+        url="${url%%://*}://${authority##*@}${url#*://"$authority"}"
+        url="${url//[\"\\[:cntrl:]]/}"
+        url_field=",\"url\":\"${url}\""
+    fi
+    # The classifier's re-probe stores the HTTP status here (see
+    # _yuruna_http_status_class); 0 is a probe that got no answer.
+    local _yuruna_retry_http_status='' detail="${window_field}${url_field}"
     local stall="${YURUNA_RETRY_STALL_TIMEOUT_SECONDS:-0}"
     local attempt=1 rc=0
     # See https://yuruna.link/4220a755-0004
@@ -121,12 +136,15 @@ _yuruna_retry() {
         # See https://yuruna.link/4220a755-0003
         # Stop only on a clearly permanent classification; ambiguity keeps retrying.
         local permanent=false
+        _yuruna_retry_http_status=''
         if [ -n "${YURUNA_RETRY_CLASSIFY:-}" ] && ! "$YURUNA_RETRY_CLASSIFY" "$rc"; then permanent=true; fi
+        detail="${window_field}${url_field}"
+        [ -n "$_yuruna_retry_http_status" ] && detail="${detail},\"httpStatus\":${_yuruna_retry_http_status}"
         # See https://yuruna.link/4220a755-0003
         # Emit scalar retry fields on stderr for host telemetry.
-        _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"attempt\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc},\"permanent\":${permanent}${window_field}}"
+        _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"attempt\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc},\"permanent\":${permanent}${detail},\"elapsedSeconds\":$(( SECONDS - started ))}"
         if [ "$permanent" = true ]; then
-            _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"permanent\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc}${window_field}}"
+            _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"permanent\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc}${detail},\"elapsedSeconds\":$(( SECONDS - started ))}"
             echo "!! ${label}: PERMANENT failure (rc=$rc, not retryable) -- not spending the remaining $((max_attempts - attempt)) attempt(s): $*" >&2
             return "$rc"
         fi
@@ -136,7 +154,7 @@ _yuruna_retry() {
             if [ "$remaining" -le 0 ]; then
                 # The window allowed the attempts made so far; the record says
                 # so, which keeps "exhausted N attempts" true for its readers.
-                _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"exhausted\",\"attempt\":${attempt},\"maxAttempts\":${attempt},\"rc\":${rc}${window_field}}"
+                _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"exhausted\",\"attempt\":${attempt},\"maxAttempts\":${attempt},\"rc\":${rc}${detail},\"elapsedSeconds\":$(( SECONDS - started ))}"
                 echo "!! ${label}: the ${window}s retry window closed after $attempt attempt(s) for: $*" >&2
                 return "$rc"
             fi
@@ -161,7 +179,7 @@ _yuruna_retry() {
         fi
         attempt=$((attempt + 1))
     done
-    _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"exhausted\",\"attempt\":${max_attempts},\"maxAttempts\":${max_attempts},\"rc\":${rc}${window_field}}"
+    _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"exhausted\",\"attempt\":${max_attempts},\"maxAttempts\":${max_attempts},\"rc\":${rc}${detail},\"elapsedSeconds\":$(( SECONDS - started ))}"
     echo "!! ${label}: all $max_attempts attempts exhausted for: $*" >&2
     return "$rc"
 }
@@ -267,6 +285,8 @@ _yuruna_http_status_class() {
     code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$url" 2>/dev/null)" || true
     [ -n "$code" ] || code=000
     echo "  yuruna-retry: re-probed HTTP status for ${url} = ${code}" >&2
+    # Read back by _yuruna_retry, whose local this assignment reaches.
+    if [[ "$code" =~ ^[0-9]{3}$ ]]; then _yuruna_retry_http_status=$((10#$code)); fi
     case "$code" in
         429|5[0-9][0-9]|000) return 0 ;;               # rate-limit / server error / no-answer -> transient
         4[0-9][0-9]) return 1 ;;                        # 404/403/401/... -> permanent (retrying cannot help)

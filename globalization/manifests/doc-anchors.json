@@ -352,6 +352,21 @@
           "slug": "apt-index-pairs-out-of-step"
         },
         {
+          "id": "4227a895-0017",
+          "heading": "Apt origins: index requests with no answer",
+          "slug": "apt-origins-index-requests-with-no-answer"
+        },
+        {
+          "id": "4227a895-0018",
+          "heading": "Requests that waited on another client's fetch",
+          "slug": "requests-that-waited-on-another-clients-fetch"
+        },
+        {
+          "id": "4227a895-0019",
+          "heading": "GitHub releases/latest answered 5xx",
+          "slug": "github-releaseslatest-answered-5xx"
+        },
+        {
           "id": "4227a895-000e",
           "heading": "Caching-proxy dashboard (web path)",
           "slug": "caching-proxy-dashboard-web-path"
@@ -4003,8 +4018,8 @@
         },
         {
           "id": "4213a0b3-01b8",
-          "heading": "install/ubuntu.kvm.sh: A failed PowerShell upgrade ends the attempt, not the install",
-          "slug": "installubuntukvmsh-a-failed-powershell-upgrade-ends-the-attempt-not-the-install"
+          "heading": "install/ubuntu.kvm.sh: bring_powershell_to_newest",
+          "slug": "installubuntukvmsh-bring_powershell_to_newest"
         },
         {
           "id": "4213a0b3-01b9",
@@ -4762,6 +4777,11 @@
           "slug": "macos-utm-host----troubleshooting"
         },
         {
+          "id": "42885ada-0015",
+          "heading": "Keep the runner in a tmux or screen session",
+          "slug": "keep-the-runner-in-a-tmux-or-screen-session"
+        },
+        {
           "id": "42885ada-0002",
           "heading": "Packages, PATH, and Homebrew issues",
           "slug": "packages-path-and-homebrew-issues"
@@ -4921,8 +4941,8 @@
         },
         {
           "id": "42f52e37-000b",
-          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.psm1: DHCP evidence capture",
-          "slug": "hostubuntukvmmodulesyurunahostpsm1-dhcp-evidence-capture"
+          "heading": "host/ubuntu.kvm/modules/Yuruna.Host.Capture.ps1: DHCP evidence capture",
+          "slug": "hostubuntukvmmodulesyurunahostcaptureps1-dhcp-evidence-capture"
         },
         {
           "id": "42f52e37-001a",
@@ -7173,6 +7193,11 @@
           "id": "42c29d04-0018",
           "heading": "The event tail",
           "slug": "the-event-tail"
+        },
+        {
+          "id": "42c29d04-0025",
+          "heading": "Events the collector observes",
+          "slug": "events-the-collector-observes"
         },
         {
           "id": "42c29d04-0019",

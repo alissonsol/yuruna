@@ -549,37 +549,30 @@
     },
     "stash.api_large_text_busy": {
       "sourceHash": "9fae303d1dc73a579c935787a8546a6a423c033f799ecd1660d0a4321268bd9d",
-      "origin": "machine",
       "message": "outro texto grande está sendo armazenado; tente de novo em instantes"
     },
     "stash.api_uploads_busy": {
       "sourceHash": "0361168126d227eae7f9f67e68d9b48690f7d054e54b4fc21452aa9be162fe07",
-      "origin": "machine",
       "message": "há envios demais sendo recebidos ao mesmo tempo; tente de novo em instantes"
     },
     "stash.api_search_failed": {
       "sourceHash": "401ccc2451aa0f517dd77acc93ce5e007910ad541f16b460c95195d58fdec474",
-      "origin": "machine",
       "message": "não foi possível pesquisar o índice de stashes; o log do serviço tem a causa"
     },
     "stash.api_resolve_failed": {
       "sourceHash": "6e6bbb785739ed84e28c15942d1a269511dd1c0c996dfc7dfdcc665b089b2cf8",
-      "origin": "machine",
       "message": "não foi possível localizar o stash; o log do serviço tem a causa"
     },
     "stash.api_open_archive_failed": {
       "sourceHash": "a7ff5f8ac8f02fc2d9e5acdf79733830db63c4f99aad2c08dd444e56a3f7fa22",
-      "origin": "machine",
       "message": "não foi possível abrir o arquivo compactado; o log do serviço tem a causa"
     },
     "stash.api_create_failed": {
       "sourceHash": "453e0d7591fc77c3eeefcfe2d9b8df4dcd77a58803cc15db8a6abbea7310693b",
-      "origin": "machine",
       "message": "não foi possível armazenar o stash; o log do serviço tem a causa"
     },
     "stash.api_delete_failed": {
       "sourceHash": "fefd0d43a12f4eed2216633e1edc384748a69333dd11fa6e1a3ae7ee39bdaef2",
-      "origin": "machine",
       "message": "não foi possível excluir o stash; o log do serviço tem a causa"
     }
   }

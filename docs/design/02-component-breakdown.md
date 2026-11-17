@@ -149,7 +149,8 @@ The seventh box groups
 [Test-Runtime](../../automation/Test-Runtime.ps1), and
 [Invoke-Clear](../../automation/Invoke-Clear.ps1), together with their
 [validation](../../automation/Yuruna.Validation.psm1),
-[requirement](../../automation/Yuruna.Requirement.psm1), and
+[requirement](../../automation/Yuruna.Requirement.psm1),
+[deployment-kind](../../automation/Yuruna.DeploymentKind.psm1), and
 [cleanup](../../automation/Yuruna.Clear.psm1) modules. Cleanup is an explicit
 entry point, not an automatic fourth deployment phase.
 
@@ -198,7 +199,7 @@ Sources and aggregate membership:
 | --- | --- |
 | Runner supervision | [Start-TestRunner](../../test/Start-TestRunner.ps1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Invoke-TestCycleRunner](../../test/modules/Invoke-TestCycleRunner.ps1), [Invoke-TestRunnerInnerLoop](../../test/modules/Invoke-TestRunnerInnerLoop.ps1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.ConfigPreflight](../../test/modules/Test.ConfigPreflight.psm1), [Test.RunnerAttemptHistory](../../test/modules/Test.RunnerAttemptHistory.psm1), [Test.SourceSelection](../../test/modules/Test.SourceSelection.psm1), [Test.HostGit](../../test/modules/Test.HostGit.psm1), [Test.FrameworkRing](../../test/modules/Test.FrameworkRing.psm1), [Test.PrivateStateRepair](../../test/modules/Test.PrivateStateRepair.psm1), the one-shot [Invoke-TestProject](../../test/Invoke-TestProject.ps1) and [Debug-TestSequence](../../test/Debug-TestSequence.ps1) entry points, [Test.SingleInstance](../../test/modules/Test.SingleInstance.psm1), and runner identity/recovery modules in [test/modules/](../../test/modules/). |
 | Sequence execution | [Test.SequenceRunner](../../test/modules/Test.SequenceRunner.psm1), [Test.SequenceEngine](../../test/modules/Test.SequenceEngine.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1), [Test.SequencePlanner](../../test/modules/Test.SequencePlanner.psm1), [Test.Orchestrator](../../test/modules/Test.Orchestrator.psm1), [Test.Start-GuestOS](../../test/modules/Test.Start-GuestOS.psm1), [Test.Start-GuestWorkload](../../test/modules/Test.Start-GuestWorkload.psm1), [sequences/](../../test/sequences/), and [schemas/](../../test/schemas/). |
-| OCR and diagnostics | [Test.OcrEngine](../../test/modules/Test.OcrEngine.psm1), [Test.OcrMatch](../../test/modules/Test.OcrMatch.psm1), [Test.Tesseract](../../test/modules/Test.Tesseract.psm1), [Test.Diagnostic](../../test/modules/Test.Diagnostic.psm1), [Test.DiagnosticPreservation](../../test/modules/Test.DiagnosticPreservation.psm1), the [guest](../../test/Invoke-GuestDiagnosticWorker.ps1) and [host](../../test/modules/Invoke-HostDiagnosticWorker.ps1) diagnostic workers, [Get-SystemDiagnostic](../../automation/Get-SystemDiagnostic.ps1), and the [guest stall sampler](../../automation/guest-performance-snapshot.sh). |
+| OCR and diagnostics | [Test.OcrEngine](../../test/modules/Test.OcrEngine.psm1), [Test.OcrMatch](../../test/modules/Test.OcrMatch.psm1), [Test.Tesseract](../../test/modules/Test.Tesseract.psm1), [Test.Ssh](../../test/modules/Test.Ssh.psm1), [Test.Diagnostic](../../test/modules/Test.Diagnostic.psm1), [Test.DiagnosticPreservation](../../test/modules/Test.DiagnosticPreservation.psm1), the [guest](../../test/Invoke-GuestDiagnosticWorker.ps1) and [host](../../test/modules/Invoke-HostDiagnosticWorker.ps1) diagnostic workers, [Get-SystemDiagnostic](../../automation/Get-SystemDiagnostic.ps1), and the [guest stall sampler](../../automation/guest-performance-snapshot.sh). |
 | Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1) and its listener [Invoke-StatusServiceRuntime](../../test/service/Invoke-StatusServiceRuntime.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), [Repair-PrivateState.py](../../test/service/Repair-PrivateState.py), the [host address beacon](../../test/modules/Invoke-HostAddressBeacon.ps1) sidecar and [Test.HostAddressBeacon](../../test/modules/Test.HostAddressBeacon.psm1), [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1), and [status/](../../test/status/). |
 | Pool coordination | [Test.PoolWorker](../../test/modules/Test.PoolWorker.psm1), [Test.PoolSync](../../test/modules/Test.PoolSync.psm1), [Test.PoolPush](../../test/modules/Test.PoolPush.psm1), [Test.PoolStorage](../../test/modules/Test.PoolStorage.psm1), [Test.PoolPlanner](../../test/modules/Test.PoolPlanner.psm1), and [Test.PoolAdmin](../../test/modules/Test.PoolAdmin.psm1). |
 | Extension services | [extension/](../../test/extension/) holds authentication, digest, cache management/parser, download-agent, pool aggregator/control, stash, notification, and the shared SDK. The [caching-proxy extension](../../test/extension/caching-proxy-service/) also holds the Git mirror, and [Test.ServiceVm](../../test/modules/Test.ServiceVm.psm1) holds the start pipeline the service launchers share. The pool aggregator runs in the caching-proxy guest and splits polling, the Loki feed, rehydration, routes, extension merge, incidents, and pool state into [internal packages](../../test/extension/pool-aggregator-service/internal/). |
@@ -237,9 +238,14 @@ than additional network services. The watchdog follows the step heartbeat; OCR
 and guest diagnostics supply sequence evidence. Test.Diagnostic also reads the
 guest kernel's lockup, RCU stall, hung-task, oops, and panic reports from the
 Hyper-V serial console and the guest recorder, and names a display driver whose
-page flips time out as a display stall, which adds no fault kind and changes no
-failure class; the beacon's address records
-name the host's own moves during a failed step. Sequence execution also includes
+page flips time out as a display stall. That evidence adds no kernel-fault kind;
+an enabled wait that ends on the serial-backed verdict is classified
+`guest_display_stalled`, and an exhausted retry preserves that inner class.
+The beacon's address records name the host's own moves during a failed step.
+CPU-restart evidence remains advisory; its failed SSH readiness event carries
+the VM, guest, phase, and caller invocation identities. An SSH banner-exchange
+timeout is a `probe_timeout` cause, rather than evidence of an unreachable
+network. Sequence execution also includes
 [Test.Transport](../../test/modules/Test.Transport.psm1) for console input and
 [Test.SequenceFailureState](../../test/modules/Test.SequenceFailureState.psm1)
 for shared failure evidence; the latter reads the newest bucket an Ubuntu
@@ -256,12 +262,15 @@ answering. A `retry` step with `restartVmBeforeRetry: coldPowerCycle`
 power-cycles a stalled startup guest on all three hosts before its next
 attempt. Text waits ask a driver that exports a console second opinion
 whether the guest stopped drawing; on UTM, a sustained inactive display with
-static frames ends the wait as a livelock. The login wait that a cold-restart
-retry repeats also ends early when a `hyperv_drm` display stopped presenting
-frames, once the console has stayed unchanged and the serial console carries
-repeated reports from that driver since the wait began, and the retry then
-cold-restarts the guest; every other wait keeps the stall as a diagnostic on
-the failure record. The host status listener also runs
+static frames ends the wait as a livelock. Login waits and uncommitted password
+prompts within an admitted cold-restart retry also end early when a
+`hyperv_drm` or `virtio_gpu` display stopped presenting frames, once the console has stayed
+unchanged and the serial console carries repeated reports from that driver
+since the wait began. Only the Hyper-V driver exports the live serial reader
+this end needs, so it applies to Hyper-V guests only. The retry can then
+cold-restart the guest; waits that do
+not enable this exit retain the stall as failure evidence.
+The host status listener also runs
 when testing is idle, and serves the native Linux and macOS memory gauges
 from Test.HostMemoryMetrics on its metrics endpoint. The
 caching-proxy launcher starts the host status and configuration services through
@@ -348,7 +357,9 @@ orphan sweep likewise skips referenced disks. The Hyper-V and UTM drivers also e
 independently of the screenshot path. The Hyper-V driver also exports
 `Read-VMSerialCapture` and `Get-VMCreationTime`, which give failure evidence
 the console text written since a step's mark and the age that bounds every
-timestamp an honest guest clock can print. UTM defines `Read-VMSerialCapture` but
+timestamp an honest guest clock can print, and `Get-VMSerialCaptureLogPath`,
+which names the live capture so a failed retry attempt keeps it before a
+restart deletes it. UTM defines `Read-VMSerialCapture` but
 does not export it, so its waits never end on a kernel report. Each provider
 folder also holds the Enable/Disable-TestAutomation, Sync-HostConfiguration, and
 Remove-OrphanedVMFiles scripts that the [test/lab/](../../test/lab/) dispatchers
@@ -436,6 +447,19 @@ carries its own setup in runcmd and has no guest service script. It fetches
 extension sources from the building host's status service, or GitHub when that
 host is unreachable, and builds only files matching the seeded manifest. The network
 differences are expanded in [Deployment](06-deployment.md).
+
+The service builders resolve a `-PlanOnly` preview before removing a working
+guest or creating its replacement. On all three hosts the preview reads
+existing credentials, SSH keys, storage coordinates, and network settings
+without creating keys, vault entries, persistent seed state, or virtual
+switches. A missing automatic credential is a planned creation; a missing
+explicitly mapped credential still refuses the plan. The shared
+[service pipeline](../../test/modules/Test.ServiceVm.psm1) runs that preview
+before withdrawing the service's advertisement. The
+[Hyper-V](../../host/windows.hyper-v/guest.stash-service/New-VM.ps1),
+[KVM](../../host/ubuntu.kvm/guest.stash-service/New-VM.ps1), and
+[UTM](../../host/macos.utm/guest.stash-service/New-VM.ps1) stash builders show
+the same read-only ordering used by the service families.
 
 ## Project data
 
@@ -609,6 +633,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 [Architecture](../architecture.md) | [Design overview](README.md)

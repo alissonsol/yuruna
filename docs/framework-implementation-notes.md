@@ -1960,11 +1960,10 @@ removed it).
 ## test/modules/Test.HostCondition.Windows.psm1: Host metrics exporter
 
 A refused VM memory allocation is decided by the host's commit charge
-against its commit limit at that instant, and neither number survives in
-any artifact the harness writes -- the only host-side record is an
-Information-level Windows event nothing collects. A scraped exporter is
-what makes that measurable after the fact, and carries the host's CPU,
-disk and VM census with it.
+against its commit limit at that instant. An Information-level Windows event
+records the refusal; the local host sampler records the commit figures.
+A scraped exporter keeps the pair measurable after the fact, and carries
+the host's CPU, disk and VM census with it.
 
 Never an unmet condition, however it turns out. Telemetry that exists to
 explain a failure must not become a reason for one, and a host reported
@@ -2156,7 +2155,7 @@ the registry directly. Inner per-host hashtables remain plain
 
 The collectors this host must publish, and why each one is on the list:
   memory       -- committed bytes and the commit limit, the pair that
-                  explains a refused allocation; nothing else exposes them.
+                  explains a refused allocation in the scraped time series.
   os           -- host identity and operating-system information.
   cpu          -- per-core time, to separate a stalled host from a busy one.
   logical_disk -- free space, which fails a guest's disk creation the same
@@ -2329,7 +2328,7 @@ Why -NoProfile:
 Why the exit trailer:
   -Command reports whether its last statement succeeded, not the
   script's exit code. The command ends with the trailer the libvirt
-  group relaunch uses, so the inner's 2, 70 and 78 reach the runner
+  group relaunch uses, so the inner's 2, 70, 75 and 78 reach the runner
   unchanged and a terminating error still exits 1.
 Why a helper module:
   Start-TestRunner.ps1, Invoke-TestProject.ps1 and Invoke-TestCycleRunner.ps1
@@ -3886,6 +3885,12 @@ standing condition every ~18 minutes. Its own catch inside the
 capture's catch, so a malformed sidecar reads as what it is
 instead of borrowing the "capture failed" wording from a capture
 that plainly succeeded -- and never fails a cycle either way.
+A capture stopped at its 120-second bound writes no sidecar, so
+Invoke-BoundedHostSystemDiagnostic writes one with the single
+problem it knows, DIAG.host-timeout. Without it the report has no
+tally line at all, and a host whose diagnostic never finishes
+looks like one that was never asked; the tally feeds no gate,
+pause or recovery decision.
 
 <a id="4213a0b3-00ee"></a>
 
@@ -3974,6 +3979,10 @@ host's repositories.frameworkUrl / repositories.projectUrl for THIS cycle, so
 the project refresh + framework clone below use the pool's repos. GH_TOKEN is
 deliberately NOT overridden -- it stays host-local (never travels in pool
 configuration). Unpooled hosts (no manifest / no repositories) are untouched.
+The pair is also published as YURUNA_POOL_FRAMEWORK_URL and
+YURUNA_POOL_PROJECT_URL: New-VM renders each guest seed in a child process,
+and Get-YurunaGitHubSource bakes this pair into host.env as the clone URLs, so
+a guest cut off from the host clones the repositories this cycle tests.
 Cleared every cycle: a stale value would make an unpooled cycle probe (and
 possibly fail on) an assignment that no longer applies.
 
@@ -4171,7 +4180,7 @@ Inter-cycle delay LIVES IN THE INNER (not the outer) so the operator
 sees the countdown in the same console as the cycle's own output.
 Outer is intentionally dumb: it spawns us, waits, and either
 respawns immediately (success) or enters its failure-pause (non-
-zero exit). Putting the delay here means an "Start-TestRunner is
+zero exit). Putting the delay here means a "Start-TestRunner is
 idle for 30s between cycles" period is observable on the runner
 host -- with the delay in the outer, Windows hosts in particular go
 dark between cycles, since the outer's Write-Output can be swallowed
@@ -5689,10 +5698,10 @@ across an unrelated screen.
 
 ## test/modules/Test.SequenceHandler.psm1: Verb registrations
 
-Optional wall-clock bound so an UNATTENDED cycle does not wedge here
+Wall-clock bound so an UNATTENDED cycle does not wedge here
 forever: step.timeoutSeconds, else a global YURUNA_BREAK_MAX_SECONDS,
-bounds the wait. With neither set the wait is effectively unbounded --
-the interactive default when an operator is present. On timeout the
+else testCycle.stepTimeoutSeconds (2700 s without one), bounds the wait.
+On timeout the
 break auto-resumes IN PLACE (resumedVia='timeout'); the continue-button
 snapshot-restore path below is intentionally skipped for a timeout.
 Parse the optional timeout defensively. A bare [int] cast throws on a
@@ -5701,7 +5710,7 @@ YURUNA_BREAK_MAX_SECONDS, or a bad step.timeoutSeconds the schema does not
 constrain for break). This handler's dispatch wrapper has a finally but no
 catch, so an escaping throw would bypass the break's soft/return-$false
 envelope and abort the cycle -- the opposite of the unattended-wedge guard
-intended here. Default to 0 (unbounded interactive wait) when unparseable.
+intended here. An unparseable or nonpositive timeout uses the watchdog bound.
 
 <a id="4213a0b3-015c"></a>
 
@@ -7365,7 +7374,9 @@ performs a same-version --reinstall, and dpkg then resets the hold.
 
 <a id="4213a0b3-01b8"></a>
 
-## install/ubuntu.kvm.sh: A failed PowerShell upgrade ends the attempt, not the install
+## install/ubuntu.kvm.sh: bring_powershell_to_newest
+
+A failed PowerShell upgrade ends its source attempt, not the install.
 
 Microsoft's package installs /usr/bin/pwsh and the tarball links
 /usr/local/bin/pwsh; the stock PATH puts both ahead of /snap/bin, so the

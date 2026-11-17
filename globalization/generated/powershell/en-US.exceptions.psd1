@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42838e67-6737-f31a-bcd5-9af7d0d12cfc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -547,7 +547,7 @@
         }
     )
     'exceptions.host_dd6d74db4a58cc9d' = @(
-        'Fido.ps1 hash mismatch (pinned v1.71): expected '
+        'Fido.ps1 hash mismatch (pinned v1.72): expected '
         @{
             'arg' = 'fidoSha256'
             'type' = 'detail'
@@ -1776,6 +1776,20 @@
             'trust' = 'internal'
         }
         ''' that cannot be forwarded through the sg relaunch; pass only strings, numbers, switches, booleans and string arrays.'
+    )
+    'exceptions.runner_ssh_key_read_only_invalid' = @(
+        'Cannot read the existing SSH key pair at '''
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' without repair: '
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
     )
     'exceptions.setup_service_vm_preserved' = @(
         @{

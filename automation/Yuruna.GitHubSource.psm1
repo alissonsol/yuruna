@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42e3bcc4-f80a-473e-9173-4d943fa7def8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -149,7 +149,11 @@ function Get-YurunaGitHubSource {
         the host's /control/test-config -- which is exactly what a guest cut off
         from the host cannot do, leaving it able to FETCH its update script from
         GitHub but with no URL to CLONE the framework from. Baking them into the
-        seed closes that gap.
+        seed closes that gap. In a pooled cycle the two clone URLs are the pair
+        the runner published for the cycle (YURUNA_POOL_FRAMEWORK_URL and
+        YURUNA_POOL_PROJECT_URL, both or neither), so a cut-off guest clones the
+        repositories the cycle tests rather than the ones this host's own
+        configuration names.
     .PARAMETER RepoRoot
         Absolute path to the repository root the host is serving.
     .OUTPUTS
@@ -217,6 +221,17 @@ function Get-YurunaGitHubSource {
     }
     if (-not $result.FrameworkUrl -and $result.Repo) {
         $result.FrameworkUrl = "https://github.com/$($result.Repo)"
+    }
+
+    # A pooled cycle tests the pair of repositories its pool assigned, not the
+    # pair this host's configuration names, and the runner publishes that pair
+    # for the cycle. A guest cut off from the host clones from these URLs, so
+    # they must name what the cycle tests. Repo and Ref still name the checkout.
+    $poolFrameworkUrl = "$env:YURUNA_POOL_FRAMEWORK_URL".Trim()
+    $poolProjectUrl   = "$env:YURUNA_POOL_PROJECT_URL".Trim()
+    if ($poolFrameworkUrl -and $poolProjectUrl) {
+        $result.FrameworkUrl = $poolFrameworkUrl
+        $result.ProjectUrl   = $poolProjectUrl
     }
 
     $head = & git -C $RepoRoot rev-parse HEAD 2>$null

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42cfce16-0bb7-4e30-aec8-058268db517a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -222,9 +222,11 @@ cat requests
 }
 
 Describe 'Guest framework Git materialization' -Skip:(-not $script:CanRunGuestGit) {
+    # The Python materializer executes a Unix Git shim and owns POSIX process
+    # groups; native Windows Python cannot exercise that guest runtime.
     It '<Platform> fetches the selected commit even when the branch advanced or installed library is old' -ForEach @(
         @{ Platform='Library' }, @{ Platform='Ubuntu' }, @{ Platform='Amazon' }
-    ) {
+    ) -Skip:$IsWindows {
         $output = Invoke-GuestGitFixture mirror $Platform
         $output | Should -Match 'RESULT_RC=0'
         $output | Should -Match '(?m)^VERSION=selected$'
@@ -235,26 +237,27 @@ Describe 'Guest framework Git materialization' -Skip:(-not $script:CanRunGuestGi
         $output | Should -Match "(?m)^REVISION=$pin$"
         $output | Should -Match '(?m)^ORIGIN=https://github.com/owner/repository.git$'
     }
-    It 'uses the same immutable commit on GitHub when an old proxy lacks capability' {
+    It 'uses the same immutable commit on GitHub when an old proxy lacks capability' -Skip:$IsWindows {
         $output = Invoke-GuestGitFixture old-proxy
         $output | Should -Match 'RESULT_RC=0'
         $output | Should -Match '(?m)^VERSION=selected$'
         $output | Should -Match 'https://github.com/owner/repository.git'
         $output | Should -Not -Match 'http://mirror.invalid/git/| clone |legacy.invalid'
     }
-    It 'fails a pinned invocation after <Mode> without cloning a moving branch' -ForEach @(
-        @{ Mode='unavailable' }, @{ Mode='wrong-head' }, @{ Mode='malformed' }, @{ Mode='missing-python' }
-    ) {
-        $output = Invoke-GuestGitFixture $Mode
-        $output | Should -Match 'RESULT_RC=1'
-        $output | Should -Not -Match '(?m)^VERSION=| clone |legacy.invalid'
+    foreach ($mode in 'unavailable', 'wrong-head', 'malformed', 'missing-python') {
+        It "fails a pinned invocation after $mode without cloning a moving branch" -ForEach @(@{ Mode = $mode }) `
+            -Skip:($IsWindows -and $mode -in @('unavailable', 'wrong-head')) {
+            $output = Invoke-GuestGitFixture $Mode
+            $output | Should -Match 'RESULT_RC=1'
+            $output | Should -Not -Match '(?m)^VERSION=| clone |legacy.invalid'
+        }
     }
     It 'preserves the labeled legacy clone for <Mode> without an immutable identity' -ForEach @(
         @{ Mode='legacy' }, @{ Mode='legacy-no-python' }
     ) {
         $output = Invoke-GuestGitFixture $Mode
         $output | Should -Match 'RESULT_RC=0'
-        $output | Should -Match '(?m)^VERSION=advanced$'
+        $output | Should -Match '(?m)^VERSION=advanced\r?$'
         $output | Should -Match 'legacy.*unpinned'
         $output | Should -Match 'clone https://legacy.invalid/framework.git'
     }
@@ -280,7 +283,7 @@ Describe 'Guest framework Git materialization' -Skip:(-not $script:CanRunGuestGi
             }
         }
     }
-    It 'kills a TERM-resistant Git descendant when the Git parent exits first' {
+    It 'kills a TERM-resistant Git descendant when the Git parent exits first' -Skip:$IsWindows {
         $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Path $root
         $library = Get-Content (Join-Path $script:RepoRoot 'automation/yuruna-retry.sh') -Raw

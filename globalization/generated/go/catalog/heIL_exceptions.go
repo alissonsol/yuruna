@@ -537,7 +537,7 @@ const DataheILexceptions = `{
     }
   ],
   "exceptions.host_dd6d74db4a58cc9d": [
-    "אי-התאמה בערך הגיבוב של ⁦Fido.ps1⁩ (גרסה מקובעת ⁦v1.71⁩): צפוי ",
+    "אי-התאמה בערך הגיבוב של ⁦Fido.ps1⁩ (גרסה מקובעת ⁦v1.72⁩): צפוי ",
     {
       "arg": "fidoSha256",
       "type": "detail",
@@ -1768,6 +1768,20 @@ const DataheILexceptions = `{
       "trust": "internal"
     },
     "' שלא ניתן להעביר בהפעלה מחדש באמצעות sg; העבירו רק מחרוזות, מספרים, מתגים, ערכים בוליאניים ומערכי מחרוזות."
+  ],
+  "exceptions.runner_ssh_key_read_only_invalid": [
+    "לא ניתן לקרוא את זוג מפתחות ה-SSH הקיים בנתיב '",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' ללא תיקון: ",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    }
   ],
   "exceptions.setup_service_vm_preserved": [
     {

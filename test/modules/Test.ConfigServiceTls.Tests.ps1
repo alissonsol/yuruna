@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42b2a26c-2f83-45a5-9ea1-2968fe3e40d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,6 +59,9 @@ using System.Text;
 namespace Yuruna.Test {
     public static class ConfigTlsProbe {
         public static string Exchange(int port, string caPath, string certPath, string keyPath) {
+            return Exchange(port, caPath, certPath, keyPath, "/healthz");
+        }
+        public static string Exchange(int port, string caPath, string certPath, string keyPath, string path) {
             using var tcp = new TcpClient();
             if (!tcp.ConnectAsync("127.0.0.1", port).Wait(5000)) throw new TimeoutException("connect");
             tcp.ReceiveTimeout = 5000;
@@ -79,7 +82,7 @@ namespace Yuruna.Test {
 #pragma warning restore SYSLIB0057
             if (client != null) options.ClientCertificates = new X509CertificateCollection { client };
             if (!tls.AuthenticateAsClientAsync(options).Wait(5000)) throw new TimeoutException("TLS handshake");
-            var request = Encoding.ASCII.GetBytes("GET /healthz HTTP/1.1\r\nHost: yuruna-host-config\r\nConnection: close\r\n\r\n");
+            var request = Encoding.ASCII.GetBytes("GET " + path + " HTTP/1.1\r\nHost: yuruna-host-config\r\nConnection: close\r\n\r\n");
             tls.Write(request, 0, request.Length);
             tls.Flush();
             using var reader = new StreamReader(tls, Encoding.UTF8);
@@ -172,5 +175,106 @@ Describe 'config service validates its private host CA during the TLS handshake'
         $response = [Yuruna.Test.ConfigTlsProbe]::Exchange($script:Port, $script:CaPath,
             (Join-Path $script:Work 'client.crt'), (Join-Path $script:Work 'client.key'))
         Assert-Match '^HTTP/1.1 200 OK' $response
+    }
+}
+
+
+Describe 'config service entry point uses the inherited configuration' {
+    BeforeAll {
+        $script:EntryRoot = Join-Path $script:Work 'entrypoint'
+        $repo = Get-YurunaTestRepoRoot -SuiteDirectory $PSScriptRoot
+        foreach ($relative in @('automation', 'test/modules', 'test/service', 'test/extension/authentication',
+                'test/status/extension/authentication', 'globalization/generated/powershell', 'globalization/manifests')) {
+            $null = [IO.Directory]::CreateDirectory((Join-Path $script:EntryRoot $relative))
+        }
+        foreach ($module in @('Test.Prelude', 'Test.YurunaDir', 'Test.ConfigServiceCA', 'Test.PoolStorage',
+                'Test.Config', 'Test.Extension', 'Test.Hash', 'Test.HostIdentitySeed', 'Test.Catalog', 'Test.Locale')) {
+            Copy-Item -LiteralPath (Join-Path $PSScriptRoot "$module.psm1") -Destination (Join-Path $script:EntryRoot 'test/modules')
+        }
+        Get-ChildItem -LiteralPath (Join-Path $repo 'automation') -Filter '*.psm1' |
+            Copy-Item -Destination (Join-Path $script:EntryRoot 'automation')
+        Get-ChildItem -LiteralPath (Join-Path $repo 'globalization/generated/powershell') -Filter 'en-US.*.psd1' |
+            Copy-Item -Destination (Join-Path $script:EntryRoot 'globalization/generated/powershell')
+        Copy-Item -LiteralPath (Join-Path $repo 'globalization/locale-manifest.json') -Destination (Join-Path $script:EntryRoot 'globalization')
+        Copy-Item -LiteralPath (Join-Path $repo 'globalization/manifests/catalog-set.json') -Destination (Join-Path $script:EntryRoot 'globalization/manifests')
+        Copy-Item -LiteralPath (Join-Path $repo 'test/service/Start-ConfigService.ps1') -Destination (Join-Path $script:EntryRoot 'test/service')
+        foreach ($name in @('default.psm1', 'authentication.config.yml')) {
+            Copy-Item -LiteralPath (Join-Path $repo "test/extension/authentication/$name") -Destination (Join-Path $script:EntryRoot 'test/extension/authentication')
+        }
+        [IO.File]::WriteAllText((Join-Path $script:EntryRoot 'test/extension/authentication/users.yml.template'), "users: {}
+")
+        [IO.File]::WriteAllText((Join-Path $script:EntryRoot 'test/status/extension/authentication/users.yml'), "users: {}
+")
+        [IO.File]::WriteAllText((Join-Path $script:EntryRoot 'test/status/extension/authentication/vault.yml'), @'
+users:
+  fixture-default:
+    password: fixture-value
+  fixture-selected:
+    password: fixture-value
+'@)
+    }
+
+    It 'serves <ExpectedUser> when <Case>' -ForEach @(
+        @{ Case='the inherited file selects the port'; Inherit=$true; ExplicitPort=$false; ExpectedUser='fixture-selected' },
+        @{ Case='an explicit port accompanies the inherited file'; Inherit=$true; ExplicitPort=$true; ExpectedUser='fixture-selected' },
+        @{ Case='no inherited configuration is set'; Inherit=$false; ExplicitPort=$false; ExpectedUser='fixture-default' }
+    ) {
+        $defaultPort = Get-YurunaTestFreePort
+        $selectedPort = Get-YurunaTestFreePort
+        while ($selectedPort -eq $defaultPort) { $selectedPort = Get-YurunaTestFreePort }
+        $defaultPath = Join-Path $script:EntryRoot 'test/test.config.yml'
+        $selectedPath = Join-Path $script:Work 'selected.config.yml'
+        foreach ($setting in @(
+                @{ Path=$defaultPath; User='fixture-default'; Port=$defaultPort },
+                @{ Path=$selectedPath; User='fixture-selected'; Port=$selectedPort })) {
+            [IO.File]::WriteAllText($setting.Path, ("language: en-US
+networkStorage:
+" +
+                "  poolStorageNetworkPath: //127.0.0.1/fixture
+  poolStorageNetworkUser: $($setting.User)
+" +
+                "  poolStorageLocalPath: /tmp/fixture-pool
+configService:
+  port: $($setting.Port)
+"))
+        }
+        $expectedPort = if ($Inherit) { $selectedPort } else { $defaultPort }
+        $psi = [Diagnostics.ProcessStartInfo]::new([Environment]::ProcessPath)
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        foreach ($arg in @('-NoProfile', '-NonInteractive', '-File',
+                (Join-Path $script:EntryRoot 'test/service/Start-ConfigService.ps1'), '-Serve')) { $psi.ArgumentList.Add($arg) }
+        if ($ExplicitPort) { $psi.ArgumentList.Add('-Port'); $psi.ArgumentList.Add([string]$expectedPort) }
+        $psi.Environment['YURUNA_RUNTIME_DIR'] = $script:TrustedRuntime
+        if ($Inherit) { $psi.Environment['YURUNA_CONFIG_PATH'] = $selectedPath }
+        else { [void]$psi.Environment.Remove('YURUNA_CONFIG_PATH') }
+        $server = [Diagnostics.Process]::Start($psi)
+        $stdout = $server.StandardOutput.ReadToEndAsync()
+        $stderr = $server.StandardError.ReadToEndAsync()
+        try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(20)
+            $answeringPort = 0
+            while (-not $answeringPort -and [DateTime]::UtcNow -lt $deadline -and -not $server.HasExited) {
+                foreach ($candidate in @($expectedPort, $defaultPort) | Select-Object -Unique) {
+                    $socket = [Net.Sockets.TcpClient]::new()
+                    try {
+                        if ($socket.ConnectAsync('127.0.0.1', $candidate).Wait(250) -and $socket.Connected) { $answeringPort = $candidate; break }
+                    } catch { $null = $_ }
+                    finally { $socket.Dispose() }
+                }
+                if (-not $answeringPort) { Start-Sleep -Milliseconds 100 }
+            }
+            $answeringPort | Should -Be $expectedPort
+            $response = [Yuruna.Test.ConfigTlsProbe]::Exchange($expectedPort, $script:CaPath,
+                (Join-Path $script:Work 'client.crt'), (Join-Path $script:Work 'client.key'), '/v1/nas/pool')
+            $response | Should -Match '^HTTP/1.1 200 OK'
+            $payload = ($response -split "`r`n`r`n", 2)[1] | ConvertFrom-Json
+            $payload.username | Should -BeExactly $ExpectedUser
+        } finally {
+            if (-not $server.HasExited) { $server.Kill(); $null = $server.WaitForExit(10000) }
+            $null = $stdout.GetAwaiter().GetResult(), $stderr.GetAwaiter().GetResult()
+            $server.Dispose()
+        }
     }
 }

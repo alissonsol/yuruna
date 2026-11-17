@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -190,7 +190,7 @@ try {
     # an amd64-only answer file would leave Setup waiting on its first page.
     $answerArch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64) { 'arm64' } else { 'amd64' }
     $AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
-        -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
+        -replace 'COMPUTERNAME_PLACEHOLDER', (Resolve-YurunaWindowsComputerName -Name $VMName) `
         -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $guestBootstrap.EncodedCommand `
         -replace 'processorArchitecture="amd64"', "processorArchitecture=`"$answerArch`""
     Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline

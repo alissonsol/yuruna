@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,6 +47,10 @@ type mirrorHarness struct {
 
 func newMirrorHarness(t *testing.T) *mirrorHarness {
 	t.Helper()
+	// Nested suite temp folders can exceed Git for Windows' default path limit.
+	if runtime.GOOS == "windows" {
+		appendMirrorGitConfig(t, "core.longpaths", "true")
+	}
 	base := t.TempDir()
 	work := filepath.Join(base, "work")
 	upstream := filepath.Join(base, "upstream.git")
@@ -59,6 +64,10 @@ func newMirrorHarness(t *testing.T) *mirrorHarness {
 	mirrorTestGit(t, work, "add", ".")
 	mirrorTestGit(t, work, "commit", "-q", "-m", "initial")
 	mirrorTestGit(t, work, "clone", "--bare", work, upstream)
+	if runtime.GOOS == "windows" {
+		// Receive-pack does not inherit the client's injected Git configuration.
+		mirrorTestGit(t, upstream, "config", "core.longpaths", "true")
+	}
 	appendMirrorGitConfig(t, "url.file://"+filepath.ToSlash(upstream)+".insteadOf", "https://github.com/example/repo.git")
 	appendMirrorGitConfig(t, "protocol.file.allow", "always")
 	h := &mirrorHarness{work: work, upstream: upstream}
@@ -136,6 +145,20 @@ func TestMirrorInitialPublicationAndUnchangedCheck(t *testing.T) {
 	}
 	if !h.c.repositories["example/repo"].state.LastUpdatedAt.Equal(updated) {
 		t.Fatal("unchanged check changed lastUpdatedAt")
+	}
+}
+
+func TestMirrorFixtureSupportsNestedReferencePaths(t *testing.T) {
+	h := newMirrorHarness(t)
+	ready := h.resolve(t, "HEAD")
+	if ready.Status != "ready" || !ready.ObjectReady {
+		t.Fatalf("initial publication: %+v", ready)
+	}
+	path := mirrorRepoPath(h.c.options.Root, "example/repo")
+	ref := "refs/yuruna/fixture/" + strings.Repeat("nested/", 20) + ready.SelectedSHA
+	mirrorTestGit(t, path, "update-ref", ref, ready.SelectedSHA)
+	if got := mirrorTestGit(t, path, "rev-parse", ref); got != ready.SelectedSHA {
+		t.Fatalf("nested reference = %s, want %s", got, ready.SelectedSHA)
 	}
 }
 

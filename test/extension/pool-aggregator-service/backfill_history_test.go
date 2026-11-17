@@ -12,6 +12,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -260,5 +262,38 @@ func TestStatusHistoryCompletionSamplesRespectCoverageAndOrdering(t *testing.T) 
 	}
 	if len(finals) != 2 || finals[bfAt("2026-10-02T09:10:17Z").UnixMilli()] != 2 || finals[bfAt("2026-10-02T09:50:00Z").UnixMilli()] != 4 {
 		t.Errorf("want only the two uncovered completion observations: %+v", finals)
+	}
+}
+
+// The collector writes what it observes of a host itself -- a runner lost
+// mid-cycle, a host that stopped answering -- into the host's event stream
+// under the emitter label. A runner_lost line names the cycle the runner died
+// in, but it is not one of that cycle's events: counting it would mark a cycle
+// whose own events never reached Loki as written, and the backfill would never
+// write them.
+func TestBackfillCountsOnlyTheEventsAHostWrote(t *testing.T) {
+	now := bfAt("2026-11-12T12:00:00Z")
+	clock := func() time.Time { return now }
+	loki := newFakeLoki(clock)
+	loki.seed(map[string]any{"streams": []map[string]any{{
+		"stream": map[string]string{"pool": "red", "hostId": bfHostA, "src": "event"},
+		"values": [][]string{{strconv.FormatInt(bfAt("2026-11-12T10:00:05Z").UnixNano(), 10),
+			`{"event":"cycle_start","timestamp":"2026-11-12T10:00:05Z","cycleStartUtc":"2026-11-12T10:00:00Z"}`}},
+	}}})
+	loki.seed(observedEventPayload("red", bfHostA, "runner_lost",
+		map[string]any{"cycleStartUtc": "2026-11-12T11:00:00Z", "episodeKey": bfHostA + "/4242/2026-11-12T11:00:00Z"}, bfAt("2026-11-12T11:20:00Z")))
+	lokiSrv := httptest.NewServer(loki)
+	t.Cleanup(lokiSrv.Close)
+	cfg, err := parseBackfillFlags([]string{"-loki", lokiSrv.URL + "/loki/api/v1/push", "-prometheus", "http://127.0.0.1:1", "-once"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := newBackfiller(cfg, &http.Client{Timeout: time.Second}, clock, func(context.Context, time.Duration) bool { return true })
+	got, err := b.lokiEventCycles(context.Background(), bfHostA, now.Add(-6*time.Hour), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]bool{"2026-11-12T10:00:00Z": true}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("cycles with event lines = %v, want %v", got, want)
 	}
 }

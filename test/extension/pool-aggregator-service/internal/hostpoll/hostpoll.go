@@ -356,37 +356,73 @@ func FetchStatus(client *http.Client, base string) (*HostStatus, []byte, error) 
 	return &st, body, nil
 }
 
+// RunnerStatus is what /control/runner-status says about a host's outer runner.
+// Pid is the process runner.pid names, 0 when the route names none. LastExit is
+// the host's report of how that runner ended, nil when the route attached none.
+type RunnerStatus struct {
+	Stopped      bool
+	LostMidCycle bool
+	Pid          int
+	LastExit     *RunnerExit
+}
+
+// RunnerExit is the part of the route's lastExit the collector records when a
+// runner is lost: the runner's start time, which with its pid names that
+// runner; the signal that ended it and when, when the runner caught one; whether
+// the host booted since; and how the runner was started. A field the host could
+// not establish is nil.
+type RunnerExit struct {
+	Pid             int     `json:"pid"`
+	StartedUtc      string  `json:"startedUtc"`
+	Signal          *string `json:"signal"`
+	SignalAtUtc     *string `json:"signalAtUtc"`
+	HostRestarted   *bool   `json:"hostRestarted"`
+	TerminalProgram *string `json:"terminalProgram"`
+	SSHSession      bool    `json:"sshSession"`
+}
+
 // FetchRunnerStopped reads /control/runner-status and reports whether the host's
 // outer test runner is verifiably not alive: only an explicit running:false
 // counts; a 404 or a missing field is "cannot tell", and a transport failure
-// returns the error. lostMidCycle says a stopped runner died inside a cycle: its
+// returns the error. LostMidCycle says a stopped runner died inside a cycle: its
 // lifecycle state (runnerState) still reads in-cycle and its runner.pid is still
 // there (pid). Both are needed: an operator's Ctrl+C stops a running cycle and
 // leaves runnerState at in-cycle too, but it ends through the orderly shutdown,
 // which removes runner.pid. See https://yuruna.link/42c29d04-000c.
-func FetchRunnerStopped(client *http.Client, base string) (stopped, lostMidCycle bool, err error) {
+func FetchRunnerStopped(client *http.Client, base string) (RunnerStatus, error) {
 	status, body, err := Get(client, base, "/control/runner-status", 64<<10)
 	if err != nil {
-		return false, false, err
+		return RunnerStatus{}, err
 	}
 	if status == http.StatusNotFound {
-		return false, false, nil
+		return RunnerStatus{}, nil
 	}
 	if status != http.StatusOK {
-		return false, false, fmt.Errorf("runner-status HTTP %d", status)
+		return RunnerStatus{}, fmt.Errorf("runner-status HTTP %d", status)
 	}
 	// A pointer, so an answer that omits the field is told apart from one that says
 	// false -- the difference between "cannot tell" and "the runner is gone".
 	var rs struct {
-		Running     *bool  `json:"running"`
-		Pid         *int   `json:"pid"`
-		RunnerState string `json:"runnerState"`
+		Running     *bool           `json:"running"`
+		Pid         *int            `json:"pid"`
+		RunnerState string          `json:"runnerState"`
+		LastExit    json.RawMessage `json:"lastExit"`
 	}
 	if err := json.Unmarshal(body, &rs); err != nil {
-		return false, false, fmt.Errorf("runner-status parse: %w", err)
+		return RunnerStatus{}, fmt.Errorf("runner-status parse: %w", err)
 	}
-	stopped = rs.Running != nil && !*rs.Running
-	return stopped, stopped && rs.RunnerState == "in-cycle" && rs.Pid != nil, nil
+	out := RunnerStatus{Stopped: rs.Running != nil && !*rs.Running}
+	out.LostMidCycle = out.Stopped && rs.RunnerState == "in-cycle" && rs.Pid != nil
+	if rs.Pid != nil {
+		out.Pid = *rs.Pid
+	}
+	// Decoded on its own, so a report this collector cannot read costs only the
+	// report and never the verdicts above.
+	var exit RunnerExit
+	if len(rs.LastExit) > 0 && json.Unmarshal(rs.LastExit, &exit) == nil && exit.Pid > 0 {
+		out.LastExit = &exit
+	}
+	return out, nil
 }
 
 // StepPauseCode is what Invoke-Sequence writes into the current-action sidecar's

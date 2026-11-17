@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42e62d38-20d8-4171-9157-427b737d6f11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,6 +58,39 @@ BeforeAll {
 }
 
 Describe 'Real configuration gate causes under a controlled outage' {
+    It 'waits for complete request headers before sending its authentication challenge' {
+        $fixture = New-GitOutageFixture -Mode Unauthorized
+        $client = [Net.Sockets.TcpClient]::new()
+        try {
+            $client.Connect('127.0.0.1', ([uri]$fixture.GitEndpoint).Port)
+            $stream = $client.GetStream()
+            $buffer = [byte[]]::new(8192)
+            $pending = $stream.ReadAsync($buffer, 0, $buffer.Length)
+            $head = [Text.Encoding]::ASCII.GetBytes("GET /fixture/denied.git/info/refs HTTP/1.1`r`nHost: localhost`r`n")
+            $stream.Write($head, 0, $head.Length)
+            $deadline = [DateTime]::UtcNow.AddSeconds(2)
+            while ($fixture.Clients.Count -eq 0 -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 10 }
+            $fixture.Clients.Count | Should -Be 1
+            $pending.Wait(200) | Should -BeFalse -Because 'an authentication response must not close a connection with unread request headers'
+            $end = [Text.Encoding]::ASCII.GetBytes("`r`n")
+            $stream.Write($end, 0, $end.Length)
+            $pending.Wait(2000) | Should -BeTrue
+            $received = $pending.GetAwaiter().GetResult()
+            $response = [Text.Encoding]::ASCII.GetString($buffer, 0, $received)
+            $deadline = [DateTime]::UtcNow.AddSeconds(2)
+            while (-not $response.Contains("`r`n`r`n") -and $received -lt $buffer.Length) {
+                $remaining = [int]($deadline - [DateTime]::UtcNow).TotalMilliseconds
+                $remaining | Should -BeGreaterThan 0
+                $stream.ReadTimeout = $remaining
+                $count = $stream.Read($buffer, $received, $buffer.Length - $received)
+                $count | Should -BeGreaterThan 0
+                $received += $count
+                $response = [Text.Encoding]::ASCII.GetString($buffer, 0, $received)
+            }
+            $response | Should -BeExactly "HTTP/1.1 401 Unauthorized`r`nWWW-Authenticate: Basic realm=`"fixture`"`r`nContent-Length: 0`r`nConnection: close`r`n`r`n"
+        } finally { $client.Dispose(); Remove-GitOutageFixture -Fixture $fixture }
+    }
+
     It 'records project transport and direct TCP failures as transient with independent endpoints' {
         $fixture = New-GitOutageFixture
         try {

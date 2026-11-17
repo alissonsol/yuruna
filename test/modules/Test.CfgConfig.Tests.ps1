@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42306286-6637-4762-aa48-42757ab30e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     Behavioral tests exercise the exported cache/snapshot surface (Ordinal collision,
     FIFO eviction past the cap, per-source + per-user snapshot slots, fail-soft
     validation); AST guards pin the bound comparison node and the validator routing.
-    The throw-free Should assertions run under Pester 5.x.
+    The throw-free Should assertions run under Pester 6.x.
 #>
 
 BeforeAll {

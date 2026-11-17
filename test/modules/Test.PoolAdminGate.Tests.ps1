@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42074735-e5df-4b56-b216-96e6299e53f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     module-private Invoke-PoolAdminGitWithRetry (in module scope), with the git
     primitive + schema validator mocked. AST guards pin that the CI gate marks
     pools.yml -Required and that fetch/clone/push route through the retry wrapper.
-    The throw-free Should assertions run under Pester 5.x.
+    The throw-free Should assertions run under Pester 6.x.
 #>
 
 BeforeAll {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42218fa5-018e-4ea0-a6fe-a80cc7202613
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -575,6 +575,9 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
                 $r.message  | Should -Match '40000 s'
                 $r.remedy   | Should -Match 'NetworkManager'
                 $r.remedy   | Should -Match 'reserv|static'
+                $r.remedy   | Should -Match "tcpdump -ni yuruna-br0 'udp port 67 or udp port 68'"
+                $r.remedy   | Should -Match 'whether the request was sent and answered'
+                $r.remedy   | Should -Match 'even when the host firewall then drops the reply'
                 @($script:NmcliCalls) | Should -Be @('-t -f DHCP4 device show yuruna-br0')
             }
         } finally { Remove-YurunaTestTempDir $d }

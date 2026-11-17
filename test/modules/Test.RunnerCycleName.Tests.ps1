@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42b57614-29a8-40c6-9d50-e5b092ba1bf2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     sites call it, the raw Get-CycleFolderIdentity invocation appears exactly once
     (inside the helper), and the helper stays private. AST/source-only -- no
     module import, no runner. The throw-based Assert-True helper is script-scoped
-    so this runs under Pester 5.x.
+    so this runs under Pester 6.x.
 #>
 
 BeforeAll {

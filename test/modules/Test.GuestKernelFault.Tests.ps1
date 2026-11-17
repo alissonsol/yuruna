@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42b6c1f4-8e37-4d2a-9a51-7f0c3e6d2b84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -530,6 +530,27 @@ Describe 'A failed step reads the kernel''s reports from its own start' {
         $reading.serial.faultRecords | Should -Be 0
         $reading.serial.records | Should -Be 0
         @($reading.serial.kinds).Count | Should -Be 0
+    }
+
+    It 'dates the console''s last byte, so a reading that read nothing names a console silent since then' {
+        # The guest wrote its last line before the step began, and nothing since.
+        $lastWrite = [datetime]::new(2026, 1, 2, 9, 55, 22, [DateTimeKind]::Utc)
+        $capture = [pscustomobject]@{ Length = 66323L; Offset = 66323L; Text = ''; Truncated = $false; Replaced = $false; LastWriteUtc = $lastWrite }
+        & (Get-Module Test.SequenceEngine) { param($c) Set-SerialProbe -Capture $c } $capture
+        $reading = & (Get-Module Test.SequenceEngine) { Get-StepGuestKernelFault -VMName 'vm-01' -SerialMark 66323 -StepInvocationId 'leaf' }
+        $reading.serial.bytesRead | Should -Be 0
+        $reading.serial.totalBytes | Should -Be 66323 -Because 'the reader had received the boot''s output, so it was alive'
+        $reading.serial.lastByteUtc | Should -BeExactly '2026-01-02T09:55:22.0000000Z'
+    }
+
+    It 'names no last byte for an empty capture or a driver that reports no write time: <Case>' -ForEach @(
+        @{ Case = 'empty'; Capture = @{ Length = 0L; Offset = 0L; Text = ''; Truncated = $false; Replaced = $false; LastWriteUtc = [datetime]::new(2026, 1, 2, 9, 40, 56, [DateTimeKind]::Utc) } }
+        @{ Case = 'undated'; Capture = @{ Length = 120L; Offset = 120L; Text = ''; Truncated = $false; Replaced = $false } }
+    ) {
+        & (Get-Module Test.SequenceEngine) { param($c) Set-SerialProbe -Capture ([pscustomobject]$c) } $Capture
+        $reading = & (Get-Module Test.SequenceEngine) { Get-StepGuestKernelFault -VMName 'vm-01' -SerialMark 0 -StepInvocationId 's' }
+        $reading.serial.lastByteUtc | Should -BeNullOrEmpty
+        $reading.serial.totalBytes | Should -Be $Capture.Length
     }
 
     It 'takes the recorder''s frozen stall without a console, and answers $null with neither' {

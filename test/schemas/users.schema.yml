@@ -23,10 +23,11 @@ properties:
     description: >
       When true, every logical username referenced by an
       active sequence must be declared in users.yml AND any populated
-      vaultKey/localOsPasswordRef must resolve to a non-empty vault.yml
-      entry; Test-Config.ps1 blocks the cycle otherwise. Setting false
-      reverts to a lenient fall-through (unknown logical user -> treat
-      as local-only, vault auto-generates) for dev iterations.
+      vaultKey must resolve to a non-empty vault.yml entry; Test-Config.ps1
+      blocks the cycle otherwise. A populated localOsPasswordRef is not
+      checked: the vault auto-generates it. Setting false reverts to a
+      lenient fall-through (unknown logical user -> treat as local-only,
+      vault auto-generates) for dev iterations.
 
   users:
     type: object

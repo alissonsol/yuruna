@@ -369,7 +369,17 @@ host whose guests keep wedging does not spend the budget of real step
 timeouts, and once that budget is spent the usual failure pause runs its
 length. A guest that wedges without a kernel fault report on the console and
 without the verdict, such as the third shape, still spends the whole step
-budget and files as `wait_timeout`.
+budget and files as `wait_timeout`. A wait that times out before either rule
+or the verdict holds keeps its class too, but the record names what the
+processor window saw: the progress advisory lists `no-interrupts-serviced`
+once a processor has serviced no interrupt for a minute, and an `ocr_timeout`
+whose window lists such a processor for two minutes gets the wedged-kernel
+advice instead of a diverged workload's. A cold-restart retry's
+`retry_attempt` event carries the attempt's `guestKernelStallEnd` and a
+summary of its processor window, and the attempt's evidence folder keeps the
+boot's `serial-console.log`, which the restart would otherwise delete, when the
+boot wrote any; otherwise `serialCapture` in the folder's `vm-diagnostics.json`
+says why.
 
 **Signatures.** Three shapes have been seen. In the first the guest kernel
 locks up on one processor, and the failure record carries two independent
@@ -394,8 +404,11 @@ readings of it:
   for its deadline on it: once three commits in a row have timed out and the
   console has stayed unchanged for 30 seconds, the wait ends with
   `causeDetail.guestDisplayStallEnd` and the retry cold-restarts the guest (see
-  [test sequences](test-sequences.md#428e4df6-001c)). Every other wait,
-  including the password-change prompts, keeps the stall as a diagnostic.
+  [test sequences](test-sequences.md#428e4df6-001c)). The first-login password
+  prompts use that path only while the current prompt has typed nothing; a
+  stalled wait replays from login. Once that prompt starts typing, or the
+  confirming entry has completed, recovery never replays the password flow.
+  Every wait outside the bounded first-login retry keeps the stall as a diagnostic.
 - `guestLivelock.processorWindow`: one processor in the storm shape, about 91%
   hypervisor time on millions of external-interrupt intercepts per second,
   that services no interrupt at all, so its `noInterruptsServicedSeconds` keeps
@@ -893,7 +906,11 @@ and [PDH conversion](https://github.com/prometheus-community/windows_exporter/bl
 The outer runner starts a dedicated host sampler outside the inner runner's
 process tree. Every 15 seconds it collects per-instance runtime, intercepts and
 cost, dispatch wait, context switches, frequency/performance, DPC/interrupt time,
-disk latency/queues, and memory commit/paging. It discovers actual localized PDH
+disk latency/queues, and memory commit/paging. Each attached VHD or VHDX also
+reports its own `Hyper-V Virtual Storage Device` latency, queue length, write
+operations and bytes per second, and flush count: a guest can stall on its disk
+while `PhysicalDisk` shows the host's disk idle, and `PhysicalDisk` counts no
+flushes. It discovers actual localized PDH
 names through the host inventory and Perflib IDs. An inventory capability means
 a path exists; each sampled row separately reports valid or unavailable data.
 Version-specific counters that are absent remain explicitly marked as unavailable.
@@ -1025,6 +1042,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

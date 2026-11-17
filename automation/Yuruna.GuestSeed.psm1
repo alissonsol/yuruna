@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 428d485e-047b-4cc1-8ed5-93ab18e050f7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,30 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.GitHubSource.psm1') -DisableNameC
 
 
 # See https://yuruna.link/42e220c4-0006
+
+# --- REGION: Resolve-YurunaWindowsComputerName
+function Resolve-YurunaWindowsComputerName {
+    <#
+    .SYNOPSIS
+        Preserve a valid Windows computer name or request Windows' native generated name.
+    .DESCRIPTION
+        Windows Setup rejects names longer than 15 bytes, all-numeric names and
+        its reserved characters. The VM identifier can exceed those limits, so
+        use the answer file's native asterisk without renaming the VM itself.
+        See https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-computername.
+    .PARAMETER Name
+        The desired computer name derived from the VM identifier.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Name)
+
+    if ([string]::IsNullOrWhiteSpace($Name) -or [Text.Encoding]::UTF8.GetByteCount($Name) -gt 15 -or
+        $Name -match '^\d+$' -or $Name -match '[\s{|}~\[\]\\\^'':;<=>?@!"#$%`()+/.,*&]') {
+        return '*'
+    }
+    return $Name
+}
 
 # --- REGION: New-AptProxyBlock
 function New-AptProxyBlock {
@@ -185,4 +209,4 @@ function New-WindowsGuestBootstrap {
     }
 }
 
-Export-ModuleMember -Function New-AptProxyBlock, New-WindowsGuestBootstrap
+Export-ModuleMember -Function New-AptProxyBlock, New-WindowsGuestBootstrap, Resolve-YurunaWindowsComputerName

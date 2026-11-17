@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42c500e1-53a2-2a0c-075b-981a925571bd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5147,6 +5147,47 @@
             'trust' = 'external'
         }
     )
+    'automation.retry_already_applied' = @(
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': attempt '
+        @{
+            'arg' = 'attempt'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '/'
+        @{
+            'arg' = 'maxAttempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' failed (exit='
+        @{
+            'arg' = 'lastExit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '), but its outcome had already been applied by an earlier attempt; the command counts as complete.'
+    )
+    'automation.retry_succeed_when_threw' = @(
+        '!! '
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': SucceedWhen predicate threw ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); the attempt stays a failure'
+    )
     'automation.runtime_ipc_remove_action' = 'Remove the leftover .NET runtime entry of a process that is gone'
     'automation.seed_value_unsafe' = @(
         'The seed value for '
@@ -5332,6 +5373,22 @@
     'automation.system_diagnostic_kernel_log_unavailable' = '(no kernel log: dmesg is not readable here and journalctl -k -b 0 returned no entries; see System journal access under RECENT SYSTEM EVENTS)'
     'automation.system_diagnostic_lockup_settings' = 'Lockup and crash-evidence settings'
     'automation.system_diagnostic_networkmanager_dhcp_none' = '(no NetworkManager dhcp4 entries this boot)'
+    'automation.system_diagnostic_previous_boot_middle_omitted' = '... (middle lines skipped without counting them, so a long previous boot cannot hold up this report) ...'
+    'automation.system_diagnostic_probe_stopped' = @(
+        '  ('
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' did not finish within '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's and was stopped; anything it printed before then is above)'
+    )
     'automation.system_diagnostic_registry_images_refused' = @(
         'REGISTRY: the cache refused '
         @{
@@ -5470,6 +5527,16 @@
             'trust' = 'external'
         }
     )
+    'automation.system_diagnostic_restart_not_pending' = 'Restart pending: no'
+    'automation.system_diagnostic_restart_pending' = @(
+        'Restart pending: yes ('
+        @{
+            'arg' = 'sources'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ')'
+    )
     'automation.system_diagnostic_utmctl_list_incomplete' = @(
         '  utmctl list did not return a complete answer within '
         @{
@@ -5487,6 +5554,45 @@
             'trust' = 'internal'
         }
         ')'
+    )
+    'automation.tofu_init_fetch_failed' = @(
+        'tofu init failed for resource '''
+        @{
+            'arg' = 'resourceName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' after '
+        @{
+            'arg' = 'attempts'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' attempts (final exit '
+        @{
+            'arg' = 'lastExit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '): the last attempt could not fetch '
+        @{
+            'arg' = 'url'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Inspect '
+        @{
+            'arg' = 'tofuLogFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' for the full output.'
     )
     'automation.top_processes_private_bytes' = 'Top 10 by private bytes (commit charge)'
 }

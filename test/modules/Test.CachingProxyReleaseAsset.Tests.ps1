@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42b8d3f0-6e21-4c7a-8f45-9d1a2c6e7b30
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -139,6 +139,6 @@ Describe 'the build writes the rules before squid starts and keeps them current'
         $suite = Join-Path $script:repoRoot 'host/vmconfig/tests/test_release_asset_learn.py'
         $output = (& $python.Source $suite -v 2>&1) -join "`n"
         $LASTEXITCODE | Should -Be 0 -Because $output
-        $output | Should -Match 'Ran 12 tests'
+        $output | Should -Match 'Ran 13 tests'
     }
 }

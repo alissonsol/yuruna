@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -548,9 +548,9 @@ $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startSc
 # Register-/Unregister-EntryPointCancelHandler so the register/poll/tear-down
 # shape stays identical across every entry point. The returned hashtable is the
 # shared shutdown flag: the event action (running in its own SessionState) flips
-# ['Requested'], and the cycle polls it at safe points. Its plain-hashtable key
-# indexing is interchangeable with the prior ConcurrentDictionary for the
-# single boolean flag the loop reads.
+# ['Requested'], and the cycle polls it at safe points. A plain hashtable is
+# enough for that: the loop reads a single boolean flag, so it needs no
+# concurrent collection.
 $script:ShutdownState = Register-EntryPointCancelHandler -SourceIdentifier YurunaCancelKey
 $script:ActiveVMName      = $null
 $script:CycleFinalized    = $true    # have Complete-Run/Stop-LogFile been called?

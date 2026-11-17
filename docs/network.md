@@ -133,12 +133,26 @@ a failed attempt and the resulting retry or final exit code.
    that disagrees with its `InRelease`, never to stop the ladder.
 7. **Structured attempt record.** Each failed attempt emits a
    machine-readable `YURUNA_RETRY {...}` line to stderr (`stack`, `label`,
-   `attempt`, `maxAttempts`, `rc`, `permanent`, and `windowSeconds` for a
-   windowed retry). On the SSH verbs the
-   host parses these into `retry_attempt` NDJSON events on the cycle
-   stream; the host-side stacks (`Yuruna.Retry`, the sequence `retry`
-   verb) emit the same `retry_attempt` / `retry_exhausted` events
-   directly. See [Failure record schema](failure-schema.md).
+   `attempt`, `maxAttempts`, `rc`, `permanent`, `elapsedSeconds` since the
+   call's first attempt, `windowSeconds` for a windowed retry, and for
+   `curl_retry` / `wget_try` the `url` without its query, fragment or
+   userinfo and the re-probed `httpStatus`), and a retry that gives up adds
+   one outcome record. The host publishes these as `retry_attempt` /
+   `retry_exhausted` NDJSON events on the cycle stream with `origin`
+   `guest`. The SSH verbs publish them from the command's output. The
+   console `fetchAndExecute` verb's output reaches the host only through
+   the wrapper's execution log: a passing step's records are published
+   when its evidence capture reads that log (a step that ran at least 60
+   seconds and is not `sensitive`), and a failed step's when the runner's
+   failure path reads that step's own log. No records are published for
+   any other passing console step, or for an attempt that failed inside a
+   sequence `retry` that later passed (see
+   [retry telemetry](failure-schema.md#42820e91-0011)). The sequence `retry`
+   verb, and `Yuruna.Retry` in a process with a cycle stream, emit the same
+   events directly (`Yuruna.Retry` adds `retry_recovered` when a retried
+   attempt is accepted as the completion of an earlier one); in a guest
+   payload `Yuruna.Retry` prints its records as these markers. See
+   [Failure record schema](failure-schema.md).
 8. **GitHub release window** (`curl_retry` + `wget_try`). A fetch from
    `github.com/<owner>/<repo>/releases/download/...` or the
    `releases/latest` redirect retries through a **30-minute window**
@@ -174,10 +188,10 @@ a failed attempt and the resulting retry or final exit code.
 
 For `curl_retry`, curl's own `--retry 3 --retry-connrefused` fires
 first (sub-30 s for transient 5xx + ECONNREFUSED). Combined budget:
-5 outer x 3 inner = 15 effective attempts -- still bounded, sized for
+5 outer x (1 initial + 3 retries) = up to 20 transfer attempts -- still bounded, sized for
 a one-shot provisioning script under `set -euo pipefail`. curl's inner
-`--retry` does not retry 4xx, and the transient gate (item 6) fails
-fast on them, so a deterministic 404 costs one attempt, not the full
+`--retry` retries HTTP 408/429 but not other 4xx, and the transient gate
+(item 6) stops on deterministic 4xx, so a deterministic 404 costs one attempt, not the full
 ~2.5-min ladder.
 
 **Call signature.** Generic -- the wrapper takes the full command,
@@ -806,9 +820,10 @@ is worth. Grant the capability instead, per host:
 sudo setcap cap_net_raw,cap_net_admin=eip "$(command -v tcpdump)"
 ```
 
-Without it the journal half still lands and `dhcp.capture.txt` records why
-there is no `dhcp.capture.pcap` next to it -- a capture that did not run must
-say so, or its absence reads as silence on the wire.
+Without it, or when the capture cannot be started at all, the journal half
+still lands and `dhcp.capture.txt` records why there is no `dhcp.capture.pcap`
+next to it -- a capture that did not run must say so, or its absence reads as
+silence on the wire.
 
 **The host diagnostic asks libvirt directly** as well: domains, per-domain MAC
 and bridge, each network's bridge, forward mode and DHCP range, its lease
@@ -900,14 +915,14 @@ non-virtual) interfaces and classifies each one.
 `/sys/class/net/<if>/carrier` on a down interface returns `EINVAL`, so
 the value comes back empty and the report names both raw values
 (`operstate=down,carrier=none`). A down link never reaches DHCP at all,
-so lease-pool questions do not apply -- the causes are host-side:
-the virtual switch this vNIC is attached to has no live uplink, the
-cable is out, or the port is administratively down. This is the loudest
-verdict and is printed first, because it is the true cause whenever it
-is present.
+so lease-pool questions do not apply. With `IFF_UP` clear, the cause is
+inside the guest: no profile claimed the NIC, or something brought it down.
+Otherwise the missing carrier points to the virtual switch's uplink, cable,
+or disabled port. These verdicts print before lease theories because a
+down interface cannot request a lease.
 
 **Carrier up, no IPv4.** A carrier-up interface with neither a static
-address nor a DHCP lease usually means **DHCP pool exhaustion**: on a
+address nor a DHCP lease can reflect **DHCP pool exhaustion**: on a
 bridged hypervisor the guest competes with every other LAN client for
 the router's finite lease pool, and a fast-booting guest that loses the
 lease race comes up with only an IPv6 SLAAC address and no IPv4.
@@ -2925,6 +2940,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

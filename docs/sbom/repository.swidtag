@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-repository" tagId="urn:uuid:fd7b8169-bbca-5f24-bfdb-09379c0e7563" version="2026.11.08" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-repository" tagId="urn:uuid:12da3861-0343-5335-bd8c-011880422d6d" version="2026.11.16" versionScheme="alphanumeric" tagVersion="0" corpus="true">
   <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
   <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="repository" sbom:inventory-kind="declared-source" />
   <Link rel="requires" href="swid/repository-a918c6f303ac3cfdd0e8.swidtag" />
@@ -8,36 +8,36 @@
   <Link rel="requires" href="swid/repository-280432a44173be6af224.swidtag" />
   <Link rel="requires" href="swid/repository-877085193e9afb3a3c38.swidtag" />
   <Link rel="requires" href="swid/repository-000139009e3b0ea2cb06.swidtag" />
-  <Link rel="requires" href="swid/repository-0600ffc08ebfcd4ae0d8.swidtag" />
+  <Link rel="requires" href="swid/repository-f8c7ef3b051d1fe5aa1f.swidtag" />
   <Link rel="requires" href="swid/repository-fcc09a389055123ca453.swidtag" />
   <Link rel="requires" href="swid/repository-467244424de7eae1e3f9.swidtag" />
   <Link rel="requires" href="swid/repository-8699244ea528baa8914d.swidtag" />
   <Link rel="requires" href="swid/repository-582446bc32876fcbf5fe.swidtag" />
   <Link rel="requires" href="swid/repository-ec815c737a818436c6b5.swidtag" />
-  <Link rel="requires" href="swid/repository-d6cf248cd102be5ff0e7.swidtag" />
+  <Link rel="requires" href="swid/repository-4782fea287e117704c70.swidtag" />
   <Link rel="requires" href="swid/repository-e5a7521992c856e1013d.swidtag" />
   <Link rel="requires" href="swid/repository-e1fcb9ec435a341b7c8a.swidtag" />
   <Link rel="requires" href="swid/repository-dbd34b0681ab6c5792e1.swidtag" />
-  <Link rel="requires" href="swid/repository-02ff4d3b302990f322d7.swidtag" />
-  <Link rel="requires" href="swid/repository-da5d0b169766af760a32.swidtag" />
-  <Link rel="requires" href="swid/repository-9ad44d7925eeabd7ab5f.swidtag" />
-  <Link rel="requires" href="swid/repository-8bd068a161452022ed8c.swidtag" />
-  <Link rel="requires" href="swid/repository-58f0d150aafb90b4ff7b.swidtag" />
-  <Link rel="requires" href="swid/repository-80c86ce33a8a398b5681.swidtag" />
-  <Link rel="requires" href="swid/repository-c740ff745f2883ebf5be.swidtag" />
+  <Link rel="requires" href="swid/repository-4d48944848c55a5f2b53.swidtag" />
+  <Link rel="requires" href="swid/repository-4e2be818662bfa108216.swidtag" />
+  <Link rel="requires" href="swid/repository-669273910b4f0be62723.swidtag" />
+  <Link rel="requires" href="swid/repository-17839e50745f4cc7970b.swidtag" />
+  <Link rel="requires" href="swid/repository-a7c7de02884504f0628a.swidtag" />
+  <Link rel="requires" href="swid/repository-486898713a5776599183.swidtag" />
+  <Link rel="requires" href="swid/repository-bf1cbcfa8be0ec817927.swidtag" />
   <Link rel="requires" href="swid/repository-b53018f6fcafa440a222.swidtag" />
-  <Link rel="requires" href="swid/repository-ecb0e3f352e3a0cc6452.swidtag" />
-  <Link rel="requires" href="swid/repository-15b2521b5bd7ca8b0e67.swidtag" />
+  <Link rel="requires" href="swid/repository-f388507da9a3f2c28f50.swidtag" />
+  <Link rel="requires" href="swid/repository-95c080d2dc52a85d7938.swidtag" />
   <Link rel="requires" href="swid/repository-487136d8901acfa9844f.swidtag" />
   <Link rel="requires" href="swid/repository-fabca1cfebfad94a1fbe.swidtag" />
-  <Link rel="requires" href="swid/repository-de651c013a28496d53d7.swidtag" />
+  <Link rel="requires" href="swid/repository-3b9f6319ee162930e05b.swidtag" />
   <Link rel="requires" href="swid/repository-fc9c99298f7eb5eee5f8.swidtag" />
-  <Link rel="requires" href="swid/repository-47c58c7aab9f26416fb2.swidtag" />
+  <Link rel="requires" href="swid/repository-58e59b2a4d9452e4451d.swidtag" />
   <Link rel="requires" href="swid/repository-34ce8531c1ad8f3a8b0f.swidtag" />
   <Link rel="requires" href="swid/repository-d36496760373c18829bb.swidtag" />
   <Link rel="requires" href="swid/repository-332c942aae4f99c9df8b.swidtag" />
   <Link rel="requires" href="swid/repository-15946024bda4ba341768.swidtag" />
-  <Link rel="requires" href="swid/repository-0b3df35735774198d7c1.swidtag" />
+  <Link rel="requires" href="swid/repository-1b88164e7e72817e1664.swidtag" />
   <Link rel="requires" href="swid/repository-005aa61133bce55cb8bf.swidtag" />
   <Link rel="requires" href="swid/repository-08a7725ec86fb430317b.swidtag" />
   <Link rel="requires" href="swid/repository-070ba5f14e1b7ce30bbc.swidtag" />
@@ -67,6 +67,6 @@
   <Link rel="requires" href="swid/repository-33c624824b422a1e743b.swidtag" />
   <Link rel="requires" href="swid/repository-54a84111d206a61715b9.swidtag" />
   <Link rel="requires" href="swid/repository-8a08acbe6e5b8e2c3e2c.swidtag" />
-  <Link rel="requires" href="swid/repository-f178c1a1ebf07b0b8ac8.swidtag" />
+  <Link rel="requires" href="swid/repository-ce52eb7443151acaa723.swidtag" />
   <Link rel="requires" href="swid/repository-9eb226995ec7055df6c9.swidtag" />
 </SoftwareIdentity>

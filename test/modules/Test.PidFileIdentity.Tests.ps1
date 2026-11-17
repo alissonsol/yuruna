@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42da5cce-810b-4f7b-9c05-6d1901f4e6b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,7 @@
         before, and clears a dead PID.
 #>
 
-# See https://yuruna.link/42d38664-000b for Pester 5.x suite execution.
+# See https://yuruna.link/42d38664-000b for Pester 6.x suite execution.
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.YurunaDir.psm1') -Force

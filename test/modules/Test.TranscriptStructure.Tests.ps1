@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42e7a1d5-3b90-4c68-8f24-05c6b93e1a7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,11 +169,27 @@ Describe 'a step boundary is available as data, not only as a line' {
         $savedFolderGlobals = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
         try {
             Set-CycleFolderAnchor -Path $sandbox
+            # A stamp is cut to whole seconds, so it can read up to a second
+            # earlier than the instant it was taken.
+            $before = [DateTime]::UtcNow.AddSeconds(-1)
             Write-CycleStepEvent -Phase 'start' -Index 2 -Total 11 -Name 'workload.guest.example' -Kind 'guest'
             Write-CycleStepEvent -Phase 'end' -Index 2 -Total 11 -Name 'workload.guest.example' -Kind 'guest' -Outcome 'FAIL'
+            $after = [DateTime]::UtcNow.AddSeconds(1)
 
             $path = Join-Path $sandbox 'cycle.events.ndjson'
             Assert-True (Test-Path -LiteralPath $path -PathType Leaf) 'no event file was written'
+            # Read from the raw line: ConvertFrom-Json turns an ISO time into a
+            # DateTime, which would hide the format a consumer actually parses.
+            $stepLines = @([IO.File]::ReadAllLines($path) | Where-Object { $_ -match '"event":"step\.(start|end)"' })
+            Assert-Equal -Expected 2 -Actual $stepLines.Count 'both boundaries should be on the stream as raw lines'
+            foreach ($line in $stepLines) {
+                $stamp = [regex]::Match($line, '"timestamp":"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)"')
+                Assert-True $stamp.Success "a step boundary carries no UTC timestamp of its own: $line"
+                $at = [DateTime]::ParseExact($stamp.Groups[1].Value, "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)
+                Assert-True ($at -ge $before -and $at -le $after) "the boundary is stamped outside the moment it was written: $($stamp.Groups[1].Value)"
+            }
             $records = @(
                 foreach ($line in [IO.File]::ReadAllLines($path)) {
                     if ($line.Trim()) { ConvertFrom-Json -InputObject $line }

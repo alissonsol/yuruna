@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42c7e1a9-5b3d-4f0e-9a6c-2d8f1b7e4a53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -376,10 +376,10 @@ Describe 'Orchestration guest VM sizing' {
     }
 }
 
-# An orchestration owns the cycle the runner dispatches it in, and the runner
-# took the cycle-start host diagnostic only on the path where it opens the
-# cycle itself, so an orchestrated cycle's folder held no host.diagnostic.txt
-# and its perf rows no hostInfoHash. Each case runs the dispatch statement
+# An orchestration owns the cycle the runner dispatches it in, so the runner's
+# Start-CycleHostDiagnostic never runs for it; -CaptureHostDiagnostic is what
+# gives an orchestrated cycle's folder its host.diagnostic.txt and its perf
+# rows a hostInfoHash. Each case runs the dispatch statement
 # exactly as its entry point wrote it, against the real orchestrator and the
 # real capture; a stub stands in for automation/Get-SystemDiagnostic.ps1.
 Describe 'Orchestration cycle-start host diagnostic' {
@@ -558,5 +558,128 @@ Describe 'Orchestration cycle-start host diagnostic' {
         Assert-Equal 1 $actual.Completed 'the cycle still runs to completion'
         Assert-Equal 1 $actual.Output.Count
         Assert-Equal 0 $actual.Output[0]
+    }
+}
+
+# A lab stage's nested runs write their failure records apart from the cycle's
+# event stream, so the entry's infra event is all the pool receives of them. A
+# standalone run clears nothing at the log root before it starts, so a record
+# an earlier run left there must not lend that event its step, VM or causes.
+Describe 'Orchestration entry failure event' {
+    BeforeAll {
+        $modules = Split-Path -Parent $PSCommandPath
+        Import-Module (Join-Path $modules 'Test.HostGit.psm1') -Force -Global -DisableNameChecking
+        # The real record builder and infra-failure writer, which the
+        # orchestrator reaches through the global command table, as in the runner.
+        Import-Module (Join-Path $modules 'Test.SequenceFailureState.psm1') -Force -Global -DisableNameChecking -WarningAction SilentlyContinue
+        Import-Module (Join-Path $modules 'Test.RunnerInnerLoop.psm1') -Force -Global -DisableNameChecking -WarningAction SilentlyContinue
+        $script:EntryRoot = Join-Path $TestDrive 'entry-failure-event'
+        $null = New-YurunaTestGitRepository -Path $script:EntryRoot -CommitMessage 'Fixture framework'
+
+        function Invoke-EntryFailureFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Nested test doubles only write the fixture failure record under the test drive.')]
+            [CmdletBinding()]
+            param([Parameter(Mandatory)][string]$FailFile, [string]$RecordWrittenByEntry)
+            Invoke-InOrchestrator {
+                param($Root, $FailFile, $Record)
+                # Read by the host-action double below through dynamic scope.
+                $null = $FailFile, $Record
+                $runtimeDir = Join-Path $Root 'runtime'
+                function Get-CycleContext { return $null }
+                function Resolve-SequencePath { return (Join-Path $Root 'initialize-lab.yml') }
+                function Read-SequenceFile { return @{ host = @{} } }
+                function Test-CachingProxyServiceAvailable { return $null }
+                function Initialize-YurunaRuntimeDir { return $runtimeDir }
+                function Reset-StatusDocumentForCycleStart { }
+                function Initialize-StatusDocument { return '2026-01-01T00:00:00Z' }
+                function Start-LogFile { return (Join-Path $Root 'cycle.log') }
+                function Start-PerfCycle { }
+                function Get-CycleNumber { return 1 }
+                function Set-GuestTopLevel { }
+                function Set-GuestStatus { }
+                function Set-StepStatus { }
+                function Publish-CycleContext { }
+                function Clear-CycleContext { }
+                function Write-CycleStepEvent { }
+                # The stage exits 1 after its nested run wrote that run's record,
+                # or before any nested run started.
+                function Invoke-OrchestratorHostAction {
+                    if ($Record) {
+                        Set-Content -LiteralPath $FailFile -Value $Record
+                        # A file's write time comes from a coarser clock than the
+                        # entry's start reading, so a write within the same tick
+                        # could read as older than the entry.
+                        (Get-Item -LiteralPath $FailFile).LastWriteTimeUtc = [datetime]::UtcNow
+                    }
+                    return 1
+                }
+                function Complete-Run { }
+                function Stop-LogFile { }
+                $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+                $savedCache = Save-YurunaTestEnvironment -Name 'YURUNA_CACHING_PROXY_SERVICE_IP'
+                try {
+                    $env:YURUNA_RUNTIME_DIR = $runtimeDir
+                    $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
+                    $config = @{ repositories = @{ frameworkUrl = 'https://github.com/example/framework'; projectUrl = '' }; vmStart = @{} }
+                    $sequence = @{ name = 'suite'; steps = @(@{ action = 'InvokeTestSequence'; sequence = 'initialize-lab' }) }
+                    return (Invoke-OrchestrationSequence -Sequence $sequence -SequencePath (Join-Path $Root 'suite.yml') `
+                        -RepoRoot $Root -SequencesDir $Root -TestRoot $Root -HostType 'host.ubuntu.kvm' -Config $config -InformationAction SilentlyContinue)
+                } finally {
+                    Restore-YurunaTestEnvironment -Saved $savedRuntime
+                    Restore-YurunaTestEnvironment -Saved $savedCache
+                }
+            } @($script:EntryRoot, $FailFile, $RecordWrittenByEntry)
+        }
+    }
+
+    It 'names <Case>' -TestCases @(
+        @{ Case = 'only the stage when the record at the log root is an earlier run''s'; WrittenByEntry = $false }
+        @{ Case = 'the step, VM and nested run of the record the entry''s run wrote'; WrittenByEntry = $true }
+    ) {
+        param($Case, $WrittenByEntry)
+        $null = $Case
+        $logRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $logRoot -Force
+        $failFile = Join-Path $logRoot 'last_failure.json'
+        $action = 'fetchAndExecute: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.update.sh"'
+        $record = @{
+            schemaVersion = 2; reason = 'step'; failureClass = 'pattern_matched_failure'; description = 'NONZERO SCRIPT EXIT: 124'
+            vmName = 'test-guest.ubuntu.server.24-01'; sequenceName = 'start.guest.ubuntu.server.24'; action = $action
+            context = @{ nestedNode = 'initialize-lab_workload.guest.ubuntu.server.24.lab-core.deploy'
+                causeDetail = @{ aptUpdateStall = @{ summary = 'attempt 1,2 of 2 killed at 300s (rc=124)' } } }
+        } | ConvertTo-Json -Depth 6
+        if (-not $WrittenByEntry) {
+            Set-Content -LiteralPath $failFile -Value $record
+            (Get-Item -LiteralPath $failFile).LastWriteTimeUtc = [datetime]::UtcNow.AddHours(-3)
+        }
+        $savedLog = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
+        $env:YURUNA_LOG_DIR = $logRoot
+        $events = [System.Collections.Generic.List[object]]::new()
+        $null = New-Item -Path function:global:Send-CycleEventSafely -Force -Value ({ param($EventRecord) $events.Add($EventRecord) }.GetNewClosure())
+        try {
+            $exit = Invoke-EntryFailureFixture -FailFile $failFile -RecordWrittenByEntry $(if ($WrittenByEntry) { $record } else { '' })
+            Assert-Equal 1 $exit 'the failed entry fails the orchestration'
+            $sent = @($events | Where-Object { $_['event'] -eq 'step_failure' -and $_['actionVerb'] -eq 'initialize-lab' })
+            Assert-Equal 1 $sent.Count 'one infra event for the failed entry'
+            if ($WrittenByEntry) {
+                Assert-StringEqual 'pattern_matched_failure' $sent[0]['failureClass'] 'the entry inherits the class of the record its run wrote'
+                Assert-StringEqual $action $sent[0]['action']
+                Assert-StringEqual 'test-guest.ubuntu.server.24-01' $sent[0]['vmName']
+                Assert-StringEqual 'start.guest.ubuntu.server.24' $sent[0]['sequenceName']
+                Assert-StringEqual 'initialize-lab_workload.guest.ubuntu.server.24.lab-core.deploy' $sent[0]['nestedNode']
+                Assert-StringEqual 'attempt 1,2 of 2 killed at 300s (rc=124)' $sent[0]['causeAptUpdateStall']
+            } else {
+                Assert-StringEqual 'unknown' $sent[0]['failureClass'] 'the class is not inherited from an earlier run''s record'
+                Assert-StringEqual 'initialize-lab' $sent[0]['action'] 'nor are the step and the VM'
+                Assert-StringEqual '' $sent[0]['vmName']
+                Assert-StringEqual '' $sent[0]['sequenceName']
+                Assert-True ([string]::IsNullOrEmpty([string]$sent[0]['nestedNode'])) 'no nested run of this entry failed'
+                Assert-True ([string]::IsNullOrEmpty([string]$sent[0]['causeAptUpdateStall'])) 'no stall was read in this entry'
+            }
+        } finally {
+            Remove-Item function:global:Send-CycleEventSafely -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $savedLog
+        }
     }
 }

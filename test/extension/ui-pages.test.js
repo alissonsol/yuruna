@@ -230,6 +230,38 @@ function scriptsIn(html) {
   return out;
 }
 
+// Track real callbacks so an idle fixture does not wait through unused timer turns.
+function createTimerQueue() {
+  const pending = new Set();
+  let activity = 0;
+  return {
+    setTimeout(fn) {
+      activity++;
+      const timer = setTimeout(function () {
+        pending.delete(timer);
+        activity++;
+        fn.call(this);
+      }, 0);
+      pending.add(timer);
+      return timer;
+    },
+    clearTimeout(timer) {
+      if (pending.delete(timer)) activity++;
+      clearTimeout(timer);
+    },
+    async settle(maxTurns = 25) {
+      let quiet = 0;
+      for (let turn = 0; turn < maxTurns; turn++) {
+        const before = activity;
+        await new Promise(resolve => setTimeout(resolve, 0));
+        // Two quiet turns let initial promises and I/O enqueue their callbacks.
+        quiet = pending.size === 0 && activity === before ? quiet + 1 : 0;
+        if (quiet === 2) return;
+      }
+    },
+  };
+}
+
 // --- REGION: Page checks
 function runPage(page, locale, capabilityOff, state, options) {
   state = state || 'data';
@@ -252,13 +284,14 @@ function runPage(page, locale, capabilityOff, state, options) {
   // several of them do their first read from DOMContentLoaded. A stub that
   // swallowed that listener would report an empty table as the page's fault.
   const docListeners = {};
+  const timers = createTimerQueue();
   const box = {
     performance: require('perf_hooks').performance,
     console: { log() {}, warn(message) { if (/Yuruna i18n:/.test(message)) failures.push(String(message)); }, error() {} },
     JSON, Math, Date, Number, String, Object, Array, RegExp, Promise, isNaN, parseInt, parseFloat,
     encodeURIComponent, decodeURIComponent,
-    setTimeout: (fn) => setTimeout(fn, 0),
-    clearTimeout: (t) => clearTimeout(t),
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
     setInterval: () => 0,
     clearInterval() {},
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -348,7 +381,7 @@ function runPage(page, locale, capabilityOff, state, options) {
     }
   }
 
-  return { box, byId, body, failures };
+  return { box, byId, body, failures, settle: timers.settle };
 }
 
 function fire(el, type) {
@@ -359,7 +392,19 @@ function fire(el, type) {
   for (const fn of (el.listeners[type] || [])) { fn(ev); }
 }
 
-const settle = () => new Promise((r) => setTimeout(r, 0));
+
+async function checkTimerQueue() {
+  const timers = createTimerQueue();
+  const callbacks = [];
+  const cancelled = timers.setTimeout(() => callbacks.push('cancelled'));
+  timers.clearTimeout(cancelled);
+  setImmediate(() => timers.setTimeout(() => {
+    callbacks.push('outer');
+    Promise.resolve().then(() => timers.setTimeout(() => callbacks.push('nested')));
+  }));
+  await timers.settle();
+  assert.deepStrictEqual(callbacks, ['outer', 'nested'], 'settling waits for nested real callbacks and honors cancellation');
+}
 
 // --- REGION: Test run
 async function runMatrix() {
@@ -374,7 +419,7 @@ async function runMatrix() {
   for (const locale of deliveredLocales) {
   for (const page of selectedPages) {
     const where = `${page.service}/${page.file}/${locale}/${state}`;
-    const { box, byId, failures } = runPage(page, locale, true, state);
+    const { box, byId, failures, settle } = runPage(page, locale, true, state);
     problems.push(...failures);
     if (failures.length) { continue; }
 
@@ -399,7 +444,7 @@ async function runMatrix() {
     }
 
     // Let every load-time read and its render settle.
-    for (let i = 0; i < 25; i++) { await settle(); }
+    await settle();
     problems.push(...failures);
 
     if (page.service === 'download-agent-service' && page.file === 'index.html' && state === 'hostile') {
@@ -443,5 +488,5 @@ async function runMatrix() {
 
   console.log(`PASS: ${PAGES.length} pages in English, expanded and mirrored locales with Intl and normalization unavailable, data/empty/error/hostile states; ${menusOpened} menus, ${regionsFilled} populated regions`);
 }
-module.exports = {makeEl, idsIn, runPage, fire};
-if (require.main === module) runMatrix().catch(function (e) { console.error(e && e.stack || e); process.exit(1); });
+module.exports = {makeEl, idsIn, runPage, fire, createTimerQueue};
+if (require.main === module) Promise.resolve().then(checkTimerQueue).then(runMatrix).catch(function (e) { console.error(e && e.stack || e); process.exit(1); });

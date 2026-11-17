@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42de6dd0-d68a-40b1-a0d0-b2d21c4caf3c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -113,7 +113,7 @@ begin {
         throw (Format-YurunaOperatorMessage -Key 'automation.operator_fe1810bb5dfc8772')
     }
 
-    # --- REGION: 2. Elevation / root assertion
+    # --- REGION: 2. Elevation check
     # Editing the hosts file needs elevated rights; fail loudly and early so
     # the caller gets a meaningful message instead of an opaque write error.
     if ($IsWindows) {

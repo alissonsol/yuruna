@@ -76,11 +76,22 @@ type HostView struct {
 	// answering everything else normally -- its status.json simply stops moving.
 	RunnerStopped bool `json:"runnerStopped,omitempty"`
 	// RunnerLostMidCycle is true when that stopped runner died inside a cycle (a
-	// closed terminal, a kill, a host restart): its lifecycle state still reads
-	// in-cycle and its pid file was left behind. An operator's Ctrl+C ends the
-	// runner through its orderly shutdown, which removes the pid file, so it
-	// stays "stopped". Refreshed and kept together with RunnerStopped.
+	// closed terminal, a dropped SSH session, a kill) while the host and its
+	// status service stayed up: its lifecycle state still reads in-cycle and its
+	// pid file was left behind. A host restart never reads here, because the
+	// restart takes the runner-started status service down too and the host reads
+	// unreachable. An operator's Ctrl+C ends the runner through its orderly
+	// shutdown, which removes the pid file, so it stays "stopped". Refreshed and
+	// kept together with RunnerStopped.
 	RunnerLostMidCycle bool `json:"runnerLostMidCycle,omitempty"`
+	// LostEpisode is the episode key of the runner_lost line the poll queued for
+	// this host, so one lost runner is reported once however many polls find it.
+	// UnreachableReported is set once host_unreachable is queued for the stretch
+	// the host has gone without answering, and cleared when it answers again.
+	// Both live in memory only and leave with the record; see
+	// https://yuruna.link/42c29d04-0025.
+	LostEpisode         string `json:"-"`
+	UnreachableReported bool   `json:"-"`
 	// StepPauseReached is true when the host's current-action sidecar says the runner
 	// is SITTING at a step boundary rather than still executing the step the armed
 	// flag will stop after. It is meaningful only while Status.StepPaused is set,

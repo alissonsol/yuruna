@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42e437e6-8cf0-45ba-9f8c-03558f1d5809
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     The recency case guards the specific regression where the guard's terminating
     Write-Error was swallowed by the parse try/catch. Membership (configuration store) is
     not exercised here -- the fixture config has no pool.configurationGitUrl, so the
-    script takes the storage-only path. Throw-based assertions (Pester 5.x); runs the script as a child so its `exit` codes are observable.
+    script takes the storage-only path. Throw-based assertions (Pester 6.x); runs the script as a child so its `exit` codes are observable.
 #>
 
 BeforeAll {

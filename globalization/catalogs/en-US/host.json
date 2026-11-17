@@ -14053,6 +14053,30 @@
       "message": "the evidence bundles",
       "description": "Value phrase in a Disable \"key: current -> restored\" line (host/ubuntu.kvm/modules/Yuruna.Host.DeepDiagnostics.psm1) for the evidence directory that -RemoveEvidence deletes.",
       "lifecycle": "active"
+    },
+    "host.service_build_plan_auth_readonly_unsupported": {
+      "message": "Authentication provider {provider} does not support read-only password validation. The build plan cannot call its mutating getter.",
+      "description": "A service VM preview cannot validate credentials through a provider that lacks a declared read-only lookup. Normal builds keep using the existing provider interface.",
+      "lifecycle": "active",
+      "placeholders": {
+        "provider": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "default"
+        }
+      }
+    },
+    "host.service_build_plan_cache_state_invalid": {
+      "message": "Cannot validate caching-proxy state at {path} without changing it: the primary file and its backup contain unusable data.",
+      "description": "A read-only caching-proxy VM preview refuses corrupt persistent state without rotating, repairing or replacing either file.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/operator/.local/state/yuruna/caching-proxy-service.yml"
+        }
+      }
     }
   }
 }

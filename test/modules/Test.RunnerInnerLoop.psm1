@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -443,6 +443,29 @@ function Get-FailureDiagnosticInvocation {
     return $context
 }
 
+function Publish-FailureGuestRetryMarker {
+    <# .SYNOPSIS
+        Publish the guest retry records of a failed console fetch from its
+        execution log.
+    .DESCRIPTION
+        The SSH verbs publish those records from the command's output as the
+        step runs. A console step's output reaches the host only through the
+        screen and this log, so its records are published here, once the log is
+        known to be the failed leaf's own; a failure that bubbled through a
+        retry names that leaf's verb in innerActionVerb. Evidence gathering must
+        never fail the capture it belongs to.
+    #>
+    [CmdletBinding()]
+    param([AllowNull()][string]$ExecutionLog, [string]$GuestFolder, [string]$VMName, [string]$GuestKey, [string]$StepInvocationId)
+    try {
+        if (-not (Get-Command Publish-GuestRetryMarker -ErrorAction SilentlyContinue)) { return }
+        $record = Get-Content -LiteralPath (Join-Path $GuestFolder 'last_failure.json') -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+        $leafVerb = if ($record.innerActionVerb) { [string]$record.innerActionVerb } else { [string]$record.actionVerb }
+        if ($leafVerb -cne 'fetchAndExecute') { return }
+        $null = Publish-GuestRetryMarker -Output $ExecutionLog -FromExecutionLog -GuestKey $GuestKey -VmName $VMName -StepInvocationId $StepInvocationId
+    } catch { Write-Verbose "guest retry records not published: $($_.Exception.Message)" }
+}
+
 function Save-SerialConsoleKernelFault {
     <#
     .SYNOPSIS
@@ -455,7 +478,9 @@ function Save-SerialConsoleKernelFault {
         once the capture is closed. The newest 16 MiB are read. The guest's
         clock is not judged here: a log an orphaned reader kept open can hold
         an earlier VM's boots, which this VM's creation time does not bound.
-        Evidence gathering must never fail the capture it belongs to.
+        Evidence gathering must never fail the capture it belongs to. A failed
+        retry attempt's evidence reads its own copy of the capture the same way
+        (Save-StepFailureEvidence), before a restart deletes the capture.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$OutputDirectory)
@@ -650,6 +675,8 @@ function Copy-FailureArtifactsToStatusLog {
                     $faeOut = Join-Path $destSeqDir 'last-fetch-and-execute.log'
                     Set-Content -LiteralPath $faeOut -Value $faeText -Encoding utf8NoBOM -NoNewline
                     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e8c42e2c1af2dc6b' -Arguments @{ cycleBase = "$cycleBase"; destSeqName = "$destSeqName" })
+                    Publish-FailureGuestRetryMarker -ExecutionLog $faeText -GuestFolder $destSeqDir -VMName $VMName `
+                        -GuestKey $GuestKey -StepInvocationId $faeVerdict.stepInvocationId
                 }
             } else {
                 $faeVerdict.reasonCode = if ($faeResult.success) { 'execution-log-absent' } else { 'execution-ssh-unavailable' }
@@ -1928,6 +1955,131 @@ function Initialize-CycleGatingState {
     }
 }
 
+function Get-CycleAdmissionStoppedVM {
+    <#
+    .SYNOPSIS
+        The readings this process's cycle-start admission took of the guests
+        it stopped, by VM name; empty when there are none.
+    .DESCRIPTION
+        Admission force-stops every running guest before the cycle-start sweep
+        runs, so by then a guest the hypervisor had restored and running reads
+        as off. Admission reads each one first and keeps the readings in
+        vm-admission.json (stoppedVms). Only a record written since this
+        process started is this cycle's: the file outlives the process, and
+        Debug-TestSequence.ps1 writes it too without ever sweeping. A missing,
+        older or unreadable record yields nothing, and the sweep's own reads
+        stand.
+    .OUTPUTS
+        [hashtable] VM name -> its reading (name, state, uptimeSeconds,
+        createdUtc, and reason when the state is 'unknown').
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowNull()][AllowEmptyString()][string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR)
+    $byName = @{}
+    if ([string]::IsNullOrWhiteSpace($RuntimeDir)) { return $byName }
+    $path = Join-Path $RuntimeDir 'vm-admission.json'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $byName }
+    try {
+        # ConvertFrom-Json turns ISO-8601-looking strings into [DateTime]
+        # unless told not to; a reading's createdUtc must stay the string
+        # admission wrote.
+        $jsonOption = @{}
+        if ((Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $jsonOption.DateKind = 'String' }
+        $doc = [IO.File]::ReadAllText($path) | ConvertFrom-Json -AsHashtable @jsonOption -ErrorAction Stop
+        if ($doc -isnot [System.Collections.IDictionary]) { return $byName }
+        $observed = [datetime]::MinValue
+        $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+        if (-not [datetime]::TryParse([string]$doc['observedUtc'], [Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$observed)) { return $byName }
+        $started = Get-YurunaProcessStartUtc -ProcessId $PID
+        if ($null -eq $started -or $observed -lt $started) { return $byName }
+        foreach ($reading in @($doc['stoppedVms'])) {
+            if ($reading -is [System.Collections.IDictionary] -and [string]$reading['name']) { $byName[[string]$reading['name']] = $reading }
+        }
+    } catch {
+        Write-Verbose "The admission record is unreadable; the sweep's own reads stand: $($_.Exception.Message)"
+    }
+    return $byName
+}
+
+function Save-CycleLeftoverVMRecord {
+    <#
+    .SYNOPSIS
+        Record each VM the cycle-start sweep is about to delete, in
+        <cycle folder>/leftover-vms.json and on one leftover_vms_found event.
+    .DESCRIPTION
+        The sweep deletes what a killed or restarted cycle left behind, and
+        with it the only evidence of what became of those VMs while no runner
+        watched them: whether the hypervisor restored and ran them, or left
+        them saved, suspended or off. Cycle-start admission has already
+        stopped every one of them that was running, so a VM it stopped is
+        recorded as admission read it just before the stop
+        (Get-CycleAdmissionStoppedVM), with stoppedByAdmission and the state
+        read here as stateAtSweep; any other VM is recorded as read here.
+
+        Nothing is recorded when nothing is left over. When this function's
+        own inventory read fails, the event carries no VMs and that failure as
+        its reason: Remove-TestVMFiles.ps1 reads the inventory again and
+        refuses to delete only when its own read fails, so a listing that
+        fails here and answers there is swept with no other record.
+
+        A cycle with no folder yet (an orchestration cycle opens its own later
+        in this process) gets no file. Its event waits in the runtime
+        directory's pending queue, and Start-LogFile writes it into the stream
+        of the cycle that opens next, ahead of cycle_start. Every read and
+        write here is best-effort, so nothing here can stop the sweep.
+    .OUTPUTS
+        [object[]] the records, one per leftover VM; empty when none.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([Parameter(Mandatory)][string[]]$Prefix)
+    if (-not (Get-Command Get-VMName -ErrorAction SilentlyContinue) -or -not (Get-Command Get-VMPlatformState -ErrorAction SilentlyContinue)) { return @() }
+    $recordedUtc = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+    $folder = [string](Get-Variable -Name __YurunaCycleFolder -Scope Global -ValueOnly -ErrorAction SilentlyContinue)
+    $cycleOpen = $folder -and (Test-Path -LiteralPath $folder -PathType Container)
+    $leftoverEvent = @{ timestamp = $recordedUtc; event = 'leftover_vms_found' }
+    $records = @()
+    $names = $null
+    try {
+        $names = @(Get-VMName -Prefix $Prefix)
+    } catch {
+        $leftoverEvent.reason = "inventory-unreadable: $($_.Exception.Message)"
+    }
+    if ($null -ne $names) {
+        if ($names.Count -eq 0) { return @() }
+        $admissionReading = Get-CycleAdmissionStoppedVM
+        $records = @(foreach ($name in $names) {
+            $atSweep = Get-VMPlatformState -VMName $name
+            $beforeStop = $admissionReading[[string]$name]
+            if ($null -eq $beforeStop) {
+                $atSweep.stoppedByAdmission = $false
+                $atSweep
+            } else {
+                $record = [ordered]@{ name = [string]$name; state = [string]$beforeStop['state']; uptimeSeconds = $beforeStop['uptimeSeconds']; createdUtc = $beforeStop['createdUtc'] }
+                if ($beforeStop['reason']) { $record.reason = [string]$beforeStop['reason'] }
+                $record.stoppedByAdmission = $true
+                $record.stateAtSweep = [string]$atSweep.state
+                $record
+            }
+        })
+        if ($cycleOpen) {
+            try {
+                $document = [ordered]@{ schema = 'yuruna.leftover-vms/v1'; recordedUtc = $recordedUtc; prefixes = @($Prefix); vms = $records }
+                [System.IO.File]::WriteAllText((Join-Path $folder 'leftover-vms.json'), ($document | ConvertTo-Json -Depth 5), [System.Text.UTF8Encoding]::new($false))
+            } catch { Write-Verbose "leftover-vms.json write failed: $($_.Exception.Message)" }
+        }
+    }
+    $leftoverEvent.leftoverVmCount = $records.Count
+    $leftoverEvent.leftoverVms = $records
+    # Without an open cycle the event would fall back to the log-root stream,
+    # which nothing collects; queued, it joins the next cycle's stream.
+    if (-not $cycleOpen -and (Get-Command Add-PendingCycleEvent -ErrorAction SilentlyContinue) -and
+        (Add-PendingCycleEvent -EventRecord $leftoverEvent)) { return $records }
+    if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) { Send-CycleEventSafely -EventRecord $leftoverEvent }
+    return $records
+}
+
 function Remove-CycleStartOrphanVM {
     <#
     .SYNOPSIS
@@ -1942,7 +2094,8 @@ function Remove-CycleStartOrphanVM {
         start from a clean slate without relying on the previous cycle's teardown.
         The child script still runs nested in this module's session state, so the
         caller's post-sweep Initialize-YurunaHost re-assert restores the global host
-        contract exactly as before.
+        contract exactly as before. Each VM it is about to delete is recorded first
+        (Save-CycleLeftoverVMRecord).
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -1971,6 +2124,7 @@ function Remove-CycleStartOrphanVM {
     # -- still prints, proving the sweep ran. Direct invocation of
     # Remove-TestVMFiles.ps1 (without -Quiet) keeps the full operator-
     # facing transcript. Warnings/errors remain visible either way.
+    $null = Save-CycleLeftoverVMRecord -Prefix $Prefix
     try {
         & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix -Quiet
     } catch {
@@ -2229,7 +2383,20 @@ function Invoke-BoundedHostSystemDiagnostic {
         if (Wait-Job -Job $job -Timeout $TimeoutSeconds) { Receive-Job -Job $job | Out-Null }
         else {
             Stop-Job -Job $job
-            Add-Content -LiteralPath $OutFile -Value (Format-YurunaOperatorMessage -Key 'runner.host_diagnostic_timeout')
+            $timeoutLine = Format-YurunaOperatorMessage -Key 'runner.host_diagnostic_timeout'
+            Add-Content -LiteralPath $OutFile -Value $timeoutLine
+            # A diagnostic stopped here never writes its problem sidecar, so the
+            # cycle report would carry no problem tally at all, and a host whose
+            # diagnostic never finishes would look like one that found nothing.
+            # The timeout is recorded as the one problem known, in the sidecar's
+            # own shape; the sidecar feeds the report's tally line and no gate.
+            $sidecar = [ordered]@{
+                schema   = 'yuruna.diagnostic.problems/v1'
+                count    = 1
+                byClass  = [ordered]@{ 'DIAG.host-timeout' = 1 }
+                problems = @([ordered]@{ class = 'DIAG.host-timeout'; message = $timeoutLine })
+            }
+            [IO.File]::WriteAllText("$OutFile.json", ($sidecar | ConvertTo-Json -Depth 5 -Compress), [Text.UTF8Encoding]::new($false))
         }
     } finally { Remove-Job -Job $job -Force -ErrorAction SilentlyContinue }
 }
@@ -2745,6 +2912,7 @@ function Write-CycleFailureExecutionTail {
         $cause = $ctx['causeDetail']
         $null = $cause.Remove('executionTail')
         $null = $cause.Remove('executionLogPath')
+        $null = $cause.Remove('retryExhausted')
         $cause['executionLog'] = $verdict
         # Bounded like the OCR tail beside it. This record gets read in a
         # terminal and pasted into reports; an unbounded script log would bury
@@ -2753,6 +2921,20 @@ function Write-CycleFailureExecutionTail {
             $tailLines = @($executionText -split "`r?`n") | Select-Object -Last 40
             $cause['executionTail']    = ($tailLines -join "`n")
             $cause['executionLogPath'] = $LogPath
+            # The bytes name the sources a stalled apt-get update waited on,
+            # which the screen reading the record started from cannot.
+            if (Get-Command Get-GuestAptUpdateStall -ErrorAction SilentlyContinue) {
+                $aptUpdateStall = Get-GuestAptUpdateStall -Output $executionText
+                if ($aptUpdateStall) { $cause['aptUpdateStall'] = $aptUpdateStall }
+            }
+            # The last guest retry that gave up during the step, from the
+            # record its library wrote: the URL and status the OCR tail can
+            # only show mangled. The payload may have tolerated it and failed
+            # on something else; atSeconds beside logEndSeconds tells.
+            if (Get-Command Get-GuestRetryExhausted -ErrorAction SilentlyContinue) {
+                $retryExhausted = Get-GuestRetryExhausted -ExecutionLog $executionText
+                if ($retryExhausted) { $cause['retryExhausted'] = $retryExhausted }
+            }
         }
         $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 12) -WarnOnFailure -Confirm:$false
         # Re-mirror so the cycle folder's copy carries the verbatim tail too.
@@ -2835,7 +3017,11 @@ function Write-CycleInfraFailure {
         [hashtable[]]$DependencyFailures = @(),
         # Top-level record fields the class's recovery handler quotes, such as
         # the two addresses of a dhcp_identity_unbounded move.
-        [AllowNull()][hashtable]$ClassDetail
+        [AllowNull()][hashtable]$ClassDetail,
+        # When the failing stage began, from a caller whose stage runs the
+        # engine: the event then names the VM and step of an engine record
+        # kept since then, rather than only the stage.
+        [Nullable[datetime]]$SinceUtc = $null
     )
     try {
         $dir = if ($env:YURUNA_LOG_DIR) { $env:YURUNA_LOG_DIR }
@@ -2870,13 +3056,29 @@ function Write-CycleInfraFailure {
                 $null = Copy-CycleFailureRecord -LogDir $dir
             }
         } elseif (Test-Path -LiteralPath $failFile) {
-            # The kept record is the engine's account of this same failure, but
-            # a stage's sequence runs apart from the cycle's event stream, so
-            # this event is all the pool ever sees of it.
+            # A stage's sequence runs apart from the cycle's event stream, so
+            # this event is all the pool ever sees of the record the run kept.
             try {
-                $installerFailure = (Get-Content -Raw -LiteralPath $failFile | ConvertFrom-Json -Depth 12).context.causeDetail.installerFailure
+                $kept = Get-Content -Raw -LiteralPath $failFile | ConvertFrom-Json -Depth 12
+                $installerFailure = $kept.context.causeDetail.installerFailure
                 if ($installerFailure.kind) {
                     $rec.Event.causeInstallerFailure = "$($installerFailure.kind): $($installerFailure.summary)".TrimEnd(' ', ':')
+                }
+                # The VM, sequence, step and nested run that failed, which a host
+                # action leaves empty, and the stall read inside that run. Only
+                # a record the engine wrote since the stage began is that run's:
+                # one kept from before it names another failure, an infra record
+                # names only the stage that wrote it, and the orchestrator
+                # inherits the stage's class from no older record either.
+                if ($null -ne $SinceUtc -and [string]$kept.reason -cin @('step', 'crash') -and
+                    [IO.File]::GetLastWriteTimeUtc($failFile) -ge $SinceUtc) {
+                    if (-not $rec.Event.vmName -and $kept.vmName) { $rec.Event.vmName = [string]$kept.vmName }
+                    if (-not $rec.Event.sequenceName -and $kept.sequenceName) { $rec.Event.sequenceName = [string]$kept.sequenceName }
+                    if ($kept.action) { $rec.Event.action = [string]$kept.action }
+                    if ($kept.context.nestedNode) { $rec.Event.nestedNode = [string]$kept.context.nestedNode }
+                    if ($kept.context.causeDetail.aptUpdateStall.summary) {
+                        $rec.Event.causeAptUpdateStall = [string]$kept.context.causeDetail.aptUpdateStall.summary
+                    }
                 }
             } catch { Write-Verbose "kept failure record unreadable: $($_.Exception.Message)" }
         }
@@ -3361,12 +3563,18 @@ do {
     # See https://yuruna.link/4213a0b3-00f2
     $script:PoolAssignedProjectUrl = $null
     $script:PoolAssignedBy = $null
+    # New-VM renders each guest seed in a child process, which reads this
+    # cycle's repositories only from the environment (Get-YurunaGitHubSource).
+    $env:YURUNA_POOL_FRAMEWORK_URL = $null
+    $env:YURUNA_POOL_PROJECT_URL = $null
     if ($Config -is [System.Collections.IDictionary] -and $Config.repositories -is [System.Collections.IDictionary]) {
         $poolManifestForRepos = if (Get-Command Read-YurunaPoolManifest -ErrorAction SilentlyContinue) { Read-YurunaPoolManifest } else { $null }
         $poolRepositories = if ($poolManifestForRepos -is [System.Collections.IDictionary]) { $poolManifestForRepos['repositories'] } else { $null }
         if ($poolRepositories -is [System.Collections.IDictionary] -and $poolRepositories['frameworkUrl'] -and $poolRepositories['projectUrl']) {
             $Config.repositories['frameworkUrl'] = [string]$poolRepositories['frameworkUrl']
             $Config.repositories['projectUrl']   = [string]$poolRepositories['projectUrl']
+            $env:YURUNA_POOL_FRAMEWORK_URL = [string]$poolRepositories['frameworkUrl']
+            $env:YURUNA_POOL_PROJECT_URL   = [string]$poolRepositories['projectUrl']
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_b9980767ec32acdd' -Arguments @{ poolId = [string]$poolManifestForRepos['poolId']; frameworkUrl = [string]$poolRepositories['frameworkUrl']; projectUrl = [string]$poolRepositories['projectUrl'] }) -InformationAction Continue
             $script:PoolAssignedProjectUrl = [string]$poolRepositories['projectUrl']
             $script:PoolAssignedBy = [ordered]@{
@@ -5318,7 +5526,7 @@ Export-ModuleMember -Function `
     Write-UncommittedChangesWarning, Assert-CachingProxyServiceStillReachable, `
     Get-RunnerReloadableConfig, New-RunnerConfigState, Sync-RunnerCycleConfig, `
     Sync-RunnerStepConfig, `
-    Resolve-RunnerLogLevel, Copy-FailureArtifactsToStatusLog, Invoke-RunnerInnerCycle, `
+    Resolve-RunnerLogLevel, Copy-FailureArtifactsToStatusLog, Save-SerialConsoleKernelFault, Invoke-RunnerInnerCycle, `
     Write-CycleInfraFailure, Save-CycleHostDiagnostic, Get-YurunaRefreshInnerMode, Invoke-YurunaRefreshPreflight, `
     Wait-YurunaRefreshRelease, Wait-YurunaHeldControlBarrier, Test-YurunaRefreshCycleGate, `
     Test-RunnerHypervisorControlGate, Invoke-RunnerTempHousekeeping, Invoke-CycleProjectRefresh, Test-CycleHostNetworkDegraded, `

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42c40d2c-52f3-f14f-800e-6b343505b865
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -9419,6 +9419,24 @@
             'trust' = 'internal'
         }
         ''' aceito: todas as entradas de que o build precisa estão presentes, e nada foi alterado.'
+    )
+    'host.service_build_plan_auth_readonly_unsupported' = @(
+        'O provedor de autenticação '
+        @{
+            'arg' = 'provider'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' não oferece validação de senha somente para leitura. O plano de criação não pode chamar o método que altera os dados.'
+    )
+    'host.service_build_plan_cache_state_invalid' = @(
+        'Não é possível validar o estado do caching-proxy em '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' sem alterá-lo: o arquivo principal e sua cópia de segurança contêm dados inutilizáveis.'
     )
     'host.service_seed_degraded' = @(
         'A seed de '''

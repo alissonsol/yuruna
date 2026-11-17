@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42e7a0f2-fce5-47f4-aa02-059ecae18abf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -142,13 +142,21 @@ Describe 'The class routing table is the one place a class is routed' {
         # A wedged kernel recovers only on a new boot, which the next attempt
         # gives; a resume in place would wait again on the same kernel.
         $enum = @(Get-FailureClassEnum)
-        Assert-Equal -Expected ($enum.Count - 2) -Actual ([array]::IndexOf($enum, 'guest_kernel_stalled')) -Because 'the class sits just before the catch-all unknown'
+        Assert-Equal -Expected ($enum.Count - 3) -Actual ([array]::IndexOf($enum, 'guest_kernel_stalled')) -Because 'the kernel and display stall classes precede the catch-all unknown'
         $route = Get-FailureClassRoute -FailureClass 'guest_kernel_stalled'
         Assert-True $route.UnattendedRetry 'its retry is the whole repair'
         Assert-False $route.WarmResume 'a resume in place replays a wait on the same wedged kernel'
         Assert-False $route.TransientNetwork 'a wedged kernel is no network refusal'
         Assert-Equal -Expected 180 -Actual $route.RetryMinutesPerDay -Because 'its runner-minute budget is its own, written in its route'
         (Get-FailureClassDocUrl -FailureClass 'guest_kernel_stalled') | Should -BeLike '*#failure-class-guest_kernel_stalled'
+    }
+    It 'names a stalled guest display without enabling a new recovery route' {
+        @(Get-FailureClassEnum) | Should -Contain 'guest_display_stalled'
+        $route = Get-FailureClassRoute -FailureClass 'guest_display_stalled'
+        $route.UnattendedRetry | Should -BeFalse
+        $route.WarmResume | Should -BeFalse
+        $route.TransientNetwork | Should -BeFalse
+        (Resolve-RoutingClass -FailureClass 'retry_exhausted' -InnerFailureClass 'guest_display_stalled').RoutingClass | Should -BeExactly 'guest_display_stalled'
     }
     It 'is what the unattended-retry allow-list admits, each with its reason' {
         $allowList = Get-AutoRemediationAllowList

@@ -6,16 +6,21 @@
 # --- REGION: requirements
 requirements:
   - tool: "PowerShell"
-    # From 7.6.7, Test-Json reports no error for a violation nested below a
-    # schema's first level (PowerShell issue #28218). The catalog, locale-map
-    # and configuration checks name such a violation through
-    # Get-YurunaJsonSchemaError instead, so they do not depend on that report,
-    # and the floor can follow a release the complete suites pass on.
+    # PowerShell 7.6.7 through 7.6.9 report no Test-Json error for a violation
+    # nested below a schema's first level (PowerShell issue #28218, fixed in
+    # 7.6.10 and 7.7.0). The catalog, locale-map and configuration checks name
+    # such a violation through Get-YurunaJsonSchemaError instead, so they do
+    # not depend on that report, and the floor can follow a release the
+    # complete suites pass on.
     command: |-
       "$($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
-    version: "7.6.9 (Core)"
+    version: "7.7.0 (Core)"
     releases: "https://github.com/powershell/powershell/releases"
   - tool: "git"
+    # The Ubuntu 26.04 archive ships 2.53.0, so the floor cannot name 2.53.1,
+    # which fixes CVE-2026-111760 (code execution through
+    # `clone --recurse-submodules` of an untrusted repository). Yuruna's own
+    # fetches pass --no-recurse-submodules and no repository has submodules.
     command: |-
       ((git --version) -replace '^git version ','')
     version: "2.53.0"
@@ -28,25 +33,28 @@ requirements:
   - tool: "OpenTofu"
     # The floor follows winget; standalone guest installs can use a newer patch.
     command: "($(tofu version -json) | ConvertFrom-Json).terraform_version"
-    version: "1.13.1"
+    version: "1.13.9"
     releases: "https://opentofu.org/docs/intro/install/"
   - tool: "Helm"
     command: "helm version --short"
-    version: "v4.3.1"
+    version: "v4.3.2"
     releases: "https://github.com/helm/helm/releases"
   - tool: "Docker"
     # See https://yuruna.link/42e220c4-0016
     command: |-
       ((docker --version) -replace '^Docker version ','' -replace ',\s*build.*$','')
-    version: "29.8.2"
+    version: "29.9.3"
     releases: "https://docs.docker.com/desktop/"
   - tool: "Docker buildx"
     # Ships as a CLI plugin inside Docker Desktop, so the floor follows the
     # Desktop-bundled plugin rather than the newest upstream buildx tag; see
     # the Docker entry above for why an upstream-leading floor misfires.
+    # Desktop bundles v0.38.1; the Bake entitlement fixes that
+    # GHSA-xg6v-cv2h-2w5h and GHSA-rghq-x9hf-hc3r name are in the v0.38.2
+    # release notes, so the floor moves when Desktop bundles that release.
     command: |-
       ((docker buildx version) -split '\s+')[1]
-    version: "v0.37.2"
+    version: "v0.38.1"
     releases: "https://github.com/docker/buildx"
   - tool: "containerd"
     platforms: [linux]
@@ -54,7 +62,7 @@ requirements:
     # the third whitespace token is the version.
     command: |-
       ((containerd --version) -split '\s+')[2]
-    version: "v2.3.3"
+    version: "v2.4.2"
     releases: "https://github.com/containerd/containerd/releases"
   - tool: "Kubernetes"
     command: "($(kubectl version --client -o json) | ConvertFrom-Json).clientVersion.gitVersion"
@@ -64,7 +72,7 @@ requirements:
     # `code -v` prints three lines (version / commit / arch); first line
     # is the version.
     command: "(code -v | Select-Object -First 1)"
-    version: "1.132.0"
+    version: "1.146.0"
     releases: "https://code.visualstudio.com/Download"
   - tool: "mkcert"
     # mkcert writes its version banner to stderr -- the `2>&1` redirect
@@ -73,9 +81,10 @@ requirements:
     version: "v1.4.4"
     releases: "https://github.com/filosottile/mkcert/releases"
   - tool: "node"
-    # The Windows LTS package can lag the patch that nvm and Homebrew provide.
+    # winget's Node 24 package stops at 24.22.1, so the floor cannot name the
+    # 24.22.3 security release that nvm, Homebrew and NodeSource provide.
     command: "node --version"
-    version: "v24.20.0"
+    version: "v24.22.1"
     releases: "https://nodejs.org/en/download"
   - tool: "npm"
     # Tracks whatever the pinned Node LTS bundles, NOT npm's newest
@@ -83,11 +92,14 @@ requirements:
     # fail this check on a correctly provisioned machine, since nothing
     # in the framework or the guest scripts installs npm separately.
     command: "npm --version"
-    version: "11.19.0"
+    version: "11.19.1"
     releases: "https://docs.npmjs.com/cli/v11/configuring-npm/install"
   - tool: "curl"
     # First line is `curl X.Y.Z (build/triplet) libcurl/X.Y.Z ...`; the
     # paren-wrapped suffix is libcurl feature noise.
+    # The Ubuntu 26.04 archive ships 8.18.0, so the floor cannot name 8.20.0,
+    # which carries the last of the twelve advisories that affect 8.18.0
+    # (none above Medium; https://curl.se/docs/security.html).
     command: |-
       ((curl --version | Select-Object -First 1) -replace '\s*\(.*$','')
     version: "curl 8.18.0"
@@ -97,6 +109,9 @@ requirements:
     version: "GNU Wget 1.25.0"
     releases: "https://www.gnu.org/software/wget/"
   - tool: "tesseract"
+    # The Ubuntu 26.04 archive ships 5.5.0, so the floor cannot name 5.5.4,
+    # which patches the advisories published for 5.5.0 (crafted traineddata
+    # and model input; github.com/tesseract-ocr/tesseract/security/advisories).
     command: "(tesseract --version 2>&1 | Select-Object -First 1)"
     version: "tesseract 5.5.0"
     releases: "https://github.com/tesseract-ocr/tesseract/releases"
@@ -140,15 +155,15 @@ requirements:
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.38.1"
+    version: "aws-cli/2.40.2"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""
-    version: "2.91.0"
+    version: "2.93.0"
     releases: "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli"
   - tool: "Google Cloud"
     # No `-q` and no 2>&1 capture: a broken bundled-python install fails
     # silently rather than dumping a traceback into the version column.
     command: "(gcloud -v | Select-Object -First 1)"
-    version: "Google Cloud SDK 589.0.0"
+    version: "Google Cloud SDK 593.0.0"
     releases: "https://cloud.google.com/sdk/docs/install-sdk"

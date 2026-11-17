@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 421d3153-a504-4156-917e-10ff36bab08d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     A missing/expired credential made an unattended runner block forever inside
     `git fetch` (git waiting on an interactive username prompt). The behavioral
     tests assert the auth classifier; the AST/source guards assert the pull path
-    stays prompt-proof. Runs under Pester 5.x (script-scoped throw helper).
+    stays prompt-proof. Runs under Pester 6.x (Test.Assert.psm1 throw helpers).
 
     Also guards how a refused credential is REPORTED. Every check that reaches a
     remote trips over the same credential, so each one that describes it as a

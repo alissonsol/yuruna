@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42b82fc3-4953-421c-ba0f-6771b3725fe1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@
     at the threshold and not again, and any non-failed reload resets both the
     streak and the one-shot latch.
 
-    Mock and the throw-free Should assertions run under Pester 5.x.
+    Mock and the throw-free Should assertions run under Pester 6.x.
 #>
 
 BeforeAll {

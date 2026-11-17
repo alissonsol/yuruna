@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
     BOM aborts at line 1 before the param block is reached.
 #>
 
-# --- REGION: https://yuruna.link/429fb30b
+# See https://yuruna.link/429fb30b
 [CmdletBinding()]
 param(
     [string]$YurunaDir    = (Join-Path $HOME 'git/yuruna'),
@@ -1630,16 +1630,9 @@ execution policy. Reinstall it for all users, from an elevated prompt:
 }
 
 # --- REGION: PowerShell modules
-# PSGallery modules this installer puts in place itself, pinned by version and
-# by the SHA-512 the gallery publishes for the package (its OData PackageHash,
-# base64): the bytes are checked before anything is unpacked, so a new upload,
-# or anything that answers for the gallery, cannot change the code every runner
-# imports. The same pin lives in test/modules/Test.HostGit.psm1, which installs
-# it on a host set up without this script, and in the other host installers;
-# Test.HostGitInstall keeps every copy equal. To move a pin, read the new
-# version's PackageHash from
-#   https://www.powershellgallery.com/api/v2/Packages(Id='<name>',Version='<version>')
-# and compare it with the SHA-512 of the downloaded .nupkg.
+# Verify the pinned Gallery package's SHA-512 before unpacking it. Standalone
+# installers and the host helper retain the same pin and verification behavior.
+# See https://yuruna.link/429fb30b-0016
 $script:YurunaGalleryModulePin = @{
     'powershell-yaml' = @{ Version = '0.4.12'; Sha512 = 'Vc5DLyw7hLsCL6yFlSvzsdUUWmgfqoM35XmRavtKOz37GHBg3p+vWxaO/9wS8MbptzWspdUBcVRGSqAdlJmtUg==' }
 }

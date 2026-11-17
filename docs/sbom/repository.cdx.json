@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:fd7b8169-bbca-5f24-bfdb-09379c0e7563",
+  "serialNumber": "urn:uuid:12da3861-0343-5335-bd8c-011880422d6d",
   "version": 1,
   "metadata": {
     "component": {
@@ -11,14 +11,14 @@
       "properties": [
         {
           "name": "yuruna:source-inputs-sha256",
-          "value": "36e45144d6c15fde68103d577497d20860753ee6106b156161bb82c4da59fad3"
+          "value": "ef43cc786844033358b3e81e6f8e052a931ea6881f6eb52f88dcc2fe74feda34"
         },
         {
           "name": "yuruna:inventory-kind",
           "value": "declared-source"
         }
       ],
-      "version": "2026.11.08"
+      "version": "2026.11.16"
     }
   },
   "components": [
@@ -123,7 +123,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-0600ffc08ebfcd4ae0d8",
+      "bom-ref": "component-f8c7ef3b051d1fe5aa1f",
       "name": "github.com/google/pprof",
       "properties": [
         {
@@ -131,12 +131,12 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 9, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.0.0-20260802141513-ef3492d7dac3",
-      "purl": "pkg:golang/github.com/google/pprof@v0.0.0-20260802141513-ef3492d7dac3",
+      "version": "v0.0.0-20261016150608-1facf8f91b50",
+      "purl": "pkg:golang/github.com/google/pprof@v0.0.0-20261016150608-1facf8f91b50",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "2cc2d7f8b813356a5fbc205d15e6efe84b18a2d226aedfcfa5ce5c5c8ae2092a"
+          "content": "3e5356251c6ee403d2574a56a9f22c674aadf4e3861d259f650e33bf1f96816b"
         }
       ]
     },
@@ -237,7 +237,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-d6cf248cd102be5ff0e7",
+      "bom-ref": "component-4782fea287e117704c70",
       "name": "github.com/pkg/sftp",
       "properties": [
         {
@@ -245,12 +245,12 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 12, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 21, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v1.13.11",
-      "purl": "pkg:golang/github.com/pkg/sftp@v1.13.11",
+      "version": "v1.13.12",
+      "purl": "pkg:golang/github.com/pkg/sftp@v1.13.12",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "d0df7648b4c1f09a80489075e192c71f3167055f261bdcf0e0aee38211055ae1"
+          "content": "332873cbf6732cf9c2b44d85d96b431ec82cf117e03271f681f6c7b8226190c5"
         }
       ]
     },
@@ -313,7 +313,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-02ff4d3b302990f322d7",
+      "bom-ref": "component-4d48944848c55a5f2b53",
       "name": "golang.org/x/crypto",
       "properties": [
         {
@@ -321,18 +321,18 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 13, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 29, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.58.0",
-      "purl": "pkg:golang/golang.org/x/crypto@v0.58.0",
+      "version": "v0.59.0",
+      "purl": "pkg:golang/golang.org/x/crypto@v0.59.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "08e9182ebe24ee70c8e2be90b4c30bd807f3788b30587009b612d2e8afccff9e"
+          "content": "c52da386a61bccdae9be458fd984c37f84c9c01cb7ca4474de2f2f143c4473b7"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-da5d0b169766af760a32",
+      "bom-ref": "component-4e2be818662bfa108216",
       "name": "golang.org/x/mod",
       "properties": [
         {
@@ -340,18 +340,18 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 31, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.41.0",
-      "purl": "pkg:golang/golang.org/x/mod@v0.41.0",
+      "version": "v0.42.0",
+      "purl": "pkg:golang/golang.org/x/mod@v0.42.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "a899a73946f8601f85b04b8cdc7716b9c75901208f1a1b17eae9633baa688347"
+          "content": "20278bdedd8bdf496348f1c7c439d1e1fa95701b7fcd1db32406fd8ee6af9908"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-9ad44d7925eeabd7ab5f",
+      "bom-ref": "component-669273910b4f0be62723",
       "name": "golang.org/x/sync",
       "properties": [
         {
@@ -359,18 +359,18 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 33, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.24.0",
-      "purl": "pkg:golang/golang.org/x/sync@v0.24.0",
+      "version": "v0.25.0",
+      "purl": "pkg:golang/golang.org/x/sync@v0.25.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "8aa883ac6a03832baf00aae12d0b61504cd4fd1dfbf0defc8176c18f179dee80"
+          "content": "7499e27ebd27315f3f4819c1bdda387921869eb7373b8145c7a22abed2dc991b"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-8bd068a161452022ed8c",
+      "bom-ref": "component-17839e50745f4cc7970b",
       "name": "golang.org/x/sys",
       "properties": [
         {
@@ -378,18 +378,18 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 25, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 35, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.49.0",
-      "purl": "pkg:golang/golang.org/x/sys@v0.49.0",
+      "version": "v0.50.0",
+      "purl": "pkg:golang/golang.org/x/sys@v0.50.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "5dbce481824776a87ff26d94bb45bf750bfc9e4b71c780451e9d4cd2044e4d70"
+          "content": "7642991054c429a2ebd6c8e1b345a22aaa22f098f99c76d2dcd8e6c75528309b"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-58f0d150aafb90b4ff7b",
+      "bom-ref": "component-a7c7de02884504f0628a",
       "name": "golang.org/x/term",
       "properties": [
         {
@@ -397,18 +397,18 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 37, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.47.0",
-      "purl": "pkg:golang/golang.org/x/term@v0.47.0",
+      "version": "v0.48.0",
+      "purl": "pkg:golang/golang.org/x/term@v0.48.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "729c8ec1092bd8dcf17b6a7a2a7ad31bb122db0b738ecb928e1a575dea59fc13"
+          "content": "1ba514d5e89207c9e5dc3cde506b7b320fb649cb48f2d3d2e99e7f981b7a70e9"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-80c86ce33a8a398b5681",
+      "bom-ref": "component-486898713a5776599183",
       "name": "golang.org/x/text",
       "properties": [
         {
@@ -416,18 +416,18 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 14, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 39, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.43.0",
-      "purl": "pkg:golang/golang.org/x/text@v0.43.0",
+      "version": "v0.44.0",
+      "purl": "pkg:golang/golang.org/x/text@v0.44.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "d508afae587002c9cc39caa039d97d9b2eecf4ec9997c3b9fd41944c9557a167"
+          "content": "608b5da7f9903469ec9ab82971d039c90ddb9d1c427e8fd38ff881c865bd186a"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-c740ff745f2883ebf5be",
+      "bom-ref": "component-bf1cbcfa8be0ec817927",
       "name": "golang.org/x/tools",
       "properties": [
         {
@@ -435,12 +435,12 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 41, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v0.51.0",
-      "purl": "pkg:golang/golang.org/x/tools@v0.51.0",
+      "version": "v0.52.0",
+      "purl": "pkg:golang/golang.org/x/tools@v0.52.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "9385dcff53a6f63c24049068e0d54b3120110685ad2b5d26c7e5b90675c27802"
+          "content": "af2c60e14eb7a1a51893bb8e2d3177ee7e377f8aa0b46bea5782288add41684b"
         }
       ]
     },
@@ -465,7 +465,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-ecb0e3f352e3a0cc6452",
+      "bom-ref": "component-f388507da9a3f2c28f50",
       "name": "modernc.org/cc/v4",
       "properties": [
         {
@@ -473,18 +473,18 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 45, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v4.29.7",
-      "purl": "pkg:golang/modernc.org/cc/v4@v4.29.7",
+      "version": "v4.30.6-0.20261101114202-1b9d1a076f6b",
+      "purl": "pkg:golang/modernc.org/cc/v4@v4.30.6-0.20261101114202-1b9d1a076f6b",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "abe357189d1b2b76f84d715841056bf696044c69e6c055a4ad4cc99ccc9afd38"
+          "content": "584e522ce51170d77cb3ab8f47f9f8595e30790c7160a8b93a911991f355bdd1"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "component-15b2521b5bd7ca8b0e67",
+      "bom-ref": "component-95c080d2dc52a85d7938",
       "name": "modernc.org/ccgo/v4",
       "properties": [
         {
@@ -492,12 +492,12 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 47, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v4.36.1",
-      "purl": "pkg:golang/modernc.org/ccgo/v4@v4.36.1",
+      "version": "v4.38.1",
+      "purl": "pkg:golang/modernc.org/ccgo/v4@v4.38.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "64d214640af23745209c9c2dcb1add133705737c83e02bb80338df3d7b0bb081"
+          "content": "c1dc49541b854fc26e7d99e74324ba05bcf734e5a15620f4c4938647de81a5de"
         }
       ]
     },
@@ -541,7 +541,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-de651c013a28496d53d7",
+      "bom-ref": "component-3b9f6319ee162930e05b",
       "name": "modernc.org/gc/v3",
       "properties": [
         {
@@ -549,12 +549,12 @@
           "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 53, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v3.1.5",
-      "purl": "pkg:golang/modernc.org/gc/v3@v3.1.5",
+      "version": "v3.2.0",
+      "purl": "pkg:golang/modernc.org/gc/v3@v3.2.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "db595d7cf7d1604df54dbec1de6c002bc832d40c4fe3e74a8eb3903dfa9a9287"
+          "content": "fd8dcb1833106a861fe793de6cfd6ab19e450c68006721b54582841de433875a"
         }
       ]
     },
@@ -579,7 +579,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-47c58c7aab9f26416fb2",
+      "bom-ref": "component-58e59b2a4d9452e4451d",
       "name": "modernc.org/libc",
       "properties": [
         {
@@ -587,12 +587,12 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 26, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 57, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v1.77.1",
-      "purl": "pkg:golang/modernc.org/libc@v1.77.1",
+      "version": "v1.80.1",
+      "purl": "pkg:golang/modernc.org/libc@v1.80.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "0adf23e3b42d899d449e3d83b455d0b54aab3c202374298f8ed0aebeb610d07b"
+          "content": "7a39fb1ed4d5dc692734a6e496a590d67bd4adf5fc993c6cd43fb1a7f250c32e"
         }
       ]
     },
@@ -674,7 +674,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-0b3df35735774198d7c1",
+      "bom-ref": "component-1b88164e7e72817e1664",
       "name": "modernc.org/sqlite",
       "properties": [
         {
@@ -682,12 +682,12 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 15, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 67, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v1.60.1",
-      "purl": "pkg:golang/modernc.org/sqlite@v1.60.1",
+      "version": "v1.62.0",
+      "purl": "pkg:golang/modernc.org/sqlite@v1.62.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "fdb973e773bde7529614eb28e1042f12cfc5aba70304a2ed315ad835278954ac"
+          "content": "80c6828d2335aa997e88e8e25a14752d83f7ceaad80c8fb91982c6b7abde3f68"
         }
       ]
     },
@@ -1034,7 +1034,7 @@
     },
     {
       "type": "platform",
-      "bom-ref": "component-f178c1a1ebf07b0b8ac8",
+      "bom-ref": "component-ce52eb7443151acaa723",
       "name": "Go",
       "properties": [
         {
@@ -1042,7 +1042,7 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/caching-proxy-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/download-agent-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/extension-sdk/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/pool-control-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/stash-service/server/go.mod\"}], \"notes\": [], \"scope\": \"build\"}"
         }
       ],
-      "version": "1.27.2"
+      "version": "1.27.4"
     },
     {
       "type": "platform",
@@ -1051,7 +1051,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Compatible HCL engine requirement\", \"line\": 10, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 10, \"path\": \"global/resources/localhost/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 6, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \">= 1.13.1\"}"
+          "value": "{\"completeness\": \"unresolved\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Compatible HCL engine requirement\", \"line\": 10, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 10, \"path\": \"global/resources/localhost/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 6, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \">= 1.13.9\"}"
         }
       ]
     }
@@ -1062,67 +1062,67 @@
       "dependsOn": [
         "component-000139009e3b0ea2cb06",
         "component-005aa61133bce55cb8bf",
-        "component-02ff4d3b302990f322d7",
-        "component-0600ffc08ebfcd4ae0d8",
         "component-070ba5f14e1b7ce30bbc",
         "component-08a7725ec86fb430317b",
-        "component-0b3df35735774198d7c1",
         "component-15946024bda4ba341768",
-        "component-15b2521b5bd7ca8b0e67",
+        "component-17839e50745f4cc7970b",
+        "component-1b88164e7e72817e1664",
         "component-22cdaecada1415d26fa9",
         "component-280432a44173be6af224",
         "component-332c942aae4f99c9df8b",
         "component-33c624824b422a1e743b",
         "component-34ce8531c1ad8f3a8b0f",
+        "component-3b9f6319ee162930e05b",
         "component-40a7db3a530a7e4c4531",
         "component-467244424de7eae1e3f9",
-        "component-47c58c7aab9f26416fb2",
+        "component-4782fea287e117704c70",
+        "component-486898713a5776599183",
         "component-487136d8901acfa9844f",
         "component-48d9ec1f813835e178d9",
+        "component-4d48944848c55a5f2b53",
         "component-4d77f6ff156b2106610f",
+        "component-4e2be818662bfa108216",
         "component-54a84111d206a61715b9",
         "component-582446bc32876fcbf5fe",
-        "component-58f0d150aafb90b4ff7b",
+        "component-58e59b2a4d9452e4451d",
         "component-5b86315870921f109bf2",
         "component-5f3c88a73f01f726a9af",
+        "component-669273910b4f0be62723",
         "component-70532f4e1158659fd728",
         "component-7909813fb9c6b99a751b",
-        "component-80c86ce33a8a398b5681",
         "component-8699244ea528baa8914d",
         "component-877085193e9afb3a3c38",
         "component-882d4bb41cb57da0b374",
         "component-8907942691304a312548",
         "component-8a08acbe6e5b8e2c3e2c",
-        "component-8bd068a161452022ed8c",
         "component-93ef0133b7121038f806",
+        "component-95c080d2dc52a85d7938",
         "component-9756508f804a7e5f5603",
         "component-99fce750b9e0c923e887",
-        "component-9ad44d7925eeabd7ab5f",
         "component-9eb226995ec7055df6c9",
         "component-a61f0e12e70e2e59d861",
         "component-a6726f896a788aa23d0c",
+        "component-a7c7de02884504f0628a",
         "component-a918c6f303ac3cfdd0e8",
         "component-acf55bb12a36b9aad4cf",
         "component-ae191d8df8d3085693f6",
         "component-b53018f6fcafa440a222",
         "component-bee70e6aa0b7eb181c62",
+        "component-bf1cbcfa8be0ec817927",
         "component-c04377f548d4f48dc896",
-        "component-c740ff745f2883ebf5be",
+        "component-ce52eb7443151acaa723",
         "component-d177cf988c867818ae63",
         "component-d36496760373c18829bb",
         "component-d4da385fc11f7e9f7d15",
         "component-d554a81a5a8e7741aa3b",
-        "component-d6cf248cd102be5ff0e7",
-        "component-da5d0b169766af760a32",
         "component-dbd34b0681ab6c5792e1",
-        "component-de651c013a28496d53d7",
         "component-e179ad6c61206e1ec441",
         "component-e1fcb9ec435a341b7c8a",
         "component-e5a7521992c856e1013d",
         "component-ec815c737a818436c6b5",
-        "component-ecb0e3f352e3a0cc6452",
-        "component-f178c1a1ebf07b0b8ac8",
+        "component-f388507da9a3f2c28f50",
         "component-f704f01136396457f74f",
+        "component-f8c7ef3b051d1fe5aa1f",
         "component-f9b42cdcad718e5a0d9f",
         "component-fabca1cfebfad94a1fbe",
         "component-fc9c99298f7eb5eee5f8",
@@ -1133,35 +1133,35 @@
       "ref": "component-d177cf988c867818ae63",
       "dependsOn": [
         "component-7909813fb9c6b99a751b",
-        "component-f178c1a1ebf07b0b8ac8"
+        "component-ce52eb7443151acaa723"
       ]
     },
     {
       "ref": "component-070ba5f14e1b7ce30bbc",
       "dependsOn": [
         "component-7909813fb9c6b99a751b",
-        "component-f178c1a1ebf07b0b8ac8"
+        "component-ce52eb7443151acaa723"
       ]
     },
     {
       "ref": "component-f9b42cdcad718e5a0d9f",
       "dependsOn": [
         "component-000139009e3b0ea2cb06",
-        "component-02ff4d3b302990f322d7",
-        "component-0b3df35735774198d7c1",
+        "component-17839e50745f4cc7970b",
+        "component-1b88164e7e72817e1664",
         "component-280432a44173be6af224",
         "component-34ce8531c1ad8f3a8b0f",
-        "component-47c58c7aab9f26416fb2",
+        "component-4782fea287e117704c70",
+        "component-486898713a5776599183",
+        "component-4d48944848c55a5f2b53",
         "component-582446bc32876fcbf5fe",
+        "component-58e59b2a4d9452e4451d",
         "component-7909813fb9c6b99a751b",
-        "component-80c86ce33a8a398b5681",
         "component-8699244ea528baa8914d",
-        "component-8bd068a161452022ed8c",
+        "component-ce52eb7443151acaa723",
         "component-d36496760373c18829bb",
-        "component-d6cf248cd102be5ff0e7",
         "component-e1fcb9ec435a341b7c8a",
         "component-ec815c737a818436c6b5",
-        "component-f178c1a1ebf07b0b8ac8",
         "component-fcc09a389055123ca453"
       ]
     },
@@ -1169,27 +1169,27 @@
       "ref": "component-9756508f804a7e5f5603",
       "dependsOn": [
         "component-7909813fb9c6b99a751b",
-        "component-f178c1a1ebf07b0b8ac8"
+        "component-ce52eb7443151acaa723"
       ]
     },
     {
       "ref": "component-882d4bb41cb57da0b374",
       "dependsOn": [
         "component-7909813fb9c6b99a751b",
-        "component-f178c1a1ebf07b0b8ac8"
+        "component-ce52eb7443151acaa723"
       ]
     },
     {
       "ref": "component-7909813fb9c6b99a751b",
       "dependsOn": [
-        "component-f178c1a1ebf07b0b8ac8"
+        "component-ce52eb7443151acaa723"
       ]
     },
     {
       "ref": "component-99fce750b9e0c923e887",
       "dependsOn": [
         "component-7909813fb9c6b99a751b",
-        "component-f178c1a1ebf07b0b8ac8"
+        "component-ce52eb7443151acaa723"
       ]
     },
     {

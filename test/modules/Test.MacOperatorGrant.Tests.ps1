@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42d41f07-9c3b-4a15-8e62-5b0f3ca9d7e1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,10 +54,24 @@ BeforeAll {
     Import-Module (Join-Path $here 'Test.Catalog.psm1') -Global -DisableNameChecking
     Import-Module (Join-Path $repoRoot 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
     Import-Module (Join-Path $here 'Test.HostCondition.Mac.psm1') -Force -DisableNameChecking
+    $script:MacOpenStub = & (Get-Module Test.HostCondition.Mac) {
+        if (-not (Get-Command open -ErrorAction SilentlyContinue)) {
+            # Pester needs a command to mock on hosts without the macOS opener.
+            function script:open { throw 'The fixture opener must be mocked.' }
+            return $true
+        }
+        return $false
+    }
 
     $script:MacModulePath   = Join-Path $here 'Test.HostCondition.Mac.psm1'
     $script:TestConfigPath  = Join-Path $repoRoot 'test/Test-Config.ps1'
     $script:TestConfigText  = Get-Content -LiteralPath $script:TestConfigPath -Raw
+}
+
+AfterAll {
+    if ($script:MacOpenStub) {
+        & (Get-Module Test.HostCondition.Mac) { Remove-Item -LiteralPath Function:script:open }
+    }
 }
 
 Describe 'the operator-grant registry' {
@@ -326,6 +340,7 @@ Describe 'the host-settings sweep' {
         Assert-Equal $script:PendingGrant.Id ($pending -join ',') 'the blocking grant is still pending'
         Assert-Equal 1 @($warnings).Count 'one warning for the grant that was not given'
         Assert-True ("$($warnings[0])".Contains($expected)) "the warning carries the whole instruction, not its first character: $($warnings[0])"
+        Should -Invoke -ModuleName Test.HostCondition.Mac open -Times 1 -Exactly
     }
 
     It 'waits for a click only where somebody can click' {

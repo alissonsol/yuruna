@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42fa6f61-9143-4a1d-9bdb-005d250ec17e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -239,8 +239,10 @@ Describe 'Generated status service performance route' {
         }, $true) | Select-Object -First 1
         $route | Should -Not -BeNullOrEmpty
         $res = @{ Headers = @{}; OutputStream = [IO.MemoryStream]::new() }
-        $handler = [scriptblock]::Create('param($req, $res, $repoRoot, $path, $statusDir) $perfAggregatesCache = $null; foreach ($once in 1) {' + $route.Extent.Text + '}')
-        & $handler @{ HttpMethod = 'GET' } $res $script:Root 'control/perf-aggregates' $statusDir
+        $selectedConfigPath = Join-Path $TestDrive 'selected.config.yml'
+        $handler = [scriptblock]::Create('param($req, $res, $repoRoot, $path, $statusDir, $testConfigFile) $perfAggregatesCache = $null; foreach ($once in 1) {' + $route.Extent.Text + '}')
+        & $handler @{ HttpMethod = 'GET' } $res $script:Root 'control/perf-aggregates' $statusDir $selectedConfigPath
+        Should -Invoke Read-TestConfig -Times 1 -Exactly -ParameterFilter { $Path -eq $selectedConfigPath }
         $result = [Text.Encoding]::UTF8.GetString($res.OutputStream.ToArray()) | ConvertFrom-Json
         $result.sequences.startup.Count | Should -Be 4
         @($result.sequences.startup | Where-Object { $_.durationMs -ne 3000 -or $_.failCount -ne 0 }).Count | Should -Be 0

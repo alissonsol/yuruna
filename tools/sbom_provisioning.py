@@ -26,8 +26,10 @@ _MANAGERS = re.compile(
 )
 # A PowerShell native call is often an argument array that keeps the program
 # and its action in separate quoted elements: @('apt-get', 'install', 'name').
-_ARGUMENT_ARRAY = re.compile(r"@\(\s*((?:'[^'\n]*'|\"[^\"\n]*\"|\$[A-Za-z_][\w:]*)(?:\s*,\s*(?:'[^'\n]*'|\"[^\"\n]*\"|\$[A-Za-z_][\w:]*))*)\s*\)")
+# Appended plain variables must end at an expression boundary.
+_ARGUMENT_ARRAY = re.compile(r"@\(\s*((?:'[^'\n]*'|\"[^\"\n]*\"|\$[A-Za-z_][\w:]*)(?:\s*,\s*(?:'[^'\n]*'|\"[^\"\n]*\"|\$[A-Za-z_][\w:]*))*)\s*\)((?:\s*\+\s*\$[A-Za-z_][\w:]*(?=\s*(?:\+\s*\$|[),;]|$)))*)")
 _ARGUMENT_ELEMENT = re.compile(r"'([^'\n]*)'|\"([^\"\n]*)\"|(\$[A-Za-z_][\w:]*)")
+_ARRAY_DELIMITERS = re.compile(r"@\(|[()]")
 _PS_INSTALL = re.compile(r"(?<![\w.-])(Install-Module|Install-PSResource|Install-PackageProvider|Install-WingetPackage|Invoke-GuestWingetInstall)\b", re.I)
 _CONTAINER = re.compile(r"(?<![\w.-])(?:docker|podman)\s+(pull|run|create)\b", re.I)
 _DOWNLOAD = re.compile(r"(?<![\w.-])(?:curl(?:_retry)?|wget(?:_try)?|Invoke-WebRequest|Start-BitsTransfer|Save-CachedHttpUri|Save-YurunaImage|Save-ImageWithChecksum)\b", re.I)
@@ -54,6 +56,9 @@ def _eligible(path: str) -> bool:
     if lower.startswith("test/") and not (
         lower.startswith("test/service/") or lower.startswith("test/lab/")
         or PurePosixPath(lower).name in {"initialize-lab.ps1", "amisad.lab.psm1", "amisad.hostcommon.ps1"}
+        # This module installs optional SMB host prerequisites; the other test
+        # modules remain excluded from provisioning inventory.
+        or lower == "test/modules/test.locallabstorage.psm1"
     ):
         return False
     return (lower.endswith((".sh", ".ps1", ".psm1", ".yml", ".yaml", ".tf", ".user-data"))
@@ -138,7 +143,7 @@ def _argument_vectors(command: str) -> list[str]:
     vectors = []
     for array in _active_matches(_ARGUMENT_ARRAY, command):
         words = []
-        for element in _ARGUMENT_ELEMENT.finditer(array[1]):
+        for element in _ARGUMENT_ELEMENT.finditer(array[1] + array[2]):
             single, double, variable = element.groups()
             words.append(variable or shlex.quote(single if single is not None else double))
         vectors.append(" ".join(words))
@@ -153,11 +158,12 @@ def _manager_matches(command: str):
 
 
 def _logical_lines(text: str):
-    """Join shell/PowerShell continuations and mask printed heredoc prose."""
+    """Join continuations and PowerShell arrays, masking printed heredoc prose."""
     pending = ""
     first = 0
     heredoc = None
     discard = False
+    array_depth = 0
     for number, raw in enumerate(text.splitlines(), 1):
         stripped = raw.strip()
         if heredoc:
@@ -182,8 +188,15 @@ def _logical_lines(text: str):
         if not pending:
             first = number
         pending += (" " if pending else "") + stripped
+        for delimiter in _active_matches(_ARRAY_DELIMITERS, raw):
+            if delimiter[0] == "@(" or (array_depth and delimiter[0] == "("):
+                array_depth += 1
+            elif array_depth and delimiter[0] == ")":
+                array_depth -= 1
         if stripped.endswith(("\\", "`")):
             pending = pending[:-1]
+            continue
+        if array_depth:
             continue
         yield first, pending
         pending = ""
@@ -219,6 +232,23 @@ def _bindings(text: str) -> dict[str, list[str]]:
         key = match[1].lower()
         if value not in result.setdefault(key, []):
             result[key].append(value)
+    # A missing-package array can be populated conditionally from a literal
+    # foreach list. Keep those alternatives as declarations, never execute the
+    # condition or infer that any package was actually installed.
+    loops = re.compile(r"\bforeach\s*\(\s*\$([A-Za-z_][\w]*)\s+in\s+@\(([^)]*)\)\s*\)", re.I)
+    for match in _active_matches(loops, text):
+        array = _ARGUMENT_ARRAY.fullmatch("@(" + match[2] + ")")
+        if not array:
+            continue
+        for element in _ARGUMENT_ELEMENT.finditer(array[1]):
+            single, double, variable = element.groups()
+            value = variable or (single if single is not None else double)
+            if value not in result.setdefault(match[1].lower(), []):
+                result[match[1].lower()].append(value)
+    appends = re.compile(r"\$([A-Za-z_][\w]*)\s*\+=\s*(\$[A-Za-z_][\w]*)(?=[ \t]*(?:[;}\r\n]|$))")
+    for match in _active_matches(appends, text):
+        if match[2] not in result.setdefault(match[1].lower(), []):
+            result[match[1].lower()].append(match[2])
     return result
 
 

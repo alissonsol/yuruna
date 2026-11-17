@@ -144,7 +144,7 @@ func (o *Outbox) Enqueue(payload []byte) error {
 	if len(o.items) >= o.maxItems || o.bytes+size > o.maxBytes {
 		if !o.fullLogged {
 			o.fullLogged = true
-			o.logf("outbox_full", map[string]any{"lines": len(o.items)})
+			o.logf("outbox_full", map[string]any{"pushes": len(o.items)})
 		}
 		return ErrFull
 	}

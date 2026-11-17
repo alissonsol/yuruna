@@ -91,7 +91,7 @@ packages:
   - prometheus-node-exporter
   - grafana
   - loki
-  - [alloy, "1.20.1-1"]
+  - [alloy, "1.22.0-1"]
   # --- REGION: https://yuruna.link/429f3d06-0039
   - acl
   - golang-go
@@ -282,8 +282,9 @@ write_files:
       # --- REGION: https://yuruna.link/429f3d06-0043
       # Never abort a partial download -- the next client still gets a hit.
       quick_abort_min -1 KB
-      # Bound upstream inactivity (squid's default is 15 minutes); matches the
-      # guests' apt Acquire::http::Timeout.
+      # Bound upstream inactivity (squid's default is 15 minutes). Deliberately
+      # longer than the guests' apt Acquire::http::Timeout: the guest gives up
+      # first, and a fetch it leaves mid-body can still finish into the cache.
       read_timeout 2 minutes
       # One origin fetch for N concurrent identical requests; the rest ride along.
       collapsed_forwarding on
@@ -320,6 +321,11 @@ write_files:
       # order it reads conf.d.
       acl yuruna_no_upstream src 255.255.255.255/32
       send_hit deny yuruna_apt_index !yuruna_apt_by_hash !yuruna_no_upstream
+      # Nor may a request for that metadata wait on another client's fetch of it:
+      # it would wait for that fetch's headers without asking the origin, so one
+      # stalled fetch fails every request that joined it, and once headers arrive
+      # send_hit above sends each of them to the origin anyway.
+      collapsed_forwarding_access deny yuruna_apt_index !yuruna_apt_by_hash !yuruna_no_upstream
 
       # --- REGION: Container registry caching (OCI + Docker v2)
       # See https://yuruna.link/429f3d06-0042
@@ -3900,11 +3906,11 @@ write_files:
                 "id": 33,
                 "type": "logs",
                 "title": "Host restarts and runner faults across the pool",
-                "description": "host_restart and runner_fault events from each host's per-cycle NDJSON: a host that booted after a cycle's last write (the aborted cycle, its last write, the boot time and the seconds down) and a fault the outer runner published (failure class, stage, message and the path of the attempt's record). The runner queues both while no cycle is open, so each arrives with that host's next cycle, under its own timestamp. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+                "description": "host_restart, runner_ended_by_signal and runner_fault events from each host's per-cycle NDJSON: a host that booted after a cycle's last write (the aborted cycle, its last write, the boot time and the seconds from that write to the boot, not downtime), a runner a signal ended on a host that has not rebooted since, and a fault the outer runner published (failure class, stage, message and the path of the attempt's record). The runner queues these while no cycle is open, so each arrives with that host's next cycle, under its own timestamp. Beside them, what the collector observed itself, when it observed it: runner_lost (a runner that died mid-cycle while its host kept answering: the signal, when, and how the runner was started), host_unreachable (a host silent for 5 minutes: when it was last seen and why the last probe failed) and host_dropped (a host the host TTL removed from the view). Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 9, "w": 24, "x": 0, "y": 49 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
-                  { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json | event=~\"host_restart|runner_fault\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
+                  { "refId": "A", "expr": "{pool=~\"$pool\", src=\"event\"} | json | event=~\"host_restart|runner_fault|runner_lost|host_unreachable|host_dropped|runner_ended_by_signal\"", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
                 ],
                 "options": { "showTime": true, "showLabels": false, "sortOrder": "Descending", "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true }
               },
@@ -4158,14 +4164,14 @@ write_files:
                   },
                   {
                     "refId": "B",
-                    "expr": "max by (hostId) ((windows_memory_commit_limit{job=\"pool-host\",pool=~\"$pool\"} - windows_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}) or (yuruna_host_memory_commit_limit_bytes{job=\"pool-host\",pool=~\"$pool\"} - yuruna_host_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}))",
+                    "expr": "max by (hostId) (((windows_memory_commit_limit_bytes{job=\"pool-host\",pool=~\"$pool\"} or windows_memory_commit_limit{job=\"pool-host\",pool=~\"$pool\"}) - windows_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}) or (yuruna_host_memory_commit_limit_bytes{job=\"pool-host\",pool=~\"$pool\"} - yuruna_host_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}))",
                     "legendFormat": "{{hostId}}",
                     "range": true,
                     "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"}
                   },
                   {
                     "refId": "C",
-                    "expr": "min by (hostId) (min_over_time(((windows_memory_commit_limit{job=\"pool-host\",pool=~\"$pool\"} - windows_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}) or (yuruna_host_memory_commit_limit_bytes{job=\"pool-host\",pool=~\"$pool\"} - yuruna_host_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}))[$__range:15s]))",
+                    "expr": "min by (hostId) (min_over_time((((windows_memory_commit_limit_bytes{job=\"pool-host\",pool=~\"$pool\"} or windows_memory_commit_limit{job=\"pool-host\",pool=~\"$pool\"}) - windows_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}) or (yuruna_host_memory_commit_limit_bytes{job=\"pool-host\",pool=~\"$pool\"} - yuruna_host_memory_committed_bytes{job=\"pool-host\",pool=~\"$pool\"}))[$__range:15s]))",
                     "instant": true,
                     "format": "table",
                     "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"}
@@ -5059,6 +5065,42 @@ write_files:
               "overrides": []
             },
             "targets": [{"expr": "sum(1 - yuruna_apt_index_consistent)", "refId": "A", "instant": true}]
+          },
+          {
+            "id": 13,
+            "type": "timeseries",
+            "title": "Apt origins: index requests with no answer (% per 5 min)",
+            "description": "Share of each apt origin's /dists/ requests that ended with no response at all (squid logged _ABORTED/000: the client gave up before any headers arrived), per origin host, from squid's access log. Near 0 normally. One origin climbing while the others stay flat is that origin degrading; every origin climbing together points at the cache or the lab's uplink. Details: <a href=\"https://yuruna.link/4227a895-0017\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "datasource": {"type": "loki", "uid": "yuruna-loki"},
+            "gridPos": {"x": 0, "y": 48, "w": 8, "h": 8},
+            "fieldConfig": {"defaults": {"unit": "percent", "max": 100, "min": 0}, "overrides": []},
+            "targets": [
+              {"expr": "100 * ((sum by (origin) (count_over_time({job=\"squid\"} |~ `_ABORTED/000 \\S+ \\S+ https?://[^/ ]+/[^ ]*/dists/` | regexp `^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+https?://(?P<origin>[^/:\\s]+)` [5m])) or (sum by (origin) (count_over_time({job=\"squid\"} |~ ` https?://[^/ ]+/[^ ]*/dists/` | regexp `^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+https?://(?P<origin>[^/:\\s]+)` [5m])) * 0)) / sum by (origin) (count_over_time({job=\"squid\"} |~ ` https?://[^/ ]+/[^ ]*/dists/` | regexp `^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+https?://(?P<origin>[^/:\\s]+)` [5m])))", "refId": "A", "legendFormat": "{{origin}}", "queryType": "range", "step": "5m"}
+            ]
+          },
+          {
+            "id": 14,
+            "type": "timeseries",
+            "title": "Requests that waited on another client's fetch and gave up (per 5 min)",
+            "description": "Requests that joined another client's fetch of the same URL and gave up before it answered (squid logged TCP_HIT_ABORTED/000 with HIER_NONE: the request never reached the origin), per origin host. Zero normally; apt index metadata never joins a shared fetch, so a line here names another kind of URL whose shared fetch stalled. Details: <a href=\"https://yuruna.link/4227a895-0018\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "datasource": {"type": "loki", "uid": "yuruna-loki"},
+            "gridPos": {"x": 8, "y": 48, "w": 8, "h": 8},
+            "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+            "targets": [
+              {"expr": "sum by (origin) (count_over_time({job=\"squid\"} |~ `_HIT_ABORTED/000 ` |= ` HIER_NONE/` | regexp `^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+https?://(?P<origin>[^/:\\s]+)` [5m]))", "refId": "A", "legendFormat": "{{origin}}", "queryType": "range", "step": "5m"}
+            ]
+          },
+          {
+            "id": 15,
+            "type": "timeseries",
+            "title": "GitHub releases/latest answered 5xx (% per 5 min)",
+            "description": "Share of github.com releases/latest requests answered with a 5xx, by GitHub or by squid when it could not reach GitHub. The cache cannot answer that lookup, so a fresh guest's PowerShell install asks GitHub for it and only the guest's half-hour retry window covers an outage. No data means no guest asked in that window. Details: <a href=\"https://yuruna.link/4227a895-0019\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "datasource": {"type": "loki", "uid": "yuruna-loki"},
+            "gridPos": {"x": 16, "y": 48, "w": 8, "h": 8},
+            "fieldConfig": {"defaults": {"unit": "percent", "max": 100, "min": 0}, "overrides": []},
+            "targets": [
+              {"expr": "100 * ((sum(count_over_time({job=\"squid\"} |~ `/5\\d\\d \\S+ \\S+ https?://github\\.com/[^/ ]+/[^/ ]+/releases/latest[/? ]` [5m])) or (sum(count_over_time({job=\"squid\"} |~ ` https?://github\\.com/[^/ ]+/[^/ ]+/releases/latest[/? ]` [5m])) * 0)) / sum(count_over_time({job=\"squid\"} |~ ` https?://github\\.com/[^/ ]+/[^/ ]+/releases/latest[/? ]` [5m])))", "refId": "A", "legendFormat": "5xx share", "queryType": "range", "step": "5m"}
+            ]
           }
         ]
       }
@@ -6239,13 +6281,13 @@ runcmd:
     # Pinned (not 'latest'): resolving latest needs the rate-limited
     # unauthenticated GitHub releases API, which 403s when many guests
     # share one NAT egress IP -- same rationale as YURUNA_OPENTOFU_VERSION.
-    ZOT_VERSION="v2.1.22"
+    ZOT_VERSION="v2.1.23"
     # SHA-256 of each release binary as the release's checksums.sha256.txt
     # lists it. Pinned here rather than fetched beside the binary, so a
     # replaced release asset fails the check instead of vouching for itself.
     # A version bump changes these lines with it.
-    ZOT_SHA256_AMD64="33b9b5bfe05d6788c076de951a01920477dbd6395c330146e23cc2340073e52e"
-    ZOT_SHA256_ARM64="abc9bab13c144a4ee2f9067a6bbbe70ca1c018c49dbf521db28975514ea705da"
+    ZOT_SHA256_AMD64="1f6bab0b9eee426d0785de701ff510df5c02bdb8d7287494a582634abfc5d638"
+    ZOT_SHA256_ARM64="b66d90c4641173c12e5af91357b23d716b345228b093bf0c73b5b9d51d6cc1ff"
     # vmStart.cachingProxyZotVersion and vmStart.cachingProxyZotSha256 on the
     # building host replace the pin when a pinned release cannot sync the lab's
     # images; the host validates both before baking them in. Empty means the pin.

@@ -3,6 +3,38 @@
   "domain": "remediation",
   "locale": "en-US",
   "messages": {
+    "remediation.guest_display_stalled_rationale": {
+      "message": "guest_display_stalled on {vmName}: the guest's {driver} display driver reported {reports} page-flip timeouts while the console stopped changing. The guest may still be running; an unchanged display is not evidence that its kernel stopped.",
+      "description": "Recovery guidance for a console wait ended by serial-backed guest display-driver evidence. Preserve driver names and failure codes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "test-guest-01"
+        },
+        "driver": {
+          "type": "detail",
+          "trust": "external",
+          "example": "virtio_gpu"
+        },
+        "reports": {
+          "type": "detail",
+          "trust": "external",
+          "example": "8"
+        }
+      }
+    },
+    "remediation.guest_display_stalled_action_evidence": {
+      "message": "Read causeDetail.guestDisplayStallEnd and serial-console.log in the guest folder; compare the display-driver timeout reports with the saved screenshot and OCR text, and inspect the guest kernel and display-driver versions if the stall recurs",
+      "description": "Recovery guidance for a serial-backed guest display stall. Preserve evidence field and file names.",
+      "lifecycle": "active"
+    },
+    "remediation.guest_display_stalled_action_restore": {
+      "message": "Restore a clean snapshot or boot the guest again before rerunning the sequence; replaying the wait on the same stalled display cannot recover its frames. Keep the existing bounded login recovery and inspect any password change before attempting recovery by hand",
+      "description": "Recovery guidance for a guest display stall; this advice does not authorize a new automatic restart or password replay.",
+      "lifecycle": "active"
+    },
     "remediation.hypervisor_unresponsive_action_evidence": {
       "message": "Read utm-control-snapshot.*.json and utm-log-show.*.txt in the cycle folder: a UTM pid or start time that changed mid-cycle is a crash and relaunch, and the unified-log excerpt names what preceded it",
       "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
@@ -142,6 +174,28 @@
       "message": "On the ARM64 Hyper-V host, read the guest kernel wedges section of docs/host-hyperv.md (https://yuruna.link/42dc5bb9-0014) to date the wedge and tell its shape",
       "description": "Action of the wait_timeout recovery handler in test/modules/Test.Remediation.psm1 when the record shows a wedged guest kernel.",
       "lifecycle": "active"
+    },
+    "remediation.ocr_timeout_kernel_stall_rationale": {
+      "message": "ocr_timeout on {vmName}: the guest kernel stopped making progress (kernel reports: {kinds}; virtual processors that serviced no interrupt: {processors}), so the screen could not reach the expected state. This is not a workload that left the recorded path, and the same boot does not recover.",
+      "description": "Rationale of the ocr_timeout recovery handler in test/modules/Test.Remediation.psm1 when the record's processor window shows a virtual processor that serviced no interrupt. Preserve the failure class name ocr_timeout; vmName, kinds and processors are untrusted display data, and kinds is '-' when the record has none.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "test-ubuntu-server-26"
+        },
+        "kinds": {
+          "type": "detail",
+          "trust": "external",
+          "example": "rcu-stall"
+        },
+        "processors": {
+          "type": "detail",
+          "trust": "external",
+          "example": "0"
+        }
+      }
     },
     "remediation.operator_14bd8c7afa68b453": {
       "message": "Re-run the sequence from the failing step",

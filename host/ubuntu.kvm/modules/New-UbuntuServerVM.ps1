@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42ada8e8-3ff4-49bc-88b3-4e1d20a217de
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -296,6 +296,11 @@ try {
     # See https://yuruna.link/42d69dfa-0008
     $osVariant = Resolve-KvmOsVariant -Candidates $(if ($Release -eq '26') { @('ubuntu26.04', 'ubuntu24.04', 'ubuntu22.04') } else { @('ubuntu24.04', 'ubuntu22.04') })
 
+    # --- REGION: https://yuruna.link/4220a755-000a
+    # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
+    $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
+    Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
+
     # --- REGION: https://yuruna.link/42fa6f45-0015
     $hostCores = [int](& nproc --all)
     if ($hostCores -lt 4) {
@@ -324,11 +329,6 @@ try {
     # virt-install --memory is in MB, so convert from the canonical byte count.
     try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
     $vmMemoryMb = if ($vmMemoryBytes -gt 0) { [int]($vmMemoryBytes / 1MB) } else { 8192 }
-
-    # --- REGION: https://yuruna.link/4220a755-000a
-    # Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
-    $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
-    Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
     $installArgs = @(
         '--connect', $virshUri,

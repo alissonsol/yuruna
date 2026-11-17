@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42f19503-4d18-8300-0c4e-b20b03572b60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -547,7 +547,7 @@
         }
     )
     'exceptions.host_dd6d74db4a58cc9d' = @(
-        'Hash de Fido.ps1 diferente do esperado (versão fixa v1.71): esperado '
+        'Hash de Fido.ps1 diferente do esperado (versão fixa v1.72): esperado '
         @{
             'arg' = 'fidoSha256'
             'type' = 'detail'
@@ -1776,6 +1776,20 @@
             'trust' = 'internal'
         }
         ''' que não pode ser repassado pela reexecução via sg; passe apenas strings, números, switches, booleanos e arrays de strings.'
+    )
+    'exceptions.runner_ssh_key_read_only_invalid' = @(
+        'Não é possível ler o par de chaves SSH existente em '''
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' sem reparo: '
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
     )
     'exceptions.setup_service_vm_preserved' = @(
         @{

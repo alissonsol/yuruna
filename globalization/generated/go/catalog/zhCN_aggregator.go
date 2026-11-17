@@ -413,11 +413,11 @@ const DatazhCNaggregator = `{
   "aggregator.log_loki_outbox_full": [
     "Loki 发件队列已满（",
     {
-      "arg": "lines",
+      "arg": "pushes",
       "type": "detail",
       "trust": "external"
     },
-    " 行）；在 Loki 接收部分行之前拒绝新行"
+    " 个排队的推送；限制见 internal/loki/outbox.go 中的 DefaultMaxItems 和 DefaultMaxBytes）；在 Loki 接收部分行之前拒绝新行"
   ],
   "aggregator.log_loki_outbox_memory_only": [
     "Loki 发件队列：无法使用 ",

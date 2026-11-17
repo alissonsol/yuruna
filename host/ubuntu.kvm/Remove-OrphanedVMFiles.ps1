@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 429b56f1-0d8f-43a6-a6dc-445eb58c952f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -242,7 +242,7 @@ foreach ($item in $orphanedItems) {
             $errors++
             continue
         }
-        $itemRoot = [System.IO.Path]::GetFullPath($item.Path).TrimEnd('/') + '/'
+        $itemRoot = [System.IO.Path]::GetFullPath($item.Path).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
         $inUse = @($referencedDisk | Where-Object { $_ -and ([string]$_).StartsWith($itemRoot, [System.StringComparison]::Ordinal) })
         if ($inUse.Count -gt 0) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'host.vm_storage_delete_refused' -Arguments @{ vmDir = "$($item.Path)"; owners = "$($inUse -join ', ')" })

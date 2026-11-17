@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:79884328-ac6b-571e-9993-ed677fba34c3",
+  "serialNumber": "urn:uuid:1ce4c989-1726-5ad8-a836-37cf4415ce16",
   "version": 1,
   "metadata": {
     "component": {
@@ -11,14 +11,14 @@
       "properties": [
         {
           "name": "yuruna:source-inputs-sha256",
-          "value": "36e45144d6c15fde68103d577497d20860753ee6106b156161bb82c4da59fad3"
+          "value": "ef43cc786844033358b3e81e6f8e052a931ea6881f6eb52f88dcc2fe74feda34"
         },
         {
           "name": "yuruna:inventory-kind",
           "value": "declared-source"
         }
       ],
-      "version": "2026.11.08"
+      "version": "2026.11.16"
     }
   },
   "components": [
@@ -36,7 +36,7 @@
     },
     {
       "type": "application",
-      "bom-ref": "component-65f5f8046b863a4b8d15",
+      "bom-ref": "component-a8973589bb871f9cffaf",
       "name": "alloy",
       "properties": [
         {
@@ -44,7 +44,7 @@
           "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=cloud-init package/version tuple\", \"line\": 94, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-service-seed\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "1.20.1-1",
+      "version": "1.22.0-1",
       "group": "yuruna:guests:ubuntu-service-seed"
     },
     {
@@ -124,7 +124,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=containerd.io; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 223, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=containerd.io; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 227, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -136,7 +136,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=cri-tools; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 307, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=cri-tools; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 312, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -183,7 +183,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=docker-buildx-plugin; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 223, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=docker-buildx-plugin; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 227, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -195,7 +195,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=docker-ce; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 223, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=docker-ce; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 227, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -207,7 +207,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=docker-ce-cli; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 223, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=docker-ce-cli; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 227, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -219,7 +219,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=docker-compose-plugin; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 223, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=docker-compose-plugin; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 227, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -372,7 +372,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=kubeadm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 307, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=kubeadm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 312, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -384,7 +384,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=kubectl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 307, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=kubectl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 312, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -396,7 +396,19 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=kubelet; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 307, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=kubelet; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 312, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "group": "yuruna:guests:ubuntu-shared"
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-c15e6ab01f43b8bd9efe",
+      "name": "kubernetes-cni",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=kubernetes-cni; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 312, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -480,7 +492,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=mkcert; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 866, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=mkcert; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 871, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -659,7 +671,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=apt-get install; requested=squid-openssl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 5643, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}, {\"detail\": \"target=ubuntu-service-seed; action=cloud-init packages; OS package dependency resolution deferred\", \"line\": 84, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-service-seed\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=apt-get install; requested=squid-openssl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 5685, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}, {\"detail\": \"target=ubuntu-service-seed; action=cloud-init packages; OS package dependency resolution deferred\", \"line\": 84, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-service-seed\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-service-seed"
@@ -848,7 +860,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/mkcert-v1.4.4-linux-$ARCH; installed payload dependencies unresolved\", \"line\": 858, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/mkcert-v1.4.4-linux-$ARCH; installed payload dependencies unresolved\", \"line\": 863, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "version": "1.4.4",
@@ -867,27 +879,27 @@
     },
     {
       "type": "platform",
-      "bom-ref": "component-47e5a4c162fcb1f29da9",
+      "bom-ref": "component-ce773ac94e8dc3e54d2e",
       "name": "nvm-sh/nvm",
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Central guest provisioning declaration YURUNA_NVM_VERSION; exact installer pin\", \"line\": 42, \"path\": \"automation/yuruna-versions.sh\"}, {\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh; installed payload dependencies unresolved\", \"line\": 51, \"path\": \"guest/shared/ubuntu.n8n.sh\"}, {\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh; installed payload dependencies unresolved\", \"line\": 56, \"path\": \"guest/shared/ubuntu.openclaw.sh\"}], \"groups\": [\"yuruna:guests:shared-or-configured\", \"yuruna:guests:ubuntu-shared\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Central guest provisioning declaration YURUNA_NVM_VERSION; exact installer pin\", \"line\": 42, \"path\": \"automation/yuruna-versions.sh\"}, {\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/nvm-sh/nvm/v0.41.0/install.sh; installed payload dependencies unresolved\", \"line\": 51, \"path\": \"guest/shared/ubuntu.n8n.sh\"}, {\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/nvm-sh/nvm/v0.41.0/install.sh; installed payload dependencies unresolved\", \"line\": 56, \"path\": \"guest/shared/ubuntu.openclaw.sh\"}], \"groups\": [\"yuruna:guests:shared-or-configured\", \"yuruna:guests:ubuntu-shared\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "0.40.8"
+      "version": "0.41.0"
     },
     {
       "type": "application",
-      "bom-ref": "component-154510ebc9dc0c514f54",
+      "bom-ref": "component-778b1e2f1c87e14db879",
       "name": "opentofu/opentofu",
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://github.com/opentofu/opentofu/releases/download/v1.13.1/tofu_1.13.1_linux_${TOFU_ARCH}.tar.gz; installed payload dependencies unresolved\", \"line\": 824, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://github.com/opentofu/opentofu/releases/download/v1.13.9/tofu_1.13.9_linux_${TOFU_ARCH}.tar.gz; installed payload dependencies unresolved\", \"line\": 829, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "1.13.1",
+      "version": "1.13.9",
       "group": "yuruna:guests:ubuntu-shared"
     },
     {
@@ -904,15 +916,15 @@
     },
     {
       "type": "application",
-      "bom-ref": "component-fadd2bc6a39f92020800",
+      "bom-ref": "component-5cb02128bc7a80d493c7",
       "name": "pbatard/Fido",
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/pbatard/Fido/v1.71/Fido.ps1; installed payload dependencies unresolved\", \"line\": 470, \"path\": \"host/vmconfig/download-agent-service.base.user-data\"}, {\"detail\": \"target=windows; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/pbatard/Fido/v1.71/Fido.ps1; installed payload dependencies unresolved\", \"line\": 201, \"path\": \"host/macos.utm/guest.windows.11/Get-Image.ps1\"}, {\"detail\": \"target=windows; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/pbatard/Fido/v1.71/Fido.ps1; installed payload dependencies unresolved\", \"line\": 269, \"path\": \"host/windows.hyper-v/guest.windows.11/Get-Image.ps1\"}], \"groups\": [\"yuruna:guests:ubuntu-service-seed\", \"yuruna:guests:windows\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/pbatard/Fido/v1.72/Fido.ps1; installed payload dependencies unresolved\", \"line\": 470, \"path\": \"host/vmconfig/download-agent-service.base.user-data\"}, {\"detail\": \"target=windows; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/pbatard/Fido/v1.72/Fido.ps1; installed payload dependencies unresolved\", \"line\": 201, \"path\": \"host/macos.utm/guest.windows.11/Get-Image.ps1\"}, {\"detail\": \"target=windows; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/pbatard/Fido/v1.72/Fido.ps1; installed payload dependencies unresolved\", \"line\": 269, \"path\": \"host/windows.hyper-v/guest.windows.11/Get-Image.ps1\"}], \"groups\": [\"yuruna:guests:ubuntu-service-seed\", \"yuruna:guests:windows\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "1.71"
+      "version": "1.72"
     },
     {
       "type": "application",
@@ -921,22 +933,22 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER/zot-linux-amd64; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 6272, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}, {\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER/zot-linux-arm64; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 6272, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-service-seed\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER/zot-linux-amd64; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 6314, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}, {\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/YURUNA_ZOT_OVERRIDE_VERSION_PLACEHOLDER/zot-linux-arm64; installed payload dependencies unresolved; artifact version unresolved or floating\", \"line\": 6314, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-service-seed\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-service-seed"
     },
     {
       "type": "application",
-      "bom-ref": "component-8c9d326825665d6feea3",
+      "bom-ref": "component-c0097947bffadd71870f",
       "name": "project-zot/zot",
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/v2.1.22/zot-linux-amd64; installed payload dependencies unresolved\", \"line\": 6272, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}, {\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/v2.1.22/zot-linux-arm64; installed payload dependencies unresolved\", \"line\": 6272, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-service-seed\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/v2.1.23/zot-linux-amd64; installed payload dependencies unresolved\", \"line\": 6314, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}, {\"detail\": \"target=ubuntu-service-seed; action=downloaded provisioning artifact; source=https://github.com/project-zot/zot/releases/download/v2.1.23/zot-linux-arm64; installed payload dependencies unresolved\", \"line\": 6314, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-service-seed\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "2.1.22",
+      "version": "2.1.23",
       "group": "yuruna:guests:ubuntu-service-seed"
     },
     {
@@ -989,7 +1001,7 @@
     },
     {
       "type": "platform",
-      "bom-ref": "component-04a33b324413077d4f24",
+      "bom-ref": "component-2a994b4515028bceba2e",
       "name": "Helm",
       "properties": [
         {
@@ -997,7 +1009,7 @@
           "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Central guest provisioning declaration YURUNA_HELM_VERSION; exact installer pin\", \"line\": 23, \"path\": \"automation/yuruna-versions.sh\"}], \"group\": \"yuruna:guests:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "4.3.1",
+      "version": "4.3.2",
       "group": "yuruna:guests:shared-or-configured"
     },
     {
@@ -1014,7 +1026,7 @@
     },
     {
       "type": "platform",
-      "bom-ref": "component-7e33f5933e9931cb24e4",
+      "bom-ref": "component-c7c28b7316e03a6bb4c9",
       "name": "OpenTofu",
       "properties": [
         {
@@ -1022,7 +1034,7 @@
           "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Central guest provisioning declaration YURUNA_OPENTOFU_VERSION; exact installer pin\", \"line\": 16, \"path\": \"automation/yuruna-versions.sh\"}], \"group\": \"yuruna:guests:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "1.13.1",
+      "version": "1.13.9",
       "group": "yuruna:guests:shared-or-configured"
     },
     {
@@ -1080,7 +1092,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=windows; action=psgallery Install-PackageProvider; requested=NuGet; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 113, \"path\": \"guest/windows.11/windows.11.update.ps1\"}, {\"detail\": \"target=windows; action=psgallery Install-PackageProvider; requested=NuGet; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 114, \"path\": \"guest/windows.11/windows.11.k8s.ps1\"}, {\"detail\": \"target=windows; action=psgallery Install-PackageProvider; requested=NuGet; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 292, \"path\": \"guest/windows.11/windows.11.update.ps1\"}], \"group\": \"yuruna:guests:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=windows; action=psgallery Install-PackageProvider; requested=NuGet; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 113, \"path\": \"guest/windows.11/windows.11.update.ps1\"}, {\"detail\": \"target=windows; action=psgallery Install-PackageProvider; requested=NuGet; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 114, \"path\": \"guest/windows.11/windows.11.k8s.ps1\"}, {\"detail\": \"target=windows; action=psgallery Install-PackageProvider; requested=NuGet; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 300, \"path\": \"guest/windows.11/windows.11.update.ps1\"}], \"group\": \"yuruna:guests:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:windows"
@@ -1092,7 +1104,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=windows; action=psgallery Install-Module; requested=PSWindowsUpdate; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 296, \"path\": \"guest/windows.11/windows.11.update.ps1\"}], \"group\": \"yuruna:guests:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=windows; action=psgallery Install-Module; requested=PSWindowsUpdate; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 304, \"path\": \"guest/windows.11/windows.11.update.ps1\"}], \"group\": \"yuruna:guests:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:windows"
@@ -1151,7 +1163,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Invoke-GuestWingetInstall; requested=Git.Git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 159, \"path\": \"guest/windows.11/windows.11.code.ps1\"}, {\"detail\": \"target=windows; action=winget Invoke-GuestWingetInstall; requested=Git.Git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 320, \"path\": \"guest/windows.11/windows.11.update.ps1\"}, {\"detail\": \"target=windows; action=winget Invoke-GuestWingetInstall; requested=Git.Git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 74, \"path\": \"guest/windows.11/windows.11.k8s.ps1\"}], \"group\": \"yuruna:guests:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Invoke-GuestWingetInstall; requested=Git.Git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 159, \"path\": \"guest/windows.11/windows.11.code.ps1\"}, {\"detail\": \"target=windows; action=winget Invoke-GuestWingetInstall; requested=Git.Git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 328, \"path\": \"guest/windows.11/windows.11.update.ps1\"}, {\"detail\": \"target=windows; action=winget Invoke-GuestWingetInstall; requested=Git.Git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 74, \"path\": \"guest/windows.11/windows.11.k8s.ps1\"}], \"group\": \"yuruna:guests:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:windows"
@@ -1269,7 +1281,6 @@
     {
       "ref": "repository-guests",
       "dependsOn": [
-        "component-04a33b324413077d4f24",
         "component-07db3a812040f1af3806",
         "component-08fdc0ba6cba18f7aa54",
         "component-0cde6a82f76fc321032d",
@@ -1278,7 +1289,6 @@
         "component-0f9b8057b0fe50d77dc1",
         "component-11bc9e603fa395a9eed8",
         "component-1360e5771051908a1c00",
-        "component-154510ebc9dc0c514f54",
         "component-164348621433b6f49527",
         "component-1b17f860327f22108e56",
         "component-1d31ab06ab7c2a73afc2",
@@ -1289,6 +1299,7 @@
         "component-2531875fa33bf8c43b97",
         "component-27b1bfab03f2edc3e7f0",
         "component-287c33260d2da7a4767d",
+        "component-2a994b4515028bceba2e",
         "component-2ad9aa4eb26ad6fc7416",
         "component-2bf35518bbd1a849d403",
         "component-2c66f2437aa047a6a5fb",
@@ -1302,7 +1313,6 @@
         "component-3e575a6225fcc3fe1dde",
         "component-3e98a7ec2b023c375fd8",
         "component-469008743a02109b635d",
-        "component-47e5a4c162fcb1f29da9",
         "component-4964fef8399a1a988157",
         "component-4a67b9d5883a2eaeb0f1",
         "component-4b6149e6e24e861c30be",
@@ -1312,8 +1322,8 @@
         "component-55bfc317961bb15d36b3",
         "component-59a1c032503d8212e796",
         "component-5b2b3ea712e51f29d110",
+        "component-5cb02128bc7a80d493c7",
         "component-623a79724605de2ddce8",
-        "component-65f5f8046b863a4b8d15",
         "component-67b8d313a4946e44bbed",
         "component-6967bb8dc07c9eb6b95e",
         "component-69d32c3a15d337892192",
@@ -1326,12 +1336,11 @@
         "component-757a0bf1a9e0038f3ff3",
         "component-75a8c33fb6d0c359d7e2",
         "component-7648c12da3181dea3b73",
+        "component-778b1e2f1c87e14db879",
         "component-7bda4bc9ad00b46c7de5",
-        "component-7e33f5933e9931cb24e4",
         "component-811ae512462029d0ef60",
         "component-815e916eb1d1c13acab6",
         "component-8349a1aeeb2c0219d225",
-        "component-8c9d326825665d6feea3",
         "component-8e719fbbf64203dc8723",
         "component-9347ab4135894ad6e068",
         "component-93d007c9e1277492dec4",
@@ -1340,6 +1349,7 @@
         "component-9aeb1463104ba2d20372",
         "component-a375beee0325c307bb80",
         "component-a6e384e9893fef1dfd09",
+        "component-a8973589bb871f9cffaf",
         "component-ab042a8816875bcb6fa1",
         "component-ab9a173bd774e8005eb7",
         "component-ae81c5a929ee2e65792f",
@@ -1348,10 +1358,14 @@
         "component-bad7d4c3fa29e5441a54",
         "component-bec018ae61e87a9f602d",
         "component-bf787cf7b85bc3d7265c",
+        "component-c0097947bffadd71870f",
+        "component-c15e6ab01f43b8bd9efe",
         "component-c574bc32b827c6ca563b",
+        "component-c7c28b7316e03a6bb4c9",
         "component-c9d978d5cd1d95b2d992",
         "component-ca6e89935cb3f2dda4cd",
         "component-ce3dd2d578e768e6f5d8",
+        "component-ce773ac94e8dc3e54d2e",
         "component-d04291559a2d7fa82f02",
         "component-d386d8c57f09018d8f15",
         "component-d53a4139ff5cac4af752",
@@ -1371,8 +1385,7 @@
         "component-f66aece12acf506469ab",
         "component-f7c4992435347774a1b7",
         "component-f7ec9039148a10e04d87",
-        "component-fadabfd2fc203781e0b0",
-        "component-fadd2bc6a39f92020800"
+        "component-fadabfd2fc203781e0b0"
       ]
     }
   ],

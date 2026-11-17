@@ -10,9 +10,9 @@ installers:
 - [install/ubuntu.kvm.sh](../install/ubuntu.kvm.sh)
 
 The scripts stay deliberately small -- each section here maps to a
-`# --- REGION: Section name` divider in the script body. The single
-`# --- REGION: https://yuruna.link/429fb30b` line near the top of
-each installer is the operator's entry point to this document; from there,
+`# --- REGION: Section name` divider in the script body. An ordinary
+`# See https://yuruna.link/429fb30b` comment near the top of each
+installer is the operator's entry point to this document; from there,
 navigate to the section matching the divider above the code being studied.
 
 Permanent anchors use the document key plus a four-hex-digit suffix, such as
@@ -571,6 +571,11 @@ scope): it downloads that version's package from the PowerShell Gallery and
 refuses it unless its SHA-512 matches the hash the gallery publishes for it.
 Every installer and `Test.HostGit.psm1` carry the same pin, and
 `Test.HostGitInstall` keeps the copies equal.
+To update a pin, read the base64 SHA-512 in `PackageHash` from
+`https://www.powershellgallery.com/api/v2/Packages(Id='<name>',Version='<version>')`
+and compare it with the downloaded `.nupkg` before updating the version and
+hash in every copy. This keeps a changed package from silently replacing code
+that the runners import.
 `Install-PowerShellYamlIfMissing` (defined in
 [test/modules/Test.HostGit.psm1](../test/modules/Test.HostGit.psm1)
 and re-exported via `Test.HostContract`) is still called from
@@ -1022,15 +1027,8 @@ PATH read identically without it.
 
 After the floor check, the installer prints `Newer versions available`
 and one line per tool whose own source still offers a newer version than
-the one this Mac runs:
-
-```
-==> Newer versions available
-==>   utm: 5.0.7 -> 5.0.8 (Homebrew cask; a service VM is running, so UTM cannot quit)
-==>   gh: 2.102.0 -> 2.103.3 (Homebrew formula; held by 'brew pin' -- 'brew unpin gh' lets it upgrade)
-==>   PowerShell: 7.6.6 -> 7.6.9 (GitHub release; /usr/local/bin/pwsh comes from a source this installer does not manage)
-==>   powershell-yaml: 0.4.11 -> 0.4.12 (pinned in the PowerShell Gallery; the install of the pin did not complete)
-```
+the one this Mac runs. Each line gives the tool, the installed and the
+offered version, the source, and the reason this run left the tool there.
 
 The sources are the ones the installer upgrades from: `brew outdated`
 for its formulae and the UTM cask, GitHub's latest release for a `pwsh`
@@ -1184,10 +1182,10 @@ On x86_64 the installer tries each source in turn until `pwsh` answers:
 Microsoft's apt repo for the host's release; the `.deb` that PowerShell's
 GitHub release publishes, checked against that release's `hashes.sha256`
 and installed through apt; Microsoft's Ubuntu 24.04 apt suite; and the
-release tarball. Microsoft's 26.04 suite publishes only
-`powershell-preview`, so a fresh 26.04 host gets the release `.deb`, the
-same file Microsoft's 24.04 repository serves for that version; apt
-installs it, so dpkg records the version that is on disk. aarch64 has no
+release tarball. When Microsoft's suite for the host's release offers no
+stable `powershell` package, the host gets the release `.deb`, the same
+file Microsoft's 24.04 repository serves for that version; apt installs
+it, so dpkg records the version that is on disk. aarch64 has no
 Microsoft apt package, so the installer uses the PowerShell tarball under
 `/opt/microsoft/powershell/7` with a `/usr/local/bin/pwsh` symlink. The
 release `.deb` and the tarball resolve the latest-stable release by
@@ -1225,6 +1223,9 @@ removed once another apt source offers `powershell` -- Microsoft
 publishing it for the host's release -- and when `apt-get update` fails
 with them configured, so the suite never stops a run. An operator's own
 Microsoft source files are never touched.
+
+When refreshing the suite's fingerprint pin, `gpg --list-packets` on its
+`InRelease` file identifies the signing key.
 
 Those sources install `pwsh` when it is absent. A re-run also moves an
 installed PowerShell to the newest release its own source offers, so a
@@ -1405,6 +1406,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

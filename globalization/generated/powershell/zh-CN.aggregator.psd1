@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 421bcf2d-5f7f-8b49-9f26-41fdd197f523
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -423,11 +423,11 @@
     'aggregator.log_loki_outbox_full' = @(
         'Loki 发件队列已满（'
         @{
-            'arg' = 'lines'
+            'arg' = 'pushes'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' 行）；在 Loki 接收部分行之前拒绝新行'
+        ' 个排队的推送；限制见 internal/loki/outbox.go 中的 DefaultMaxItems 和 DefaultMaxBytes）；在 Loki 接收部分行之前拒绝新行'
     )
     'aggregator.log_loki_outbox_memory_only' = @(
         'Loki 发件队列：无法使用 '

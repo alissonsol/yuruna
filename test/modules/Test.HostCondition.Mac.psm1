@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -158,8 +158,8 @@ function Read-MacPmsetCustom {
     The lines of `pmset -g custom` for the setup run, read under the bound
     every in-cycle probe uses; empty when pmset did not answer or failed.
     .DESCRIPTION
-    A power service that stops answering held the setup run on an unbounded
-    read, exactly as it once held the cycle gate. An empty answer leaves each
+    A power service that stops answering would hold the setup run on an
+    unbounded read, as it would the cycle gate. An empty answer leaves each
     guard rule to its own absence policy (Get-MacPmsetGuardPending), and the
     gate re-checks every key before a cycle, so an unanswered read never
     stands in for a value.

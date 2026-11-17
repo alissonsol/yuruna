@@ -136,16 +136,27 @@ UUID, shown as its first 8 characters. No hostname is disclosed, so this summary
 safe to expose unauthenticated.
 
 **Status** folds in reachability, whether anything is still driving the host, and its
-pause state -- the same ladder the host's own status banner shows:
+pause state. Reachability comes first; a host that answers then reads the same ladder
+its own status banner shows:
 
+- **unreachable** -- the host's status service did not answer the last poll. It
+  outranks every other reading: the collector cannot ask a host that does not answer
+  about its runner, its cycle or its pause flags. A host restart reads this way, never
+  as **runner lost mid-cycle**: the runner starts the status service, so a restart
+  takes both down, and the host stays unreachable until its runner is started again.
+  After 5 minutes without an answer the collector writes a `host_unreachable` event;
+  once the host TTL (24h by default) passes, it drops the host from the view and
+  writes `host_dropped`.
 - **runner stopped** -- the host answers but its test runner is verifiably gone, so the
   cycle result below it is a record of what ran, not of what is running. It outranks
-  every other reading for exactly that reason.
+  every other reading of a host that answers, for exactly that reason.
 - **runner lost mid-cycle** -- as **runner stopped**, but the runner died inside a
-  cycle rather than being stopped: a closed terminal window, a dropped SSH session, a
-  kill or a host restart took it down, and nothing restarts it. `lastExit` on the
-  host's runner-status route records how it ended; restarting the runner archives the
-  cycle it left.
+  cycle rather than being stopped: a closed terminal window, a dropped SSH session or
+  a kill took it down while the host and its status service stayed up, and nothing
+  restarts it. `lastExit` on the host's runner-status route records how it ended, and
+  the collector copies it into a `runner_lost` event
+  ([Drill-down](#422226cb-0009)); restarting the runner archives the cycle it left,
+  when one was open.
 - **paused** -- a host that has actually stopped.
 - **pausing (after cycle)** / **pausing (after step)** -- a host an operator has armed
   to stop but that is still executing, reported as such rather than as a plain
@@ -305,14 +316,50 @@ The collapsed row under the timeline. Its panels share the dashboard time range:
   class to open its meaning and diagnostic guidance on yuruna.link.
 - **Recent step failures** -- the failing step's action, number, class, severity and
   reason per host/cycle, with deep-links into that host's full cycle artifacts.
-- **Host restarts and runner faults** -- `host_restart` and `runner_fault` events: a
-  host that booted after a cycle's last write (the aborted cycle, its last write, the
-  boot time and the seconds down), and a fault the outer runner published (failure
-  class, stage, message and the path of the attempt's record). The runner queues both
-  while no cycle is open, so each arrives with that host's next cycle, under its own
-  timestamp.
-- **Cycle event stream** -- every per-cycle NDJSON event tailed from each host; filter
-  with the Grafana log search.
+- **Host restarts and runner faults** -- the events that say a host or its runner went
+  away. Three come from the host's own event file: `host_restart`, a host that booted
+  after a cycle's last write (the aborted cycle, its last write, the boot time and the
+  seconds from that write to the boot, not downtime); `runner_ended_by_signal`, a
+  runner a signal ended on a host that has not rebooted since; and `runner_fault`, a
+  fault the outer runner published (failure class, stage, message and the path of the
+  attempt's record). The runner queues these while no cycle is open, so each arrives
+  with that host's next cycle, under its own timestamp. The other three are what the
+  collector observed itself, written when it observed them, with the `hostId`, `pool`
+  and UTC `timestamp` of that poll, into the host's event stream under one more label,
+  `emitter="pool-aggregator-service"`:
+  - `runner_lost` -- the first poll that reads a host as **runner lost mid-cycle**.
+    It carries the runner's `pid` and `runnerStartedUtc`, the `signal` that ended it
+    and `signalAtUtc` (both `null` when the runner caught none, as with a kill),
+    `hostRestarted`, `terminalProgram`, `sshSession`, and the cycle in progress when
+    the runner died (`cycleStartUtc`, `cycleFolderUrl`). Both are `null` when the
+    host's status showed no cycle in progress -- the runner died after its last
+    cycle's verdict (in the teardown, the wait between cycles or the next cycle's
+    preparation) or before the next cycle recorded its folder -- so the line never
+    points at a cycle the runner was not running. `episodeKey` names the lost
+    runner: `<hostId>/<pid>/<runnerStartedUtc>`, or, when the host reports no exit
+    record, `<hostId>/<pid>/<cycleStartUtc>` with the cycle start the host's status
+    holds, even when the line's own `cycleStartUtc` is `null`. The collector writes
+    one line per episode while it runs, but a collector restart while the runner is
+    still lost writes the line once more under the same key, so count episodes by
+    distinct `episodeKey`.
+  - `host_unreachable` -- a host the collector had reached that has not answered for
+    5 minutes, once per stretch without an answer. It carries `lastSeenUtc`, `lastIp`
+    and `lastError`, why the last probe failed: a refused connection came from a
+    machine that is up without its status service, while a timeout leaves open
+    whether the machine is up at all.
+  - `host_dropped` -- the host TTL removed a host from the view, which takes it off
+    the table and the timeline until it answers again. It carries `lastSeenUtc` and
+    `ttlSeconds`.
+
+  A host the collector only restored from Loki after its own restart, and has not
+  reached since, writes no `host_unreachable`, and its `host_dropped` carries a
+  `null` `lastSeenUtc`: this collector never saw it. Every restart inside the restore
+  window (`-rehydrate-window`, 7 days by default) restores such a host again, even one
+  an earlier run already dropped, so one silence can write a `host_dropped` one host
+  TTL after each restart: count a host's `host_dropped` lines with no transition,
+  presence line or event from the host's own file between them as one outage.
+- **Cycle event stream** -- every per-cycle NDJSON event tailed from each host, and
+  the collector's own events listed above; filter with the Grafana log search.
 - **Cycle status transitions** -- one line each time a host's cycle changes state,
   from the status.json poll: the cycle-level audit trail behind the table and
   timeline above.
@@ -550,6 +597,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

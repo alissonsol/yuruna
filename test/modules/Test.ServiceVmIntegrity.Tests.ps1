@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4229d039-c021-419e-a736-76c0a2f58264
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,11 +86,16 @@ Describe 'the framework archive a service VM extracts is the seeded commit' {
         $out = Join-Path $TestDrive 'first.tar.gz'
         $made = Export-YurunaGitArchive -RepoDir $script:Repo -Commit $script:First -ExcludePath @('docs') -OutFile $out -Confirm:$false
         $made.Ok | Should -BeTrue
-        $listing = @(& tar -tzf $out)
-        $listing | Should -Contain 'VERSION'
-        $listing | Should -Contain '.yuruna-revision'
-        ($listing -match '^docs/') | Should -BeNullOrEmpty
-        (& tar -xzOf $out VERSION) | Should -Be '1'
+        # GNU tar treats an archive path's drive-letter colon as a remote host.
+        Push-Location -LiteralPath (Split-Path -Parent $out)
+        try {
+            $archive = Split-Path -Leaf $out
+            $listing = @(& tar -tzf $archive)
+            $listing | Should -Contain 'VERSION'
+            $listing | Should -Contain '.yuruna-revision'
+            ($listing -match '^docs/') | Should -BeNullOrEmpty
+            (& tar -xzOf $archive VERSION) | Should -Be '1'
+        } finally { Pop-Location }
     }
     It 'refuses a commit the checkout does not hold' {
         (Export-YurunaGitArchive -RepoDir $script:Repo -Commit ('0' * 40) -OutFile (Join-Path $TestDrive 'none.tar.gz') -Confirm:$false).Ok | Should -BeFalse
@@ -155,13 +160,18 @@ Describe 'the caching proxy builds only sources that match the seeded manifest' 
         # The stand-in wget copies the file named after the last path segment.
         [IO.File]::WriteAllText((Join-Path $bin 'wget'), "#!/bin/sh`nfor a; do out=`"`$prev`"; prev=`"`$a`"; done`nwhile [ `$# -gt 0 ]; do [ `"`$1`" = -O ] && dest=`"`$2`"; url=`"`$1`"; shift; done`ncase `"`$url`" in *good.go) cp '$dir/served-good' `"`$dest`";; *bad.go) cp '$dir/served-bad' `"`$dest`";; esac`n")
         & chmod +x (Join-Path $bin 'wget')
-        $script = ($script:FetchFunction -replace '/etc/yuruna/build-source.sha256', $manifest) + @"
+        # Bash normalizes its PATH and fixture directory. Native shell paths
+        # also keep sha256sum from escaping Windows backslashes before its hash.
+        $script = @'
+fixture_dir=$(cd -- "$1" && pwd) || exit 1
+export PATH="$fixture_dir/bin:$PATH"
+'@ + "`n" + $script:FetchFunction.Replace('/etc/yuruna/build-source.sha256', '"$fixture_dir/build-source.sha256"') + @'
 
 YR_BASE=http://host/yuruna-repo/; YR_FLAGS=; YR_SRC=fixture
-yr_fetch test/extension/x/good.go '$dir/good.go'; echo good=`$?
-yr_fetch test/extension/x/bad.go '$dir/bad.go'; echo bad=`$?
-"@
-        $out = (& env "PATH=${bin}:$($env:PATH)" $script:Bash -c $script 2>&1) -join "`n"
+yr_fetch test/extension/x/good.go "$fixture_dir/good.go"; echo good=$?
+yr_fetch test/extension/x/bad.go "$fixture_dir/bad.go"; echo bad=$?
+'@
+        $out = (& $script:Bash -c $script 'fixture' $dir 2>&1) -join "`n"
         $out | Should -Match 'good=0'
         $out | Should -Match 'bad=1'
         Test-Path -LiteralPath (Join-Path $dir 'good.go') | Should -BeTrue
@@ -993,7 +1003,9 @@ Describe 'the proxy gives Grafana a new admin password on every build' {
         $render.Count | Should -Be 1
         $teardown = @($calls | Where-Object { $_.GetCommandName() -eq $Remove })
         $teardown.Count | Should -Be 1
-        $planExit = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$PlanOnly' }, $true))
+        $planExit = @($ast.FindAll({ param($n)
+                    $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$PlanOnly' -and
+                    $null -ne $n.Clauses[0].Item2.Find({ param($child) $child -is [Management.Automation.Language.ExitStatementAst] }, $true) }, $true))
         $planExit.Count | Should -Be 1
 
         $binding = @((Get-NamedArgument -Command $render[0] -Name 'Replacement').KeyValuePairs |

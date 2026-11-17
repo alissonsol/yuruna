@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42c53656-cbe7-4882-9a43-998f29ec9609
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,13 +34,12 @@
       * every tracked *.sh index entry must be mode 100755;
       * every other tracked regular file whose content opens with a '#!'
         shebang must be mode 100755 (catches extensionless scripts);
-      * the same *.sh rule for the disposable project/ clone of the sibling
-        yuruna-project repository, which has no test suite of its own. The
-        clone tracks that repository's origin, so an offender there is fixed
-        (and pushed) in yuruna-project, not in the clone.
+      * the same *.sh rule for the selected project checkout: an explicit
+        YURUNA_PROJECT_ROOT, the adjacent yuruna-project repository, or the
+        disposable project/ clone. Fix an offender in the project repository.
 
-    The throw-based Assert-* helpers live at script scope and are referenced
-    from It blocks, so this runs under Pester 5.x.
+    The throw-based Assert-* helpers come from Test.Assert.psm1, imported
+    globally at script scope so the It blocks reach them under Pester 6.x.
 #>
 
 BeforeAll {
@@ -97,10 +96,16 @@ function Test-LeadingShebang {
 # thing being asserted -- does not exist to check.
 $script:skipRepo = -not (Test-GitWorkTree -Root $repoRoot)
 
-# project/ is a disposable per-cycle clone of the sibling yuruna-project repo
-# and is git-ignored here, so the main sweep never sees it and it gets its
-# own guarded pass.
-$projectClone = Join-Path $repoRoot 'project'
+# The project has its own index, so it needs a separate sweep whether it is
+# an adjacent checkout or the disposable per-cycle clone.
+$adjacentProject = Join-Path (Split-Path -Parent $repoRoot) 'yuruna-project'
+$projectClone = if (-not [string]::IsNullOrWhiteSpace($env:YURUNA_PROJECT_ROOT)) {
+    [IO.Path]::GetFullPath($env:YURUNA_PROJECT_ROOT)
+} elseif (Test-Path -LiteralPath (Join-Path $adjacentProject '.git')) {
+    $adjacentProject
+} else {
+    Join-Path $repoRoot 'project'
+}
 $script:skipProjectClone = (-not (Test-Path -LiteralPath (Join-Path $projectClone '.git'))) -or
     (-not (Test-GitWorkTree -Root $projectClone))
 
@@ -113,10 +118,10 @@ Describe 'Tracked *.sh files are recorded executable in the git index' {
         Assert-True ($offenders.Count -eq 0) "fix with: git update-index --chmod=+x -- $($offenders -join ' ')"
     }
 
-    It 'has no *.sh index entry at mode 100644 in the project/ clone (yuruna-project)' {
-        if ($script:skipProjectClone) { Set-ItResult -Skipped -Because 'project clone is not a git work tree'; return }
+    It 'has no *.sh index entry at mode 100644 in the selected project checkout' {
+        if ($script:skipProjectClone) { Set-ItResult -Skipped -Because 'project checkout is not a git work tree'; return }
         $offenders = @(Get-NonExecutableShellScript -Root $projectClone)
-        Assert-True ($offenders.Count -eq 0) "fix in the yuruna-project repository and push (the clone is disposable): git update-index --chmod=+x -- $($offenders -join ' ')"
+        Assert-True ($offenders.Count -eq 0) "fix in the project repository: git update-index --chmod=+x -- $($offenders -join ' ')"
     }
 }
 

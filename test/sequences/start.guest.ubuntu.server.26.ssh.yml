@@ -87,8 +87,10 @@ workload:
     timeoutSeconds: 600
     description: "Wait for SSH after the provisioning power cycle"
 
-  # Use only the address already proven during provisioning; do not wait for
-  # networking or extend the boot recovery policy to collect diagnostics.
+  # Waits up to ten seconds for one SSH login (about 25 seconds in all when the
+  # wait gives up, with the readiness helper's closing handshake), then samples
+  # at the proven address; advisory, so it neither fails the step nor extends
+  # the boot recovery policy.
   - action: saveGuestClockSnapshot
     phase: after-cpu-restart
     description: "Capture clocks and CPU accounting after the processor restart"

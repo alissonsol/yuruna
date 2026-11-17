@@ -2131,11 +2131,11 @@ se `stop` o removeu).
 ## test/modules/Test.HostCondition.Windows.psm1: Exportador de métricas do host
 
 Uma alocação de memória de VM recusada é decidida pela carga de commit do
-hospedeiro contra seu limite de commit naquele instante, e nenhum dos dois
-números sobrevive em qualquer artefato gravado pelo ambiente de testes --
-o único registro no hospedeiro é um evento Windows de nível Information
-que nada coleta. Um exportador consultado torna isso mensurável depois
-do fato e leva consigo o censo de CPU, discos e VMs do hospedeiro.
+hospedeiro contra seu limite de commit naquele instante. Um evento Windows
+de nível Information registra a recusa; o coletor local de amostras do
+hospedeiro registra os valores de commit. Um exportador consultado mantém
+o par mensurável depois do fato e leva consigo o censo de CPU, discos e VMs
+do hospedeiro.
 
 Nunca uma condição não atendida, qualquer que seja o resultado. Telemetria
 que existe para explicar uma falha não pode virar motivo de falha, e um
@@ -2352,7 +2352,7 @@ sendo [ordered]@{} simples (a primitiva as mantém como valores opacos).
 
 Os coletores que este hospedeiro deve publicar e por que cada um está na lista:
   memory       -- bytes comprometidos e o limite de comprometimento, o par que
-                  explica uma alocação recusada; nenhum outro os expõe.
+                  explica uma alocação recusada nas séries temporais coletadas.
   os           -- identidade do hospedeiro e informações do sistema operacional.
   cpu          -- tempo por núcleo, para distinguir um hospedeiro travado de um ocupado.
   logical_disk -- espaço livre, cuja falta impede a criação do disco de um convidado da mesma
@@ -2536,7 +2536,7 @@ Por que -NoProfile:
 Por que o trecho final de saída:
   -Command informa se sua última instrução teve êxito, não o código de saída do
   script. O comando termina com o trecho que a reinicialização no grupo libvirt
-  usa, para que os códigos 2, 70 e 78 do processo interno cheguem ao executor sem
+  usa, para que os códigos 2, 70, 75 e 78 do processo interno cheguem ao executor sem
   alteração e um erro de encerramento ainda saia com 1.
 Por que um módulo auxiliar:
   Start-TestRunner.ps1, Invoke-TestProject.ps1 e Invoke-TestCycleRunner.ps1
@@ -4167,6 +4167,12 @@ condição permanente a cada ~18 minutos. Seu próprio catch fica dentro do
 catch da captura, para que um arquivo auxiliar malformado seja apresentado como tal,
 em vez de tomar a expressão "capture failed" de uma captura
 que claramente teve sucesso -- e nunca reprova um ciclo em nenhum dos casos.
+Uma captura interrompida no limite de 120 segundos não grava o arquivo
+auxiliar, então Invoke-BoundedHostSystemDiagnostic grava um com o único
+problema que conhece, DIAG.host-timeout. Sem ele, o relatório não tem
+nenhuma linha de contagem, e um hospedeiro cujo diagnóstico nunca termina
+parece um que nunca foi consultado; a contagem não alimenta nenhum portão,
+pausa ou decisão de recuperação.
 
 <a id="4213a0b3-00ee"></a>
 
@@ -4255,6 +4261,10 @@ repositories.frameworkUrl / repositories.projectUrl deste hospedeiro para ESTE c
 a atualização do projeto + a clonagem da infraestrutura abaixo usam os repositórios do grupo. GH_TOKEN
 deliberadamente NÃO é substituído -- permanece local ao hospedeiro (nunca passa pela intenção
 do grupo). Hospedeiros fora de grupo (sem manifesto / sem repositórios) não são alterados.
+O par também é publicado como YURUNA_POOL_FRAMEWORK_URL e
+YURUNA_POOL_PROJECT_URL: o New-VM gera cada seed de convidado em um processo filho,
+e Get-YurunaGitHubSource grava esse par em host.env como as URLs de clone, de modo que
+um convidado sem acesso ao hospedeiro clone os repositórios que este ciclo testa.
 Limpo a cada ciclo: um valor desatualizado faria um ciclo fora de grupo sondar uma
 atribuição que já não se aplica (e possivelmente falhar nela).
 
@@ -5997,10 +6007,10 @@ em uma tela sem relação.
 
 ## test/modules/Test.SequenceHandler.psm1: Registros de verbos
 
-Limite opcional de tempo real para que um ciclo SEM SUPERVISÃO não fique preso aqui
+Limite de tempo real para que um ciclo SEM SUPERVISÃO não fique preso aqui
 para sempre: step.timeoutSeconds ou, na ausência dele, o global YURUNA_BREAK_MAX_SECONDS
-limita a espera. Sem nenhum deles definido, a espera é efetivamente ilimitada --
-o padrão interativo quando um operador está presente. No tempo limite, a
+ou, na ausência de ambos, testCycle.stepTimeoutSeconds (2700 s se não definido)
+limita a espera. No tempo limite, a
 interrupção retoma automaticamente NO MESMO ESTADO (resumedVia='timeout'); o caminho abaixo de restauração
 de snapshot pelo botão de continuação é deliberadamente ignorado nesse caso.
 Analisar defensivamente o tempo limite opcional. Uma conversão simples [int] lança uma exceção para um
@@ -6009,7 +6019,7 @@ YURUNA_BREAK_MAX_SECONDS, ou um step.timeoutSeconds inválido que o esquema não
 restringe para break). O invólucro de despacho deste tratador tem finally, mas não
 catch; portanto, uma exceção que escape ignoraria a proteção flexível/return-$false da interrupção
 e abortaria o ciclo -- o oposto da proteção pretendida aqui contra bloqueio
-sem supervisão. Usar 0 por padrão (espera interativa ilimitada) quando a análise não for possível.
+sem supervisão. Um tempo limite não interpretável ou não positivo usa o limite do watchdog.
 
 <a id="4213a0b3-015c"></a>
 
@@ -7722,7 +7732,9 @@ reinstalação --reinstall na mesma versão, e o dpkg então desfaz a retenção
 
 <a id="4213a0b3-01b8"></a>
 
-## install/ubuntu.kvm.sh: Uma atualização do PowerShell malsucedida encerra a tentativa, não a instalação
+## install/ubuntu.kvm.sh: bring_powershell_to_newest
+
+Uma atualização do PowerShell malsucedida encerra sua tentativa de fonte, não a instalação.
 
 O pacote da Microsoft instala /usr/bin/pwsh e o tarball cria o link
 /usr/local/bin/pwsh; o PATH padrão coloca ambos à frente de /snap/bin; assim, a cópia

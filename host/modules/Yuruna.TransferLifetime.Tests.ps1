@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42f1b39c-5884-49aa-8979-f180da646601
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,6 +138,23 @@ Describe 'A download cut short resumes at its next attempt, and only on the same
         ($requests -join "`n") | Should -Match 'If-Range: "v1"'
         Test-Path -LiteralPath "$($script:Out).partial" | Should -BeFalse
         Test-Path -LiteralPath "$($script:Out).partial.json" | Should -BeFalse
+    }
+    It 'resumes under Last-Modified when the server sent no entity tag' {
+        $stamp = 'Sat, 14 Nov 2026 16:20:17 GMT'
+        $first = Get-ScriptedResponder -Reply @("HTTP/1.1 200 OK`r`nContent-Length: 10`r`nLast-Modified: $stamp`r`nConnection: close`r`n`r`n12345")
+        { Invoke-YurunaResumableDownload -Uri $first.Url -OutFile $script:Out -MaxAttempt 1 -IdleTimeoutSeconds 5 } | Should -Throw -ExpectedMessage '*(5 bytes are staged*'
+        $null = Close-ScriptedResponder $first
+        (Get-Item -LiteralPath "$($script:Out).partial").Length | Should -Be 5 -Because 'a response that carries Last-Modified still stages its bytes'
+        $sidecar = Get-Content -Raw -LiteralPath "$($script:Out).partial.json" | ConvertFrom-Json -AsHashtable
+        $sidecar.lastModified | Should -BeExactly $stamp
+        $second = Get-ScriptedResponder -Reply @("HTTP/1.1 206 Partial Content`r`nContent-Length: 5`r`nContent-Range: bytes 5-9/10`r`nLast-Modified: $stamp`r`nConnection: close`r`n`r`n67890")
+        $sidecar.uri = $second.Url
+        Set-Content -LiteralPath "$($script:Out).partial.json" -Value ($sidecar | ConvertTo-Json -Compress)
+        Invoke-YurunaResumableDownload -Uri $second.Url -OutFile $script:Out -IdleTimeoutSeconds 5 | Should -Be 10
+        $requests = Close-ScriptedResponder $second
+        [IO.File]::ReadAllText($script:Out) | Should -Be '1234567890'
+        ($requests -join "`n") | Should -Match 'Range: bytes=5-'
+        ($requests -join "`n") | Should -Match ([regex]::Escape("If-Range: $stamp"))
     }
     It 'starts again from zero when the bytes changed under their validator' {
         $server = Get-ScriptedResponder -Reply @($script:Cut, "HTTP/1.1 200 OK`r`nContent-Length: 10`r`nETag: `"v2`"`r`nConnection: close`r`n`r`nabcdefghij")

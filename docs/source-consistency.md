@@ -13,6 +13,8 @@ hypervisor, service, or measured workload.
 
 Use `# --- REGION: <label>` for a named block and
 `# --- REGION: https://yuruna.link/42xxxxxx-yyyy` for its rationale.
+Documentation regions use the complete document-and-heading ID; a bare file
+ID or a heading-title fragment is not a region target.
 Keep the same label and relative order wherever the blocks have the same role.
 Do not put empty lines after a region marker; its content starts on the next line.
 A bare comment marker (`#` or `//` alone) on that line counts as an empty line.
@@ -37,8 +39,9 @@ dependencies`, `Locate the daemon source`, `Build`, `Install the binary`, `Stora
 `Environment file`, `systemd unit`, and `Start the service and wait for
 readiness` in that order; service-specific regions may sit between those shared
 phases. Reuse labels exactly, including case, whenever a block has the same
-role; do not introduce synonyms such as `Install logging`, `Storage dirs`, or
-`Cleanup temporary files`.
+role; do not introduce synonyms such as `Install logging`, `Storage dirs`,
+`Cleanup temporary files`, `Elevation notice` (for `Elevation announcement`), or
+`Newer versions report` (for `Newer versions available`).
 
 When a region introduces a standard marker, use that marker's exact name and
 case: the YAML key, plist key, XML/HTML element name, or bracketed systemd/INI
@@ -1058,6 +1061,13 @@ installed fetcher. Pre-commit and release checks cover all twelve wrappers.
 Behavior fixtures read the shared implementation, while wrapper fixtures verify
 argument forwarding, failure propagation, downloaded execution, and stale pins.
 
+Download scratch files belong to the invocation that created them. Allocate
+archive paths exclusively and remove them in `finally` or the shell's cleanup
+trap on both success and failure. A guest updater must preserve unrelated
+temporary files and directories; a broad recursive sweep of the user's temp
+directory is not equivalent to cleaning its downloads. Platform cleanup tools,
+such as Windows Disk Cleanup, retain their own operating-system policies.
+
 Architecture detection reports the guest's CPU architecture independently of
 its hypervisor. An x64 guest does not identify its host provider. JDK and .NET
 suppliers follow the packages supported by each OS; keep their versions and
@@ -1410,8 +1420,8 @@ ARM64 Hyper-V observations found the autoinstall question at about 2600 s
 for Ubuntu 24.04 versus 720 s for 26.04, so the 24.04 ceiling does not imply
 support for that slow path. Ubuntu 26.04 installs reached 92 minutes on the
 slowest measured host; three 2400 s login attempts allow roughly two hours.
-The outer runner's step watchdog advances at step boundaries, not within
-an OCR wait. Keep a declared wait at least 120 s plus polling overhead
+The outer runner's step watchdog advances at step boundaries and after
+completed OCR polls. Keep a declared wait at least 120 s plus polling overhead
 below `testCycle.stepTimeoutSeconds` to permit capture-feed repair and a
 named step failure. Increasing a guest timeout without the watchdog
 ceiling can instead kill the whole inner runner.
@@ -1622,7 +1632,7 @@ can be lost when the disposable VM disk is removed.
 The cache lives directly on the LAN now. Any pwsh forwarder.<port>.pid
 subprocess left behind from the legacy shared-NAT layout is noise --
 it binds 0.0.0.0:<port> on this Mac, tunnels to a stale 192.168.64.X
-IP that may have been reassigned, and blocks anything else (this very
+IP that may have been reassigned, and blocks anything else (this
 script's verification probes; a remote host that points
 YURUNA_CACHING_PROXY_SERVICE_IP back at the Mac instead of the cache) from
 reusing those ports. No-op on a fresh install.
@@ -1640,7 +1650,7 @@ without the other is an unrecoverable OOM rather than a slowdown.
 Windows has no mid-run elevation: querying Hyper-V (Get-VMHost), creating
 and removing the cache VM, and setting the host proxy + netsh portproxy
 all need an elevated session. Check NOW and stop with a clear reason. A
-non-elevated run otherwise hits a non-terminating Get-VMHost permission
+non-elevated run otherwise hits a nonterminating Get-VMHost permission
 error, leaves the VHD path $null, and cascades through null-path failures
 before the real cause (need-admin) finally surfaces from Get-Image.ps1.
 
@@ -1688,12 +1698,13 @@ dialog). Honor that plan: skip the attempt entirely rather than
 re-running New-YurunaExternalNetwork only for its internal guard
 to bail. The full reason was printed in Step 0.
 
-By-name (hashtable) splatting is REQUIRED here. Array splatting binds
-every element POSITIONALLY -- a literal '-MacAddress' string element is
-never re-parsed as a parameter name, so the child rejects it with "A
-positional parameter cannot be found" and never runs at all. The key is
-added conditionally so the bare call keeps each platform New-VM.ps1's
-random-MAC default.
+Builder parameters reach the bounded child as separate name/value strings;
+`pwsh -File` binds those names on the child's command line. A direct
+PowerShell script call instead needs hashtable splatting: array splatting
+passes a literal '-MacAddress' as positional data, causing "A positional
+parameter cannot be found" before the script runs. Add the optional address
+only when supplied so the bare call keeps each platform New-VM.ps1's
+default MAC assignment.
 
 **`test/service/Start-ConfigService.ps1`.**
 
@@ -2293,7 +2304,7 @@ scope before the first It runs.
 
 **`test/modules/Test.Log.Tests.ps1`**
 
-The archive fixture lives at FILE scope, not inside its Describe: a Describe
+The archive fixture lives inside `BeforeAll`, not directly inside its `Describe`: a Describe
 body is executed during discovery and everything it declares is discarded
 before any It runs, so a helper defined there is a CommandNotFoundException by
 the time the It blocks call it.
@@ -2305,14 +2316,12 @@ PSAvoidGlobalVars for the same channels.
 
 **`test/modules/Test.WarmResume.Tests.ps1`**
 
-Fixtures must sit ABOVE THE FIRST Describe, not merely at file scope. Only
-top-level statements executed before the first Describe land in the session
-state the run phase reuses; a top-level assignment placed after one is
-evaluated during discovery and then discarded, so every later It reads $null.
-Declaring this inside the Describe body has the same effect for the same
-reason. It is a silent failure: an empty workload list refuses a resume just
+Fixtures belong inside `BeforeAll`, whose scope the `It` bodies share. A
+top-level assignment or declaration made directly inside a `Describe` is
+evaluated during discovery and then discarded, so a later `It` can read
+`$null`. It is a silent failure: an empty workload list refuses a resume just
 as surely as the condition each test means to check, so four of the five
-tests below -- including the two asserting a specific .Reason -- kept passing
+tests -- including the two asserting a specific .Reason -- kept passing
 for the wrong reason while the list was empty.
 
 **`test/modules/Test.CachingProxyServiceEndpoint.Tests.ps1`: smoke checks**
@@ -2431,7 +2440,7 @@ the old Stop-Close-Remove order to lose this race about one run in three.
 lookup by name throws on a host installed in another language. The
 caller then cannot prove which access entries are stale and skips the
 cleanup -- safe, and silent, which is why it went unnoticed: the
-cleanup simply stopped happening, one warning at a time.
+cleanup stopped happening, one warning at a time.
 
 The SID is computable instead: S-1-5-83-1 followed by the machine
 GUID's sixteen bytes read as four little-endian unsigned 32-bit
@@ -2491,7 +2500,7 @@ rather than write it into the sentence.
 PSUseBOMForUnicodeEncodedFile wants a byte-order mark on the mirrored
 pseudo catalog, which carries non-ASCII text. This project will not
 write one: a BOM is invisible in every editor, rides into hashes, and
-breaks byte-for-byte consumers -- and the drift check for these very
+breaks byte-for-byte consumers -- and the drift check for these
 files compares their bytes. The renderer that reads them requires
 PowerShell 7, which decodes UTF-8 without a mark correctly, so the
 condition the rule protects against does not arise here.
@@ -2780,7 +2789,9 @@ UAC relaunch, so it has no session-group preflight, and it checks its Hyper-V
 edition before system requirements. macOS verifies UTM before installing
 PowerShell modules and repairs version floors before `Host configuration`, so
 host settings run on the repaired PowerShell; Ubuntu and Windows report floors
-after `Done summary`. Windows prints the backup notice inside each `Done
+after `Done summary`. Each installer follows its floor phase with
+`Newer versions available`, the advisory list of tools whose source still
+offers a newer release. Windows prints the backup notice inside each `Done
 summary` outcome because the elevated console closes when the run ends. Ubuntu
 checks CPU virtualization after `Elevation announcement`.
 
@@ -2790,6 +2801,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

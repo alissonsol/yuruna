@@ -413,11 +413,11 @@ const DataptBRaggregator = `{
   "aggregator.log_loki_outbox_full": [
     "a fila de saída do Loki está cheia (",
     {
-      "arg": "lines",
+      "arg": "pushes",
       "type": "detail",
       "trust": "external"
     },
-    " linhas); novas linhas são recusadas até o Loki aceitar algumas"
+    " envios na fila; os limites são DefaultMaxItems e DefaultMaxBytes em internal/loki/outbox.go); novas linhas são recusadas até o Loki aceitar algumas"
   ],
   "aggregator.log_loki_outbox_memory_only": [
     "fila de saída do Loki: ",

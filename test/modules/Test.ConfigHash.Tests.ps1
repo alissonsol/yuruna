@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42bc0769-be96-4f3c-b97b-00bf8860751f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,7 +31,7 @@
     and both its hash sites delegate the right bytes; and Test.Perf / Test.OcrEngine
     import Test.Hash and call the shared converter. AST/source-only -- no module
     import, no filesystem. The throw-based Assert-True helper is script-scoped so this
-    runs under Pester 5.x.
+    runs under Pester 6.x.
 #>
 
 BeforeAll {

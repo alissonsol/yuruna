@@ -66,7 +66,7 @@ handing the result to `genisoimage` (KVM), `hdiutil makehybrid`
 | `YURUNA_RETRY_LIB_BASE64_PLACEHOLDER` / `YURUNA_VERSIONS_BASE64_PLACEHOLDER` / `YURUNA_FAE_BASE64_PLACEHOLDER` / `YURUNA_NETWORK_BASE64_PLACEHOLDER` / `YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER` | Auto-populated from `Get-YurunaGuestScriptBase64` | The five `automation/*.sh` guest helpers, embedded as base64 `write_files` entries. The seeds also install the `yfe` launcher at `/usr/local/bin/yfe`. |
 | `YURUNA_HOST_ID_PLACEHOLDER` | Auto-populated from `$env:YURUNA_RUNTIME_DIR/host.uuid` | The host identity a guest quotes when it has to find its way back to a host whose address moved. Empty when the lab has no pool directory, which is a supported outcome. A caller that already resolved the id (the service-VM seeds) passes it and wins. |
 | `YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER` | Auto-populated from `$env:YURUNA_CACHING_PROXY_SERVICE_IP` | Same locate path; empty when the variable is unset. |
-| `YURUNA_GITHUB_REPO_PLACEHOLDER` / `YURUNA_GITHUB_REF_PLACEHOLDER` / `GH_TOKEN_PLACEHOLDER` / `YURUNA_FRAMEWORK_URL_PLACEHOLDER` / `YURUNA_PROJECT_URL_PLACEHOLDER` | Auto-populated from `Get-YurunaGitHubSource` against `-RepoRoot` | Repo slug + HEAD commit of the checkout this host is serving, the token that opens it when private, and the framework/project clone URLs a guest cut off from the host still needs. Empty fields mean "no GitHub fallback is possible"; templates that do not carry these tokens never consume them. |
+| `YURUNA_GITHUB_REPO_PLACEHOLDER` / `YURUNA_GITHUB_REF_PLACEHOLDER` / `GH_TOKEN_PLACEHOLDER` / `YURUNA_FRAMEWORK_URL_PLACEHOLDER` / `YURUNA_PROJECT_URL_PLACEHOLDER` | Auto-populated from `Get-YurunaGitHubSource` against `-RepoRoot` | Repo slug + HEAD commit of the checkout this host is serving, the token that opens it when private, and the framework/project clone URLs a guest cut off from the host still needs. In a pooled cycle the two clone URLs are the pool's pair, which the runner publishes as `YURUNA_POOL_FRAMEWORK_URL` and `YURUNA_POOL_PROJECT_URL`. Empty fields mean "no GitHub fallback is possible"; templates that do not carry these tokens never consume them. |
 
 Rows marked *Auto-populated* are filled in by `New-CloudInitUserData` itself,
 so a `New-VM.ps1` spells them out in `-Replacement` only to override the
@@ -1593,7 +1593,9 @@ moves the stall elsewhere.
 **`quick_abort_min -1 KB`** disables the quick-abort threshold entirely,
 so a client that disconnects mid-fetch (a guest rebooting, say) does not
 cancel the transfer. Squid finishes the object and the next client gets a
-hit instead of restarting the download.
+hit instead of restarting the download. This needs a response that has
+started: a fetch with no response headers yet is dropped as soon as its last
+client leaves, whatever the threshold says.
 
 **`read_timeout 2 minutes`** bounds upstream inactivity. Squid's default
 is 15 minutes, and with `collapsed_forwarding` on, every rider of a
@@ -1605,14 +1607,20 @@ large object is never cut off; only a genuinely silent upstream is.
 
 Squid's two minutes deliberately OUTLASTS the guests' `Acquire::http::Timeout`
 (30 s, up to three attempts -- see `New-AptProxyBlock`). The guest gives up on a
-stalled index first so the failure lands inside the sequence step's budget
-while there is still time to report it, and `quick_abort_min -1 KB` above means
-that giving up does not cancel the fetch: squid keeps pulling the object for
-the rest of its own timeout. If the origin comes back within that window the
-object is cached, so the harness's `retry_with_backoff` on the step gets a hit
-instead of racing the same stall. Shortening squid to match the guest would
-throw away the in-flight object every time and turn each retry into a fresh
-upstream attempt.
+stalled fetch first so the failure lands inside the sequence step's budget
+while there is still time to report it. When the response had already
+started, `quick_abort_min -1 KB` above means that giving up does not cancel the
+fetch: squid keeps pulling the object for the rest of its own timeout, and if
+the origin comes back within that window the object is cached, so a retry of
+that package or image gets a hit instead of racing the same stall. Shortening
+squid to match the guest would throw away that in-flight object every time.
+
+Apt index metadata (`InRelease`, `Release`, `Packages`) never gets that hit. A
+stalled index usually sends no headers at all, so squid drops the fetch when
+the guest gives up, and `send_hit deny` answers that metadata from the origin
+on every request while upstream is allowed (see
+[Apt metadata under offline_mode](caching.md#42f6b05f-0057)): each retry of an
+index is a fresh origin request.
 
 **`collapsed_forwarding on`** pools concurrent identical fetches: when N
 machines start the same uncached ISO at once, squid forwards ONE request
@@ -1621,6 +1629,16 @@ client races to origin in parallel, wasting mirror bandwidth and tripping
 per-IP rate limits at releases.ubuntu.com when a swarm rebuilds. It
 applies to HTTP origins and to SSL-bumped HTTPS on :3129, and has no
 effect on CONNECT-tunneled HTTPS (uncacheable by definition).
+
+Apt index metadata is exempt (`collapsed_forwarding_access deny`, with the
+same ACLs as its `send_hit deny`): every request for it makes its own origin
+fetch. A rider would wait for the shared fetch's headers without asking the
+origin, so one stalled fetch would fail every guest's `apt-get update` that
+joined it for apt's whole timeout, and riding could never save an origin
+request, because `send_hit deny` sends each rider to the origin once headers
+arrive. A running
+cache adopts its existing configuration, so the exemption reaches it when the
+VM is rebuilt from the seed (`Start-CachingProxyServiceVM.ps1 -ForceRebuild`).
 
 **`range_offset_limit none`** changes how `Range:` requests populate the
 cache. The default (`0`) forwards the partial to origin and serves it
@@ -1731,7 +1749,7 @@ The seed binds Loki to 127.0.0.1:3100 and Prometheus to 127.0.0.1:9090, overridi
 
 ### Alloy timestamp only labels
 
-Alloy sets a `job` label for each source and parses event timestamps without labeling client IPs or URLs. The seed pins 1.20.1, validates `/etc/alloy/config.alloy`, stops the legacy Promtail service, and imports its saved offsets once. Persistent Alloy component state prevents replay after restart. See [collector migration](caching.md#loki--alloy-boot-order-traps).
+Alloy sets a `job` label for each source and parses event timestamps without labeling client IPs or URLs. The seed pins 1.22.0, validates `/etc/alloy/config.alloy`, stops the legacy Promtail service, and imports its saved offsets once. Persistent Alloy component state prevents replay after restart. See [collector migration](caching.md#loki--alloy-boot-order-traps).
 
 **Keep zot sync errors.** The JSON stage can encounter sync-extension records without an HTTP `path`; those records explain upstream retry and failure delays even when the eventual manifest request logs a successful response. The template supplies `NO_HTTP_PATH` for missing paths, and the drop stage removes only `/metrics` self-scrapes. The sentinel is retained, not dropped, so slow successful requests keep their underlying failure evidence.
 
@@ -2481,7 +2499,7 @@ with the new file's (Get-FileHash -Algorithm SHA256).Hash.
 ### Adding a new platform overlay
 
 1. Create `host/vmconfig/ubuntu.server.<platform>.overlay.yml` with the
-   six anchor headers (empty payloads for anchors the platform doesn't
+   seven anchor headers (empty payloads for anchors the platform doesn't
    use).
 2. Add a `New-VM.ps1` under `host/<platform>/guest.ubuntu.server.{24,26}/`
    that calls `New-CloudInitUserData` with the new overlay path.
@@ -2686,6 +2704,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

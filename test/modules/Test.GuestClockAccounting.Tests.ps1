@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 420a1aa7-8b02-47f6-a89d-1a0d0b35585e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -235,6 +235,9 @@ sleep 3
 exec bash -c "${@: -1}"
 '@)
         & chmod +x $ssh
+        # The login wait before an after-restart sample has its own cases below.
+        Mock 'Test.Ssh\Wait-SshReady' -ModuleName Test.Diagnostic { return $true }
+        Mock 'Test.Ssh\Get-LastSshReadiness' -ModuleName Test.Diagnostic { return @{ cause = 'ready'; attempts = 1 } }
         Mock 'Test.Ssh\Get-ProvenGuestAddress' -ModuleName Test.Diagnostic { return '127.0.0.1' }
         Mock Test-Path -ModuleName Test.Diagnostic { & $script:RealTestPath @PesterBoundParameters }
         Mock Test-Path -ModuleName Test.Diagnostic -ParameterFilter { $LiteralPath -like '*yuruna_ed25519' } { return $true }
@@ -254,6 +257,8 @@ exec bash -c "${@: -1}"
     }
 
     It 'uses the existing address only and retains raw and structured evidence alongside effective host settings' {
+        Mock 'Test.Ssh\Wait-SshReady' -ModuleName Test.Diagnostic { return $true }
+        Mock 'Test.Ssh\Get-LastSshReadiness' -ModuleName Test.Diagnostic { return @{ cause = 'ready'; attempts = 1 } }
         $script:clockOutput=(Get-ClockFixtureText)+"`n"+(Get-ClockFixtureText -Uptime 101 -Idle0 4050 -Idle1 5050 -Epoch 1700000001)+"`nsnapshotCompleteUtc=fixture"
         Mock Invoke-GuestEvidenceSsh -ModuleName Test.Diagnostic {
             param($VMName,$GuestKey,$Command,$TimeoutSeconds,$MaxCapturedChars,$ProvenAddressOnly)
@@ -270,6 +275,123 @@ exec bash -c "${@: -1}"
         $script:observedClockCommand | Should -Match 'E_CLOCK_ONLY=1 bash'
         (Get-Content $capture.outPath -Raw) | Should -Match 'cpu0 1000'
         (Get-Content (Join-Path $TestDrive 'guest.cpu-clock.after-cpu-restart.json') -Raw | ConvertFrom-Json).hostContext.settings.processorCount | Should -Be 2
+    }
+
+    It 'waits for one SSH login before the after-restart sample' {
+        $script:clockOrder = [System.Collections.Generic.List[string]]::new()
+        $script:clockOutput=(Get-ClockFixtureText)+"`n"+(Get-ClockFixtureText -Uptime 101 -Idle0 4050 -Idle1 5050 -Epoch 1700000001)+"`nsnapshotCompleteUtc=fixture"
+        Mock 'Test.Ssh\Wait-SshReady' -ModuleName Test.Diagnostic { $script:clockOrder.Add("wait:$TimeoutSeconds"); return $true }
+        Mock 'Test.Ssh\Get-LastSshReadiness' -ModuleName Test.Diagnostic { return @{ cause = 'ready'; attempts = 2 } }
+        Mock Invoke-GuestEvidenceSsh -ModuleName Test.Diagnostic {
+            $script:clockOrder.Add('sample')
+            return @{ success=$true; exitCode=0; output=$script:clockOutput }
+        }
+        Mock Save-HyperVCpuRestartHostContext -ModuleName Test.Diagnostic { return @{ status='complete' } }
+        Mock Test-GuestSshPortProbe -ModuleName Test.Diagnostic { return @{ connected=$true } }
+        $capture = Save-GuestCpuRestartEvidence -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -OutputFolder $TestDrive -Phase after-cpu-restart
+        @($script:clockOrder) | Should -Be @('wait:10', 'sample') -Because 'the sample starts once the ten-second wait has ended'
+        $capture.sshReadiness.ready | Should -BeTrue
+        $capture.sshReadiness.cause | Should -Be 'ready'
+        $capture.sshReadiness.attempts | Should -Be 2
+        $capture.diagnosticOutcome | Should -Be complete
+        $capture.ContainsKey('reason') | Should -BeFalse -Because 'a complete capture needs no explanation'
+    }
+
+    It 'identifies the after-restart login wait as advisory evidence for the same invocation' {
+        Mock 'Test.Ssh\Wait-SshReady' -ModuleName Test.Diagnostic { return $false }
+        Mock 'Test.Ssh\Get-LastSshReadiness' -ModuleName Test.Diagnostic { return @{ cause='probe_timeout'; attempts=1 } }
+        Mock Invoke-GuestEvidenceSsh -ModuleName Test.Diagnostic { return @{ success=$false; exitCode=-1; timedOut=$true; output='' } }
+        Mock Save-HyperVCpuRestartHostContext -ModuleName Test.Diagnostic { return @{ status='complete' } }
+        Mock Test-GuestSshPortProbe -ModuleName Test.Diagnostic { return @{ connected=$false } }
+        $capture = Save-GuestCpuRestartEvidence -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -OutputFolder $TestDrive `
+            -Phase after-cpu-restart -StepInvocationId step-fixture -SequenceInvocationId sequence-fixture
+        $capture.advisoryOnly | Should -BeTrue
+        Should -Invoke 'Test.Ssh\Wait-SshReady' -ModuleName Test.Diagnostic -Times 1 -Exactly -ParameterFilter {
+            $VMName -eq 'fixture-vm' -and $GuestKey -eq 'guest.ubuntu.server.26' -and $TimeoutSeconds -eq 10 -and $PollSeconds -eq 2 -and
+            $AdvisoryOnly -and $Phase -eq 'after-cpu-restart' -and $StepInvocationId -eq 'step-fixture' -and $SequenceInvocationId -eq 'sequence-fixture'
+        }
+    }
+
+    It 'adds less than 30 seconds before the after-restart sample when no login ever completes' -Skip:(-not $IsLinux) {
+        # The real readiness wait against an ssh that never answers: its probe
+        # is stopped at the ten-second deadline, and the closing verbose
+        # handshake it adds when it gives up runs to its own cap.
+        $bin = Join-Path $TestDrive 'never-login-bin'
+        [void][IO.Directory]::CreateDirectory($bin)
+        $calls = Join-Path $TestDrive 'ssh-calls.txt'
+        [IO.File]::WriteAllText((Join-Path $bin 'ssh'), "#!/bin/sh`nprintf '%s\n' `"`$*`" >> '$calls'`nexec sleep 60`n")
+        & chmod +x (Join-Path $bin 'ssh')
+        # The guest is named, and its name resolves to an address, so the wait
+        # counts the address as discovered and runs that handshake.
+        Mock Get-GuestAddress -ModuleName Test.Ssh { return '192.0.2.10' }
+        Mock Get-YurunaSshPrivateKeyPath -ModuleName Test.Ssh { return 'fixture-key' }
+        Mock Get-YurunaSshHostKeyOption -ModuleName Test.Ssh { return [string[]]@('-o', 'StrictHostKeyChecking=no') }
+        Mock Invoke-GuestEvidenceSsh -ModuleName Test.Diagnostic {
+            return @{ success=$false; exitCode=-1; timedOut=$true; output='Invoke-GuestSsh timed out after 8s: fixture-user@192.0.2.10' }
+        }
+        Mock Save-HyperVCpuRestartHostContext -ModuleName Test.Diagnostic { return @{ status='complete' } }
+        Mock Test-GuestSshPortProbe -ModuleName Test.Diagnostic { return @{ connected=$true } }
+        $oldPath = Save-YurunaTestEnvironment -Name 'PATH'
+        try {
+            $env:PATH = $bin + [IO.Path]::PathSeparator + $oldPath.PATH
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $capture = Save-GuestCpuRestartEvidence -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -OutputFolder $TestDrive -Phase after-cpu-restart
+            $elapsed = $clock.Elapsed.TotalSeconds
+        } finally { Restore-YurunaTestEnvironment -Saved $oldPath }
+        @(Get-Content -LiteralPath $calls | Where-Object { $_ -match '^-v ' }).Count | Should -Be 1 -Because 'the wait gave up and ran its closing handshake'
+        $capture.sshReadiness.ready | Should -BeFalse
+        $capture.reason | Should -Be 'ssh-timeout'
+        $elapsed | Should -BeLessThan 30
+    }
+
+    It 'does not wait before the before-restart sample' {
+        $script:clockOutput=(Get-ClockFixtureText)+"`n"+(Get-ClockFixtureText -Uptime 101 -Idle0 4050 -Idle1 5050 -Epoch 1700000001)+"`nsnapshotCompleteUtc=fixture"
+        Mock 'Test.Ssh\Wait-SshReady' -ModuleName Test.Diagnostic { return $true }
+        Mock Invoke-GuestEvidenceSsh -ModuleName Test.Diagnostic { return @{ success=$true; exitCode=0; output=$script:clockOutput } }
+        Mock Save-HyperVCpuRestartHostContext -ModuleName Test.Diagnostic { return @{ status='complete' } }
+        Mock Test-GuestSshPortProbe -ModuleName Test.Diagnostic { return @{ connected=$true } }
+        $capture = Save-GuestCpuRestartEvidence -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -OutputFolder $TestDrive -Phase before-cpu-restart
+        Should -Invoke 'Test.Ssh\Wait-SshReady' -ModuleName Test.Diagnostic -Times 0 -Exactly
+        $capture.ContainsKey('sshReadiness') | Should -BeFalse
+    }
+
+    It 'names why an after-restart sample is incomplete: <Reason>' -TestCases @(
+        @{ Reason = 'ssh-timeout'; Ready = $true; Result = @{ success=$false; exitCode=-1; timedOut=$true; output='Invoke-GuestSsh timed out after 8s: fixture-user@192.0.2.10' } }
+        @{ Reason = 'ssh-not-ready'; Ready = $false; Result = @{ success=$false; exitCode=255; output='Connection closed by 192.0.2.10 port 22' } }
+        @{ Reason = 'ssh-failed'; Ready = $true; Result = @{ success=$false; exitCode=255; output='Permission denied (publickey).' } }
+        @{ Reason = 'samples-incomplete'; Ready = $true; Result = @{ success=$true; exitCode=0; output='guestEvidenceSchema=1' } }
+    ) {
+        param($Reason, $Ready, $Result)
+        $script:clockReady = $Ready
+        $script:clockResult = $Result
+        Mock 'Test.Ssh\Wait-SshReady' -ModuleName Test.Diagnostic { return $script:clockReady }
+        Mock 'Test.Ssh\Get-LastSshReadiness' -ModuleName Test.Diagnostic { return @{ cause = $(if ($script:clockReady) { 'ready' } else { 'probe_timeout' }); attempts = 3 } }
+        Mock Invoke-GuestEvidenceSsh -ModuleName Test.Diagnostic { return $script:clockResult }
+        Mock Save-HyperVCpuRestartHostContext -ModuleName Test.Diagnostic { return @{ status='complete' } }
+        Mock Test-GuestSshPortProbe -ModuleName Test.Diagnostic { return @{ connected=$true } }
+        $capture = Save-GuestCpuRestartEvidence -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -OutputFolder $TestDrive -Phase after-cpu-restart
+        $capture.diagnosticOutcome | Should -Not -Be complete
+        $capture.reason | Should -Be $Reason
+        $capture.sshReadiness.ready | Should -Be $Ready
+        (Get-Content (Join-Path $TestDrive 'guest.cpu-clock.after-cpu-restart.json') -Raw | ConvertFrom-Json).reason | Should -Be $Reason
+    }
+
+    It 'puts the reason and what the login wait saw on the guest_clock_accounting event' {
+        $helper=$script:handlerAst.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+            $n.Name -eq 'Save-SequenceCpuRestartEvidence'},$true).Extent.Text
+        $module=New-Module -ScriptBlock ([scriptblock]::Create(@'
+function Test-SequenceCpuClockApplicable { param($Context) $null=$Context; return $true }
+function Get-CycleGuestDataFolder { param($VMName) $null=$VMName; return 'fixture-folder' }
+function Save-GuestCpuRestartEvidence { return @{diagnosticOutcome='unavailable';reason='ssh-timeout';sshReadiness=@{ready=$false;cause='probe_timeout';attempts=3;waitedSeconds=10.2};analysis=@{advisoryOnly=$true;warnings=@()};outPath='clock.txt'} }
+function Send-CycleEventSafely { param($EventRecord) $script:clockEvent=$EventRecord }
+'@+"`n"+$helper))
+        $context=@{VMName='fixture-vm';GuestKey='guest.ubuntu.server.26';StepInvocationId='step-fixture';SequenceInvocationId='sequence-fixture'}
+        & $module {param($c) Save-SequenceCpuRestartEvidence -Context $c -Phase after-cpu-restart} $context
+        $clockEventRecord=& $module { $script:clockEvent }
+        $clockEventRecord.reason | Should -Be 'ssh-timeout'
+        $clockEventRecord.sshReadiness.cause | Should -Be 'probe_timeout'
+        $clockEventRecord.sshReadiness.waitedSeconds | Should -Be 10.2
+        @(Test-CycleEventSchema -Record $clockEventRecord).Count | Should -Be 0
     }
 
     It 'does not discover an address when no prior SSH address exists' {

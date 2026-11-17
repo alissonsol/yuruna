@@ -174,6 +174,12 @@ cycle under
 [Failure-pause break-out triggers](#failure-pause-break-out-triggers).
 Per-step visibility is controlled by [Log levels](loglevels.md).
 
+On macOS, keep this command in a [tmux or screen
+session](host-macos.md#42885ada-0015) started from the logged-in desktop's
+terminal application. Detach before closing the terminal, then reattach to
+steer or stop the runner. A multiplexer protects the session from a closed
+terminal; the in-process supervisor cannot restart a process that SIGHUP ended.
+
 <a id="42f909ad-0007"></a>
 
 ### What a `test.runner.yml` entry can be
@@ -336,7 +342,7 @@ required keys, validated at entry:
 
 | Key | Type | Purpose |
 |---|---|---|
-| `RepoRoot` | `[string]` | Framework repo root for the `git pull` calls. |
+| `RepoRoot` | `[string]` | Framework repo root for the upstream update calls. |
 | `ConfigPath` | `[string]` | Resolved `test.config.yml` path. |
 | `InnerScript` | `[string]` | Absolute path to `Invoke-TestRunnerInnerLoop.ps1`. |
 | `PwshExe` | `[string]` | `pwsh` binary to invoke (operator's choice). |
@@ -346,7 +352,7 @@ required keys, validated at entry:
 | `NoGitPull` | `[bool]` | Skip the framework pull (operator's `-NoGitPull` switch). |
 | `FailurePauseMaxSeconds` | `[int]` | Failure-pause cap (default 60 min). |
 | `FailureCommitPollSeconds` | `[int]` | Trigger-poll cadence inside the pause (default 30 s). |
-| `OuterPullErrorSleepSeconds` | `[int]` | Short retry sleep when the outer's own `git pull` fails. |
+| `OuterPullErrorSleepSeconds` | `[int]` | Short retry sleep when the outer's own upstream update fails. |
 | `InnerSpawnErrorSleepSeconds` | `[int]` | Short retry sleep when `Start-Process` itself fails. |
 | `StepTimeoutSecondsDefault` | `[int]` | Watchdog default (overridden per-cycle by `testCycle.stepTimeoutSeconds`). |
 | `WatchdogPollSeconds` | `[int]` | Watchdog poll cadence (default 30 s). |
@@ -459,8 +465,8 @@ transition table live in
 |---|---|
 | Cycle opened, before any per-cycle work | `idle -> cycle-start` |
 | Watchdog armed | `cycle-start -> in-cycle` |
-| Inner exited 0 | `in-cycle -> cycle-end -> idle` |
-| Inner exited non-zero | `in-cycle -> fault` |
+| Inner exited 0, or 75 after a completed degraded cycle | `in-cycle -> cycle-end -> idle` |
+| Inner exited non-zero, other than a completed degraded cycle (75) | `in-cycle -> fault` |
 | Pool `configuredState=paused` (hold) | `cycle-start -> paused`, then `paused -> cycle-start` on the ~30s configuration re-poll |
 | Entering failure-pause | `fault -> paused` |
 | Pause broke out | `paused -> idle` |
@@ -545,8 +551,14 @@ cycle on a host whose hypervisor tooling is broken and says so; the failure paus
 and the next loop asks again.
 
 Every verdict, `clear` included, is written to `runtime/vm-admission.json`
-(`state`, `reason`, `occupants`, `probes`, `detail`, `hostType`, `observedUtc`)
-so a later verdict replaces an earlier refusal. After a failed cycle the loop
+(`state`, `reason`, `occupants`, `stoppedVms`, `probes`, `detail`, `hostType`,
+`observedUtc`) so a later verdict replaces an earlier refusal. `stoppedVms`
+holds each guest the stop was issued to, as its hypervisor reported it just
+before (`Get-VMPlatformState`: `{name, state, uptimeSeconds, createdUtc}`, plus
+`reason` when the state could not be read), and is empty when nothing was
+stopped. The cycle-start sweep's leftover-VM record takes a stopped guest's
+state from there, because by the sweep a guest the hypervisor had running reads
+as off. After a failed cycle the loop
 reads the record when it is newer than the cycle's spawn and names the fault for
 what it is: `status.json` carries `lastFailure.failureClass`
 `vm_admission_unknown` or `vm_admission_occupied`, and `runnerStateReason` reads
@@ -606,7 +618,7 @@ Six sites read it, each before anything it guards can change:
 | Site | Process | Guards |
 |---|---|---|
 | Dispatch | loop | Spawning the cycle process at all |
-| Cycle start | cycle | The `git pull`, the pool-configuration sync and the first state transition |
+| Cycle start | cycle | The framework update, the pool-configuration sync and the first state transition |
 | Before the wipe | cycle | The pre-spawn wipe and the inner spawn, which can be reached after the gate closed during the pull |
 | Cycle start | inner | The per-cycle host-condition re-check and everything after it |
 | Before the pull | inner | The auth vault, the status reset and the framework pull |
@@ -1023,7 +1035,7 @@ runner respawns the inner from a clean state.
 | `runner.refresh-gated.json` | inner runner         | cycle process         | Written when the inner stops at one of its host-refresh gate sites, naming itself and its parent. Consumed by the cycle process that spawned it. |
 | `runner.refresh-evidence.json` | inner runner (service-VM restore) | outer runner | Hypervisor evidence for the automatic refresh decision, stamped with the cycle generation. Read and consumed by the outer after every dispatch. |
 | `outer.log`              | outer + inner           | post-mortem, status service | Append-only milestone log. Survives a `conhost` output wedge. |
-| `cycle-events.pending.json` | outer runner (boot recovery, runner faults) | next cycle's `Start-LogFile` | Events raised while no cycle is open, written into the next cycle's `cycle.events.ndjson` ahead of `cycle_start`. See [queued events](definition.md#42fa6f45-0030). |
+| `cycle-events.pending.json` | outer runner (boot recovery, runner faults); inner runner (an orchestration cycle's leftover-VM record) | next cycle's `Start-LogFile` | Events raised while no cycle is open, written into the next cycle's `cycle.events.ndjson` ahead of `cycle_start`. See [queued events](definition.md#42fa6f45-0030). |
 
 <a id="42f909ad-0013"></a>
 
@@ -1055,7 +1067,7 @@ shipped template).
 
 The outer's watchdog is a `Start-Job` (own pwsh) -- heavier than an
 in-runspace timer but independent of the outer's pipeline, which is
-blocked inside the call-operator that waits for the inner; any
+blocked waiting for the inner process; any
 in-runspace monitor (`Register-ObjectEvent`, ThreadJob) cannot pump
 during that wait. The Start-Job child fires reliably even when the
 outer is completely wedged on the spawn.
@@ -1091,7 +1103,7 @@ The watchdog:
 
 Every early exit above also writes `runner.watchdog.lapsed`, ending in the
 step and preamble bounds the watchdog would have applied. The cycle process
-is blocked inside the call-op while the watchdog gives up, but the resident
+waits for the inner process while the watchdog gives up, but the resident
 runner is not: it reads the sentinel while the cycle runs and applies those
 bounds to `runner.stepHeartbeat` itself, so a cycle the watchdog cannot guard
 still stops when its heartbeat does. The bounds ride in the sentinel because
@@ -1234,10 +1246,10 @@ explicit machine gives the lifecycle a single observable shape.
 | State | Meaning |
 |---|---|
 | `idle` | The runner is alive and ready for the next cycle. |
-| `cycle-start` | A new cycle is starting; pre-spawn work (git pull, cleanup) is in flight. |
+| `cycle-start` | A new cycle is starting; pre-spawn work (framework update, cleanup) is in flight. |
 | `in-cycle` | The inner runner is executing sequence steps. |
-| `cycle-end` | The inner exited 0; the outer is in post-cycle cleanup. |
-| `fault` | The inner exited non-zero or crashed before exit. |
+| `cycle-end` | The outer is closing an attempt after exit 0, a completed degraded cycle (75), an inner-side refresh hold, or refresh preflight. |
+| `fault` | The outer is handling a failed or unrecorded cycle attempt. |
 | `paused` | The failure-pause loop is waiting for a new commit, a config edit, or the cap. |
 
 <a id="42f909ad-001c"></a>
@@ -1305,32 +1317,76 @@ time of any file in its folder with the host's boot time (`btime` in
 Windows). A host that froze leaves files whose data never reached the disk
 but whose entries did, so that newest write is within seconds of the
 freeze. The host counts as restarted under the cycle when it booted after
-both that write and the start in the cycle's marker, within five seconds;
+both that write and the start in the cycle's marker, or no more than five
+seconds before the later of them;
 a runner killed and started again without a reboot finds a boot from
 before the cycle and never counts. The archived `.aborted.<UTC>.json`
-carries `lastWriteUtc`, `bootUtc`, `hostRestarted` and `downSeconds` (boot
-minus last write).
+carries `lastWriteUtc`, `bootUtc`, `hostRestarted` and `downSeconds`, the
+seconds from the cycle's last write to the boot. That is not how long the
+host was down: a runner that died hours before an unrelated reboot leaves a
+gap the host spent up.
 
-For a host restart the sweep also writes into the aborted folder
-`host-restart.json` (what each command returned, the hardware-error lines,
-any crash reports, and whether the system journal was readable) and
-`host-restart.txt` (the output). On Linux: `journalctl --list-boots`, the
-previous boot's last 300 journal lines and its kernel warnings, the
-current boot's kernel lines naming BERT, a hardware error, a machine check,
-EDAC, AER or a watchdog, and the head of `last -x -F`. journalctl reads
-only the runner's own journal unless the account is in `systemd-journal`
-or `adm`; the evidence says so instead of failing. A host in deep
-diagnostics mode writes one bundle per boot to
-`/var/log/yuruna/deep-diagnostics/`; bundles written since the cycle's
-last write are copied in as `host-restart.deep-diagnostics.<name>`, or the
-reason they could not be read is recorded. On Windows: the System log's
-Kernel-Power 41, 6008 and BugCheck 1001 events and the minidumps written
-since then. On macOS: the panic reports written since then and the head of
-`last reboot`. Every command is bounded, and a failure is recorded, never
-thrown.
+The previous runner's exit record (below) can name the signal that ended
+it. A cycle's marker names the inner process that wrote it, not the runner
+that received the signal, so the sweep matches the signal to a cycle by
+time: the newest orphaned cycle that started before the signal and last
+wrote at most ten minutes before it. That cycle's archive also carries
+`signal`, `signalAtUtc` and `endedBy`: `signal` when the host did not
+restart, or booted more than 15 minutes after the signal, so the runner was
+gone long before any shutdown; `host-restart` when the boot came sooner,
+because the shutdown sent the signal. With `endedBy` `signal` it also carries
+`silentSeconds`, from the signal to the boot, or to the sweep when the host
+did not restart.
+
+For a host restart, or a runner a signal ended on a host that has not
+rebooted since, the sweep also writes evidence into the aborted folder:
+`host-restart.json` and `host-restart.txt` after a restart,
+`runner-signal.json` and `runner-signal.txt` otherwise. The `.json` says
+what each command returned, the hardware-error lines, the crash and app
+reports found, and whether the system journal was readable; the `.txt`
+holds the output. The time-boxed readings center on the signal when one
+ended the runner, else on the cycle's newest write. Every command is
+bounded, and a failure is recorded, never thrown.
+
+- **Linux.** After a restart: `journalctl --list-boots`, the previous
+  boot's last 300 journal lines and its kernel warnings, and the current
+  boot's kernel lines naming BERT, a hardware error, a machine check, EDAC,
+  AER or a watchdog. Always the head of `last -x -F`. With `endedBy`
+  `signal`, rebooted since or not, the newest 2000 journal lines from three
+  minutes before the signal to one minute after it. journalctl reads only
+  the runner's own journal unless the account is in `systemd-journal` or
+  `adm`; the evidence says so instead of failing. A host in deep
+  diagnostics mode writes one bundle per boot to
+  `/var/log/yuruna/deep-diagnostics/`; after a restart, up to four of the
+  newest bundles written since the cycle's last write are copied in as
+  `host-restart.deep-diagnostics.<name>`, or the reason they could not be
+  read is recorded.
+- **Windows.** One query of the System log per source, from half an hour
+  before the center to ten minutes after the boot, or after the center when
+  the host has not rebooted; each keeps its newest 50 records, so the window
+  ends there rather than at the sweep, which can come days later: User32
+  1074 and 1076 (who asked for the restart and why), EventLog 6005, 6006
+  and 6008, Kernel-Power 41 and 109, Kernel-General 12 and 13, BugCheck
+  1001, and Windows Update 19, 20, 43 and 44. After a restart also the
+  minidumps written since the last write, and `osBuildBefore` and
+  `osBuildAfter`: the build with its update revision as the cycle recorded
+  it (the cycle-start host diagnostic's JSON sidecar, else the host
+  samples) and as the registry gives it now.
+- **macOS.** The head of `last -30`; the unified log of loginwindow,
+  WindowServer, Terminal, UTM, QEMU, softwareupdated, appleeventsd,
+  launchservicesd and tccd from three minutes before the center to one
+  minute after it, read again from half a minute before the center when it
+  fills its 4 MiB capture; the head of `softwareupdate --history`; and the
+  Terminal, UTM, QEMU, WindowServer, loginwindow and JetsamEvent reports in
+  the user's and the system's `DiagnosticReports` written within ten
+  minutes of the center, the first 16 KiB of each. After a restart also the
+  head of `last reboot` and the panic reports written since the last write.
 
 No cycle is open during the sweep, so its events -- one `host_restart` per
-cycle the host restarted under, then `boot_recovery_completed` -- wait in
+cycle the host restarted under, one `runner_ended_by_signal` per cycle
+whose runner a signal ended on a host that has not rebooted since (a later
+reboot reports it as `host_restart` with `endedBy` `signal`), then
+`boot_recovery_completed` -- wait in
 `runtime/cycle-events.pending.json` and are written into the next cycle's
 event stream ahead of its `cycle_start`, where the pool collects them
 (see [queued events](definition.md#42fa6f45-0030)).
@@ -1341,11 +1397,34 @@ runner records how it was started, in `runtime/runner.session.json` (whether
 under an SSH session, a terminal program or a multiplexer, its parent
 processes, and the host's boot time), and its SIGHUP and SIGTERM handlers write
 the signal to `runtime/runner.exit.json` before the process ends as the signal
-would end it. Until the next runner starts, `/control/runner-status` reports
-both as `lastExit` ([runner-status](control-routes.md#42185271-000b)). The next
-runner's sweep reads them before it clears `runner.pid`, and its
-`boot_recovery_completed` event carries them as `previousRunner`; only then
-does the new runner replace them with its own.
+would end it. On Windows the session record also says how the runner was
+started -- `sessionId`, `sessionName` (`SESSIONNAME`: `Console` on the local
+desktop, `RDP-Tcp#<n>` over remote desktop, unset for a scheduled task),
+`windowsTerminal` and `elevated` -- because Windows sets no `TERM_PROGRAM`
+and a console runner's parent is often gone. Until the next runner starts,
+`/control/runner-status` reports both as `lastExit`
+([runner-status](control-routes.md#42185271-000b)). The next runner's sweep
+reads them before it clears `runner.pid`, and its `boot_recovery_completed`
+event carries them as `previousRunner`; only then does the new runner
+replace them with its own. When it has none to carry, the event says why in
+`previousRunnerAbsent`: `no-session-record`, `unreadable`, or
+`same-process` for records that carry the sweeping process's own pid and
+start time, which it wrote in an earlier run in the same pwsh. A record
+with its pid but another start time is a previous runner's whose pid the
+OS gave to this one, after a reboot or a pid wrap, and is reported.
+
+The inner runner's progress sidecars -- `current-action.json` (the step it
+was running), `runner.stepHeartbeat`, `runner.heartbeat` and
+`runner.phase` -- are cleared or rewritten by the new runner's first cycle,
+and nothing keeps an earlier copy: the status service serves
+`current-action.json` only as it stands
+([file serving](control-routes.md#42185271-000d)) and refuses the other
+three files; `/control/runner-status` reports only the step heartbeat's age
+and the phase. The sweep reads them before it changes anything, ahead of
+the new runner's state and records, and copies them with each file's write
+time into the newest orphaned cycle that started before their newest write
+and last wrote at most ten minutes before it, as
+`runner-state-at-loss.json`.
 
 <a id="42f909ad-0020"></a>
 
@@ -1367,6 +1446,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

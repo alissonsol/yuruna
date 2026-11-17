@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a8c19c-6467-464c-bbe1-27786a9557d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     gate rejecting a stale sidecar, the mid-chain rename retarget, and value-level
     EffectiveVariables forwarding. AST guards assert the loop is defined once in
     Invoke-Sequence and that each dispatcher delegates to it rather than running
-    Invoke-SequenceByName inline. Pester 5.x.
+    Invoke-SequenceByName inline. Pester 6.x.
 #>
 
 BeforeAll {

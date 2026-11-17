@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -177,43 +178,62 @@ func TestPromoteStagingNeverReplacesAServedGeneration(t *testing.T) {
 
 // A file under a generation's name with the wrong byte count is not that
 // generation -- a copy cut short, or a drop that grew after it was hashed. The
-// verified bytes replace it, and a reader already streaming the old file keeps
-// reading it to its end.
+// verified bytes replace it. On Unix, a reader already streaming the old file
+// keeps reading it to its end even after the directory entry is replaced.
 func TestPromoteStagingReplacesAGenerationOfTheWrongSize(t *testing.T) {
-	s := testStore(t)
-	id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
-	gen := mustCommit(t, s, id, "img.iso", "6666666666666666", 8, time.Now())
-	served := filepath.Join(s.Dir(id), gen)
-	reader, err := os.Open(served)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reader.Close()
+	for _, tc := range []struct {
+		name       string
+		openReader bool
+	}{
+		{name: "replacement"},
+		{name: "open-reader continuity", openReader: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.openReader && runtime.GOOS == "windows" {
+				t.Skip("Windows rejects unlinking the generation while an os.Open reader holds it")
+			}
+			s := testStore(t)
+			id := ImageID{HostType: HostTypeKVM, ImageKey: KeyUbuntuServer26, Arch: ArchAMD64, Variant: VariantStable}
+			gen := mustCommit(t, s, id, "img.iso", "6666666666666666", 8, time.Now())
+			served := filepath.Join(s.Dir(id), gen)
+			var reader *os.File
+			if tc.openReader {
+				var err error
+				reader, err = os.Open(served)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer reader.Close()
+			}
 
-	verified := bytes.Repeat([]byte("v"), 20)
-	staged, err := s.NewStagingPath(id, "img.iso")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(staged, verified, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.PromoteStaging(id, staged, gen); err != nil {
-		t.Fatalf("PromoteStaging: %v", err)
-	}
-	after, err := os.ReadFile(served)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(after, verified) {
-		t.Fatalf("the generation holds %d byte(s), want the %d verified ones", len(after), len(verified))
-	}
-	old, err := io.ReadAll(reader)
-	if err != nil || len(old) != 8 {
-		t.Fatalf("the open reader got %d byte(s) (%v), want the 8 it opened", len(old), err)
-	}
-	if _, err := os.Stat(staged); !os.IsNotExist(err) {
-		t.Fatalf("staging entry survived promote: %v", err)
+			verified := bytes.Repeat([]byte("v"), 20)
+			staged, err := s.NewStagingPath(id, "img.iso")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(staged, verified, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.PromoteStaging(id, staged, gen); err != nil {
+				t.Fatalf("PromoteStaging: %v", err)
+			}
+			after, err := os.ReadFile(served)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(after, verified) {
+				t.Fatalf("the generation holds %d byte(s), want the %d verified ones", len(after), len(verified))
+			}
+			if reader != nil {
+				old, err := io.ReadAll(reader)
+				if err != nil || len(old) != 8 {
+					t.Fatalf("the open reader got %d byte(s) (%v), want the 8 it opened", len(old), err)
+				}
+			}
+			if _, err := os.Stat(staged); !os.IsNotExist(err) {
+				t.Fatalf("staging entry survived promote: %v", err)
+			}
+		})
 	}
 }
 

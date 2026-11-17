@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4259cf8a-3a2a-4cee-b176-bd4cd6e611ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -393,8 +393,9 @@ function Save-VMSerialCapture {
     0, since everything the file will hold is still to come.
 .OUTPUTS
     [pscustomobject] Length (bytes in the file now), Offset (where Text
-    starts), Text, Truncated (older bytes after -FromOffset were left out)
-    and Replaced; $null when no capture file exists to read or it cannot be
+    starts), Text, Truncated (older bytes after -FromOffset were left out),
+    Replaced and LastWriteUtc (when the reader last wrote to the file, $null
+    without one); $null when no capture file exists to read or it cannot be
     read.
 #>
 function Read-VMSerialCapture {
@@ -407,7 +408,7 @@ function Read-VMSerialCapture {
     )
     $logPath = Join-Path $env:TEMP "yuruna-serial-$VMName.log"
     if (-not [System.IO.File]::Exists($logPath)) {
-        if ($MaxBytes -eq 0) { return [pscustomobject]@{ Length = 0L; Offset = 0L; Text = ''; Truncated = $false; Replaced = $false } }
+        if ($MaxBytes -eq 0) { return [pscustomobject]@{ Length = 0L; Offset = 0L; Text = ''; Truncated = $false; Replaced = $false; LastWriteUtc = $null } }
         return $null
     }
     try {
@@ -415,7 +416,8 @@ function Read-VMSerialCapture {
             ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
         try {
             $length = $stream.Length
-            if ($MaxBytes -eq 0) { return [pscustomobject]@{ Length = $length; Offset = $length; Text = ''; Truncated = $false; Replaced = $false } }
+            $lastWriteUtc = [System.IO.File]::GetLastWriteTimeUtc($logPath)
+            if ($MaxBytes -eq 0) { return [pscustomobject]@{ Length = $length; Offset = $length; Text = ''; Truncated = $false; Replaced = $false; LastWriteUtc = $lastWriteUtc } }
             $replaced = $FromOffset -gt $length
             $start = if ($replaced) { 0L } else { $FromOffset }
             $truncated = ($length - $start) -gt $MaxBytes
@@ -433,12 +435,36 @@ function Read-VMSerialCapture {
                 }
                 $text = [System.Text.Encoding]::UTF8.GetString($bytes, 0, $read)
             }
-            return [pscustomobject]@{ Length = $length; Offset = $start; Text = $text; Truncated = $truncated; Replaced = $replaced }
+            return [pscustomobject]@{ Length = $length; Offset = $start; Text = $text; Truncated = $truncated; Replaced = $replaced; LastWriteUtc = $lastWriteUtc }
         } finally { $stream.Dispose() }
     } catch {
         Write-Verbose "Read-VMSerialCapture failed: $($_.Exception.Message)"
         return $null
     }
+}
+<#
+.SYNOPSIS
+    The path of the VM's live serial capture file, or $null when there is none.
+.DESCRIPTION
+    Every Start-VM deletes the capture and arms a new one, so the text a boot
+    printed is gone once the VM restarts. A caller that must keep it, such as
+    the evidence of a failed attempt that a retry is about to cold-restart,
+    copies this file first, opening it with read and write sharing because the
+    reader keeps appending. The path is built from the VM name the way
+    Start-VMSerialCapture builds it, so a reader that outlived the record of
+    its start is found as well. The UTM driver keeps its capture in the cycle
+    folder across restarts and the KVM driver keeps none, so neither offers
+    this.
+.OUTPUTS
+    [string] the capture's path; $null when the reader has not created it.
+#>
+function Get-VMSerialCaptureLogPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $logPath = Join-Path $env:TEMP "yuruna-serial-$VMName.log"
+    if ([System.IO.File]::Exists($logPath)) { return $logPath }
+    return $null
 }
 <#
 .SYNOPSIS

@@ -559,7 +559,7 @@ const DataqpsPlocexceptions = `{
     " ~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "exceptions.host_dd6d74db4a58cc9d": [
-    "[Fido.ps1 ħášħ ɱíšɱáţçħ (ƥíññéď v1.71): éẋƥéçţéď ",
+    "[Fido.ps1 ħášħ ɱíšɱáţçħ (ƥíññéď v1.72): éẋƥéçţéď ",
     {
       "arg": "fidoSha256",
       "type": "detail",
@@ -1829,6 +1829,21 @@ const DataqpsPlocexceptions = `{
       "trust": "internal"
     },
     "' ţħáţ çáññóţ ƀé ƒóřŵářďéď ţħřóúğħ ţħé šğ řéļáúñçħ; ƥášš óñļý šţříñğš, ñúɱƀéřš, šŵíţçħéš, ƀóóļéáñš áñď šţříñğ ářřáýš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "exceptions.runner_ssh_key_read_only_invalid": [
+    "[Çáññóţ řéáď ţħé éẋíšţíñğ ŠŠĦ ķéý ƥáíř áţ '",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' ŵíţħóúţ řéƥáíř: ",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "exceptions.setup_service_vm_preserved": [
     "[",

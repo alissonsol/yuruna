@@ -59,7 +59,7 @@ Test-Runtime.ps1
 
 - `Set-Resource.ps1` -- `tofu apply` in the configured work folder.
 - `Set-Component.ps1` -- build and push images to the registry.
-- `Set-Workload.ps1` -- `helm install` in the configured work folder.
+- `Set-Workload.ps1` -- `helm upgrade --install --atomic` in the configured work folder.
 - `Invoke-Clear.ps1` -- `tofu destroy` in the configured work folder; see
   [cleanup](kubernetes.md#cleaning-up-cloud-resources).
 - `Test-Configuration.ps1` -- validate configuration files.
@@ -257,8 +257,8 @@ fast instead of spending the whole backoff budget. The classifier matches:
   handle the request`. A single-node cluster that has just started answers
   before etcd settles, so a `kubectl create namespace` a minute into its life
   can fail with the first and pass seconds later. A create whose request did
-  reach etcd before the timeout then fails on the retry with `AlreadyExists`,
-  which does not match and stops the retries.
+  reach etcd before the timeout is refused on the retry with `AlreadyExists`,
+  which the completion rule below accepts as the first attempt's result.
 
 A refused connection needs two spellings, not one. Go prints the errno form
 (`connect: connection refused`); kubectl catches the same errno and reformats
@@ -290,6 +290,57 @@ that stopped the build. Why the resource phase is shaped that way:
 [the pre-seeded plugin cache](memory.md#why-set-resource-pre-seeds-tf_plugin_cache_dir)
 that keeps a retried `init` off the network entirely.
 
+**Completion by an earlier attempt:** a `kubectl create` deployment retried
+after a transient failure accepts an `AlreadyExists` refusal as the completion
+of the earlier attempt. The API server can commit a request whose response was
+lost to the etcd timeout, so the object the retry is refused for is the one
+the first attempt created. kubectl prints the refusal in two forms, and both
+count: the server's status line,
+`Error from server (AlreadyExists): namespaces "website" already exists` (from
+`create namespace`, and from `create -f` with an `error when creating "<file>":`
+source after the reason), and the wrapped form of the subcommands that build
+the object themselves (`create secret`, `create configmap`,
+`create serviceaccount`, ...),
+`error: failed to create secret secrets "website-tls" already exists`, which
+always ends with the server's `<resource> "<name>" already exists` message.
+The refusal is that bare message (after the `error when creating "<file>":`
+source, when there is one): an object that is still being deleted is refused
+with the same reason but the message `object is being deleted: namespaces
+"website" already exists`, and that terminating object is not the earlier
+attempt's result, so that retry fails. Only the attempt's error lines are
+judged -- every line kubectl prints for a failed object, prefixed or not: the
+`Error from server` status line and the `error:` prefix of a single error,
+and, in a multi-object `create -f`, the unprefixed `error when creating
+"<file>":` of a request the server rejected and the resource visitor's
+`error parsing`, `error validating`, `unable to decode`, `unable to
+recognize`, `unable to connect to a server` and `resource mapping not found`
+lines for an object refused before any request; the klog lines `--v=1`
+prints, `Warning:` lines and `<kind>/<name> created` lines are not errors --
+and every one of them must be the refusal: a multi-object `create -f` prints
+one error per object, and a refusal beside another error (a second object the
+server found invalid or the client could not validate, a kind the cluster does
+not know, a connection the client could not open) means the earlier attempt
+did not complete the whole command, so that retry fails as before. The
+accepted retry counts as a pass: the attempt's section header in
+`kubectl.stderr.log` carries `completedBy=already-applied` beside the
+attempt's own exit code, the `.rc` sidecar reads 0, one operator line says the
+outcome had already been applied by an earlier attempt, and a
+`retry_recovered` event ([retry telemetry](failure-schema.md#42820e91-0011))
+records the attempt with its own `exitCode` and `basis` `already-applied`; the
+earlier attempt's `retry_attempt` stays, and no `retry_exhausted` follows. A
+deployment that runs in a guest, as the pool's website workload does, has no
+cycle stream there: the retry prints the same records as `YURUNA_RETRY`
+markers, and the host publishes them with `origin` `guest` from the step's
+output or execution log, except for a passing console step that ran under a
+minute or is `sensitive`, whose records stay in the guest's log. The
+rule holds only for `create` (the first word after `kubectl`) and only from
+the second attempt on: on the first attempt nothing earlier could have created
+the object, so an `AlreadyExists` there is still `tool_failed`, and a
+`delete`, `apply`, `config` or other verb refused the same way fails as
+before. The mechanism is the `-SucceedWhen` predicate of
+`Invoke-WithYurunaRetry`, asked only about a failed attempt that was not
+stopped at its deadline and is not the first.
+
 Representative helm/kubectl symptoms:
 
 ```
@@ -315,7 +366,10 @@ for a retried call, in Yuruna.Retry.psm1). The `kubectl config` calls that read
 and switch kubeconfig contexts run under a `kubectl` deployment's bound as the
 workloads file's `globalVariables` set it, so a kubeconfig that stops answering
 (a locked file, an exec plugin waiting on a prompt) ends the phase the same
-way. At the deadline the process tree the call started is killed, the call
+way. The workload phase restores the operator's original context only after
+successfully reading it; restoring an empty value after a failed read could
+error or overwrite the operator's active selection.
+At the deadline the process tree the call started is killed, the call
 reports exit code 124, its log section ends with a line saying it was stopped,
 and the phase ends with the `tool_timeout` failure class, which the host routes
 as `wait_timeout`, the class a hang the step watchdog kills has. The component
@@ -372,7 +426,7 @@ that has `skipped` set, only when all of these hold:
 The workloads phase always runs, and its pass deletes the ledger. Deleting the
 file runs every phase again. The ledger only saves work: one that cannot be
 read is ignored, a failure to write it leaves every phase to run, and inputs
-over 20,000 files or 512 MB are not hashed, so that phase always runs.
+over 20,000 files or 512 MiB are not hashed, so that phase always runs.
 
 <a id="42e568c8-000d"></a>
 
@@ -418,6 +472,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

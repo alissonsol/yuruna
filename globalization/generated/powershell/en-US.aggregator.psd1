@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a18897-339a-0499-216e-65f73137ab64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -422,11 +422,11 @@
     'aggregator.log_loki_outbox_full' = @(
         'Loki outbox is full ('
         @{
-            'arg' = 'lines'
+            'arg' = 'pushes'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' lines); new lines are refused until Loki takes some'
+        ' queued pushes; the limits are DefaultMaxItems and DefaultMaxBytes in internal/loki/outbox.go); new lines are refused until Loki takes some'
     )
     'aggregator.log_loki_outbox_memory_only' = @(
         'Loki outbox: '

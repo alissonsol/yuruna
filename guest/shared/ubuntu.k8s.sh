@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.08
+# Version: 2026.11.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42e147b6-3807-47cd-b9b8-01e8085703d7
@@ -46,7 +46,7 @@ declare -F yuruna_verify_sha256 >/dev/null || { echo "ERROR: this guest's /usr/l
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
-# --- REGION: Assert an installed tool is runnable
+# --- REGION: assert_tool_runnable
 # See https://yuruna.link/42e220c4-0005
 assert_tool_runnable() {
     local name="$1"; shift
@@ -67,7 +67,7 @@ assert_tool_runnable() {
     return 0
 }
 
-# --- REGION: Wait for the containerd CRI API
+# --- REGION: wait_for_containerd
 wait_for_containerd() {
     local wait_seconds="${1:-30}" crictl_path timeout_path probe_log
     local deadline remaining probe_seconds last_rc=0
@@ -107,7 +107,7 @@ wait_for_containerd() {
     return 1
 }
 
-# --- REGION: Wait for Kubernetes networking
+# --- REGION: wait_for_kubernetes_network
 wait_for_kubernetes_network() {
     echo ""
     echo "==== Flannel DaemonSet Status ===="
@@ -199,10 +199,14 @@ fi
 if [ -n "$CACHE_HOST" ]; then
     echo "Caching proxy: ${CACHE_HOST} -- container image pulls are mirrored through it."
     sudo install -d -m 0755 /etc/docker
+    # Docker Engine 29.10 and later stop treating loopback registries as
+    # insecure once insecure-registries is set, so naming only the cache makes
+    # every push to this guest's own plain-HTTP registry fail with "server gave
+    # HTTP response to HTTPS client". Name the loopback registry beside it.
     sudo tee /etc/docker/daemon.json >/dev/null <<EOF
 {
   "registry-mirrors": ["http://${CACHE_HOST}:5000"],
-  "insecure-registries": ["${CACHE_HOST}:5000"]
+  "insecure-registries": ["${CACHE_HOST}:5000", "localhost:5000", "127.0.0.1:5000"]
 }
 EOF
 else
@@ -304,7 +308,8 @@ echo ""
 echo -e "\e[1;36m==== K8S ====\e[0m"
 # K8s repo + keyring already written next to the Docker source above so a
 # single apt-get update covers both.
-apt_retry sudo apt-get install -y kubelet kubeadm kubectl cri-tools
+# Some kubelet packages omit CNI dependencies; Flannel needs the standard plugins.
+apt_retry sudo apt-get install -y kubelet kubeadm kubectl cri-tools kubernetes-cni
 sudo apt-mark hold kubelet kubeadm kubectl cri-tools
 assert_tool_runnable crictl --version
 

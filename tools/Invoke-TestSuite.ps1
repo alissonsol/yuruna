@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,10 +122,11 @@
     Wildcard applied to the suite file's base name, e.g. 'Test.Pool*'.
 .PARAMETER ThrottleLimit
     Concurrent suite processes. Default: three quarters of the logical
-    processors, at least 8 and at most 24. Suites spend much of their time
-    waiting on child processes, timers and the disk, so fewer workers leave
-    processors idle; past this the processors are saturated and the longest
-    suites slow down faster than the extra workers finish the rest.
+    processors, at least 8 and at most 24. Past three quarters the suites,
+    which start child processes of their own, only stretch one another: on a
+    32-thread host a complete run takes as long at 28 as at 24, and at 32
+    timing bounds inside suites begin to fail. An explicit value may exceed
+    the default limit.
 .PARAMETER TimeoutSeconds
     Per-suite wall-clock limit before the process is killed. Default 300, added
     to the suite's recorded cost. A baseline row's `timeoutSeconds` raises the

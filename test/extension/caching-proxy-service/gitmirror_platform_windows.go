@@ -20,14 +20,13 @@ var mirrorDiskSpace = mirrorKernel.NewProc("GetDiskFreeSpaceExW")
 func mirrorPrepareProcess(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP, HideWindow: true}
 }
-func mirrorStopProcess(cmd *exec.Cmd, force bool) {
+func mirrorStopProcess(cmd *exec.Cmd, _ bool) {
 	if cmd.Process == nil {
 		return
 	}
-	args := []string{"/PID", strconv.Itoa(cmd.Process.Pid), "/T"}
-	if force {
-		args = append(args, "/F")
-	}
+	// Console Git transports require /F; a non-force taskkill only spends
+	// another process-tree traversal reporting that they cannot be terminated.
+	args := []string{"/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F"}
 	kill := exec.Command("taskkill", args...)
 	kill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	_ = kill.Run()

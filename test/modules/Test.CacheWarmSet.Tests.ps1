@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 429e84c5-0bc5-487b-b851-b34fccf102c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
     guess which upstream a repository belongs to, and the fallback is the one
     metered upstream in the lab. Nothing fails visibly; the budget just drains.
 
-    Should assertions only, so the suite runs under Pester 5.x.
+    Should assertions only, so the suite runs under Pester 6.x.
 #>
 
 BeforeAll {

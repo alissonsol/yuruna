@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a641ab-18b0-4d5b-a99c-e837d2b17ef8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@
     would), and is a no-op when nothing was ever leaked. Exercised with real thread
     jobs so .State and Remove-Job behave as in production.
 
-    The throw-free Should assertions run under Pester 5.x.
+    The throw-free Should assertions run under Pester 6.x.
 #>
 
 BeforeAll {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1406,10 +1406,11 @@ $memory=Hyper-V\Get-VMMemory -VMName $name -ErrorAction Stop
 }
 
 # --- REGION: Test-GuestSshPortProbe
-# A clock sample taken right after a restart cannot wait for sshd, so when its
-# SSH attempt fails the reader cannot tell a daemon still starting from a guest
-# that is off the network. One bounded TCP touch on the proven address, with
-# whatever banner sshd sends, separates the two without a wait.
+# A clock sample taken right after a restart waits for sshd only briefly, so
+# when its SSH attempt still fails the reader cannot tell a daemon still
+# starting from a guest that is off the network. One bounded TCP touch on the
+# proven address, with whatever banner sshd sends, separates the two without a
+# further wait.
 function Test-GuestSshPortProbe {
     <#
     .SYNOPSIS
@@ -1473,6 +1474,186 @@ function Get-GuestRecorderClockAnalysis {
             Sort-Object { if ($_.ContainsKey('uptimeSeconds')) { [double]$_.uptimeSeconds } else { [double]::MaxValue } })
         $result = Get-GuestClockAccountingAnalysis -Samples $samples
         foreach ($key in @($result.Keys)) { $analysis[$key] = $result[$key] }
+    } catch { $analysis.reason = $_.Exception.Message }
+    return $analysis
+}
+
+# --- REGION: Get-GuestRecorderIoAnalysis
+# How long a guest stalled on I/O (PSI io "full") and what each write and flush
+# cost its disks (/proc/diskstats) between recorder samples. Partitions are not
+# read and device-mapper volumes get rows of their own, so the totals and the
+# worst interval read whole disks only and never count an operation twice.
+# See https://yuruna.link/42820e91-0006
+$script:GuestIoDiskName = [regex]'^(?:[hsv]d[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$'
+$script:GuestIoVolumeName = [regex]'^dm-\d+$'
+
+function Get-GuestRecorderIoAnalysis {
+    <#
+    .SYNOPSIS
+        Measures the I/O stall and each device's write and flush time per operation between retained flight-recorder samples.
+    .DESCRIPTION
+        Samples are sorted by guest uptime, as the clock analysis sorts them,
+        and each pair from the same boot is one interval. A sample cut short
+        before its readings is left out, so the interval across it is measured
+        whole. A counter that went backwards between two samples, as one does
+        when a device is removed and added again, gives that device no value
+        for the interval rather than a negative one and is counted in
+        counterResets. A device that
+        completed no write and no flush in an interval has no row for it; the
+        requests it held show in the interval in which they complete. An
+        interval with no whole-disk row keeps one row with a null device, so
+        its stall is kept; its writes are 0 only when both samples read the
+        same whole disks and none completed anything, and null when a disk's
+        counts could not be compared across it. The totals sum only the
+        intervals whose whole-disk counts could be compared. The worst
+        interval is the one with the longest full stall, or with the slowest
+        write when no sample could read the pressure file, given as the row
+        of its slowest-writing whole disk. Advisory only.
+    .OUTPUTS
+        [hashtable] schema, advisoryOnly, sampleCount, intervalCount, pressureAvailable,
+        counterResets, totals, worstInterval, intervals, rowsOmitted
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path, [ValidateRange(65536, 4194304)][int]$MaxChars = 1600000)
+    $analysis = @{ schema='yuruna.guest-io-analysis/v1'; advisoryOnly=$true; sampleCount=0; intervalCount=0; pressureAvailable=$false
+        counterResets=0; totals=$null; worstInterval=$null; intervals=@(); rowsOmitted=0 }
+    try {
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $analysis }
+        $reader = [IO.StreamReader]::new($Path)
+        try { $buffer=[char[]]::new($MaxChars); $length=$reader.Read($buffer,0,$buffer.Length); $text=[string]::new($buffer,0,$length) }
+        finally { $reader.Dispose() }
+        $samples = [Collections.Generic.List[hashtable]]::new()
+        $starts = [regex]::Matches($text, '(?m)^sampleUtc=(\S+)\r?$')
+        for ($index = 0; $index -lt $starts.Count -and $samples.Count -lt 16; $index++) {
+            $end = if ($index + 1 -lt $starts.Count) { $starts[$index + 1].Index } else { $text.Length }
+            $block = $text.Substring($starts[$index].Index, $end - $starts[$index].Index)
+            $sample = @{ utc=$starts[$index].Groups[1].Value; bootId=''; uptime=$null; ioFull=$null; disks=@{}; wholeDisks=0 }
+            $value = 0.0
+            $field = [regex]::Match($block, '(?m)^guestBootId=(\S+)\r?$')
+            if ($field.Success) { $sample.bootId = $field.Groups[1].Value }
+            $field = [regex]::Match($block, '(?m)^guestClockUptimeSeconds=(\S+)\r?$')
+            if ($field.Success -and [double]::TryParse($field.Groups[1].Value, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$value)) { $sample.uptime = $value }
+            # PSI totals are cumulative microseconds. An absent or unreadable
+            # file reads as a state line, which leaves the stall unknown.
+            $pressure = [regex]::Match($block, '(?ms)^--- /proc/pressure/io ---\r?\n(.*?)(?=^--- |^sampleCompleteUtc=|\z)').Groups[1].Value
+            $field = [regex]::Match($pressure, '(?m)^full\s.*\btotal=(\d+)\s*$')
+            if ($field.Success) { $sample.ioFull = [double]::Parse($field.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) }
+            $stats = [regex]::Match($block, '(?ms)^--- /proc/diskstats ---\r?\n(.*?)(?=^--- |^sampleCompleteUtc=|\z)').Groups[1].Value
+            foreach ($line in ($stats -split '\r?\n')) {
+                # Major, minor and name, then the counters: writes completed is
+                # the fifth and milliseconds writing the eighth; flushes
+                # completed and milliseconds flushing, the sixteenth and
+                # seventeenth, exist only from kernel 5.5.
+                $fields = $line.Trim() -split '\s+'
+                if ($fields.Count -lt 14 -or $sample.disks.ContainsKey($fields[2])) { continue }
+                $wholeDisk = $script:GuestIoDiskName.IsMatch($fields[2])
+                if (-not $wholeDisk -and -not $script:GuestIoVolumeName.IsMatch($fields[2])) { continue }
+                $counters = @(foreach ($position in @(7, 10, 18, 19)) {
+                    if ($position -lt $fields.Count -and [double]::TryParse($fields[$position], [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$value)) { $value } else { $null }
+                })
+                if ($null -eq $counters[0] -or $null -eq $counters[1]) { continue }
+                # A volume's flush columns stay zero: it counts flushes as writes.
+                if (-not $wholeDisk) { $counters[2] = $null; $counters[3] = $null }
+                $sample.disks[$fields[2]] = @{ writes=$counters[0]; writeMs=$counters[1]; flushes=$counters[2]; flushMs=$counters[3]; wholeDisk=$wholeDisk }
+                if ($wholeDisk) { $sample.wholeDisks++ }
+            }
+            $samples.Add($sample)
+        }
+        $analysis.sampleCount = $samples.Count
+        # A collector cut short by its time bound keeps its clock lines but
+        # not the readings after them. The readings are cumulative, so leaving
+        # such a sample out lets its neighbors measure the window across it
+        # whole: one with no reading always, and one without disk lines when
+        # samples of its boot before and after it carry them.
+        $ordered = @($samples | Where-Object { $null -ne $_.uptime -and ($null -ne $_.ioFull -or $_.wholeDisks -gt 0) } | Sort-Object { $_.uptime })
+        $withDisks = @($ordered | Where-Object { $_.wholeDisks -gt 0 })
+        $ordered = @($ordered | Where-Object {
+            $candidate = $_
+            $candidate.wholeDisks -gt 0 -or
+                @($withDisks | Where-Object { $_.bootId -eq $candidate.bootId -and $_.uptime -lt $candidate.uptime }).Count -eq 0 -or
+                @($withDisks | Where-Object { $_.bootId -eq $candidate.bootId -and $_.uptime -gt $candidate.uptime }).Count -eq 0
+        })
+        $rows = [Collections.Generic.List[hashtable]]::new()
+        $sum = @{ intervals=0; seconds=0.0; stall=0.0; stallKnown=$true; writes=0.0; writeMs=0.0; flushes=0.0; flushMs=0.0; flushSeen=$false }
+        for ($index = 1; $index -lt $ordered.Count; $index++) {
+            $before = $ordered[$index - 1]; $after = $ordered[$index]
+            $seconds = $after.uptime - $before.uptime
+            if ($before.bootId -ne $after.bootId -or $seconds -le 0) { continue }
+            $stall = $null
+            if ($null -ne $before.ioFull -and $null -ne $after.ioFull) {
+                if ($after.ioFull -ge $before.ioFull) { $stall = [math]::Round(($after.ioFull - $before.ioFull) / 1000000, 3) }
+                else { $analysis.counterResets++ }
+            }
+            # The whole disks' counts are known for the interval only when both
+            # samples read the same whole disks and no counter went backwards.
+            $namesBefore = @($before.disks.Keys | Where-Object { $before.disks[$_].wholeDisk } | Sort-Object) -join ' '
+            $namesAfter = @($after.disks.Keys | Where-Object { $after.disks[$_].wholeDisk } | Sort-Object) -join ' '
+            $disksKnown = $namesBefore -ne '' -and $namesBefore -eq $namesAfter
+            $disk = @{ writes=0.0; writeMs=0.0; flushes=0.0; flushMs=0.0; flushSeen=$false }
+            $intervalRows = [Collections.Generic.List[hashtable]]::new()
+            foreach ($name in @($after.disks.Keys | Sort-Object)) {
+                if (-not $before.disks.ContainsKey($name)) { continue }
+                $old = $before.disks[$name]; $new = $after.disks[$name]
+                $writes = $new.writes - $old.writes; $writeMs = $new.writeMs - $old.writeMs
+                $flushes = $null; $flushMs = $null
+                if ($null -ne $old.flushes -and $null -ne $new.flushes -and $null -ne $old.flushMs -and $null -ne $new.flushMs) {
+                    $flushes = $new.flushes - $old.flushes; $flushMs = $new.flushMs - $old.flushMs
+                }
+                if ($writes -lt 0 -or $writeMs -lt 0 -or ($null -ne $flushes -and ($flushes -lt 0 -or $flushMs -lt 0))) {
+                    $analysis.counterResets++
+                    if ($new.wholeDisk) { $disksKnown = $false }
+                    continue
+                }
+                if ($new.wholeDisk) {
+                    $disk.writes += $writes; $disk.writeMs += $writeMs
+                    if ($null -ne $flushes) { $disk.flushes += $flushes; $disk.flushMs += $flushMs; $disk.flushSeen = $true }
+                }
+                if ($writes -eq 0 -and -not $flushes) { continue }
+                $intervalRows.Add(@{ startUtc=$before.utc; endUtc=$after.utc; seconds=[math]::Round($seconds, 2); ioFullStallSeconds=$stall; device=$name
+                    wholeDisk=$new.wholeDisk; writes=$writes; writeMsPerOp=$(if ($writes -gt 0) { [math]::Round($writeMs / $writes, 2) } else { $null })
+                    flushes=$flushes; flushMsPerOp=$(if ($flushes -gt 0) { [math]::Round($flushMs / $flushes, 2) } else { $null }) })
+            }
+            # An interval with no whole-disk row still gets one, so its stall
+            # is not lost with the disk rows. It claims no writes only when
+            # every whole disk was compared; otherwise its writes are unknown.
+            if (@($intervalRows | Where-Object { $_.wholeDisk }).Count -eq 0) {
+                $intervalRows.Add(@{ startUtc=$before.utc; endUtc=$after.utc; seconds=[math]::Round($seconds, 2); ioFullStallSeconds=$stall; device=$null
+                    wholeDisk=$true; writes=$(if ($disksKnown) { 0 } else { $null }); writeMsPerOp=$null; flushes=$null; flushMsPerOp=$null })
+            }
+            $analysis.intervalCount++
+            if ($null -ne $stall) { $analysis.pressureAvailable = $true }
+            # The totals sum only the intervals whose whole-disk counts are
+            # known, so every total describes the same intervals.
+            if ($disksKnown) {
+                $sum.intervals++; $sum.seconds += $seconds
+                if ($null -ne $stall) { $sum.stall += $stall } else { $sum.stallKnown = $false }
+                $sum.writes += $disk.writes; $sum.writeMs += $disk.writeMs
+                if ($disk.flushSeen) { $sum.flushes += $disk.flushes; $sum.flushMs += $disk.flushMs; $sum.flushSeen = $true }
+            }
+            foreach ($row in $intervalRows) {
+                if ($row.wholeDisk) {
+                    $worst = $analysis.worstInterval
+                    $rowStall = if ($null -ne $row.ioFullStallSeconds) { $row.ioFullStallSeconds } else { -1 }
+                    $rowWrite = if ($null -ne $row.writeMsPerOp) { $row.writeMsPerOp } else { -1 }
+                    $worstStall = if ($worst -and $null -ne $worst.ioFullStallSeconds) { $worst.ioFullStallSeconds } else { -1 }
+                    $worstWrite = if ($worst -and $null -ne $worst.writeMsPerOp) { $worst.writeMsPerOp } else { -1 }
+                    if (-not $worst -or $rowStall -gt $worstStall -or ($rowStall -eq $worstStall -and $rowWrite -gt $worstWrite)) { $analysis.worstInterval = $row }
+                }
+                # The ring holds a few samples of a guest's few disks and
+                # volumes; the cap only bounds the event a guest with many
+                # devices would emit.
+                if ($rows.Count -lt 64) { $rows.Add($row) } else { $analysis.rowsOmitted++ }
+            }
+        }
+        $analysis.intervals = $rows.ToArray()
+        if ($sum.intervals -gt 0) {
+            $analysis.totals = @{ seconds=[math]::Round($sum.seconds, 2)
+                ioFullStallSeconds=$(if ($sum.stallKnown) { [math]::Round($sum.stall, 3) } else { $null })
+                writes=$sum.writes; writeMsPerOp=$(if ($sum.writes -gt 0) { [math]::Round($sum.writeMs / $sum.writes, 2) } else { $null })
+                flushes=$(if ($sum.flushSeen) { $sum.flushes } else { $null })
+                flushMsPerOp=$(if ($sum.flushes -gt 0) { [math]::Round($sum.flushMs / $sum.flushes, 2) } else { $null }) }
+        }
     } catch { $analysis.reason = $_.Exception.Message }
     return $analysis
 }
@@ -1821,10 +2002,31 @@ function Get-GuestRecorderKernelStall {
 }
 
 # --- REGION: Save-GuestCpuRestartEvidence
+# Seconds the after-restart sample waits for one SSH login before it samples.
+# Wait-SshReady adds one verbose handshake of up to its 15-second probe cap
+# when it gives up, so the wait costs at most about 25 seconds while the host
+# driver's address and state queries, which that deadline does not cut short,
+# answer promptly.
+$script:CpuRestartSshReadySeconds = 10
+
 function Save-GuestCpuRestartEvidence {
     <#
     .SYNOPSIS
-        Captures two guest observations without discovery, recovery, or workload gating.
+        Captures two guest observations without recovery or workload gating.
+    .DESCRIPTION
+        Right after the processor restart the guest's first SSH login can take
+        longer than the sample's own budget while its port already answers,
+        and a sample taken then comes back empty. So the
+        after-restart phase first waits, bounded, for one login (Wait-SshReady,
+        which proves the address the sample then uses). A wait that gives up
+        keeps the address proven before, still lets the sample run, and
+        leaves Wait-SshReady's usual ssh_handshake_failed event
+        (network_timeout, soft; credential_expired, hard, only when the guest
+        reports an expired password). A capture that is not complete names why in
+        reason: ssh-timeout (the sample's SSH call ran out of time),
+        ssh-not-ready (the wait never saw a login and the call failed),
+        ssh-failed (the call failed for another reason), or samples-incomplete
+        (the call returned without two complete samples).
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -1835,6 +2037,18 @@ function Save-GuestCpuRestartEvidence {
     $capture = @{ schema='yuruna.cpu-restart-evidence/v1'; phase=$Phase; diagnosticOutcome='unavailable'; samples=@(); advisoryOnly=$true }
     try {
         $capture.hostContext=Save-HyperVCpuRestartHostContext -VMName $VMName -OutputFolder $OutputFolder -Phase $Phase
+        if ($Phase -eq 'after-cpu-restart') {
+            $waitClock = [Diagnostics.Stopwatch]::StartNew()
+            $ready = $false
+            $readiness = $null
+            try {
+                $ready = [bool](Test.Ssh\Wait-SshReady -VMName $VMName -GuestKey $GuestKey -TimeoutSeconds $script:CpuRestartSshReadySeconds -PollSeconds 2 `
+                    -AdvisoryOnly -Phase $Phase -StepInvocationId $StepInvocationId -SequenceInvocationId $SequenceInvocationId)
+                $readiness = Test.Ssh\Get-LastSshReadiness
+            } catch { Write-Verbose "CPU restart evidence: the SSH readiness wait failed: $($_.Exception.Message)" }
+            $capture.sshReadiness = @{ ready=$ready; waitedSeconds=[math]::Round($waitClock.Elapsed.TotalSeconds, 1)
+                cause=$(if ($readiness) { [string]$readiness.cause } else { 'wait-error' }); attempts=$(if ($readiness) { [int]$readiness.attempts } else { 0 }) }
+        }
         $source=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../automation/guest-performance-snapshot.sh') -Raw
         $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($source))
         $prefix='E_CLOCK_ONLY=1 '
@@ -1856,6 +2070,11 @@ function Save-GuestCpuRestartEvidence {
         $capture.stepInvocationId=$StepInvocationId; $capture.sequenceInvocationId=$SequenceInvocationId
         $capture.diagnosticOutcome=if ($result.success -and $safe -match '(?m)^snapshotCompleteUtc=' -and @($capture.samples | Where-Object { $_.valid }).Count -ge 2) { 'complete' }
             elseif ($capture.samples.Count -gt 0) { 'partial' } else { 'unavailable' }
+        if ($capture.diagnosticOutcome -ne 'complete') {
+            $capture.reason = if ($result.timedOut) { 'ssh-timeout' }
+                elseif (-not $result.success -and $capture.sshReadiness -and -not $capture.sshReadiness.ready) { 'ssh-not-ready' }
+                elseif (-not $result.success) { 'ssh-failed' } else { 'samples-incomplete' }
+        }
         $previous=$null
         $beforePath=Join-Path $OutputFolder 'guest.cpu-clock.before-cpu-restart.json'
         if ($Phase -eq 'after-cpu-restart' -and (Test-Path -LiteralPath $beforePath -PathType Leaf)) {
@@ -2901,6 +3120,7 @@ Export-ModuleMember -Function `
     Get-GuestTransportVerdict, `
     Test-GuestSshPortProbe, `
     Get-GuestRecorderClockAnalysis, `
+    Get-GuestRecorderIoAnalysis, `
     Get-GuestRecorderKernelStall, `
     ConvertFrom-GuestKernelFaultText, `
     Protect-GuestEvidenceText, `

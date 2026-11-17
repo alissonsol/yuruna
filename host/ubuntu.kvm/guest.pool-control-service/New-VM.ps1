@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42cb87f4-7e53-4a64-bea3-4c874894dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,7 +54,11 @@ $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
 }
-if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+$loadedLogLevel = Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue
+if ($loadedLogLevel) {
+    if (-not $PlanOnly) { Use-LogLevelFromEnv }
+    elseif ($loadedLogLevel.Parameters.ContainsKey('NoTranscript')) { Use-LogLevelFromEnv -NoTranscript }
+}
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_8be0c49190d15cd0' -Arguments @{ vMName = "$VMName" })
@@ -71,7 +75,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # --- REGION: libvirt-qemu search ACL on $HOME
 # See https://yuruna.link/42e220c4-0004
 # Grant libvirt-qemu traverse-only access to the VM storage below this home directory.
-if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
+if (-not $PlanOnly -and (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue)) {
     & getent passwd libvirt-qemu *>$null
     if ($LASTEXITCODE -eq 0) {
         & setfacl -m 'u:libvirt-qemu:--x' $HOME 2>$null
@@ -89,15 +93,23 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDi
 # Seed the shared harness key so guest provisioning and failure diagnostics agree.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
-$SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
+$SshAuthorizedKey = Get-YurunaSshPublicKey -ReadOnly:$PlanOnly
+if (-not $SshAuthorizedKey -and -not $PlanOnly) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
 
 # --- REGION: Vault admin password
 # Each service family has its own admin account: a shared name would map several
 # VMs to one vault entry, and the last build would invalidate the others' credential.
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$AdminPassword = Get-Password -Username 'pool-control-service-admin'
-if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_4b6e32db84a17902'); exit 1 }
+$passwordArguments = @{ Username = 'pool-control-service-admin' }
+if ($PlanOnly) {
+    $passwordCommand = Get-Command -Name 'Get-Password' -ErrorAction Stop
+    if (-not $passwordCommand.Parameters.ContainsKey('ReadOnly')) {
+        throw (Format-YurunaOperatorMessage -Key 'host.service_build_plan_auth_readonly_unsupported' -Arguments @{ provider = "$_authActiveName" })
+    }
+    $passwordArguments.ReadOnly = $true
+}
+$AdminPassword = Get-Password @passwordArguments
+if (-not $AdminPassword -and -not $PlanOnly) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_4b6e32db84a17902'); exit 1 }
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
@@ -160,7 +172,7 @@ $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 $poolControlLanguage = Resolve-SeedLanguageTag -Config $tc
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
-$poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
+if (-not $PlanOnly) { $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp }
 
 # --- REGION: Report seed values baked empty
 # The build goes on without them, because the guest can still serve, but it

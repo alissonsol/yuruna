@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42af9da1-899e-4918-9353-3045a08accdf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -529,6 +529,303 @@ Describe 'NetworkManager''s dhcp4 journal' {
     }
 }
 
+# A boot that ran for weeks holds more warnings than the report could ever
+# read in its budget. These stand-ins for journalctl run as real processes, so
+# what is checked is that each read ends on its own, or at its deadline.
+Describe 'the previous boot''s warning journal' -Skip:(-not $IsLinux) {
+    BeforeAll {
+        foreach ($helper in Get-DiagnosticHelperDefinition -Name 'Invoke-DiagnosticBoundedCommand', 'Write-LinuxPreviousBootWarning') { . $helper }
+        # A journalctl stand-in in a folder of its own. It logs each call with
+        # its pid, answers `-n 60` with $Newest and any other read with
+        # $Oldest, both shell fragments.
+        function New-JournalStub {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes a stand-in script under TestDrive.')]
+            [CmdletBinding()]
+            param([string]$Newest, [string]$Oldest)
+            $bin = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $null = New-Item -ItemType Directory -Path $bin
+            $stub = @'
+#!/bin/sh
+echo "$$ $*" >> "$(dirname "$0")/calls"
+case " $* " in
+  *" -n 60 "*) __NEWEST__ ;;
+  *) __OLDEST__ ;;
+esac
+'@
+            $path = Join-Path $bin 'journalctl'
+            [IO.File]::WriteAllText($path, $stub.Replace('__NEWEST__', $Newest).Replace('__OLDEST__', $Oldest).Replace("`r`n", "`n"))
+            & chmod +x $path
+            return $bin
+        }
+        function Get-BootLineCommand {
+            param([int]$First, [int]$Last)
+            return ('i={0}; while [ "$i" -le {1} ]; do echo "Nov 01 00:00:00 fixture kernel: warning $i"; i=$((i + 1)); done' -f $First, $Last)
+        }
+        function Get-BootLine {
+            param([int]$First, [int]$Last)
+            return @($First..$Last | ForEach-Object { "Nov 01 00:00:00 fixture kernel: warning $_" })
+        }
+        # Ignoring SIGPIPE, as every child of this process does, the endless
+        # stand-in keeps writing into a closed pipe until something stops it.
+        $script:EndlessBoot = 'i=1; while :; do echo "Nov 01 00:00:00 fixture kernel: warning $i"; i=$((i + 1)); done'
+    }
+    BeforeEach {
+        $script:Problems = [System.Collections.Generic.List[object]]::new()
+        $script:LinuxPriv = @()
+        $script:SavedPath = Save-YurunaTestEnvironment -Name 'PATH'
+    }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedPath }
+
+    It 'prints the oldest and newest 60 lines of a boot whose warnings never end, and stops journalctl once it has them' {
+        $bin = New-JournalStub -Newest (Get-BootLineCommand 99941 100000) -Oldest $script:EndlessBoot
+        $env:PATH = $bin + [IO.Path]::PathSeparator + $script:SavedPath.PATH
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $out = @(Write-LinuxPreviousBootWarning -TimeoutSeconds 30)
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 15 -Because 'both reads end on their own, long before their deadline'
+        $out.Count | Should -Be 121
+        $out[0..59] | Should -Be (Get-BootLine 1 60)
+        $out[60] | Should -Be 'MSG|automation.system_diagnostic_previous_boot_middle_omitted'
+        $out[61..120] | Should -Be (Get-BootLine 99941 100000)
+        $script:Problems.Count | Should -Be 0
+        $calls = @(Get-Content -LiteralPath (Join-Path $bin 'calls'))
+        $calls.Count | Should -Be 2
+        foreach ($call in $calls) {
+            $stubPid = [int]($call -split ' ')[0]
+            $wait = [Diagnostics.Stopwatch]::StartNew()
+            while ((Get-Process -Id $stubPid -ErrorAction SilentlyContinue) -and $wait.Elapsed.TotalSeconds -lt 10) { Start-Sleep -Milliseconds 100 }
+            Get-Process -Id $stubPid -ErrorAction SilentlyContinue | Should -BeNullOrEmpty -Because "journalctl ($call) must not keep reading after the report has its lines"
+        }
+    }
+
+    It 'prints a boot whose warnings fit in both ends once, in order' {
+        $bin = New-JournalStub -Newest (Get-BootLineCommand 31 90) -Oldest (Get-BootLineCommand 1 90)
+        $env:PATH = $bin + [IO.Path]::PathSeparator + $script:SavedPath.PATH
+        @(Write-LinuxPreviousBootWarning -TimeoutSeconds 30) | Should -Be (Get-BootLine 1 90)
+        $script:Problems.Count | Should -Be 0
+    }
+
+    It 'reads only the newest end of a boot with fewer warnings than that end holds' {
+        $bin = New-JournalStub -Newest (Get-BootLineCommand 1 30) -Oldest 'echo "the oldest end is read"'
+        $env:PATH = $bin + [IO.Path]::PathSeparator + $script:SavedPath.PATH
+        @(Write-LinuxPreviousBootWarning -TimeoutSeconds 30) | Should -Be (Get-BootLine 1 30)
+        $calls = @(Get-Content -LiteralPath (Join-Path $bin 'calls'))
+        $calls.Count | Should -Be 1
+        $calls[0] | Should -Match ' -b -1 -p warning --no-pager -n 60$'
+    }
+
+    It 'says there is no previous boot when journalctl prints nothing' {
+        $bin = New-JournalStub -Newest 'echo "Data from the specified boot (-1) is not available" >&2; exit 1' -Oldest 'exit 1'
+        $env:PATH = $bin + [IO.Path]::PathSeparator + $script:SavedPath.PATH
+        @(Write-LinuxPreviousBootWarning -TimeoutSeconds 30) | Should -Be @('MSG|automation.operator_ac55f29eb491874d')
+        $script:Problems.Count | Should -Be 0
+    }
+
+    It 'returns at its deadline when the oldest end stalls, keeps the lines it read, names that read and raises DIAG.probe-timeout, and still prints the newest end' {
+        $bin = New-JournalStub -Newest (Get-BootLineCommand 99941 100000) -Oldest ((Get-BootLineCommand 1 10) + '; sleep 60')
+        $env:PATH = $bin + [IO.Path]::PathSeparator + $script:SavedPath.PATH
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $out = @(Write-LinuxPreviousBootWarning -TimeoutSeconds 2)
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 12 -Because 'the stalled read is stopped at its two-second deadline'
+        $out.Count | Should -Be 72
+        $out[0..9] | Should -Be (Get-BootLine 1 10) -Because 'the lines read before the deadline survive the stop'
+        $out[10] | Should -Be 'MSG|automation.system_diagnostic_probe_stopped|label=journalctl -b -1 -p warning --no-pager | sed -u 121q|seconds=2'
+        $out[11] | Should -Be 'MSG|automation.system_diagnostic_previous_boot_middle_omitted'
+        $out[-60..-1] | Should -Be (Get-BootLine 99941 100000)
+        @($script:Problems | ForEach-Object { $_.Class }) | Should -Be @('DIAG.probe-timeout')
+        $script:Problems[0].Message | Should -Be 'MSG|automation.operator_cd63c049294a2c32|join=-b -1 -p warning --no-pager | sed -u 121q|problemTag=DIAG.probe-timeout|timeoutSeconds=2|tool=journalctl'
+    }
+
+    It 'keeps the oldest lines a stalled journalctl had already formatted, though writing into a pipe holds them in a block' {
+        # sed without -u holds its output in a block when writing into a pipe,
+        # as journalctl does; only line buffering gets these lines out before
+        # the stop.
+        $bin = New-JournalStub -Newest (Get-BootLineCommand 99941 100000) -Oldest ('{ ' + (Get-BootLineCommand 1 10) + '; sleep 60; } | sed -n p')
+        $env:PATH = $bin + [IO.Path]::PathSeparator + $script:SavedPath.PATH
+        $out = @(Write-LinuxPreviousBootWarning -TimeoutSeconds 2)
+        $out.Count | Should -Be 72
+        $out[0..9] | Should -Be (Get-BootLine 1 10)
+        $out[10] | Should -BeLike 'MSG|automation.system_diagnostic_probe_stopped|*'
+        $out[11] | Should -Be 'MSG|automation.system_diagnostic_previous_boot_middle_omitted'
+        $out[-60..-1] | Should -Be (Get-BootLine 99941 100000)
+    }
+
+    It 'prints only whole lines from an oldest end stopped in the middle of a line' {
+        # One 4 KiB block, as a block-buffered journalctl writes it, ending 5
+        # bytes into the twenty-sixth line, then nothing more.
+        $block = 'i=1; while [ "$i" -le 40 ]; do printf "Nov 01 00:00:00 fixture kernel: warning %d %0120d\n" "$i" 0; i=$((i + 1)); done | dd bs=4096 count=1 iflag=fullblock status=none; exec sleep 60'
+        $bin = New-JournalStub -Newest (Get-BootLineCommand 99941 100000) -Oldest $block
+        $env:PATH = $bin + [IO.Path]::PathSeparator + $script:SavedPath.PATH
+        $out = @(Write-LinuxPreviousBootWarning -TimeoutSeconds 2)
+        $out.Count | Should -Be 87
+        $out[0..24] | Should -Be @(1..25 | ForEach-Object { 'Nov 01 00:00:00 fixture kernel: warning {0} {1}' -f $_, ('0' * 120) })
+        $out[25] | Should -BeLike 'MSG|automation.system_diagnostic_probe_stopped|*'
+    }
+
+    It 'drops the fragment a stopped reader flushed because its writer ended first' {
+        # At the deadline both ends of the pipe are stopped in no fixed order.
+        # When journalctl goes first, sed reads the end of its input and
+        # writes out the unfinished line it was holding, with no newline.
+        function Invoke-DiagnosticBoundedCommand {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stand-in: the signature has to match the real helper so the caller binds.')]
+            param([string]$FilePath, [string[]]$ArgumentList, [int]$TimeoutSeconds, [int]$MaxCapturedChars)
+            if ($FilePath -eq 'journalctl') {
+                return @{ StdOut = ((Get-BootLine 99941 100000) -join "`n") + "`n"; TimedOut = $false }
+            }
+            return @{ StdOut = ((Get-BootLine 1 25) -join "`n") + "`nNov 0"; TimedOut = $true }
+        }
+        $out = @(Write-LinuxPreviousBootWarning -TimeoutSeconds 2)
+        $out.Count | Should -Be 87
+        $out[0..24] | Should -Be (Get-BootLine 1 25)
+        $out[25] | Should -BeLike 'MSG|automation.system_diagnostic_probe_stopped|*'
+        $out[-60..-1] | Should -Be (Get-BootLine 99941 100000)
+    }
+
+    It 'stops reading the oldest end at the line it needs, without waiting for another' {
+        $bin = New-JournalStub -Newest (Get-BootLineCommand 99941 100000) -Oldest ((Get-BootLineCommand 1 121) + '; exec sleep 60')
+        $env:PATH = $bin + [IO.Path]::PathSeparator + $script:SavedPath.PATH
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $out = @(Write-LinuxPreviousBootWarning -TimeoutSeconds 30)
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 10 -Because 'the read has its 121 lines before journalctl stalls'
+        $out.Count | Should -Be 121
+        $out[0..59] | Should -Be (Get-BootLine 1 60)
+        $out[60] | Should -Be 'MSG|automation.system_diagnostic_previous_boot_middle_omitted'
+        $out[61..120] | Should -Be (Get-BootLine 99941 100000)
+        $script:Problems.Count | Should -Be 0
+    }
+
+    It 'returns at its deadline when the newest end stalls, without reading the oldest end' {
+        $bin = New-JournalStub -Newest 'sleep 60' -Oldest 'echo "the oldest end is read"'
+        $env:PATH = $bin + [IO.Path]::PathSeparator + $script:SavedPath.PATH
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $out = @(Write-LinuxPreviousBootWarning -TimeoutSeconds 2)
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 12
+        $out | Should -Be @('MSG|automation.system_diagnostic_probe_stopped|label=journalctl -b -1 -p warning --no-pager -n 60|seconds=2')
+        @($script:Problems | ForEach-Object { $_.Class }) | Should -Be @('DIAG.probe-timeout')
+        @(Get-Content -LiteralPath (Join-Path $bin 'calls')).Count | Should -Be 1
+    }
+
+    It 'runs both reads under the privilege prefix' {
+        $bin = New-JournalStub -Newest (Get-BootLineCommand 99941 100000) -Oldest $script:EndlessBoot
+        $sudo = Join-Path $bin 'sudo'
+        [IO.File]::WriteAllText($sudo, "#!/bin/sh`necho `"`$*`" >> `"`$(dirname `"`$0`")/sudo-calls`"`n[ `"`$1`" = -n ] && shift`nexec `"`$@`"`n")
+        & chmod +x $sudo
+        $env:PATH = $bin + [IO.Path]::PathSeparator + $script:SavedPath.PATH
+        $script:LinuxPriv = @('sudo', '-n')
+        @(Write-LinuxPreviousBootWarning -TimeoutSeconds 30).Count | Should -Be 121
+        $calls = @(Get-Content -LiteralPath (Join-Path $bin 'sudo-calls'))
+        $calls.Count | Should -Be 2
+        $calls[0] | Should -BeExactly '-n journalctl -b -1 -p warning --no-pager -n 60'
+        $calls[1] | Should -BeLike '-n bash -c * bash 121 -b -1 -p warning --no-pager'
+    }
+}
+
+# The snapshot's repository and provider parts run in a child PowerShell. Its
+# user module folder comes first in the child's module path and, on Linux,
+# follows XDG_DATA_HOME, so a PowerShellGet written there stands in for the
+# real one in the child alone. The module versions are read in this process,
+# from PSModulePath, which the stand-in's folder is put in front of as well.
+Describe 'the PowerShell module snapshot' -Skip:(-not $IsLinux) {
+    BeforeAll {
+        foreach ($helper in Get-DiagnosticHelperDefinition -Name 'Invoke-DiagnosticBoundedCommand', 'Write-DiagnosticModuleSnapshot') { . $helper }
+        function Set-PowerShellGetStandIn {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes a stand-in module under TestDrive and points this test''s XDG_DATA_HOME and PSModulePath at it.')]
+            [CmdletBinding()]
+            param([string]$Body, [string]$ProviderBody)
+            $data = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $modules = Join-Path $data 'powershell/Modules'
+            $module = Join-Path $modules 'PowerShellGet'
+            $null = New-Item -ItemType Directory -Path $module
+            # A function the stand-in exports answers before the real
+            # Get-PackageProvider cmdlet once Get-PSRepository has loaded it.
+            $text = "function Get-PSRepository { $Body }`nExport-ModuleMember -Function Get-PSRepository`n"
+            if ($ProviderBody) { $text += "function Get-PackageProvider { $ProviderBody }`nExport-ModuleMember -Function Get-PackageProvider`n" }
+            [IO.File]::WriteAllText((Join-Path $module 'PowerShellGet.psm1'), $text)
+            $env:XDG_DATA_HOME = $data
+            $env:PSModulePath = $modules + [IO.Path]::PathSeparator + $env:PSModulePath
+        }
+        $timeout = (Get-YurunaTestFunctionAst -Path $script:DiagPath -Name 'Write-DiagnosticModuleSnapshot').Body.ParamBlock.Parameters |
+            Where-Object { $_.Name.VariablePath.UserPath -eq 'TimeoutSeconds' }
+        $script:SnapshotDefaultSeconds = [int]$timeout.DefaultValue.SafeGetValue()
+        # A module without a manifest is listed as version 0.0.
+        $script:StandInModuleRow = '(?m)^PowerShellGet\s+0\.0\s*$'
+    }
+    BeforeEach {
+        $script:Problems = [System.Collections.Generic.List[object]]::new()
+        $script:SavedData = Save-YurunaTestEnvironment -Name 'XDG_DATA_HOME', 'PSModulePath'
+    }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedData }
+
+    It 'prints the repository, provider and module tables, each under its heading' {
+        Set-PowerShellGetStandIn -Body '[pscustomobject]@{ Name = ''FixtureGallery''; SourceLocation = ''https://gallery.invalid/api/v2''; InstallationPolicy = ''Trusted''; Trusted = $true }'
+        $out = @(Write-DiagnosticModuleSnapshot -TimeoutSeconds 60)
+        $repository = [array]::FindIndex([string[]]$out, [Predicate[string]] { param($line) $line -match 'Name\s+: FixtureGallery' })
+        $providers = [array]::IndexOf([string[]]$out, '--- PackageProvider -ListAvailable ---')
+        $modules = [array]::IndexOf([string[]]$out, '--- Modules (PowerShellGet, PSResourceGet, powershell-yaml) ---')
+        $repository | Should -Be 0
+        $providers | Should -BeGreaterThan $repository
+        $modules | Should -BeGreaterThan $providers
+        $out[$modules + 1] | Should -Match $script:StandInModuleRow
+        $script:Problems.Count | Should -Be 0
+    }
+
+    It 'keeps Get-PSRepository''s own error, and its problem class, and still lists the rest' {
+        Set-PowerShellGetStandIn -Body 'throw ''fixture repository registration is unreadable'''
+        $out = @(Write-DiagnosticModuleSnapshot -TimeoutSeconds 60)
+        $out[0] | Should -Be 'MSG|automation.operator_29759c8a58f5d70a|fixture repository registration is unreadable'
+        $out | Should -Contain '--- PackageProvider -ListAvailable ---'
+        $out | Should -Contain '--- Modules (PowerShellGet, PSResourceGet, powershell-yaml) ---'
+        @($script:Problems | ForEach-Object { $_.Class }) | Should -Be @('PROVISIONING.repository-unavailable')
+        $script:Problems[0].Message | Should -Be 'MSG|automation.operator_29e3b381e78aec31'
+    }
+
+    It 'stops a snapshot that does not answer at its default deadline, says so, raises DIAG.probe-timeout and still lists the module versions' {
+        # Blocked inside .NET, where a stop request inside the same process
+        # would wait until the call returned.
+        Set-PowerShellGetStandIn -Body '[Threading.Thread]::Sleep(600000)'
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $out = @(Write-DiagnosticModuleSnapshot)
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan ($script:SnapshotDefaultSeconds + 3) -Because 'the child is stopped at its deadline'
+        $out.Count | Should -Be 3
+        $out[0] | Should -Be "MSG|automation.system_diagnostic_probe_stopped|label=pwsh Get-PSRepository; Get-PackageProvider -ListAvailable|seconds=$($script:SnapshotDefaultSeconds)"
+        $out[1] | Should -Be '--- Modules (PowerShellGet, PSResourceGet, powershell-yaml) ---'
+        $out[2] | Should -Match $script:StandInModuleRow
+        @($script:Problems | ForEach-Object { $_.Class }) | Should -Be @('DIAG.probe-timeout')
+        $script:Problems[0].Message | Should -Be "MSG|automation.operator_cd63c049294a2c32|join=Get-PSRepository; Get-PackageProvider -ListAvailable|problemTag=DIAG.probe-timeout|timeoutSeconds=$($script:SnapshotDefaultSeconds)|tool=pwsh"
+    }
+
+    It 'prints the repository part that finished before the deadline, and the stopped note in place of the provider part' {
+        Set-PowerShellGetStandIn -Body '[pscustomobject]@{ Name = ''FixtureGallery''; SourceLocation = ''https://gallery.invalid/api/v2''; InstallationPolicy = ''Trusted''; Trusted = $true }' `
+            -ProviderBody '[Threading.Thread]::Sleep(600000)'
+        $out = @(Write-DiagnosticModuleSnapshot -TimeoutSeconds 10)
+        $out.Count | Should -Be 5
+        $out[0] | Should -Match 'Name\s+: FixtureGallery'
+        $out[1] | Should -Be '--- PackageProvider -ListAvailable ---'
+        $out[2] | Should -Be 'MSG|automation.system_diagnostic_probe_stopped|label=pwsh Get-PSRepository; Get-PackageProvider -ListAvailable|seconds=10'
+        $out[3] | Should -Be '--- Modules (PowerShellGet, PSResourceGet, powershell-yaml) ---'
+        $out[4] | Should -Match $script:StandInModuleRow
+        @($script:Problems | ForEach-Object { $_.Class }) | Should -Be @('DIAG.probe-timeout')
+    }
+
+    It 'aborts the section with the child''s exit status when the child ends before its deadline' {
+        Set-PowerShellGetStandIn -Body '[Environment]::Exit(3)'
+        { $null = Write-DiagnosticModuleSnapshot -TimeoutSeconds 60 } | Should -Throw '*exit 3*'
+    }
+
+    It 'keeps its default deadline short enough for the sections after it' {
+        # A guest's report runs inside the guest diagnostic's per-command SSH
+        # budget of 60 seconds ($script:SaveGuestDiagnosticPerCommandTimeoutSeconds
+        # in Test.Diagnostic.psm1). A slow guest has reached this section more
+        # than 45 seconds into that budget, and the project section, the problem
+        # list and its JSON summary still have to print after it, so the child
+        # gets at most five seconds.
+        $script:SnapshotDefaultSeconds | Should -BeGreaterThan 0
+        $script:SnapshotDefaultSeconds | Should -BeLessOrEqual 5
+    }
+}
+
 Describe 'the Linux crash evidence is wired into the report' {
     BeforeAll {
         $script:DiagAst = Get-YurunaTestFileAst -Path $script:DiagPath
@@ -620,6 +917,78 @@ exit 0
         $summary.Success | Should -BeTrue
         $problems = $summary.Groups[1].Value | ConvertFrom-Json -AsHashtable
         $problems.byClass['LINUX.hardware-errors'] | Should -Be 1
+        $problems.byClass.Keys | Should -Not -Contain 'DIAG.section-aborted'
+    }
+
+    It 'reads the previous boot through its bounded reader, never whole' {
+        $body = Get-SectionBody -Title 'INSTALL & EARLY-BOOT TIMELINE (Linux)'
+        $body | Should -Match '\bWrite-LinuxPreviousBootWarning\b'
+        $body | Should -Not -Match "'-b',\s*'-1'"
+    }
+
+    It 'takes the module snapshot through its bounded child process' {
+        $body = Get-SectionBody -Title 'GUEST PROVISIONING (Linux)'
+        $body | Should -Match '\bWrite-DiagnosticModuleSnapshot\b'
+        $body | Should -Not -Match '\bGet-PSRepository\b|\bGet-PackageProvider\b'
+    }
+
+    It 'finishes the report when the previous boot''s journal is huge and the module snapshot hangs' -Skip:(-not $IsLinux) {
+        $definition = Get-YurunaTestFunctionAst -Path $script:DiagPath -Name 'Invoke-DiagnosticBoundedCommand'
+        . ([scriptblock]::Create($definition.Extent.Text))
+        $solo = Join-Path $TestDrive 'huge-solo'
+        $bin = Join-Path $TestDrive 'huge-bin'
+        $data = Join-Path $TestDrive 'huge-data'
+        $module = Join-Path $data 'powershell/Modules/PowerShellGet'
+        $null = New-Item -ItemType Directory -Path $solo, $bin, $module
+        $copy = Join-Path $solo 'Get-SystemDiagnostic.ps1'
+        Copy-Item -LiteralPath $script:DiagPath -Destination $copy
+        # The child the snapshot starts finds this PowerShellGet first; the
+        # report's own process never loads it.
+        [IO.File]::WriteAllText((Join-Path $module 'PowerShellGet.psm1'),
+            "function Get-PSRepository { [Threading.Thread]::Sleep(600000) }`nExport-ModuleMember -Function Get-PSRepository`n")
+        $stub = @{
+            'sudo' = "#!/bin/sh`nexit 1`n"
+            'docker' = "#!/bin/sh`nexit 1`n"
+            # A previous boot of two million warnings, the newest 60 of it
+            # for -n 60, and an empty journal for every other query. Finite,
+            # so a report that read the whole boot would finish, slowly, and
+            # fail on its content rather than run the host out of memory.
+            'journalctl' = @'
+#!/bin/sh
+case " $* " in
+  *" -b -1 "*" -n 60 "*) seq -f 'Nov 01 00:00:00 fixture kernel: huge warning %.0f' 1999941 2000000 ;;
+  *" -b -1 "*) seq -f 'Nov 01 00:00:00 fixture kernel: huge warning %.0f' 1 2000000 ;;
+esac
+exit 0
+'@
+        }
+        foreach ($name in $stub.Keys) {
+            $path = Join-Path $bin $name
+            [IO.File]::WriteAllText($path, $stub[$name].Replace("`r`n", "`n"))
+            & chmod +x $path
+        }
+        $saved = Save-YurunaTestEnvironment -Name 'PATH', 'XDG_DATA_HOME'
+        try {
+            $env:PATH = $bin + [IO.Path]::PathSeparator + $saved.PATH
+            $env:XDG_DATA_HOME = $data
+            $run = Invoke-DiagnosticBoundedCommand -FilePath (Get-Process -Id $PID).Path -TimeoutSeconds 300 -ArgumentList @(
+                '-NoProfile', '-NonInteractive', '-File', $copy, '-SkipDocker', '-SkipKube', '-SkipProjectGaps',
+                '-CheckoutRoot', (Join-Path $TestDrive 'no-checkout'))
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+
+        $run.TimedOut | Should -BeFalse
+        $run.ExitCode | Should -Be 0 -Because $run.StdErr
+        $run.StdOut | Should -Match '(?m)^Nov 01 00:00:00 fixture kernel: huge warning 1$'
+        $run.StdOut | Should -Match '(?m)^Nov 01 00:00:00 fixture kernel: huge warning 2000000$'
+        $run.StdOut | Should -Not -Match '(?m)huge warning 61$'
+        $run.StdOut | Should -Match ([regex]::Escape('middle lines skipped without counting them'))
+        $stopped = '(pwsh Get-PSRepository; Get-PackageProvider -ListAvailable did not finish within 5s and was stopped'
+        $run.StdOut | Should -Match ([regex]::Escape($stopped) + '.*\r?\n--- Modules \(PowerShellGet, PSResourceGet, powershell-yaml\) ---\r?\n')
+        $run.StdOut | Should -Match '(?m)^Diagnostics complete\.\s*$'
+        $summary = [regex]::Match($run.StdOut, '(?ms)^===YURUNA-DIAG-JSON-BEGIN===\r?\n(.*?)\r?\n===YURUNA-DIAG-JSON-END===')
+        $summary.Success | Should -BeTrue
+        $problems = $summary.Groups[1].Value | ConvertFrom-Json -AsHashtable
+        $problems.byClass['DIAG.probe-timeout'] | Should -Be 1
         $problems.byClass.Keys | Should -Not -Contain 'DIAG.section-aborted'
     }
 }

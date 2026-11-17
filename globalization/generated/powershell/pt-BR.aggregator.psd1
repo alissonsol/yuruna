@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42bda300-8f98-7969-bc3d-200d08e0d119
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -423,11 +423,11 @@
     'aggregator.log_loki_outbox_full' = @(
         'a fila de saída do Loki está cheia ('
         @{
-            'arg' = 'lines'
+            'arg' = 'pushes'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' linhas); novas linhas são recusadas até o Loki aceitar algumas'
+        ' envios na fila; os limites são DefaultMaxItems e DefaultMaxBytes em internal/loki/outbox.go); novas linhas são recusadas até o Loki aceitar algumas'
     )
     'aggregator.log_loki_outbox_memory_only' = @(
         'fila de saída do Loki: '

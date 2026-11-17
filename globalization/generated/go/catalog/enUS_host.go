@@ -9413,6 +9413,24 @@ const DataenUShost = `{
     },
     "' accepted: every input the build needs is present, and nothing was changed."
   ],
+  "host.service_build_plan_auth_readonly_unsupported": [
+    "Authentication provider ",
+    {
+      "arg": "provider",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " does not support read-only password validation. The build plan cannot call its mutating getter."
+  ],
+  "host.service_build_plan_cache_state_invalid": [
+    "Cannot validate caching-proxy state at ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " without changing it: the primary file and its backup contain unusable data."
+  ],
   "host.service_seed_degraded": [
     "The seed of '",
     {

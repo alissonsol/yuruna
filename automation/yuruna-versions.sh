@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.08
+# Version: 2026.11.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42b6e20a-0c70-4d03-ad67-d64c73c4ba78
@@ -13,18 +13,18 @@
 export YURUNA_K8S_MINOR=1.37
 # Verify the exact stable release after standalone installation and before
 # reusing an installed binary.
-export YURUNA_OPENTOFU_VERSION=1.13.1
+export YURUNA_OPENTOFU_VERSION=1.13.9
 # SHA-256 of tofu_<version>_linux_<arch>.tar.gz, from the release's
 # tofu_<version>_SHA256SUMS (its .gpgsig verifies against OpenTofu's key
 # E3E6E43D84CB852EADB0051D0C0AF313E5FD9F80).
-export YURUNA_OPENTOFU_SHA256_AMD64=378ada19d4bc70c43732004e8159be771b23b9a5afdf059e5f8a2b3fa2c70a69
-export YURUNA_OPENTOFU_SHA256_ARM64=9c1ef375aa1852db0b2888aa921b640c71f8140d4682aa4fec99378a64fa7dc3
+export YURUNA_OPENTOFU_SHA256_AMD64=b34b327cc1ef07178207b6f2cd1f5276537d3e5b7be316500f6dac50d4c0a857
+export YURUNA_OPENTOFU_SHA256_ARM64=5dc196dde75b667e4806d358310ec96742774cd0993c54c1237efee5644b69b8
 # An exact Helm release keeps guest provisioning on a repeatable version.
-export YURUNA_HELM_VERSION=4.3.1
+export YURUNA_HELM_VERSION=4.3.2
 # SHA-256 of helm-v<version>-linux-<arch>.tar.gz, from get.helm.sh's
 # <file>.sha256sum for that release.
-export YURUNA_HELM_SHA256_AMD64=0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b
-export YURUNA_HELM_SHA256_ARM64=8cf8f66ecbc252ac8f7f06cca68aba88508ddfde3a6a34feb1678ad1694b4f88
+export YURUNA_HELM_SHA256_AMD64=d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983
+export YURUNA_HELM_SHA256_ARM64=df31cb61680ef728f82c770e5280dd565617bee6b039d37e85c677288be4bbb0
 # One flannel release keeps the CNI manifest, and the images the caching proxy
 # warms from it, the same across builds.
 export YURUNA_FLANNEL_VERSION=0.28.10
@@ -39,10 +39,10 @@ export YURUNA_MKCERT_SHA256_AMD64=6d31c65b03972c6dc4a14ab429f2928300518b26503f58
 export YURUNA_MKCERT_SHA256_ARM64=b98f2cc69fd9147fe4d405d859c57504571adec0d3611c3eefd04107c7ac00d0
 # A fixed nvm installer keeps installation behavior independent of
 # updates within the chosen Node major.
-export YURUNA_NVM_VERSION=0.40.8
+export YURUNA_NVM_VERSION=0.41.0
 # SHA-256 of install.sh at tag v<version>, computed from raw.githubusercontent.com
 # (upstream publishes no checksum for it).
-export YURUNA_NVM_INSTALL_SHA256=48a0eee9a60e07422dce0eb5774754c83889570ca1ee2566c516acbe8af03a9e
+export YURUNA_NVM_INSTALL_SHA256=045932fe05f0d4247c946f2ec0ec4026dbfd8ce88a5f67ea28d8ea833227f48b
 # The dotnet/install-scripts commit whose src/dotnet-install.sh the Linux code
 # guests run; the script itself follows the .NET LTS channel. Keep the
 # Windows code workload's commit the same.

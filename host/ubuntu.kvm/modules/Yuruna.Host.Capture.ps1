@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42ebdaa1-65a7-4e54-8cc9-fecf31d96805
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,7 +66,7 @@ function Write-YurunaDhcpGap {
     # which is how the suites load it.
     if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
         Send-YurunaDegradation -Dependency 'dhcp-capture' -Primary 'armed-window' -Fallback 'none' `
-            -Reason $Reason
+            -Reason $Reason -VMName $VMName
     }
 }
 
@@ -178,53 +178,75 @@ function Start-VMDhcpCapture {
         } elseif ($script:YurunaDhcpWireRefusal) {
             $capture.WireNote = $script:YurunaDhcpWireRefusal
         } else {
-            $pcap = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-dhcp-{0}.pcap" -f $VMName)
-            $errPath = "$pcap.err"
-            Remove-Item -LiteralPath $pcap -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $errPath -Force -ErrorAction SilentlyContinue
-            # Packet-count bound rather than a file-size one: -C renames the
-            # output behind our back, while a count keeps one predictable path
-            # and 500 DHCP frames is far more than one cycle of one guest.
-            $tcpdumpArg = @('-i', $iface.Bridge, '-n', '-s', '0', '-U', '-c', '500',
-                            '-w', $pcap, 'port', '67', 'or', 'port', '68')
-            # A quiet bridge may never reach the packet bound. The independent
-            # wall-clock bound also survives an abrupt parent process exit.
-            $captureArg = @('--signal=TERM', '--kill-after=5s', '300s', 'tcpdump') + $tcpdumpArg
-            # Start-Process rejects identical input/output paths, even /dev/null.
-            $inputPath = "$pcap.stdin"
-            [System.IO.File]::WriteAllText($inputPath, '')
+            # The wire half is optional evidence beside the journal window, so a
+            # failure to start it ends only that half: the reason is recorded and
+            # remembered like a refusal, and the window below is armed regardless.
             try {
-                $proc = Start-Process -FilePath 'timeout' -ArgumentList $captureArg -PassThru -NoNewWindow `
-                    -RedirectStandardInput $inputPath -RedirectStandardOutput '/dev/null' `
-                    -RedirectStandardError $errPath -ErrorAction SilentlyContinue
-            } finally { Remove-Item -LiteralPath $inputPath -Force -ErrorAction SilentlyContinue }
-            # tcpdump reports a refused capture and exits immediately, so a
-            # short settle separates "running" from "already dead" without
-            # polling. Reported either way: a capture believed to be running
-            # that never was is worse than none.
-            Start-Sleep -Milliseconds 400
-            if ($proc -and -not $proc.HasExited) {
-                $capture.PcapPath = $pcap
-                $capture.Process  = $proc
-                $capture.WireNote = "tcpdump running on $($iface.Bridge)"
-            } else {
-                $why = ''
-                if (Test-Path -LiteralPath $errPath) {
-                    $why = (@(Get-Content -LiteralPath $errPath -ErrorAction SilentlyContinue) |
-                        Where-Object { $_ } | Select-Object -First 1)
-                }
-                if (-not $why) { $why = 'tcpdump exited immediately' }
-                $script:YurunaDhcpWireRefusal = "no wire capture: $why -- enable with: $script:YurunaDhcpCaptureGrant"
-                $capture.WireNote = $script:YurunaDhcpWireRefusal
+                $pcap = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-dhcp-{0}.pcap" -f $VMName)
                 Remove-Item -LiteralPath $pcap -Force -ErrorAction SilentlyContinue
+                # Packet-count bound rather than a file-size one: -C renames the
+                # output behind our back, while a count keeps one predictable path
+                # and 500 DHCP frames is far more than one cycle of one guest.
+                $tcpdumpArg = @('-i', $iface.Bridge, '-n', '-s', '0', '-U', '-c', '500',
+                                '-w', $pcap, 'port', '67', 'or', 'port', '68')
+                # A quiet bridge may never reach the packet bound. The independent
+                # wall-clock bound also survives an abrupt parent process exit.
+                $captureArg = @('--signal=TERM', '--kill-after=5s', '300s', 'tcpdump') + $tcpdumpArg
+                # Give the capture private standard streams; inherited pipes can hold callers open.
+                # Resolve timeout through PATH before launch. See https://yuruna.link/42f52e37-000b
+                $launch = [System.Diagnostics.ProcessStartInfo]::new(
+                    (Get-Command -Name 'timeout' -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source)
+                foreach ($argument in $captureArg) { [void]$launch.ArgumentList.Add($argument) }
+                $launch.UseShellExecute        = $false
+                $launch.RedirectStandardInput  = $true
+                $launch.RedirectStandardOutput = $true
+                $launch.RedirectStandardError  = $true
+                $proc = [System.Diagnostics.Process]::Start($launch)
+                try { $proc.StandardInput.Close() } catch { Write-Verbose "DHCP capture stdin close for '$VMName': $($_.Exception.Message)" }
+                # Discarded as /dev/null would discard it: tcpdump writing to a
+                # file prints nothing here, but a pipe nobody drains blocks its writer.
+                [void]$proc.StandardOutput.BaseStream.CopyToAsync([System.IO.Stream]::Null)
+                $errText = $proc.StandardError.ReadToEndAsync()
+                # tcpdump reports a refused capture and exits immediately, so a
+                # short settle separates "running" from "already dead" without
+                # polling. Reported either way: a capture believed to be running
+                # that never was is worse than none.
+                Start-Sleep -Milliseconds 400
+                if (-not $proc.HasExited) {
+                    $capture.PcapPath = $pcap
+                    $capture.Process  = $proc
+                    $capture.WireNote = "tcpdump running on $($iface.Bridge)"
+                } else {
+                    $why = ''
+                    # timeout exits only after tcpdump, so the pipe is at end of
+                    # file; the bound covers a descendant that kept it open.
+                    try {
+                        if ($errText.Wait(1000)) {
+                            $why = (@($errText.Result -split '\r?\n') | Where-Object { $_ } | Select-Object -First 1)
+                        }
+                    } catch { Write-Verbose "DHCP capture refusal text for '$VMName' unreadable: $($_.Exception.Message)" }
+                    if (-not $why) { $why = 'tcpdump exited immediately' }
+                    $script:YurunaDhcpWireRefusal = "no wire capture: $why -- enable with: $script:YurunaDhcpCaptureGrant"
+                    $capture.WireNote = $script:YurunaDhcpWireRefusal
+                    Remove-Item -LiteralPath $pcap -Force -ErrorAction SilentlyContinue
+                }
+            } catch {
+                # A method call wraps what the launch threw; the system's own
+                # reason is the exception inside.
+                $failure = $_.Exception
+                if ($failure -is [System.Management.Automation.MethodInvocationException] -and $failure.InnerException) { $failure = $failure.InnerException }
+                $script:YurunaDhcpWireRefusal = "no wire capture: the capture could not be started: $($failure.Message)"
+                $capture.WireNote = $script:YurunaDhcpWireRefusal
             }
-            Remove-Item -LiteralPath $errPath -Force -ErrorAction SilentlyContinue
         }
         $script:YurunaDhcpCapture = $capture
         $script:YurunaDhcpTrail = "a window was armed for '$VMName' at @$armed"
         Write-Verbose "DHCP evidence armed for '$VMName' at @$armed ($($capture.WireNote))."
         return $true
     } catch {
+        # Kept in the trail as well, so a later save for this guest says an arm
+        # was attempted and failed rather than that nothing ever armed one.
+        $script:YurunaDhcpTrail = "arming the window for '$VMName' failed: $($_.Exception.Message)"
         Write-YurunaDhcpGap -Reason "the window could not be armed: $($_.Exception.Message)" -VMName $VMName
         return $false
     }

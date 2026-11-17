@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42b7c9d4-3f1a-4e8c-9d52-7c4a1b6e8f30
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -219,12 +219,40 @@ function New-RequirementFile {
     Set-Content -LiteralPath (Join-Path $Root 'automation/Yuruna.Requirement.yml') -Value $Body
 }
 
+function ConvertTo-InstallerShellPath {
+    param([string]$Path)
+    if ($IsWindows -and $Path -match '^([A-Za-z]):[\\/]') {
+        return '/' + $Matches[1].ToLowerInvariant() + $Path.Substring(2).Replace('\', '/')
+    }
+    return $Path
+}
+
+function Invoke-InstallerFixture {
+    param([Parameter(Mandatory)][string]$Body, [hashtable]$Environment = @{})
+    $shellEnvironment = @{}
+    foreach ($name in $Environment.Keys) {
+        $value = [string]$Environment[$name]
+        $converted = ConvertTo-InstallerShellPath $value
+        if ($converted -ne $value) { $Body = $Body.Replace($value, $converted) }
+        if ($IsWindows -and $name -eq 'PATH') {
+            $converted = [regex]::Replace($value, '(^|:)([A-Za-z]:[\\/][^:]*)', {
+                    param($match)
+                    $match.Groups[1].Value + (ConvertTo-InstallerShellPath $match.Groups[2].Value)
+                })
+        }
+        $shellEnvironment[$name] = $converted
+    }
+    # Shell PATH uses colons, and GNU checksum tools escape Windows backslash
+    # filenames before the hash. Keep both in the shell's native path syntax.
+    return Invoke-YurunaTestShell -Body $Body -Environment $shellEnvironment
+}
+
 # Runs a bash body with the lifted functions and the stubs in scope. PATH is
 # replaced outright so the sandbox's pwsh is the only one reachable -- the host
 # interpreter must never be what a test measures.
 function Invoke-InstallerShell {
     param([Parameter(Mandatory)][string]$Body, [hashtable]$Environment = @{})
-    return Invoke-YurunaTestShell -Body (@($script:Prelude, $script:Lifted, $Body) -join "`n") -Environment $Environment
+    return Invoke-InstallerFixture -Body (@($script:Prelude, $script:Lifted, $Body) -join "`n") -Environment $Environment
 }
 
 # The sources a case reached, in order, or nothing when it reached none. The floor
@@ -902,7 +930,14 @@ Describe 'first install of pwsh' {
             New-Item -ItemType Directory -Path $tools -Force | Out-Null
             foreach ($tool in @('cat', 'cp', 'chmod', 'grep', 'rm')) {
                 $source = (Get-Command -Name $tool -CommandType Application | Select-Object -First 1).Source
-                New-Item -ItemType SymbolicLink -Path (Join-Path $tools $tool) -Target $source | Out-Null
+                $target = Join-Path $tools $tool
+                if ($IsWindows) {
+                    $command = ConvertTo-InstallerShellPath $source
+                    [IO.File]::WriteAllText($target, "#!/bin/bash`nexec '$command' `"`$@`"`n")
+                    & chmod +x $target
+                } else {
+                    New-Item -ItemType SymbolicLink -Path $target -Target $source | Out-Null
+                }
             }
             $box.Path = "$($box.BinDir):$tools"
             return $box
@@ -999,14 +1034,14 @@ apt-get() { printf 'APT-GET %s\n' "$*" >> "$FAKE_ROOT/calls"; }
             Set-SandboxFile -Root $root -File @{ 'etc/os-release' = 'VERSION_ID="26.04"'; 'etc/apt/keyrings/microsoft.gpg' = 'keyring'
                 'etc/apt/sources.list.d/microsoft-prod.list' = 'the operator''s own line' }
             $body = @($script:AptSourcePrelude, $script:AptSourceLifted, 'install_pwsh_apt; echo "RC $?"') -join "`n"
-            $r = Invoke-YurunaTestShell -Body $body -Environment @{ FAKE_ROOT = $root }
+            $r = Invoke-InstallerFixture -Body $body -Environment @{ FAKE_ROOT = $root }
             Assert-Match '(?m)^RC 0$' $r.Output $r.Output
             Assert-Match '(?m)^LOG Microsoft apt repo already listed in \S+/etc/apt/sources\.list\.d/microsoft-prod\.list \(codename=resolute\)$' $r.Output
             Assert-True ($r.Output -notmatch 'Adding Microsoft apt repo') 'a list already present is not reported as added'
             Assert-Equal -Expected 'the operator''s own line' -Actual (Get-Content -LiteralPath $list -Raw).Trim() -Because 'the operator''s list is left as it was'
             # The same run on a host without the list adds it, and says so.
             Remove-Item -LiteralPath $list
-            $r = Invoke-YurunaTestShell -Body $body -Environment @{ FAKE_ROOT = $root }
+            $r = Invoke-InstallerFixture -Body $body -Environment @{ FAKE_ROOT = $root }
             Assert-Match '(?m)^LOG Adding Microsoft apt repo \(codename=resolute\)$' $r.Output $r.Output
             Assert-Match '^deb \[arch=amd64 signed-by=\S+/etc/apt/keyrings/microsoft\.gpg\] https://packages\.microsoft\.com/ubuntu/26\.04/prod resolute main$' (Get-Content -LiteralPath $list -Raw).Trim()
         } finally { Remove-YurunaTestTempDir $root }
@@ -1085,7 +1120,7 @@ sudo() {
         function Invoke-AssetShell {
             param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Body, [hashtable]$Environment = @{})
             $shellEnvironment = @{ FAKE_ROOT = $Root; TMPDIR = $Root } + $Environment
-            return Invoke-YurunaTestShell -Body (@($script:AssetPrelude, $script:AssetLifted, $Body) -join "`n") -Environment $shellEnvironment
+            return Invoke-InstallerFixture -Body (@($script:AssetPrelude, $script:AssetLifted, $Body) -join "`n") -Environment $shellEnvironment
         }
     }
     It 'hands apt the verified <Arch> package from the directory only root can write, so dpkg records what it unpacks' -TestCases @(
@@ -1148,7 +1183,7 @@ sudo() {
             Assert-Match '(?m)^RC 0$' $r.Output $r.Output
             $calls = Read-SourceCall -Root $root
             $owned = [regex]::Match($calls, '(?m)^ROOT-OWNED (\S+)$').Groups[1].Value
-            $named = @([regex]::Matches((@($calls -split "`n" | Where-Object { $_ -like 'SUDO *' }) -join "`n"), [regex]::Escape($root) + '/\S+') | ForEach-Object { $_.Value })
+            $named = @([regex]::Matches((@($calls -split "`n" | Where-Object { $_ -like 'SUDO *' }) -join "`n"), [regex]::Escape((ConvertTo-InstallerShellPath $root)) + '/\S+') | ForEach-Object { $_.Value })
             Assert-True ($named.Count -gt 0) 'root writes the downloads into the sandbox''s stand-in for its directory'
             $outside = @($named | Where-Object { $_ -ne $owned -and -not $_.StartsWith("$owned/") })
             Assert-Equal -Expected '' -Actual ($outside -join ' ') -Because 'every path root names lies in the directory it made'
@@ -1362,7 +1397,7 @@ apt-get() {
             # The installer reads ID from /etc/os-release at the top of a run.
             $shellEnvironment = @{ FAKE_ROOT = $Root; TMPDIR = $Root; ID = 'ubuntu' }
             foreach ($k in $Environment.Keys) { $shellEnvironment[$k] = $Environment[$k] }
-            return Invoke-YurunaTestShell -Body (@($script:SuitePrelude, $script:SuiteSettings, $script:SuiteLifted, $Body) -join "`n") -Environment $shellEnvironment
+            return Invoke-InstallerFixture -Body (@($script:SuitePrelude, $script:SuiteSettings, $script:SuiteLifted, $Body) -join "`n") -Environment $shellEnvironment
         }
     }
     It 'names the suite, the origin its Release file states and the key that signs it' {
@@ -1392,7 +1427,7 @@ apt-get() {
             Assert-Equal -Expected "Package: *`nPin: release o=microsoft-ubuntu-noble-prod noble`nPin-Priority: -1`n`nPackage: powershell`nPin: release o=microsoft-ubuntu-noble-prod noble`nPin-Priority: 500`n" -Actual $pin `
                 -Because 'apt takes powershell from the suite and nothing else'
             $source = Get-Content -LiteralPath $files[0] -Raw
-            Assert-Equal -Expected "Types: deb`nURIs: https://packages.microsoft.com/ubuntu/24.04/prod`nSuites: noble`nComponents: main`nArchitectures: amd64`nSigned-By: $($files[2])`n" -Actual $source
+            Assert-Equal -Expected "Types: deb`nURIs: https://packages.microsoft.com/ubuntu/24.04/prod`nSuites: noble`nComponents: main`nArchitectures: amd64`nSigned-By: $(ConvertTo-InstallerShellPath $files[2])`n" -Actual $source
             Assert-Match '^dearmored armored key' (Get-Content -LiteralPath $files[2] -Raw) 'the verified key is the keyring the source names'
         } finally { Remove-YurunaTestTempDir $root }
     }

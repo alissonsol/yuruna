@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42fd45e3-d490-4fe2-a3d8-49d6577c6a35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,8 +29,8 @@
     boundary, --no-proxy fetch, non-lying re-probe) and the /ca.crt HEAD-body
     guard in Invoke-StatusServiceRuntime.ps1 -- shape, so a comment cannot satisfy them.
 
-    The throw-based Assert-* helpers live at script scope and are referenced
-    from It blocks, so this runs under Pester 5.x.
+    The throw-based Assert-* helpers come from Test.Assert.psm1, imported
+    globally at script scope so the It blocks reach them under Pester 6.x.
 #>
 
 $here     = Split-Path -Parent $PSCommandPath

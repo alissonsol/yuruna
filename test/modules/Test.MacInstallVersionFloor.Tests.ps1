@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4207f1a4-6b1e-4c0a-9a05-9b2a1f6c3d77
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,12 @@ $repoRoot  = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChi
 $installer = Join-Path $repoRoot 'install/macos.utm.sh'
 
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+$script:SavedMsys = Save-YurunaTestEnvironment -Name 'MSYS'
+if ($IsWindows) {
+    # Git Bash otherwise copies the target, so readlink cannot verify the
+    # installer promoted the link. Emulated symlinks need no host privilege.
+    $env:MSYS = (@($env:MSYS, 'winsymlinks:sys') | Where-Object { $_ }) -join ' '
+}
 
 if (-not (Test-Path -LiteralPath $installer)) { throw "Installer not found: $installer" }
 $installerText = Get-Content -LiteralPath $installer -Raw
@@ -150,6 +156,8 @@ function New-FloorSandbox {
     return $root
 }
 }
+
+AfterAll { Restore-YurunaTestEnvironment -Saved $script:SavedMsys }
 
 Describe 'version_ge' {
     It 'orders release numbers by field, not as text' {
@@ -297,8 +305,9 @@ export PATH_LINK_DIR='$root/local/bin'
 export PATH='$root/brew/bin:$root/local/bin:$root/sysbin:/usr/bin:/bin'
 prefer_newest_binary pwsh powershell '$root/pkg/pwsh'
 printf 'LINK %s\n' "`$(readlink '$root/local/bin/pwsh')"
+[[ -L '$root/local/bin/pwsh' && "`$(readlink '$root/local/bin/pwsh')" -ef '$root/brew/opt/powershell/bin/pwsh' ]] && echo LINK-TARGET-IS-NEWEST
 "@
-            Assert-Match ([regex]::Escape("LINK $root/brew/opt/powershell/bin/pwsh")) $r.Output `
+            Assert-Match '(?m)^LINK-TARGET-IS-NEWEST$' $r.Output `
                 'the link the whole machine resolves has to name the newest copy, not the .pkg'
             Assert-Match 'answers 7\.6\.6, older than 7\.6\.9' $r.Output 'the log has to say why a shell that already runs the newest copy relinks'
             Assert-True ($r.Output -notmatch 'BREW-UNLINK') 'the newest copy is Homebrew''s own, so nothing may be unlinked'

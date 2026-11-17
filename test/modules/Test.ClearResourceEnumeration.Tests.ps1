@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 420935c1-4b35-484c-b68d-3295385f8efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,7 @@
     ConvertTo-Yaml calls Yuruna.Resource.psm1 uses, so a change to the writer's
     shape breaks these tests rather than silently re-opening the no-op.
     No work folders are created, so no `tofu` invocation is reached and the test
-    needs no provider on PATH. Runs under Pester 5.x.
+    needs no provider on PATH. Runs under Pester 6.x.
 #>
 
 BeforeAll {

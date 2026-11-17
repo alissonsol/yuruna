@@ -5,8 +5,8 @@ $schema: https://json-schema.org/draft/2020-12/schema
 $id: https://yuruna.com/schemas/vault.schema.yml
 title: Yuruna authentication vault
 description: >
-  Per-cycle plaintext credential cache. Wiped on cycle success;
-  left in place on cycle failure for debugging.
+  Plaintext credential cache that persists across cycles: an existing vault is
+  reused as-is, and passwords rotate only through an explicit Set-Password call.
 
 type: object
 required: [users]

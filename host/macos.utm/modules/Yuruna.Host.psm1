@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -276,52 +276,13 @@ function Rename-VM {
         Rename a stopped UTM VM by editing its .utm bundle and UTM's Registry
         plist while UTM.app is quit.
     .DESCRIPTION
-        UTM exposes no rename verb in utmctl, and macOS 26 builds mark the
-        AppleScript `name` property of `virtual machine` as read-only
-        (osascript fails with -10006). The reliable workaround is on-disk
-        surgery while UTM is offline:
-
-          1. Quit UTM.app through Stop-UtmApplication (UTM and its QEMUHelper
-             children, this user only) so cfprefsd flushes the in-memory
-             Registry to its plist on disk, then flush cfprefsd's cache so our
-             subsequent edits aren't clobbered.
-          2. Rename `<guest.nosync>/<VMName>.utm` -> `<guest.nosync>/<NewName>.utm`.
-             The qcow2 disks (including snapshots written by Save-VMDiskSnapshot)
-             move with the bundle.
-          3. PlistBuddy: set `:Information:Name` in the new bundle's
-             config.plist to NewName.
-          4. PlistBuddy: set `:Registry:<UUID>:Name` and
-             `:Registry:<UUID>:Package:Path` inside
-             `~/Library/Containers/com.utmapp.UTM/Data/Library/Preferences/com.utmapp.UTM.plist`.
-          5. Relaunch through Start-UtmApplication, flushing cfprefsd first so
-             UTM re-reads our edited plist.
-          6. Resume the service VMs that step 1 took down (see below), then poll
-             until the new name surfaces.
-
-        Step 1 is not free for the rest of the host. UTM saves the state of
-        every VM still running as it terminates, so any service VM that was up
-        -- the caching proxy, the stash service, pool-control -- returns as
-        `suspended` and stays there. Guests consume those services for the
-        whole cycle, so the running set is captured before the quit and
-        resumed after the relaunch, exactly once on every path out of this
-        function that follows the quit. The capture must be a listing that was
-        actually read: when it cannot be read, UTM is not quit at all, because
-        quitting with an empty capture would strand every service suspended.
-        Services are resumed only after a CONFIRMED relaunch (the launch was
-        acknowledged and UTM observed for this user); an unconfirmed relaunch
-        names the services left suspended and the commands that resume them.
-
-        The stop passes -AllowHardStop: UTM and helpers that ignore the quit
-        are signaled, UTM first and helpers last, each identity revalidated
-        right before its signal. A stop that still is not confirmed ends the
-        rename before any edit.
-
-        The Package.Bookmark blob is left untouched: macOS file bookmarks
-        resolve via catalog inode + volume UUID, so a directory rename within
-        the same volume continues to resolve to the new path.
-
-        Requires the VM to be stopped (UTM holds an exclusive lock on the
-        bundle while running). Caller (Save-VMDiskSnapshot) handles the stop.
+        Requires the VM to be stopped; Save-VMDiskSnapshot handles the stop.
+        The rename quits and relaunches UTM, so a readable running-VM inventory
+        is required before quitting. Captured service VMs are resumed exactly
+        once after a confirmed relaunch; unresolved services are reported.
+        An unconfirmed UTM stop prevents bundle and registry edits.
+    .LINK
+        https://yuruna.link/42f52e37-0003
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -984,7 +945,7 @@ function Test-VMDiskSnapshot {
 <#
 .SYNOPSIS
     Save a disk-only snapshot of each qcow2 disk in the UTM bundle,
-    then attempt to rename the VM (best-effort) so it persists across
+    taken after the VM is renamed to its persisted name so it survives
     test-cycle cleanup.
 .DESCRIPTION
     UTM owns its QEMU process and does not expose a stable QMP/CLI
@@ -994,11 +955,11 @@ function Test-VMDiskSnapshot {
     same Id is written into every qcow2 -- Restore-VMDiskSnapshot
     reverts the same set as a group so the disks stay coherent.
 
-    After a successful snapshot, Rename-VM renames the VM to $Id by
-    on-disk surgery (bundle dir + config.plist + UTM Registry) so the
-    snapshot survives the next cycle's Remove-TestVMFiles sweep. If the
-    rename fails, the qcow2 snapshot is still on disk and can be
-    restored manually from the original bundle path.
+    Before the snapshot, Rename-VM renames the VM to $Id by on-disk
+    surgery (bundle dir + config.plist + UTM Registry) so the snapshot
+    survives the next cycle's Remove-TestVMFiles sweep. A failed rename
+    or snapshot is rolled back by the shared save
+    (Invoke-YurunaDiskSnapshotSave), which renames the VMs back.
 #>
 function Get-UtmBundleDisk {
     <#

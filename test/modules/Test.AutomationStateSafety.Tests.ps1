@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42741ee4-f795-4b5e-ab28-a68625394829
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,6 +96,31 @@ Describe 'resource state survives failed provisioning and teardown' {
         foreach ($key in 'terraform.tfstate', 'terraform.tfstate.backup', '.terraform/providers') { Assert-StringEqual $before[$key] $after[$key] $key }
         Assert-False (Test-Path -LiteralPath "$work.new") 'the earlier staging folder is gone'
         Should -Invoke Invoke-TofuInitWithRetry -ModuleName Yuruna.Resource -Times 1 -Exactly
+    }
+
+    # The fixed hint names the provider registry, which sends the reader there
+    # when a release download on another host was what failed.
+    It 'names the download the last init attempt could not make, and keeps the registry hint when none was named (<Case>)' -ForEach @(
+        @{ Case = 'download named'; Fetch = @{ Url = 'https://releases.example.invalid/provider_2.4.2_SHA256SUMS'; Error = '504 Gateway Timeout' } }
+        @{ Case = 'none named'; Fetch = $null }
+    ) {
+        Import-Module (Join-Path (Split-Path (Split-Path $PSScriptRoot)) 'automation/Yuruna.Globalization.psm1') -DisableNameChecking
+        $root = Join-Path $TestDrive "init-failure-$($Case -replace ' ', '-')"
+        $work = New-StateSafetyFixture -Root $root
+        $fetchFailure = if ($Fetch) { [pscustomobject]$Fetch } else { $null }
+        Mock Invoke-TofuInitWithRetry -ModuleName Yuruna.Resource {
+            [pscustomobject]@{ Success = $false; Attempts = 6; MaxAttempts = 6; LastExit = 1; TimedOut = $false; FetchFailure = $fetchFailure }
+        }
+        $thrown = ''
+        try { $null = Publish-ResourceListHelper -project_root $root -config_subfolder lab -isInitialization $true } catch { $thrown = $_.Exception.Message }
+        $log = Join-Path (Resolve-Path -LiteralPath $work).Path 'tofu.stderr.log'
+        $arguments = @{ resourceName = 'sample'; attempts = '6'; lastExit = '1'; tofuLogFile = $log }
+        $expected = if ($Fetch) {
+            Format-YurunaOperatorMessage -Key 'automation.tofu_init_fetch_failed' -Arguments ($arguments + @{ url = $Fetch.Url; reason = $Fetch.Error })
+        } else {
+            Format-YurunaOperatorMessage -Key 'automation.operator_fa548dc8b72a02c6' -Arguments $arguments
+        }
+        Assert-StringEqual $expected $thrown 'the failure the deploy phase reports'
     }
 
     # A run id drawn again at every run renamed the resources, so the second run

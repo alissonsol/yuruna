@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,9 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Prelude.psm1')        -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.ConfigSync.psm1')      -Force -DisableNameChecking
+# The fields an infra event lifts from a kept record are checked against the
+# cycle-event schema's typed fields.
+Import-Module (Join-Path $here 'Test.EventSchema.psm1')     -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.LogLevel.psm1')        -Force -DisableNameChecking -Global
 # -Global: the runner resolves these two through the global command table, and
 # an InModuleScope body falls back to the global session state -- not to this
@@ -911,6 +914,131 @@ Describe 'Write-CycleInfraFailure' {
             }
             $global:__InfraEventSent | Should -Not -BeNullOrEmpty -Because 'the event still goes out'
             $global:__InfraEventSent['causeInstallerFailure'] | Should -Be $Expected
+        } finally {
+            Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely -ErrorAction SilentlyContinue
+            Remove-Variable -Scope Global -Name __InfraEventSent -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $oldLogDir
+        }
+    }
+
+    It 'names the VM, sequence, step and nested run of the engine record the stage''s run kept on its event (<Case>)' -TestCases @(
+        @{ Case = 'a host action that named no VM'; StageVm = ''; ExpectedVm = 'test-guest.ubuntu.server.24-01' },
+        @{ Case = 'a stage that named its own VM'; StageVm = 'stage-vm'; ExpectedVm = 'stage-vm' }
+    ) {
+        param($Case, $StageVm, $ExpectedVm)
+        $null = $Case
+        # Every lab stage's VM shares one name and one start sequence, so the
+        # nested run is what tells the pool which stage failed, and the step
+        # and the apt stall read inside it say what failed there.
+        $tmp = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+        $oldLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
+        $env:YURUNA_LOG_DIR = $tmp
+        $action = 'fetchAndExecute: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.update.sh"'
+        $stall = 'attempt 1,2 of 2 killed at 300s (rc=124) via 192.0.2.10:3128; pending archive.ubuntu.com/ubuntu resolute-backports'
+        Set-Content -LiteralPath (Join-Path $tmp 'last_failure.json') -Value (@{
+            reason = 'step'; vmName = 'test-guest.ubuntu.server.24-01'; sequenceName = 'start.guest.ubuntu.server.24'; action = $action
+            context = @{ nestedNode = 'initialize-lab_workload.guest.ubuntu.server.24.lab-core.deploy'; causeDetail = @{ aptUpdateStall = @{ summary = $stall } } }
+        } | ConvertTo-Json -Depth 6)
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; the test reads back only the event.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory, $HostStorage, $DependencyFailures)
+            @{ File = [ordered]@{ stage = $Stage }
+               Event = @{ timestamp = '2026-01-02T03:04:05Z'; event = 'step_failure'; actionVerb = $Stage; action = $Stage; vmName = $VMName; sequenceName = '' } }
+        }
+        function global:Write-YurunaStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global writer signature; a kept record must never reach it.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored.')]
+            param($Path, $Content, [switch]$Confirm)
+            throw 'a record this iteration wrote must be kept'
+        }
+        function global:Send-CycleEventSafely { param($EventRecord) $global:__InfraEventSent = $EventRecord }
+        try {
+            InModuleScope Test.RunnerInnerLoop -Parameters @{ StageVm = $StageVm } {
+                param($StageVm)
+                $prior = $script:GuestIterationStartedUtc
+                try {
+                    # An orchestration cycle runs no guest iteration.
+                    $script:GuestIterationStartedUtc = $null
+                    Write-CycleInfraFailure -Stage 'initialize-lab' -FailureClass 'pattern_matched_failure' -GuestKey '(orchestration)' -VMName $StageVm -HostType 'host.test' `
+                        -SinceUtc ([datetime]::UtcNow.AddMinutes(-5))
+                } finally { $script:GuestIterationStartedUtc = $prior }
+            }
+            $sent = $global:__InfraEventSent
+            $sent['vmName'] | Should -Be $ExpectedVm -Because 'a VM the stage named itself is kept'
+            $sent['sequenceName'] | Should -Be 'start.guest.ubuntu.server.24'
+            $sent['action'] | Should -Be $action
+            $sent['actionVerb'] | Should -Be 'initialize-lab' -Because 'the stage stays named'
+            $sent['nestedNode'] | Should -Be 'initialize-lab_workload.guest.ubuntu.server.24.lab-core.deploy'
+            $sent['causeAptUpdateStall'] | Should -Be $stall
+            @(Test-CycleEventSchema -Record $sent) | Should -BeNullOrEmpty -Because 'the lifted fields must satisfy the typed-field contract'
+        } finally {
+            Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely -ErrorAction SilentlyContinue
+            Remove-Variable -Scope Global -Name __InfraEventSent -ErrorAction SilentlyContinue
+            Restore-YurunaTestEnvironment -Saved $oldLogDir
+        }
+    }
+
+    It 'keeps the stage''s own step and VM on its event when the kept record is <Case>' -TestCases @(
+        @{ Case = 'an engine record from before the stage began'; Reason = 'step'; RecordAgeMinutes = 60; Stage = 'initialize-lab'; StageStartedMinutesAgo = 0 },
+        @{ Case = 'an engine record and the stage runs no engine'; Reason = 'step'; RecordAgeMinutes = 0; Stage = 'GitPull'; StageStartedMinutesAgo = $null },
+        @{ Case = 'another stage''s infra record'; Reason = 'infra'; RecordAgeMinutes = 0; Stage = 'GetImage'; StageStartedMinutesAgo = 5 }
+    ) {
+        param($Case, $Reason, $RecordAgeMinutes, $Stage, $StageStartedMinutesAgo)
+        $null = $Case
+        # Nothing marks a guest iteration before the first guest starts or in an
+        # orchestration cycle, so any record at the log root is kept; only one
+        # the engine wrote while this stage ran describes this failure.
+        $tmp = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+        $oldLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
+        $env:YURUNA_LOG_DIR = $tmp
+        $failFile = Join-Path $tmp 'last_failure.json'
+        $kept = if ($Reason -eq 'infra') {
+            @{ reason = 'infra'; action = 'folder-check'; actionVerb = 'folder-check'; vmName = ''; sequenceName = ''; guestKey = 'guest.a'; context = @{ stage = 'folder-check' } }
+        } else {
+            @{ reason = 'step'; vmName = 'test-guest.ubuntu.server.24-01'; sequenceName = 'start.guest.ubuntu.server.24'
+               action = 'fetchAndExecute: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.update.sh"'
+               context = @{ nestedNode = 'initialize-lab_workload.guest.ubuntu.server.24.lab-core.deploy'
+                   causeDetail = @{ aptUpdateStall = @{ summary = 'attempt 1,2 of 2 killed at 300s (rc=124) via 192.0.2.10:3128' } } } }
+        }
+        Set-Content -LiteralPath $failFile -Value ($kept | ConvertTo-Json -Depth 6)
+        if ($RecordAgeMinutes -gt 0) { (Get-Item -LiteralPath $failFile).LastWriteTimeUtc = [datetime]::UtcNow.AddMinutes(-$RecordAgeMinutes) }
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; the test reads back only the event.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory, $HostStorage, $DependencyFailures)
+            @{ File = [ordered]@{ stage = $Stage }; Event = @{ actionVerb = $Stage; action = $Stage; vmName = $VMName; sequenceName = '' } }
+        }
+        function global:Write-YurunaStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global writer signature; a kept record must never reach it.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored.')]
+            param($Path, $Content, [switch]$Confirm)
+            throw 'a record kept outside a guest iteration must never be replaced'
+        }
+        function global:Send-CycleEventSafely { param($EventRecord) $global:__InfraEventSent = $EventRecord }
+        try {
+            InModuleScope Test.RunnerInnerLoop -Parameters @{ Stage = $Stage; StartedMinutesAgo = $StageStartedMinutesAgo } {
+                param($Stage, $StartedMinutesAgo)
+                $prior = $script:GuestIterationStartedUtc
+                try {
+                    $script:GuestIterationStartedUtc = $null
+                    $since = @{}
+                    if ($null -ne $StartedMinutesAgo) { $since.SinceUtc = [datetime]::UtcNow.AddMinutes(-$StartedMinutesAgo) }
+                    Write-CycleInfraFailure -Stage $Stage -FailureClass 'network_timeout' -GuestKey 'guest.b' -HostType 'host.test' @since
+                } finally { $script:GuestIterationStartedUtc = $prior }
+            }
+            $sent = $global:__InfraEventSent
+            $sent['action'] | Should -Be $Stage -Because 'the kept record names another failure''s step'
+            $sent['vmName'] | Should -Be ''
+            $sent['sequenceName'] | Should -Be ''
+            $sent['nestedNode'] | Should -BeNullOrEmpty
+            $sent['causeAptUpdateStall'] | Should -BeNullOrEmpty
         } finally {
             Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely -ErrorAction SilentlyContinue
             Remove-Variable -Scope Global -Name __InfraEventSent -ErrorAction SilentlyContinue
@@ -2081,6 +2209,395 @@ Describe 'The cycle-start host diagnostic of a cycle the runner opens' {
         Should -Invoke -ModuleName Test.RunnerInnerLoop Start-PerfCycle -Times 1 -Exactly
         $global:__hostDiagnosticPerf.Path | Should -Be $dump -Because 'the perf log hashes the dump'
         $global:__hostDiagnosticPerf.Existed | Should -BeTrue -Because 'the dump is written before the perf log opens'
+    }
+
+    It 'counts a diagnostic that ran out of time in the cycle report''s problem tally' {
+        $repo = Join-Path $TestDrive 'host-diagnostic-stalled-repo'
+        $cycle = Join-Path $TestDrive '000002.host-diagnostic-stalled-cycle'
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $repo 'automation'), $cycle
+        Set-Content -LiteralPath (Join-Path $repo 'automation/Get-SystemDiagnostic.ps1') -Encoding utf8 -Value @(
+            'param([string]$OutFile)'
+            'Set-Content -LiteralPath $OutFile -Value ''fixture host state before the stall'''
+            'Start-Sleep -Seconds 60'
+        )
+        # The real bounded runner, with a one-second bound in place of the
+        # 120 seconds the cycle start gives it.
+        $script:RealBoundedDiagnostic = & (Get-Module Test.RunnerInnerLoop) { ${function:Invoke-BoundedHostSystemDiagnostic} }
+        Mock -ModuleName Test.RunnerInnerLoop Invoke-BoundedHostSystemDiagnostic {
+            & $script:RealBoundedDiagnostic -ScriptPath $ScriptPath -OutFile $OutFile -TimeoutSeconds 1
+        }
+        $saved = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
+        try {
+            Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $cycle }
+            $result = InModuleScope Test.RunnerInnerLoop -Parameters @{ Repo = $repo } {
+                param($Repo)
+                $output = @(Save-CycleHostDiagnostic -RepoRoot $Repo -InformationVariable reported 6>$null)
+                @{
+                    Output   = $output
+                    Reported = @($reported | ForEach-Object { [string]$_.MessageData })
+                    Tally    = Format-YurunaOperatorMessage -Key 'runner.operator_5d4003f8fdb37099' -Arguments @{ diagCount = '1'; diagTally = 'DIAG.host-timeout=1' }
+                    Timeout  = Format-YurunaOperatorMessage -Key 'runner.host_diagnostic_timeout'
+                }
+            }
+        } finally {
+            Restore-YurunaTestGlobal -Saved $saved
+        }
+        $dump = Join-Path $cycle 'host.diagnostic.txt'
+        $result.Output | Should -Be @($dump) -Because 'the path stays the only success-stream value'
+        $result.Reported | Should -Contain $result.Tally
+        @(Get-Content -LiteralPath $dump)[-1] | Should -Be $result.Timeout
+        $sidecar = Get-Content -Raw -LiteralPath "$dump.json" | ConvertFrom-Json -AsHashtable
+        $sidecar.schema | Should -Be 'yuruna.diagnostic.problems/v1'
+        $sidecar.count | Should -Be 1
+        $sidecar.byClass['DIAG.host-timeout'] | Should -Be 1
+        $sidecar.problems[0].class | Should -Be 'DIAG.host-timeout'
+        $sidecar.problems[0].message | Should -Be $result.Timeout
+    }
+}
+
+# The cycle-start sweep deletes what a killed or restarted cycle left behind,
+# and with it the only trace of what became of those VMs while no runner
+# watched them. Each one is recorded first, as its hypervisor reported it
+# before the cycle-start admission stopped anything.
+Describe 'The cycle-start sweep records each leftover VM before deleting it' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.EventSchema.psm1') -Force -DisableNameChecking -Global
+        # The admission, and the platform-state read the record shares with it.
+        Import-Module (Join-Path $here 'Test.HostContract.psm1') -Force -DisableNameChecking -Global
+        $script:LeftoverStubName = @('Get-VMName', 'Resolve-HyperVVM', 'Get-VMStateRecord', 'Get-KvmDomainState', 'Get-VMState', 'Stop-VMForce', 'Send-CycleEventSafely')
+        # Stands in for Remove-TestVMFiles.ps1: notes whether the record was
+        # already on disk, then, as the script does, reads the inventory
+        # itself, gives up when that read fails and deletes every VM it lists.
+        $script:LeftoverTestRoot = Join-Path $TestDrive 'leftover-test-root'
+        $null = New-Item -ItemType Directory -Force -Path $script:LeftoverTestRoot
+        Set-Content -LiteralPath (Join-Path $script:LeftoverTestRoot 'Remove-TestVMFiles.ps1') -Encoding utf8 -Value @(
+            'param([string[]]$Prefix, [switch]$Quiet)'
+            '$null = $Quiet'
+            '$recorded = [bool]$global:__YurunaCycleFolder -and (Test-Path -LiteralPath (Join-Path $global:__YurunaCycleFolder ''leftover-vms.json''))'
+            '$global:__leftoverSweeps.Add([pscustomobject]@{ Prefix = $Prefix; RecordedFirst = $recorded })'
+            'try { $targets = @(Get-VMName -Prefix $Prefix) } catch { return }'
+            'foreach ($vmName in $targets) { $null = $global:__leftoverVms.Remove($vmName) }'
+        )
+        # Each driver's raw-state read over one table of VM states, mapped to
+        # the folded state the way that driver maps it.
+        $script:LeftoverReader = @{
+            'Resolve-HyperVVM'   = {
+                param($VMName)
+                $raw = [string]$global:__leftoverRaw[$VMName]
+                [pscustomobject]@{ Presence = 'present'; Cause = 'ok'; VM = [pscustomobject]@{
+                        Name = $VMName; State = $raw; Uptime = $(if ($raw -eq 'Running') { [timespan]::FromHours(49) } else { [timespan]::Zero })
+                        CreationTime = [datetime]::new(2026, 1, 2, 3, 4, 5, [DateTimeKind]::Utc) } }
+            }
+            'Get-VMStateRecord'  = {
+                param($VMName)
+                $raw = [string]$global:__leftoverRaw[$VMName]
+                [pscustomobject]@{ VMName = $VMName; State = $(if ($raw -eq 'started') { 'running' } else { 'stopped' }); RawState = $raw; Registration = 'Registered'; Reason = 'observed' }
+            }
+            'Get-KvmDomainState' = {
+                param($VMName)
+                $raw = [string]$global:__leftoverRaw[$VMName]
+                [pscustomobject]@{ State = $(if ($raw -eq 'running') { 'running' } else { 'stopped' }); Raw = $raw; Reason = 'observed' }
+            }
+        }
+        function Set-LeftoverDriverStub {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test stub: defines a global stand-in for a driver command, which the AfterEach removes.')]
+            param([string]$Name, [scriptblock]$Body)
+            Set-Item -Path "Function:\global:$Name" -Value $Body
+        }
+        function Invoke-LeftoverSweep {
+            InModuleScope Test.RunnerInnerLoop -Parameters @{ TestRoot = $script:LeftoverTestRoot } {
+                param($TestRoot)
+                $null = Remove-CycleStartOrphanVM -TestRoot $TestRoot -Prefix @('test-')
+            }
+        }
+        function Read-LeftoverRecord {
+            Get-Content -Raw -LiteralPath (Join-Path $script:CycleDir 'leftover-vms.json') | ConvertFrom-Json -AsHashtable -DateKind String
+        }
+    }
+    BeforeEach {
+        $script:SavedCycleGlobal = Save-YurunaTestGlobal -Name '__YurunaCycleFolder'
+        $script:SavedRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $script:CycleDir = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:CycleDir
+        Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $script:CycleDir }
+        # The admission record is read from the runtime directory, so every
+        # case starts without one.
+        $env:YURUNA_RUNTIME_DIR = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $env:YURUNA_RUNTIME_DIR
+        $global:__leftoverVms = [System.Collections.Generic.List[string]]::new()
+        $global:__leftoverSweeps = [System.Collections.Generic.List[object]]::new()
+        $global:__leftoverEvents = [System.Collections.Generic.List[hashtable]]::new()
+        Set-LeftoverDriverStub 'Get-VMName' { param([string[]]$Prefix) $null = $Prefix; $global:__leftoverVms.ToArray() }
+        Set-LeftoverDriverStub 'Send-CycleEventSafely' { param([hashtable]$EventRecord) $global:__leftoverEvents.Add($EventRecord) }
+    }
+    AfterEach {
+        foreach ($name in $script:LeftoverStubName) { Remove-Item -LiteralPath "Function:\$name" -ErrorAction SilentlyContinue }
+        Remove-Variable -Name __leftoverVms, __leftoverSweeps, __leftoverEvents, __leftoverRaw, __leftoverStopWord, __leftoverListings, __leftoverFailingReads -Scope Global -ErrorAction SilentlyContinue
+        Restore-YurunaTestEnvironment -Saved $script:SavedRuntimeDir
+        Restore-YurunaTestGlobal -Saved $script:SavedCycleGlobal
+    }
+
+    It 'records a <Driver> VM in its hypervisor''s own words, then the sweep deletes it' -ForEach @(
+        @{ Driver = 'Hyper-V'; Stub = 'Resolve-HyperVVM'; State = 'Running'; Uptime = 176400; Created = '2026-01-02T03:04:05Z'
+            Body = { param($VMName) [pscustomobject]@{ Presence = 'present'; Cause = 'ok'; VM = [pscustomobject]@{
+                        Name = $VMName; State = 'Running'; Uptime = [timespan]::FromHours(49)
+                        CreationTime = [datetime]::new(2026, 1, 2, 3, 4, 5, [DateTimeKind]::Utc) } } } }
+        @{ Driver = 'UTM'; Stub = 'Get-VMStateRecord'; State = 'suspended'; Uptime = $null; Created = $null
+            Body = { param($VMName) [pscustomobject]@{ VMName = $VMName; State = 'stopped'; RawState = 'suspended'; Registration = 'Registered'; Reason = 'observed' } } }
+        @{ Driver = 'KVM'; Stub = 'Get-KvmDomainState'; State = 'shut off'; Uptime = $null; Created = $null
+            Body = { param($VMName) $null = $VMName; [pscustomobject]@{ State = 'stopped'; Raw = 'shut off'; Reason = 'observed' } } }
+        @{ Driver = 'state-only'; Stub = 'Get-VMState'; State = 'stopped'; Uptime = $null; Created = $null
+            Body = { param($VMName) $null = $VMName; 'stopped' } }
+    ) {
+        $global:__leftoverVms.Add('test-leftover-1')
+        Set-LeftoverDriverStub $Stub $Body
+        Invoke-LeftoverSweep
+
+        $path = Join-Path $script:CycleDir 'leftover-vms.json'
+        (Test-Path -LiteralPath $path) | Should -BeTrue -Because 'the record lands in the new cycle folder'
+        $doc = Read-LeftoverRecord
+        $doc.schema | Should -BeExactly 'yuruna.leftover-vms/v1'
+        @($doc.prefixes) | Should -Be @('test-')
+        $doc.vms.Count | Should -Be 1
+        $doc.vms[0].name | Should -BeExactly 'test-leftover-1'
+        $doc.vms[0].state | Should -BeExactly $State
+        $doc.vms[0].uptimeSeconds | Should -Be $Uptime
+        $doc.vms[0].createdUtc | Should -Be $Created
+        $doc.vms[0].Contains('reason') | Should -BeFalse -Because 'a state that was read needs no reason'
+        $doc.vms[0].stoppedByAdmission | Should -BeFalse -Because 'no admission of this process stopped it'
+        $doc.vms[0].Contains('stateAtSweep') | Should -BeFalse
+
+        $global:__leftoverEvents.Count | Should -Be 1
+        $found = $global:__leftoverEvents[0]
+        $found.event | Should -BeExactly 'leftover_vms_found'
+        $found.leftoverVmCount | Should -Be 1
+        $found.leftoverVms[0].state | Should -BeExactly $State
+        @(Test-CycleEventSchema -Record $found).Count | Should -Be 0 -Because 'the event matches its declared field types'
+
+        $global:__leftoverSweeps.Count | Should -Be 1 -Because 'recording never replaces the sweep'
+        $global:__leftoverSweeps[0].RecordedFirst | Should -BeTrue -Because 'the record is written before anything is deleted'
+        $global:__leftoverVms.Count | Should -Be 0 -Because 'the sweep still deletes the leftover VM'
+    }
+
+    It 'records unknown with the reason when a state read fails, and the sweep still deletes' {
+        $global:__leftoverVms.Add('test-unreadable')
+        $global:__leftoverVms.Add('test-readable')
+        Set-LeftoverDriverStub 'Resolve-HyperVVM' {
+            param($VMName)
+            if ($VMName -eq 'test-unreadable') { throw 'fixture: the management service refused the read' }
+            [pscustomobject]@{ Presence = 'present'; Cause = 'ok'; VM = [pscustomobject]@{ Name = $VMName; State = 'Saved'; Uptime = [timespan]::Zero; CreationTime = [datetime]::MinValue } }
+        }
+        Invoke-LeftoverSweep
+
+        $doc = Read-LeftoverRecord
+        $doc.vms.Count | Should -Be 2
+        $doc.vms[0].state | Should -BeExactly 'unknown'
+        $doc.vms[0].reason | Should -Match 'refused the read'
+        $doc.vms[1].state | Should -BeExactly 'Saved'
+        $doc.vms[1].uptimeSeconds | Should -Be 0
+        $doc.vms[1].createdUtc | Should -BeNullOrEmpty -Because 'Hyper-V reports no creation time as its minimum value'
+        $global:__leftoverEvents.Count | Should -Be 1
+        $global:__leftoverEvents[0].leftoverVmCount | Should -Be 2
+        $global:__leftoverSweeps.Count | Should -Be 1
+        $global:__leftoverVms.Count | Should -Be 0
+    }
+
+    It 'records unknown with the read''s own reason when the hypervisor does not answer' {
+        $global:__leftoverVms.Add('test-silent')
+        Set-LeftoverDriverStub 'Get-KvmDomainState' { param($VMName) $null = $VMName; [pscustomobject]@{ State = 'unknown'; Raw = ''; Reason = 'timeout' } }
+        Invoke-LeftoverSweep
+        $doc = Read-LeftoverRecord
+        $doc.vms[0].state | Should -BeExactly 'unknown'
+        $doc.vms[0].reason | Should -BeExactly 'timeout'
+        $global:__leftoverSweeps.Count | Should -Be 1
+    }
+
+    It 'records nothing when nothing is left over, and sweeps' {
+        Invoke-LeftoverSweep
+        (Test-Path -LiteralPath (Join-Path $script:CycleDir 'leftover-vms.json')) | Should -BeFalse
+        $global:__leftoverEvents.Count | Should -Be 0
+        $global:__leftoverSweeps.Count | Should -Be 1
+    }
+
+    # The record and the sweep each read the inventory, and only a failure of
+    # the sweep's own read stops it, so a record that could not be taken has
+    # to say so.
+    It 'says its own inventory read failed when the sweep''s read then <Outcome>' -ForEach @(
+        @{ Outcome = 'answers and deletes'; FailingReads = 1; Deleted = $true }
+        @{ Outcome = 'fails too and deletes nothing'; FailingReads = 99; Deleted = $false }
+    ) {
+        $global:__leftoverVms.Add('test-leftover-1')
+        $global:__leftoverListings = 0
+        $global:__leftoverFailingReads = $FailingReads
+        Set-LeftoverDriverStub 'Get-VMName' {
+            param([string[]]$Prefix)
+            $null = $Prefix
+            $global:__leftoverListings++
+            if ($global:__leftoverListings -le $global:__leftoverFailingReads) { throw 'fixture: the listing timed out' }
+            $global:__leftoverVms.ToArray()
+        }
+        Invoke-LeftoverSweep
+
+        $global:__leftoverListings | Should -Be 2 -Because 'the record and the sweep each read the inventory'
+        (Test-Path -LiteralPath (Join-Path $script:CycleDir 'leftover-vms.json')) | Should -BeFalse
+        $global:__leftoverEvents.Count | Should -Be 1
+        $found = $global:__leftoverEvents[0]
+        $found.leftoverVmCount | Should -Be 0
+        @($found.leftoverVms).Count | Should -Be 0
+        $found.reason | Should -Match '^inventory-unreadable: .*timed out'
+        @(Test-CycleEventSchema -Record $found).Count | Should -Be 0
+        $global:__leftoverSweeps.Count | Should -Be 1
+        ($global:__leftoverVms.Count -eq 0) | Should -Be $Deleted
+    }
+
+    # An orchestration cycle opens its folder only later, in the same process;
+    # the stream the event would otherwise fall back to is one nothing collects.
+    It 'queues the record of a cycle with no folder yet for the stream of the cycle that opens next' {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $logDir = Join-Path $root 'status/log'
+        $null = New-Item -ItemType Directory -Path $logDir -Force
+        $savedLogDir = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR'
+        $savedLogGlobals = Save-YurunaTestGlobal -Name '__YurunaLogFile', '__YurunaCycleIdentity', '__YurunaCycleStartUtc'
+        $env:YURUNA_LOG_DIR = $logDir
+        Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $null }
+        # The real queue and stream writers, not the stand-in event sink.
+        Remove-Item -LiteralPath Function:\Send-CycleEventSafely -ErrorAction SilentlyContinue
+        Import-Module (Join-Path $here 'Test.Log.psm1') -Force -Global -DisableNameChecking
+        try {
+            $global:__leftoverVms.Add('test-leftover-1')
+            Set-LeftoverDriverStub 'Get-KvmDomainState' { param($VMName) $null = $VMName; [pscustomobject]@{ State = 'stopped'; Raw = 'shut off'; Reason = 'observed' } }
+            Invoke-LeftoverSweep
+            $global:__leftoverVms.Count | Should -Be 0 -Because 'the sweep still deletes the leftover VM'
+            (Test-Path -LiteralPath (Join-Path $logDir 'cycle.events.ndjson')) | Should -BeFalse -Because 'nothing collects the log-root stream'
+            $queue = Get-Content -Raw -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'cycle-events.pending.json') | ConvertFrom-Json -AsHashtable -DateKind String
+            @($queue.events).Count | Should -Be 1
+            $queue.events[0].event | Should -BeExactly 'leftover_vms_found'
+            $queue.events[0].leftoverVmCount | Should -Be 1
+
+            $null = Start-LogFile -TestRoot $root -CycleStartUtc '2026-01-02T03:05:00Z' -Hostname 'fixture-host' -CycleNumber 7 -Confirm:$false
+            $opened = @(Get-ChildItem -LiteralPath $logDir -Directory -Filter '*.incomplete')
+            $opened.Count | Should -Be 1
+            (Test-Path -LiteralPath (Join-Path $opened[0].FullName 'leftover-vms.json')) | Should -BeFalse
+            $stream = @(Get-Content -LiteralPath (Join-Path $opened[0].FullName 'cycle.events.ndjson') | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable -DateKind String })
+            @($stream | ForEach-Object { $_.event }) | Should -Be @('leftover_vms_found', 'cycle_start')
+            $stream[0].cycleFolder | Should -BeExactly $stream[1].cycleFolder
+            $stream[0].cycleStartUtc | Should -BeExactly '2026-01-02T03:05:00Z'
+            $stream[0].leftoverVms[0].state | Should -BeExactly 'shut off'
+            @(Test-CycleEventSchema -Record $stream[0]).Count | Should -Be 0
+        } finally {
+            Remove-Module Test.Log -Force -ErrorAction SilentlyContinue
+            Restore-YurunaTestGlobal -Saved $savedLogGlobals
+            Restore-YurunaTestEnvironment -Saved $savedLogDir
+        }
+    }
+
+    # Cycle-start admission force-stops every running guest before the sweep,
+    # so by then a guest the hypervisor restored and ran reads as one that
+    # never started. These run the two in the runner's order.
+    Context 'after the cycle-start admission ran' {
+        BeforeEach {
+            $global:__leftoverRaw = @{}
+            $global:__leftoverStopWord = ''
+            Set-LeftoverDriverStub 'Get-VMState' { param($VMName) if ([string]$global:__leftoverRaw[$VMName] -in @('Running', 'started', 'running')) { 'running' } else { 'stopped' } }
+            Set-LeftoverDriverStub 'Stop-VMForce' {
+                [CmdletBinding(SupportsShouldProcess)]
+                param([string]$VMName)
+                if ($PSCmdlet.ShouldProcess($VMName, 'stop')) { $global:__leftoverRaw[$VMName] = $global:__leftoverStopWord }
+            }
+        }
+
+        It 'records a <Driver> VM left <Before> as it was before admission ran' -ForEach @(
+            @{ Driver = 'Hyper-V'; Reader = 'Resolve-HyperVVM'; Before = 'Running'; StopWord = 'Off'; Stopped = $true; Uptime = 176400; Created = '2026-01-02T03:04:05Z' }
+            @{ Driver = 'Hyper-V'; Reader = 'Resolve-HyperVVM'; Before = 'Saved'; StopWord = 'Off'; Stopped = $false; Uptime = 0; Created = '2026-01-02T03:04:05Z' }
+            @{ Driver = 'UTM'; Reader = 'Get-VMStateRecord'; Before = 'started'; StopWord = 'stopped'; Stopped = $true; Uptime = $null; Created = $null }
+            @{ Driver = 'UTM'; Reader = 'Get-VMStateRecord'; Before = 'suspended'; StopWord = 'stopped'; Stopped = $false; Uptime = $null; Created = $null }
+            @{ Driver = 'KVM'; Reader = 'Get-KvmDomainState'; Before = 'running'; StopWord = 'shut off'; Stopped = $true; Uptime = $null; Created = $null }
+            @{ Driver = 'KVM'; Reader = 'Get-KvmDomainState'; Before = 'paused'; StopWord = 'shut off'; Stopped = $false; Uptime = $null; Created = $null }
+        ) {
+            $global:__leftoverVms.Add('test-aborted-1')
+            $global:__leftoverRaw['test-aborted-1'] = $Before
+            $global:__leftoverStopWord = $StopWord
+            Set-LeftoverDriverStub $Reader $script:LeftoverReader[$Reader]
+            $admission = Invoke-HostVmAdmission -HostType 'host.fixture' -ProbeDelaySeconds 0 -RuntimeDir $env:YURUNA_RUNTIME_DIR 6>$null
+            $admission.State | Should -Be 'clear'
+            Invoke-LeftoverSweep
+
+            $vm = (Read-LeftoverRecord).vms[0]
+            $vm.state | Should -BeExactly $Before -Because 'the record keeps the state the cycle found, not the one admission left'
+            $vm.uptimeSeconds | Should -Be $Uptime
+            $vm.createdUtc | Should -Be $Created
+            $vm.stoppedByAdmission | Should -Be $Stopped
+            if ($Stopped) { $vm.stateAtSweep | Should -BeExactly $StopWord } else { $vm.Contains('stateAtSweep') | Should -BeFalse }
+            $found = $global:__leftoverEvents[0]
+            $found.leftoverVms[0].state | Should -BeExactly $Before
+            $found.leftoverVms[0].stoppedByAdmission | Should -Be $Stopped
+            @(Test-CycleEventSchema -Record $found).Count | Should -Be 0
+            $global:__leftoverVms.Count | Should -Be 0 -Because 'the sweep still deletes the leftover VM'
+        }
+
+        It 'reads no admission record written before this process started' {
+            $global:__leftoverVms.Add('test-aborted-1')
+            $global:__leftoverRaw['test-aborted-1'] = 'Off'
+            Set-LeftoverDriverStub 'Resolve-HyperVVM' $script:LeftoverReader['Resolve-HyperVVM']
+            # An earlier runner process's record names the VM, but tells of an
+            # earlier admission.
+            [ordered]@{ schemaVersion = 1; state = 'clear'; reason = 'ok'; occupants = @()
+                stoppedVms = @([ordered]@{ name = 'test-aborted-1'; state = 'Running'; uptimeSeconds = 60; createdUtc = $null })
+                probes = 1; detail = ''; hostType = 'host.fixture'; observedUtc = '2000-01-01T00:00:00.0000000Z' } |
+                ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'vm-admission.json') -Encoding utf8
+            Invoke-LeftoverSweep
+            $vm = (Read-LeftoverRecord).vms[0]
+            $vm.state | Should -BeExactly 'Off'
+            $vm.stoppedByAdmission | Should -BeFalse
+            $global:__leftoverVms.Count | Should -Be 0
+        }
+    }
+}
+
+# New-VM renders each guest seed in a child process, so the pool's pair of
+# repositories reaches host.env only through the environment the cycle passes on.
+Describe 'A pooled cycle hands its repositories to the guest seeds it renders' {
+    BeforeAll {
+        $text = Get-Content -Raw -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1')
+        $region = [regex]::Match($text, '(?ms)^[ \t]*# --- REGION: Pooled repos override\r?\n(.*?)^[ \t]*# --- REGION: Assigned-project access probe')
+        if (-not $region.Success) { throw 'The pooled repos override region was not found.' }
+        $script:PoolOverrideRegion = $region.Groups[1].Value
+        function Invoke-PoolOverrideRegion {
+            param([AllowNull()]$Manifest)
+            InModuleScope Test.RunnerInnerLoop -Parameters @{ Region = $script:PoolOverrideRegion; Manifest = $Manifest } {
+                param($Region, $Manifest)
+                $null = $Manifest # Answered by the Read-YurunaPoolManifest stand-in below.
+                function Read-YurunaPoolManifest { $Manifest }
+                $Config = [ordered]@{ repositories = [ordered]@{ frameworkUrl = 'https://github.com/host/framework'; projectUrl = 'https://github.com/host/project' } }
+                try {
+                    . ([scriptblock]::Create($Region)) 6>$null
+                    $Config
+                } finally {
+                    $script:PoolAssignedProjectUrl = $null
+                    $script:PoolAssignedBy = $null
+                }
+            }
+        }
+    }
+    BeforeEach { $script:SavedPoolEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_POOL_FRAMEWORK_URL', 'YURUNA_POOL_PROJECT_URL' }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedPoolEnvironment }
+
+    It 'publishes the pool''s framework and project URLs for the cycle' {
+        $config = Invoke-PoolOverrideRegion -Manifest @{ poolId = 'fixture-pool'
+            repositories = @{ frameworkUrl = 'https://github.com/pool/framework'; projectUrl = 'https://github.com/pool/project' } }
+        $config.repositories.projectUrl | Should -BeExactly 'https://github.com/pool/project'
+        $env:YURUNA_POOL_FRAMEWORK_URL | Should -BeExactly 'https://github.com/pool/framework'
+        $env:YURUNA_POOL_PROJECT_URL | Should -BeExactly 'https://github.com/pool/project'
+    }
+
+    It 'leaves no pair behind for a cycle that is not pooled' {
+        $env:YURUNA_POOL_FRAMEWORK_URL = 'https://github.com/stale/framework'
+        $env:YURUNA_POOL_PROJECT_URL = 'https://github.com/stale/project'
+        $config = Invoke-PoolOverrideRegion -Manifest $null
+        $config.repositories.projectUrl | Should -BeExactly 'https://github.com/host/project'
+        (Test-Path -LiteralPath 'Env:YURUNA_POOL_FRAMEWORK_URL') | Should -BeFalse
+        (Test-Path -LiteralPath 'Env:YURUNA_POOL_PROJECT_URL') | Should -BeFalse
     }
 }
 

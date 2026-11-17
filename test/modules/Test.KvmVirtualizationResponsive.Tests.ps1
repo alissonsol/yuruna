@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4266a8d2-4adb-4edb-a8b6-0875ae9138c8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -502,6 +502,11 @@ Describe 'KVM driver contract surface' {
         $command.Parameters.Keys | Should -Contain 'Deadline'
         $command.Parameters.Keys | Should -Not -Contain 'WhatIf'
     }
+
+    It 'exports the libvirt state read that keeps the state word Get-VMState folds' {
+        @((Get-Module Yuruna.Host).ExportedFunctions.Keys) | Should -Contain 'Get-KvmDomainState' `
+            -Because 'Get-VMPlatformState reads libvirt''s own state word through it from outside the driver'
+    }
 }
 
 Describe 'Get-LibvirtGroupState -- bounded group reads' {
@@ -659,5 +664,30 @@ Describe 'Assert-LinuxHostConditionSet -- diagnosis under socket activation' {
         $script:SocketState = 'inactive'
         Assert-LinuxHostConditionSet -HostType 'host.ubuntu.kvm' -ErrorAction SilentlyContinue | Should -BeFalse
         $script:ConditionKeys | Should -Contain 'runner.operator_5bd775f79ee13443'
+    }
+}
+
+# Runs POSIX stand-in executables that Windows cannot launch. Last in the file:
+# Test.HostContract re-imports the host-condition modules the Describe above
+# mocks by module name.
+Describe 'Get-VMPlatformState keeps libvirt''s own state word (fake virsh)' -Skip:$IsWindows {
+    BeforeAll {
+        # Imported the way the runner has it: a module of its own, which sees
+        # the driver only through what the driver exports.
+        Import-Module (Join-Path $PSScriptRoot 'Test.HostContract.psm1') -Force -DisableNameChecking
+    }
+    BeforeEach { $script:OrigPath = Save-YurunaTestEnvironment -Name 'PATH' }
+    AfterEach  { Restore-YurunaTestEnvironment -Saved $script:OrigPath }
+
+    It 'records <Raw> for a domain that Get-VMState reads as stopped' -ForEach @(
+        @{ Raw = 'paused' }
+        @{ Raw = 'shut off' }
+    ) {
+        New-FakeVirsh "printf '$Raw\n\n'`nexit 0"
+        Use-FakeVirsh
+        (Get-VMState -VMName 'vm-a') | Should -Be 'stopped'
+        $reading = Get-VMPlatformState -VMName 'vm-a'
+        $reading.state | Should -BeExactly $Raw -Because 'the leftover-VM record tells a paused domain from a shut-off one'
+        $reading.Contains('reason') | Should -BeFalse
     }
 }

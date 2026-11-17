@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42386fcb-9b22-4111-8798-b33f5405c9ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,6 +119,31 @@ BeforeAll {
         [OutputType([hashtable])]
         param([Parameter(Mandatory)][hashtable]$Step)
         return @{ Step = $Step; Call = [System.Collections.Generic.List[string]]::new() }
+    }
+
+    function New-SequencedStep {
+        <#
+        .SYNOPSIS
+            A step whose exit code and output follow a list, one entry per
+            call, the last entry repeating: a tool that answers differently
+            when it is called again.
+        .PARAMETER Outcome
+            @{ Exit = <int>; Emit = <items> } per call, in call order.
+        #>
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+            Justification = 'Builds an in-memory fixture description.')]
+        [CmdletBinding()]
+        [OutputType([hashtable])]
+        param([Parameter(Mandatory)][hashtable[]]$Outcome)
+        $state = @{ Calls = 0; Outcome = $Outcome }
+        $step = @{ Exit = $Outcome[0].Exit; Emit = $Outcome[0].Emit }
+        $step['Before'] = {
+            $index = [Math]::Min($state.Calls, $state.Outcome.Count - 1)
+            $step.Exit = $state.Outcome[$index].Exit
+            $step.Emit = $state.Outcome[$index].Emit
+            $state.Calls++
+        }.GetNewClosure()
+        return $step
     }
 
     function Set-ToolStandIn {
@@ -469,6 +494,304 @@ Describe 'the workload publisher keeps its tool logs byte for byte' {
                 "== $script:Stamp kubectl apply -f manifest.yaml attempt 1/5 (exit=0) ==", 'applied'
                 "== $script:Stamp kubectl delete pod gone attempt 1/5 (exit=3) ==", 'Error from server (NotFound): pods "gone" not found')
             Confirm-ExitCodeFile (Join-Path $work 'kubectl.rc') 3
+        }
+    }
+
+    # The API server commits a create whose answer is lost to an etcd timeout,
+    # so the retry is refused as AlreadyExists. For create, that refusal is the
+    # earlier attempt's completion when it is the only error kubectl printed;
+    # for any other verb, on a first attempt, beside another error, and for an
+    # object that is still being deleted, it is the failure it reads as, and a
+    # retry that fails some other way, or with no error line at all, completes
+    # nothing.
+    Context 'a kubectl create whose first attempt the API server answered late' {
+        BeforeEach {
+            $script:TimedOut = @{ Error = 'Error from server: etcdserver: request timed out' }
+            $script:Exists = @{ Error = 'Error from server (AlreadyExists): namespaces "website" already exists' }
+            # What --v=1 prints on the error stream ahead of the error, from
+            # each attempt's own kubectl process.
+            $script:KlogFirst = @(
+                @{ Error = 'I1109 06:09:06.498306   18844 envvar.go:195] "Feature gate default state" feature="InOrderInformersBatchProcess" enabled=true' }
+                @{ Error = 'I1109 06:09:06.498344   18844 envvar.go:195] "Feature gate default state" feature="ClientsPreferCBOR" enabled=false' })
+            $script:KlogSecond = @(
+                @{ Error = 'I1109 06:09:25.629404   19127 envvar.go:195] "Feature gate default state" feature="ClientsPreferCBOR" enabled=false' }
+                @{ Error = 'I1109 06:09:25.629455   19127 envvar.go:195] "Feature gate default state" feature="ClientsAllowCARotation" enabled=true' })
+            $script:Work = Join-Path $script:Root '.yuruna/lab/workloads/fixture-context'
+        }
+
+        It 'passes when the retry is refused because the first attempt created the object, and the log says so' {
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(
+                @{ Exit = 1; Emit = @($script:KlogFirst) + @($script:TimedOut) },
+                @{ Exit = 1; Emit = @($script:KlogSecond) + @($script:Exists) })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create namespace website --v=1'
+            Assert-Null $failure 'the namespace exists, created by the attempt whose answer was lost'
+            Assert-Equal 2 $plan.Call.Count
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl create namespace website --v=1 attempt 1/5 (exit=1) =="
+                $script:KlogFirst.Error
+                'Error from server: etcdserver: request timed out'
+                "== $script:Stamp kubectl create namespace website --v=1 attempt 2/5 (exit=1; completedBy=already-applied) =="
+                $script:KlogSecond.Error
+                'Error from server (AlreadyExists): namespaces "website" already exists')
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 0
+        }
+
+        It 'passes a create secret whose retry is refused in the wrapped form the subcommands that build the object print' {
+            $wrapped = @{ Error = 'error: failed to create secret secrets "website-tls" already exists' }
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 1; Emit = @($wrapped) })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create secret tls website-tls --key tls.key --cert tls.crt --namespace=website'
+            Assert-Null $failure 'the secret exists, created by the attempt whose answer was lost'
+            Assert-Equal 2 $plan.Call.Count
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl create secret tls website-tls --key tls.key --cert tls.crt --namespace=website attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                "== $script:Stamp kubectl create secret tls website-tls --key tls.key --cert tls.crt --namespace=website attempt 2/5 (exit=1; completedBy=already-applied) =="
+                'error: failed to create secret secrets "website-tls" already exists')
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 0
+        }
+
+        It 'passes a retried create -f whose refusal names the file it was creating from' {
+            $sourced = @{ Error = 'Error from server (AlreadyExists): error when creating "namespace.yaml": namespaces "website" already exists' }
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 1; Emit = @($sourced) })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create -f namespace.yaml'
+            Assert-Null $failure 'the namespace exists, created by the attempt whose answer was lost'
+            Assert-Equal 2 $plan.Call.Count
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl create -f namespace.yaml attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                "== $script:Stamp kubectl create -f namespace.yaml attempt 2/5 (exit=1; completedBy=already-applied) =="
+                'Error from server (AlreadyExists): error when creating "namespace.yaml": namespaces "website" already exists')
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 0
+        }
+
+        It 'still fails a retried create -f refused for one object and told another is invalid' {
+            $mixed = @(
+                @{ Error = 'Error from server (AlreadyExists): error when creating "a.yaml": namespaces "website" already exists' }
+                @{ Error = 'Error from server (Invalid): error when creating "b.yaml": Namespace "web site" is invalid: metadata.name: Invalid value' })
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 1; Emit = $mixed })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create -f a.yaml -f b.yaml'
+            Assert-False $failure.success
+            Assert-StringEqual 'tool_failed' $failure.failureClass
+            Assert-Equal 1 $failure.exitCode
+            Assert-Equal 2 $plan.Call.Count 'an invalid object is not a passing failure, so the retry ends there'
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl create -f a.yaml -f b.yaml attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                "== $script:Stamp kubectl create -f a.yaml -f b.yaml attempt 2/5 (exit=1) =="
+                $mixed.Error)
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 1
+        }
+
+        It 'still fails a retried create -f refused for one object while another could not reach the server' {
+            $aggregate = @(
+                @{ Error = 'Error from server (AlreadyExists): error when creating "a.yaml": namespaces "website" already exists' }
+                @{ Error = 'error when creating "b.yaml": Post "https://127.0.0.1:6443/api/v1/namespaces": dial tcp 127.0.0.1:6443: connect: connection refused' })
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 1; Emit = $aggregate })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create -f a.yaml -f b.yaml'
+            Assert-False $failure.success
+            Assert-StringEqual 'tool_failed' $failure.failureClass
+            Assert-Equal 1 $failure.exitCode
+            Assert-Equal 5 $plan.Call.Count 'the refused connection is a passing failure, so the retry runs on, and the refusal beside it never completes the command'
+            $expected = @(
+                "== $script:Stamp kubectl create -f a.yaml -f b.yaml attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                foreach ($attempt in 2..5) {
+                    "== $script:Stamp kubectl create -f a.yaml -f b.yaml attempt $attempt/5 (exit=1) =="
+                    $aggregate.Error
+                })
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') $expected
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 1
+        }
+
+        It 'still fails a retried create -f refused for one object while another did not validate' {
+            # An object the resource visitor refuses before any request is
+            # printed with no prefix when it is one error of several.
+            $companion = @(
+                @{ Error = 'Error from server (AlreadyExists): error when creating "a.yaml": namespaces "website" already exists' }
+                @{ Error = 'error validating "b.yaml": error validating data: ValidationError(Namespace.metadata): unknown field "nmae" in io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta' })
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 1; Emit = $companion })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create -f manifests/'
+            Assert-False $failure.success
+            Assert-StringEqual 'tool_failed' $failure.failureClass
+            Assert-Equal 1 $failure.exitCode
+            Assert-Equal 2 $plan.Call.Count 'an object that does not validate is not a passing failure, so the retry ends there'
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl create -f manifests/ attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                "== $script:Stamp kubectl create -f manifests/ attempt 2/5 (exit=1) =="
+                $companion.Error)
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 1
+        }
+
+        It 'still fails a retried create -f refused for one object while another has a kind the cluster does not know' {
+            # The mapping error carries a second line of advice with no prefix
+            # of its own; the line before it is the error.
+            $companion = @(
+                @{ Error = 'Error from server (AlreadyExists): error when creating "a.yaml": namespaces "website" already exists' }
+                @{ Error = 'resource mapping not found for name: "website" namespace: "" from "b.yaml": no matches for kind "Certificate" in version "cert-manager.io/v1"' }
+                @{ Error = 'ensure CRDs are installed first' })
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 1; Emit = $companion })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create -f manifests/'
+            Assert-False $failure.success
+            Assert-StringEqual 'tool_failed' $failure.failureClass
+            Assert-Equal 1 $failure.exitCode
+            Assert-Equal 2 $plan.Call.Count 'a kind the cluster does not know is not a passing failure, so the retry ends there'
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl create -f manifests/ attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                "== $script:Stamp kubectl create -f manifests/ attempt 2/5 (exit=1) =="
+                $companion.Error)
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 1
+        }
+
+        It 'still fails a retried create refused for an object that is still being deleted' {
+            # The server keeps the AlreadyExists reason for a terminating
+            # object and says so in the message; that object is on its way
+            # out, not the result of an earlier attempt.
+            $terminating = @{ Error = 'Error from server (AlreadyExists): object is being deleted: namespaces "website" already exists' }
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 1; Emit = @($terminating) })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create namespace website --v=1'
+            Assert-False $failure.success
+            Assert-StringEqual 'tool_failed' $failure.failureClass
+            Assert-Equal 1 $failure.exitCode
+            Assert-Equal 2 $plan.Call.Count
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl create namespace website --v=1 attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                "== $script:Stamp kubectl create namespace website --v=1 attempt 2/5 (exit=1) =="
+                'Error from server (AlreadyExists): object is being deleted: namespaces "website" already exists')
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 1
+        }
+
+        It 'still fails a retried create secret refused in the wrapped form for a secret that is still being deleted' {
+            # The subcommands that build the object wrap the terminating
+            # object's message the way they wrap the bare refusal, and both
+            # end in 'already exists'; what tells them apart is that the
+            # bare message follows the kind directly.
+            $terminating = @{ Error = 'error: failed to create secret object is being deleted: secrets "website-tls" already exists' }
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 1; Emit = @($terminating) })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create secret tls website-tls --key tls.key --cert tls.crt --namespace=website'
+            Assert-False $failure.success
+            Assert-StringEqual 'tool_failed' $failure.failureClass
+            Assert-Equal 1 $failure.exitCode
+            Assert-Equal 2 $plan.Call.Count
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl create secret tls website-tls --key tls.key --cert tls.crt --namespace=website attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                "== $script:Stamp kubectl create secret tls website-tls --key tls.key --cert tls.crt --namespace=website attempt 2/5 (exit=1) =="
+                'error: failed to create secret object is being deleted: secrets "website-tls" already exists')
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 1
+        }
+
+        It 'still fails a retried create whose second attempt could not reach the server and printed no error line to judge' {
+            # kubectl prints a connection it could not open without any of the
+            # error prefixes, so the attempt holds no line that could be the
+            # refusal, and nothing an earlier attempt explains.
+            $unreachable = @{ Error = 'Unable to connect to the server: dial tcp 10.0.0.1:443: i/o timeout' }
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 1; Emit = @($unreachable) })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create namespace website --v=1'
+            Assert-False $failure.success
+            Assert-StringEqual 'tool_failed' $failure.failureClass
+            Assert-Equal 1 $failure.exitCode
+            Assert-Equal 5 $plan.Call.Count 'the unreachable server is a passing failure, so the retry runs on and exhausts'
+            $expected = @(
+                "== $script:Stamp kubectl create namespace website --v=1 attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                foreach ($attempt in 2..5) {
+                    "== $script:Stamp kubectl create namespace website --v=1 attempt $attempt/5 (exit=1) =="
+                    'Unable to connect to the server: dial tcp 10.0.0.1:443: i/o timeout'
+                })
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') $expected
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 1
+        }
+
+        It 'still fails a retried create secret whose second attempt printed the wrapped timeout, not the wrapped refusal' {
+            # The subcommands that build the object wrap the timeout the way
+            # they wrap the refusal; only the tail tells them apart.
+            $wrappedTimeout = @{ Error = 'error: failed to create secret etcdserver: request timed out' }
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($wrappedTimeout) }, @{ Exit = 1; Emit = @($wrappedTimeout) })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create secret tls website-tls --key tls.key --cert tls.crt --namespace=website'
+            Assert-False $failure.success
+            Assert-StringEqual 'tool_failed' $failure.failureClass
+            Assert-Equal 1 $failure.exitCode
+            Assert-Equal 5 $plan.Call.Count 'the timeout is a passing failure, so the retry runs on and exhausts'
+            $expected = foreach ($attempt in 1..5) {
+                "== $script:Stamp kubectl create secret tls website-tls --key tls.key --cert tls.crt --namespace=website attempt $attempt/5 (exit=1) =="
+                'error: failed to create secret etcdserver: request timed out'
+            }
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @($expected)
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 1
+        }
+
+        It 'still fails a delete refused the same way, which no earlier attempt explains' {
+            $plan = New-ToolPlan -Step @{ delete = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 1; Emit = @($script:Exists) })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'delete namespace website'
+            Assert-False $failure.success
+            Assert-StringEqual 'tool_failed' $failure.failureClass
+            Assert-Equal 1 $failure.exitCode
+            Assert-Equal 2 $plan.Call.Count
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl delete namespace website attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                "== $script:Stamp kubectl delete namespace website attempt 2/5 (exit=1) =="
+                'Error from server (AlreadyExists): namespaces "website" already exists')
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 1
+        }
+
+        It 'still fails a retried apply refused the same way, although its file is named create' {
+            $plan = New-ToolPlan -Step @{ apply = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 1; Emit = @($script:Exists) })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'apply -f create-namespace.yaml'
+            Assert-False $failure.success
+            Assert-StringEqual 'tool_failed' $failure.failureClass
+            Assert-Equal 1 $failure.exitCode
+            Assert-Equal 2 $plan.Call.Count
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl apply -f create-namespace.yaml attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                "== $script:Stamp kubectl apply -f create-namespace.yaml attempt 2/5 (exit=1) =="
+                'Error from server (AlreadyExists): namespaces "website" already exists')
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 1
+        }
+
+        It 'still fails a create refused on its first attempt as tool_failed' {
+            $plan = New-ToolPlan -Step @{ create = @{ Exit = 1; Emit = @($script:Exists) } }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create namespace website --v=1'
+            Assert-False $failure.success
+            Assert-StringEqual 'tool_failed' $failure.failureClass
+            Assert-Equal 1 $failure.exitCode
+            Assert-Equal 1 $plan.Call.Count 'an AlreadyExists that no earlier attempt explains is not retried'
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl create namespace website --v=1 attempt 1/5 (exit=1) =="
+                'Error from server (AlreadyExists): namespaces "website" already exists')
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 1
+        }
+
+        It 'passes a retried create that then exits zero, with no completion note' {
+            $plan = New-ToolPlan -Step @{ create = (New-SequencedStep -Outcome @(@{ Exit = 1; Emit = @($script:TimedOut) }, @{ Exit = 0; Emit = @('namespace/website created') })) }
+            Set-ToolStandIn -Name kubectl -Plan $plan
+            $failure = Invoke-ToolFixture -Root $script:Root -Arguments 'create namespace website --v=1'
+            Assert-Null $failure
+            Assert-Equal 2 $plan.Call.Count
+            Confirm-LogContent (Join-Path $script:Work 'kubectl.stderr.log') @(
+                "== $script:Stamp kubectl create namespace website --v=1 attempt 1/5 (exit=1) =="
+                'Error from server: etcdserver: request timed out'
+                "== $script:Stamp kubectl create namespace website --v=1 attempt 2/5 (exit=0) =="
+                'namespace/website created')
+            Confirm-ExitCodeFile (Join-Path $script:Work 'kubectl.rc') 0
         }
     }
 }

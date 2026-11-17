@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42539169-cf17-4eb5-b0d6-c972156d3841
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,6 +59,13 @@ Describe 'Get-SshReadinessFailureCause' {
 
     It 'classifies connection refused (host up, sshd down)' {
         Assert-Equal 'connection_refused' (Get-SshReadinessFailureCause -IpDiscovered $true -LastError 'connect to host 192.168.7.40 port 22: Connection refused')
+    }
+
+    It 'keeps a banner exchange timeout distinct from an unreachable network path' {
+        foreach ($discovered in @($false, $true)) {
+            Get-SshReadinessFailureCause -IpDiscovered $discovered -IpAnswered $true `
+                -LastError 'Connection timed out during banner exchange' | Should -Be 'probe_timeout'
+        }
     }
 
     It 'classifies a changed host key' {
@@ -341,6 +348,187 @@ Describe 'Test-DetachedRunInterrupted' {
 
     It 'is never interrupted on success' {
         Test-DetachedRunInterrupted -ExitCode 0 -StdErr 'YURUNA_RUN_START token=t' | Should -BeFalse
+    }
+}
+
+Describe 'Read-only harness SSH key inspection' {
+    BeforeAll {
+        $script:KeyModule = Get-Module Test.Ssh
+        $script:Keygen = Get-Command ssh-keygen -CommandType Application -ErrorAction Stop | Select-Object -First 1
+        $script:SavedKeyPaths = & $script:KeyModule {
+            @{ Directory=$script:SshKeyDir; Private=$script:SshKeyPath; Public=$script:SshPubPath; Cached=$script:CachedSshKey }
+        }
+
+        function New-SshFixturePair {
+            <# Create an isolated native key pair for observable read-only checks. #>
+            [CmdletBinding(SupportsShouldProcess)]
+            param([string]$Path, [switch]$Encrypted)
+            if (-not $PSCmdlet.ShouldProcess($Path, 'Create a test SSH key pair')) { return }
+            $null = New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force
+            $fixturePhrase = if ($Encrypted) { 'fixture-passphrase' } else { '' }
+            & $script:Keygen.Source -q -t ed25519 -N $fixturePhrase -C fixture -f $Path
+            if ($LASTEXITCODE -ne 0) { throw 'Fixture ssh-keygen failed.' }
+        }
+
+        function Get-SshFixtureSnapshot {
+            <# Capture names, contents, write times and permissions without exposing key bytes. #>
+            param([string]$Path)
+            $items = @((Get-Item -LiteralPath $Path)) + @(Get-ChildItem -LiteralPath $Path -Recurse -Force)
+            $entries = foreach ($item in $items | Sort-Object FullName) {
+                [ordered]@{
+                    name = $item.FullName.Substring($Path.Length)
+                    directory = $item.PSIsContainer
+                    hash = $(if (-not $item.PSIsContainer) { (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash })
+                    written = $item.LastWriteTimeUtc.Ticks
+                    permissions = $(if ($IsWindows) { (Get-Acl -LiteralPath $item.FullName).Sddl }
+                        else { [int][IO.File]::GetUnixFileMode($item.FullName) })
+                }
+            }
+            return ConvertTo-Json -InputObject @($entries) -Depth 4 -Compress
+        }
+    }
+
+    BeforeEach {
+        $script:KeyFixtureRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:KeyFixtureRoot
+        $script:KeyDirectory = Join-Path $script:KeyFixtureRoot 'keys'
+        $script:PrivateKey = Join-Path $script:KeyDirectory 'yuruna_ed25519'
+        $script:PublicKey = "$script:PrivateKey.pub"
+        & $script:KeyModule {
+            param($Directory)
+            $script:SshKeyDir = $Directory
+            $script:SshKeyPath = Join-Path $Directory 'yuruna_ed25519'
+            $script:SshPubPath = "$script:SshKeyPath.pub"
+            $script:CachedSshKey = $null
+        } $script:KeyDirectory
+    }
+
+    AfterEach {
+        & $script:KeyModule {
+            param($Saved)
+            $script:SshKeyDir = $Saved.Directory
+            $script:SshKeyPath = $Saved.Private
+            $script:SshPubPath = $Saved.Public
+            $script:CachedSshKey = $Saved.Cached
+        } $script:SavedKeyPaths
+    }
+
+    It 'plans a missing key without creating its directory or files' {
+        $before = Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot
+        Get-YurunaSshPublicKey -ReadOnly | Should -BeNullOrEmpty
+        Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot | Should -BeExactly $before
+        Test-Path -LiteralPath $script:KeyDirectory | Should -BeFalse
+    }
+
+    It 'plans a missing pair in an existing directory without changing its permissions' {
+        $null = New-Item -ItemType Directory -Path $script:KeyDirectory
+        if (-not $IsWindows) { [IO.File]::SetUnixFileMode($script:KeyDirectory, [IO.UnixFileMode]488) }
+        $before = Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot
+        Get-YurunaSshPublicKey -ReadOnly | Should -BeNullOrEmpty
+        Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot | Should -BeExactly $before
+    }
+
+    It 'returns the existing matching public key without altering files or permissions' {
+        New-SshFixturePair -Path $script:PrivateKey
+        if (-not $IsWindows) {
+            [IO.File]::SetUnixFileMode($script:KeyDirectory, [IO.UnixFileMode]488)
+            [IO.File]::SetUnixFileMode($script:PrivateKey, [IO.UnixFileMode]256)
+            [IO.File]::SetUnixFileMode($script:PublicKey, [IO.UnixFileMode]416)
+        }
+        $expected = (Get-Content -LiteralPath $script:PublicKey -Raw).Trim()
+        $before = Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot
+        Get-YurunaSshPublicKey -ReadOnly | Should -BeExactly $expected
+        Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot | Should -BeExactly $before
+    }
+
+    It 'refuses <State> without repairing or changing any existing material' -ForEach @(
+        @{ State='malformed-private'; Reason='private-key-unusable' },
+        @{ State='encrypted-private'; Reason='private-key-unusable' },
+        @{ State='malformed-public'; Reason='public-key-invalid-or-mismatched' },
+        @{ State='mismatched-public'; Reason='public-key-invalid-or-mismatched' },
+        @{ State='missing-private'; Reason='incomplete-key-pair' },
+        @{ State='missing-public'; Reason='incomplete-key-pair' },
+        @{ State='private-directory'; Reason='invalid-key-file' },
+        @{ State='public-directory'; Reason='invalid-key-file' }
+    ) {
+        New-SshFixturePair -Path $script:PrivateKey -Encrypted:($State -eq 'encrypted-private')
+        switch ($State) {
+            malformed-private { Set-Content -LiteralPath $script:PrivateKey -Value 'invalid fixture private key' }
+            malformed-public { Set-Content -LiteralPath $script:PublicKey -Value 'invalid fixture public key' }
+            mismatched-public {
+                $other = Join-Path $script:KeyFixtureRoot 'other'
+                New-SshFixturePair -Path $other
+                Copy-Item -LiteralPath "$other.pub" -Destination $script:PublicKey
+            }
+            missing-private { Remove-Item -LiteralPath $script:PrivateKey }
+            missing-public { Remove-Item -LiteralPath $script:PublicKey }
+            private-directory {
+                Remove-Item -LiteralPath $script:PrivateKey
+                $null = New-Item -ItemType Directory -Path $script:PrivateKey
+            }
+            public-directory {
+                Remove-Item -LiteralPath $script:PublicKey
+                $null = New-Item -ItemType Directory -Path $script:PublicKey
+            }
+        }
+        $before = Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot
+        { Get-YurunaSshPublicKey -ReadOnly } | Should -Throw -ExpectedMessage "*$Reason*"
+        Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot | Should -BeExactly $before
+    }
+
+    It 'refuses a file blocking the <Location> key-directory path without mutation' -ForEach @(
+        @{ Location='immediate' }, @{ Location='ancestor' }
+    ) {
+        Set-Content -LiteralPath $script:KeyDirectory -Value 'keep blocking file'
+        if ($Location -eq 'ancestor') {
+            $script:KeyDirectory = Join-Path $script:KeyDirectory 'nested'
+            & $script:KeyModule { $script:SshKeyDir = $args[0]; $script:SshKeyPath = Join-Path $args[0] 'yuruna_ed25519'; $script:SshPubPath = "$script:SshKeyPath.pub" } $script:KeyDirectory
+        }
+        $before = Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot
+        { Get-YurunaSshPublicKey -ReadOnly } | Should -Throw -ExpectedMessage '*invalid-key-directory*'
+        Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot | Should -BeExactly $before
+    }
+
+    It 'refuses a planned creation when ssh-keygen is missing without making directories' {
+        Mock Get-Command -ModuleName Test.Ssh { $null } -ParameterFilter { $Name -eq 'ssh-keygen' }
+        $before = Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot
+        { Get-YurunaSshPublicKey -ReadOnly } | Should -Throw -ExpectedMessage '*ssh-keygen not found*'
+        Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot | Should -BeExactly $before
+    }
+
+    It 'does not mistake denied key-file access for an absent pair under ErrorAction Continue' {
+        New-SshFixturePair -Path $script:PrivateKey
+        Mock Test-Path -ModuleName Test.Ssh {
+            if ($PathType) { Microsoft.PowerShell.Management\Test-Path -LiteralPath $LiteralPath -PathType $PathType }
+            else { Microsoft.PowerShell.Management\Test-Path -LiteralPath $LiteralPath }
+        }
+        Mock Test-Path -ModuleName Test.Ssh {
+            Write-Error -Message 'fixture key path access denied' -Category PermissionDenied
+            return $false
+        } -ParameterFilter { [IO.Path]::GetFileName($LiteralPath) -in @('yuruna_ed25519', 'yuruna_ed25519.pub') }
+        $before = Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot
+        { Get-YurunaSshPublicKey -ReadOnly -ErrorAction Continue 2>$null } | Should -Throw -ExpectedMessage '*invalid-key-file*'
+        Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot | Should -BeExactly $before
+    }
+
+    It 'still creates a usable key pair during a normal build and keeps it on later calls' {
+        $public = Get-YurunaSshPublicKey
+        $public | Should -Match '^ssh-ed25519 '
+        $public | Should -BeExactly (Get-Content -LiteralPath $script:PublicKey -Raw).Trim()
+        & $script:Keygen.Source -y -P '' -f $script:PrivateKey | Should -Not -BeNullOrEmpty
+        $LASTEXITCODE | Should -Be 0
+        $before = Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot
+        Get-YurunaSshPublicKey | Should -BeExactly $public
+        Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot | Should -BeExactly $before
+    }
+
+    It 'retains normal-build replacement of an unusable legacy encrypted key' {
+        New-SshFixturePair -Path $script:PrivateKey -Encrypted
+        $before = (Get-FileHash -LiteralPath $script:PrivateKey -Algorithm SHA256).Hash
+        Get-YurunaSshPublicKey -WarningAction SilentlyContinue | Should -Match '^ssh-ed25519 '
+        (Get-FileHash -LiteralPath $script:PrivateKey -Algorithm SHA256).Hash | Should -Not -BeExactly $before
+        & $script:Keygen.Source -y -P '' -f $script:PrivateKey | Should -Not -BeNullOrEmpty
+        $LASTEXITCODE | Should -Be 0
     }
 }
 

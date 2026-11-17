@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42e6d9c8-1705-43a2-89f3-6013cc25bb54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,6 +57,13 @@ Describe 'real sequence execution preserves source positions and current-step ca
             if ($context.Step.throwNow) { throw 'fixture handler crash' }
             if ($context.Step.seedConsoleEvidence) {
                 $state.WaitForTextConsoleSecondOpinion = [pscustomobject]@{ Verdict='guest-wedged'; Detail='independent VNC read'; QemuPid=4321; VncPort=5983; CpuPercent=782; FramesChanged=$false }
+            }
+            if ($context.Step.seedSilentProcessor) {
+                # The host recording's reading at the failed wait: a one-processor
+                # guest whose processor serviced no interrupt for 90 seconds.
+                $state.WaitForTextGuestLivelock = [pscustomobject]@{ Verdict='not-livelocked'; LivelockedSeconds=90; MinimumSeconds=300; VirtualProcessors=1
+                    ProcessorWindow=[pscustomobject]@{ StormedProcessors=@('0'); NoInterruptsServicedProcessors=@()
+                        Processors=@([pscustomobject]@{ Processor='0'; Stormed=$true; NoInterruptsServicedSeconds=90 }) } }
             }
             if ($context.Step.children) {
                 $childResult = & $context.InvokeStepBlock -Steps $context.Step.children -ParentOrdinal $context.StepNum -ParentAction safetyFixture -ParentAttempt 1
@@ -128,6 +135,21 @@ Describe 'real sequence execution preserves source positions and current-step ca
         $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
         $record.stepInvocationId | Should -Be $script:FixtureRows[0].StepInvocationId
         $record.context.causeDetail.progressAdvisory.SshResponsiveness | Should -Be unresponsive
+    }
+    It 'lists a processor the failed wait read as silent on the step''s advisory, leaving its verdict alone' {
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
+        $script:FixtureEvents = [Collections.Generic.List[object]]::new()
+        Mock Send-CycleEventSafely -ModuleName Test.SequenceEngine { $script:FixtureEvents.Add($EventRecord) }
+        $script:FixtureSequence = @{ steps=@(@{action='safetyFixture';seedSilentProcessor=$true;fail=$true}) }
+        Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile | Should -BeFalse
+        $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+        $record.reason | Should -Be step -Because "the failure path must not crash: $($record.context.crash | ConvertTo-Json -Compress -Depth 4)"
+        $advisory = $record.context.causeDetail.progressAdvisory
+        $advisory.Signals | Should -Contain 'no-interrupts-serviced'
+        $advisory.NoInterruptsServicedSeconds | Should -Be 90
+        $advisory.Verdict | Should -Be 'unavailable' -Because 'nothing the verdict reads was measured, and the processor reading is never scored'
+        $stepEnd = @($script:FixtureEvents | Where-Object { $_.event -eq 'step_end' -and -not $_.ok })[-1]
+        $stepEnd.progressAdvisory.Signals | Should -Contain 'no-interrupts-serviced'
     }
     It 'does not assign a previous passing step ID to a crash before the next invocation' {
         Mock Resolve-YurunaOperatorProjectLabel -ModuleName Test.SequenceEngine {
@@ -272,6 +294,141 @@ Describe 'real sequence execution preserves source positions and current-step ca
                 Remove-Item -LiteralPath function:\Read-VMSerialCapture, function:\Get-VMCreationTime -ErrorAction SilentlyContinue
                 Remove-Variable -Name FixtureSerialPath -Scope Script -ErrorAction SilentlyContinue
             }
+        }
+    }
+    Context 'a login the guest refused, read when a console wait fails' {
+        # Each fixture that names a user name also names its loginUser: left
+        # unset, Invoke-Sequence derives it through the authentication
+        # extension, whose users.yml and event log live in this checkout's
+        # test/status/extension folder rather than in TestDrive.
+        BeforeEach {
+            Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
+            $script:FixtureEvents = [Collections.Generic.List[object]]::new()
+            Mock Send-CycleEventSafely -ModuleName Test.SequenceEngine { $script:FixtureEvents.Add($EventRecord) }
+            # The file the fixture verb's appendSerial writes to.
+            $script:LoginSerialPath = Join-Path $TestDrive 'fixture-serial.log'
+            Set-Content -LiteralPath $script:LoginSerialPath -Value '' -NoNewline
+            # What login(1) logs on the serial console, and what the screen shows,
+            # when it refuses the user name with its first keystroke missing.
+            $script:LoginRefusal = "[   23.956775] login[1401]: FAILED LOGIN 1 FROM tty1 FOR uuser26, Authentication failure`r`n"
+            $script:LoginScreen = "labguest login: uuser26`nPassword:`nLogin incorrect`nlabguest login:"
+            # Every wait times out: the guest logs what the case gives it while the
+            # step runs, and the screen is left as the case says.
+            Mock Wait-ForText -ModuleName Test.SequenceHandler {
+                if ($script:LoginWaitSerial) { [IO.File]::AppendAllText($script:LoginSerialPath, $script:LoginWaitSerial) }
+                (Get-SequenceFailureState).WaitForTextOcrTail = $script:LoginWaitScreen
+                $false
+            }
+            # The Windows Hyper-V driver's accessor, over the file the steps append to.
+            . (Get-Module Test.SequenceEngine) {
+                param($Path)
+                $script:FixtureSerialPath = $Path
+                function Read-VMSerialCapture {
+                    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                        Justification = 'Stub: the signature has to match the driver accessor so the caller binds.')]
+                    param([string]$VMName, [long]$FromOffset = 0, [int]$MaxBytes = 4194304)
+                    if (-not [IO.File]::Exists($script:FixtureSerialPath)) { return $null }
+                    $bytes = [IO.File]::ReadAllBytes($script:FixtureSerialPath)
+                    if ($MaxBytes -eq 0) { return [pscustomobject]@{ Length = [long]$bytes.Length; Offset = [long]$bytes.Length; Text = ''; Truncated = $false } }
+                    $start = [int][math]::Min($FromOffset, $bytes.Length)
+                    [pscustomobject]@{ Length = [long]$bytes.Length; Offset = [long]$start; Text = [Text.Encoding]::UTF8.GetString($bytes, $start, $bytes.Length - $start); Truncated = $false }
+                }
+            } $script:LoginSerialPath
+        }
+        AfterEach {
+            . (Get-Module Test.SequenceEngine) {
+                Remove-Item -LiteralPath function:\Read-VMSerialCapture -ErrorAction SilentlyContinue
+                Remove-Variable -Name FixtureSerialPath -Scope Script -ErrorAction SilentlyContinue
+            }
+        }
+        It 'names the user name that lost its first keystroke, in the record and on its event' {
+            $script:LoginWaitSerial = $script:LoginRefusal
+            $script:LoginWaitScreen = $script:LoginScreen
+            $script:FixtureSequence = @{ variables = @{ username = 'yuuser26'; loginUser = 'yuuser26' }; steps = @(@{ action = 'waitForText'; pattern = 'yuuser26@labguest' }) }
+            Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile | Should -BeFalse
+            $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+            $record.reason | Should -Be step -Because "the failure path must not crash: $($record.context.crash | ConvertTo-Json -Compress -Depth 4)"
+            $echo = $record.context.causeDetail.loginEcho
+            $echo.expected | Should -BeExactly 'yuuser26'
+            $echo.received | Should -BeExactly 'uuser26'
+            $echo.source | Should -Be 'serial'
+            $echo.lostLeadingCharacters | Should -Be 1
+            $record.failureClass | Should -Be ocr_timeout -Because 'the echo names what the guest received; it does not refile the step'
+            $failure = @($script:FixtureEvents | Where-Object event -EQ step_failure)[-1]
+            $failure.causeLoginEcho | Should -BeExactly 'uuser26 for yuuser26 (serial, 1 leading lost)'
+            $failure.failureClass | Should -Be ocr_timeout
+        }
+        It 'reads the echo when a passwdPrompt failed waiting for its prompt, before it typed' {
+            # A first login's shape: the user name lost its first keystroke, login
+            # still asked for a password, and the forced-change prompt the next
+            # passwdPrompt waits for never came.
+            $script:LoginWaitSerial = $script:LoginRefusal
+            $script:LoginWaitScreen = $script:LoginScreen
+            $script:FixtureSequence = @{ variables = @{ username = 'yuuser26'; loginUser = 'yuuser26'; currentPassword = 'fixture-secret' }
+                steps = @(@{ action = 'passwdPrompt'; pattern = @('Current password', 'urrent password:'); sinceStepStart = $true; text = '${currentPassword}' }) }
+            Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile -WarningAction SilentlyContinue | Should -BeFalse
+            $raw = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw
+            $record = $raw | ConvertFrom-Json
+            $record.reason | Should -Be step -Because "the failure path must not crash: $($record.context.crash | ConvertTo-Json -Compress -Depth 4)"
+            $record.context.stepFailurePhase | Should -Be wait
+            $echo = $record.context.causeDetail.loginEcho
+            $echo.expected | Should -BeExactly 'yuuser26'
+            $echo.received | Should -BeExactly 'uuser26'
+            $echo.source | Should -Be 'serial'
+            $echo.lostLeadingCharacters | Should -Be 1
+            $record.failureClass | Should -Be ocr_timeout -Because 'the echo names what the guest received; it does not refile the step'
+            $failure = @($script:FixtureEvents | Where-Object event -EQ step_failure)[-1]
+            $failure.causeLoginEcho | Should -BeExactly 'uuser26 for yuuser26 (serial, 1 leading lost)'
+            $failure.failureClass | Should -Be ocr_timeout
+            $raw | Should -Not -Match 'fixture-secret' -Because 'the step''s text is never recorded'
+            ($failure | ConvertTo-Json -Depth 8) | Should -Not -Match 'fixture-secret'
+        }
+        It 'reads no echo for a passwdPrompt that failed while typing its text' {
+            # Its wait matched, so what it typed can be on the screen and the
+            # serial console: neither is read.
+            Mock Invoke-TypeDrainEnter -ModuleName Test.SequenceHandler { $false }
+            Mock Wait-ForText -ModuleName Test.SequenceHandler {
+                [IO.File]::AppendAllText($script:LoginSerialPath, $script:LoginRefusal)
+                (Get-SequenceFailureState).WaitForTextOcrTail = $script:LoginScreen
+                $true
+            }
+            $script:FixtureSequence = @{ variables = @{ username = 'yuuser26'; loginUser = 'yuuser26'; currentPassword = 'fixture-secret' }
+                steps = @(@{ action = 'passwdPrompt'; pattern = 'Password:'; text = '${currentPassword}' }) }
+            Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile -WarningAction SilentlyContinue | Should -BeFalse
+            $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+            $record.reason | Should -Be step -Because "the failure path must not crash: $($record.context.crash | ConvertTo-Json -Compress -Depth 4)"
+            $record.context.stepFailurePhase | Should -Be input
+            $record.context.causeDetail.loginEcho | Should -BeNullOrEmpty
+            $failure = @($script:FixtureEvents | Where-Object event -EQ step_failure)[-1]
+            $failure.causeLoginEcho | Should -Be ''
+        }
+        It 'reads no echo for <Case>' -ForEach @(
+            @{ Case = 'a refusal logged before the failing step began'; Before = $true; Variables = @{ username = 'yuuser26'; loginUser = 'yuuser26' }
+                Step = @{ action = 'waitForText'; pattern = 'yuuser26@labguest' } }
+            @{ Case = 'a sensitive step'; Before = $false; Variables = @{ username = 'yuuser26'; loginUser = 'yuuser26' }
+                Step = @{ action = 'waitForAndEnter'; pattern = 'login:'; text = 'fixture-secret'; sensitive = $true } }
+            @{ Case = 'a sequence with no user name'; Before = $false; Variables = $null
+                Step = @{ action = 'waitForText'; pattern = 'yuuser26@labguest' } }
+        ) {
+            if ($Before) {
+                # The refusal reached the console during the step before, and the
+                # failing wait's screen no longer shows it.
+                $script:LoginWaitSerial = ''
+                $script:LoginWaitScreen = 'labguest login:'
+                $steps = @(@{ action = 'safetyFixture'; appendSerial = $script:LoginRefusal }, $Step)
+            } else {
+                $script:LoginWaitSerial = $script:LoginRefusal
+                $script:LoginWaitScreen = $script:LoginScreen
+                $steps = @($Step)
+            }
+            $script:FixtureSequence = @{ steps = $steps }
+            if ($Variables) { $script:FixtureSequence.variables = $Variables }
+            Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile -WarningAction SilentlyContinue | Should -BeFalse
+            $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+            $record.reason | Should -Be step -Because "the failure path must not crash: $($record.context.crash | ConvertTo-Json -Compress -Depth 4)"
+            $record.context.causeDetail.loginEcho | Should -BeNullOrEmpty
+            $failure = @($script:FixtureEvents | Where-Object event -EQ step_failure)[-1]
+            $failure.causeLoginEcho | Should -Be ''
         }
     }
     It 'clears a recovered retry leaf before a later failure and a new sequence' {

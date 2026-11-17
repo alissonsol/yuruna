@@ -563,14 +563,15 @@ hospedeiro de ciclos de teste Windows também executa elevado. Ferramentas Git: 
 `usr\bin`. As suítes privadas em `dev-only/test` seguem a mesma regra.
 
 **Planeje o tempo.** Três quartos dos processadores lógicos, no mínimo 8 e no máximo
-24, executam processos de suíte ao mesmo tempo (`-ThrottleLimit`). As suítes passam
-boa parte do tempo esperando processos filhos, temporizadores e o disco, então menos
-trabalhadores deixam processadores ociosos; acima disso os processadores ficam
-saturados e as suítes mais longas ficam mais lentas mais depressa do que os
-trabalhadores extras terminam as demais. Uma execução completa das suítes
-versionadas leva cerca de 8 minutos no hospedeiro Ubuntu KVM em que o baseline é
-registrado, cerca de 7 minutos no macOS e de 17 a 20 minutos no Windows. Uma suíte
-executa ao lado de até vinte e três outras, portanto um limite de tempo dentro de
+24, executam processos de suíte ao mesmo tempo por padrão (`-ThrottleLimit`). Acima
+de três quartos, as suítes, que iniciam seus próprios processos filhos, apenas
+atrasam umas às outras: no hospedeiro Ubuntu KVM de referência, de 32 threads, uma
+execução completa leva o mesmo tempo com 28 e com 24, e com 32 limites de tempo
+dentro das suítes começam a falhar. Um `-ThrottleLimit` explícito pode exceder 24, e
+o executor das suítes privadas herda o mesmo padrão. Execuções completas registradas
+das suítes versionadas levaram cerca de 5 minutos nesse hospedeiro de referência,
+cerca de 7 minutos no macOS e de 17 a 20 minutos no Windows. Uma suíte executa ao
+lado de até vinte e três outras por padrão, portanto um limite de tempo dentro de
 uma suíte precisa ser atendido em uma máquina ocupada, e um teste que precisa de uma
 porta livre não deve presumir que uma porta que acabou de liberar continuará livre.
 
@@ -601,7 +602,7 @@ aprovada executa de novo sem rastreamento, e essa execução decide: o ptrace mu
 a forma como um processo rastreado termina, então um teste que limita quanto
 tempo um processo leva para terminar pode falhar só por estar rastreado. Uma
 suíte que falha assim duas vezes no mesmo dia executa sem rastreamento pelo
-resto dele. Uma suíte reutilizada ainda atende às cinco condições abaixo, a
+resto dele. Uma suíte reutilizada ainda atende às seis condições abaixo, a
 partir do seu arquivo NUnit registrado; o relatório a marca como `reused`, e
 `suite-results.json` informa o `impact` de cada suíte: por que ela executou e se
 foi registrada. Uma execução assim é completa para um commit. Uma release
@@ -647,10 +648,12 @@ Programas de teste escritos em outras linguagens só executam quando uma suíte 
 cita, porque o executor descobre apenas arquivos `*.Tests.ps1`. `Test.TestPrograms`
 executa os programas Python, de contrato PowerShell e Node ao lado das ferramentas,
 cada um com o número de testes que ainda deve informar, e sua verificação falha em
-qualquer programa de teste versionado (`test_*.py`, `*.test.js`, `*.test.cjs`,
-`*_contracts.*`) que nenhuma suíte cite. A suíte privada `Test-OntologyTests`
-executa os testes da própria ontologia a partir de `dev-only/ontology/.venv`
-(consulte `dev-only/ontology/README.md`). O gate entre repositórios executa os
+qualquer programa de teste versionado ou não versionado (`test_*.py`, `*.test.js`,
+`*.test.cjs`, `*.test.mjs`, `*_contracts.*`, `test/shell/test-*.sh`)
+que nenhuma suíte cite. A suíte privada `Test-OntologyTests` executa os testes
+da própria ontologia com `YURUNA_ONTOLOGY_PYTHON` ou, na ausência dele, com
+`dev-only/ontology/.venv` ou, na ausência de ambos, com um `python3` que importe
+os pacotes necessários (consulte `dev-only/ontology/README.md`). O gate entre repositórios executa os
 programas de teste do yuruna-project (`project-tests`) e, quando houver um
 checkout do amisad.dev ao lado deste, sua suíte de regressão (`amisad-tests`).
 
@@ -1416,6 +1419,10 @@ do hospedeiro -- que, no momento da leitura do fluxo, descreve o ciclo em
 execução naquele instante, e não aquele a que os eventos pertencem. Entrada do
 framework primeiro, entrada do projeto em segundo, SHAs curtos, e a chave fica
 totalmente ausente de um ciclo cujos commits não puderam ser resolvidos.
+O mesmo evento contém `runnerPowerShellVersion`, o `$PSVersionTable.PSVersion`
+do executor: uma atualização da Store ou do pacote pode substituir o
+PowerShell do executor entre ciclos, e nada mais no fluxo registra qual versão
+executou um ciclo.
 
 <a id="42d38664-0020"></a>
 
@@ -1709,9 +1716,12 @@ contabilizada e um residente ainda em execução.
 
 | Código | Significado |
 |------|---------|
-| `0` | Todos os convidados passaram (o executor foi interrompido ou concluiu) |
-| `1` | Um ou mais convidados falharam, ou houve erro na verificação prévia |
-| `2` | Uma verificação não pôde emitir um veredito (a admissão de VM não conseguiu comprovar que o hospedeiro está livre de outros convidados) |
+| `0` | Sucesso, incluindo um ciclo aprovado ou uma parada ordenada do executor residente |
+| `1` | Um ou mais convidados falharam, ou houve um erro comum na verificação prévia |
+| `2` | Uma verificação não pôde emitir um veredito, ou um despacho de execução única não executou um ciclo |
+| `70` | Um ciclo terminou normalmente sem um registro de resultado utilizável |
+| `75` | Nenhum convidado falhou, mas um convidado planejado foi omitido (ciclo degradado) |
+| `78` | A verificação de configuração recusou o ciclo antes da execução dos testes |
 
 ---
 
@@ -1719,6 +1729,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Voltar para [Yuruna](../../README.md)

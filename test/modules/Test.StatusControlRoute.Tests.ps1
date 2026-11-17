@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42798304-85e4-4102-8026-ce168ff64fd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1491,16 +1491,55 @@ $($script:ArchiveIndexText)
         }
         try {
             $result = & $module {
-                param($MergeText, $LocalOnly)
+                param($MergeText, $LocalOnly, $IdentityText)
+                . ([scriptblock]::Create($IdentityText))
                 $path = 'log/'
                 $req = [pscustomobject]@{ QueryString = @{ localOnly = $LocalOnly } }
                 $entries = @([pscustomobject]@{ Name = 'local-cycle'; PSIsContainer = $true })
                 $null = $path, $req # Read by the lifted handler in this scope.
                 . ([scriptblock]::Create($MergeText))
                 [pscustomobject]@{ Calls = $script:ArchiveCalls; Names = ($entries.Name -join ',') }
-            } $merge.Extent.Text $Query
+            } $merge.Extent.Text $Query (Get-ServerFunctionText -Name 'ConvertTo-ArchiveRelativePath')
             Assert-Equal $ArchiveCalls $result.Calls 'local-only backfill discovery must never enumerate the network archive'
             Assert-StringEqual $Names $result.Names 'the regular index still merges and deduplicates archive folders'
+        } finally { Remove-Module $module -ErrorAction SilentlyContinue }
+    }
+
+    It 'lists a cycle kept locally as <Mode> once, not again as its archive copy' -TestCases @(
+        @{ Mode = 'aborted'; Suffix = '.aborted.2001-02-03T04-05-06Z' }
+        @{ Mode = 'incomplete'; Suffix = '.incomplete' }
+    ) {
+        param($Suffix)
+        # Pool storage names its copy by the cycle's stable identity, while the
+        # host keeps the folder under a lifecycle suffix. Compared by leaf name
+        # the two never match, so a copy-mode host would list the cycle twice.
+        $merge = $script:ServerAst.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.IfStatementAst] -and
+                $n.Clauses[0].Item1.Extent.Text -eq '$path -eq ''log'' -or $path -eq ''log/'''
+            }, $true) | Select-Object -First 1
+        $module = New-Module -ScriptBlock {
+            function Get-ArchivedCycleEntry {
+                [pscustomobject]@{ Name = '000100.2001-02-01.00-00-00.a0b1c2d3e4f5061728394a5b6c7d8e9f'; PSIsContainer = $true }
+                [pscustomobject]@{ Name = '000123.2001-02-02.23-00-00.a0b1c2d3e4f5061728394a5b6c7d8e9f'; PSIsContainer = $true }
+            }
+        }
+        $local = '000123.2001-02-02.23-00-00.a0b1c2d3e4f5061728394a5b6c7d8e9f' + $Suffix
+        try {
+            $names = & $module {
+                param($MergeText, $IdentityText, $LocalName)
+                . ([scriptblock]::Create($IdentityText))
+                $path = 'log/'
+                $req = [pscustomobject]@{ QueryString = @{ localOnly = $null } }
+                $entries = @(
+                    [pscustomobject]@{ Name = $LocalName; PSIsContainer = $true }
+                    [pscustomobject]@{ Name = 'cycle.events.ndjson'; PSIsContainer = $false })
+                $null = $path, $req # Read by the lifted handler in this scope.
+                . ([scriptblock]::Create($MergeText))
+                $entries.Name -join ','
+            } $merge.Extent.Text (Get-ServerFunctionText -Name 'ConvertTo-ArchiveRelativePath') $local
+            Assert-StringEqual "000100.2001-02-01.00-00-00.a0b1c2d3e4f5061728394a5b6c7d8e9f,$local,cycle.events.ndjson" $names `
+                'the local folder stands for its archive copy, and a cycle only the archive holds is still listed'
         } finally { Remove-Module $module -ErrorAction SilentlyContinue }
     }
 }

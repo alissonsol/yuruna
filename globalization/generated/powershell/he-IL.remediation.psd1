@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a7417f-269d-7411-6f6f-5a366471b90c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,29 @@
 # locale: he-IL  domain: remediation
 
 @{
+    'remediation.guest_display_stalled_action_evidence' = 'קראו את ⁦causeDetail.guestDisplayStallEnd⁩ ואת ⁦serial-console.log⁩ בתיקיית האורח; השוו את דיווחי חריגת הזמן של מנהל ההתקן לתצוגה לצילום המסך ולטקסט ה-OCR שנשמרו, ובדקו את גרסאות הקרנל ומנהל ההתקן לתצוגה של האורח אם התקיעה חוזרת'
+    'remediation.guest_display_stalled_action_restore' = 'שחזרו תמונת מצב נקייה או אתחלו שוב את האורח לפני הפעלה חוזרת של הרצף; חזרה על ההמתנה באותה תצוגה תקועה לא תשחזר את המסגרות שלה. שמרו על מנגנון ההתאוששות הקיים והתחום בזמן של הכניסה, ובדקו כל שינוי סיסמה לפני ניסיון התאוששות ידני'
+    'remediation.guest_display_stalled_rationale' = @(
+        'guest_display_stalled אצל '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': מנהל ההתקן לתצוגה '
+        @{
+            'arg' = 'driver'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' של האורח דיווח על '
+        @{
+            'arg' = 'reports'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' חריגות זמן בהחלפת מסגרות בזמן שתצוגת המסוף הפסיקה להשתנות. ייתכן שהאורח עדיין פועל; תצוגה שאינה משתנה אינה ראיה לכך שהקרנל שלו נעצר.'
+    )
     'remediation.guest_kernel_stalled_action_evidence' = 'קראו את ⁦causeDetail.guestKernelStallEnd⁩ ואת ⁦causeDetail.guestLivelock⁩ בקובץ ⁦last_failure.json⁩, ואת דיווחי הקרנל בקובץ ⁦serial-console.log⁩ שבתיקיית האורח'
     'remediation.guest_kernel_stalled_rationale' = @(
         'guest_kernel_stalled אצל '
@@ -93,6 +116,27 @@
             'trust' = 'external'
         }
         '), ולכן הסקריפט לא יכול היה להסתיים. אין זה שרת מראה איטי לחבילות, והרצה חוזרת של השלב באותו אורח לא תעזור.'
+    )
+    'remediation.ocr_timeout_kernel_stall_rationale' = @(
+        'ocr_timeout אצל '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': הקרנל של האורח הפסיק להתקדם (דיווחי הקרנל: '
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; מעבדים וירטואליים שלא טיפלו באף פסיקה: '
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), ולכן המסך לא יכול היה להגיע למצב הצפוי. אין זה עומס עבודה שסטה מהמסלול שהוקלט, ואותו אתחול אינו מתאושש.'
     )
     'remediation.operator_00fd2209b1a993b2' = 'בדקו את ⁦last_failure.json⁩ ידנית'
     'remediation.operator_01b3c9512f168859' = @(

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 425737dc-81c1-4d1d-8e15-006de1ba8931
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -212,10 +212,62 @@ if ($mode -in @('console-timeout', 'console-after-ssh', 'console-late')) {
         return $modulePath
     }
 
-    function Invoke-ProductionDiagnosticWorkerFixture {
-        param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$Mode, [int]$TimeoutSeconds = 10)
-        $hostModulePath = New-DiagnosticHostFixture -Directory $Directory -Mode $Mode
+    function New-DiagnosticLadderWorkerFixture {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+            Justification = 'Writes only a fixture worker within the Pester TestDrive.')]
+        param([Parameter(Mandatory)][string]$Directory)
+        # Keep the real ladder and checkpoint code inside the process deadline.
+        # Its focused budget need not also load unrelated OCR and vault modules;
+        # the production-worker cases separately exercise that bootstrap.
+        $definitions = @{}
+        foreach ($group in @(
+                @{ Path = '../../automation/Yuruna.Common.psm1'; Names = @('Get-YurunaSaturatedTick', 'New-YurunaDeadline', 'New-YurunaDeadlineFromExpiry', 'Get-YurunaDeadlineRemainingMs') }
+                @{ Path = 'Test.Diagnostic.psm1'; Names = @('Select-MoreInformativeDiagResult', 'Get-GuestDiagnosticOutcome', 'Get-DiagnosticsFileName',
+                        'Update-GuestDiagnosticCheckpoint', 'Get-GuestDiagnosticRungEvidencePath', 'Save-GuestDiagnosticRungEvidence',
+                        'Save-GuestDiagnosticCore', 'Invoke-GuestDiagnosticCapture') }
+                @{ Path = 'Test.Ssh.psm1'; Names = @('Get-GuestSshUser', 'Wait-SshReady', 'Get-GuestAddress') }
+            )) {
+            $ast = Get-YurunaTestFileAst -Path (Join-Path $PSScriptRoot $group.Path)
+            $definitions[$group.Path] = (@(foreach ($name in $group.Names) {
+                        $function = Get-YurunaTestFunctionAst -Ast $ast -Name $name
+                        if (-not $function) { throw "The diagnostic fixture needs production function $name." }
+                        $function.Extent.Text
+                    }) -join "`n")
+        }
         $workerPath = Join-Path $PSScriptRoot '../Invoke-GuestDiagnosticWorker.ps1'
+        $workerText = [IO.File]::ReadAllText($workerPath)
+        $workerAst = Get-YurunaTestFileAst -Path $workerPath
+        $firstImport = $workerAst.FindAll({
+                param($node)
+                $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Import-Module'
+            }, $true) | Select-Object -First 1
+        $captureStart = $workerText.IndexOf('$diagnosticModule = Get-Module Test.Diagnostic', [StringComparison]::Ordinal)
+        if (-not $firstImport -or $captureStart -lt 0) { throw 'The production worker bootstrap or capture entry changed.' }
+        $fixtureModules = @'
+New-Module -Name Test.Ssh -ScriptBlock {
+$script:GuestSshUserOverrides = $global:YurunaGuestSshUserOverrides
+__SSH_FUNCTIONS__
+} | Import-Module -Global -DisableNameChecking
+New-Module -Name Test.Diagnostic -ScriptBlock {
+function Format-YurunaOperatorMessage { param($Key, $Arguments, $FormatValues, $FormatBindings) return $Key }
+function sshpass { throw 'The fixture has no password SSH transport.' }
+__DIAGNOSTIC_FUNCTIONS__
+} | Import-Module -Global -DisableNameChecking
+Import-Module $request.HostModulePath -Global -DisableNameChecking
+'@
+        $fixtureModules = $fixtureModules.Replace('__SSH_FUNCTIONS__', $definitions['Test.Ssh.psm1']).Replace(
+            '__DIAGNOSTIC_FUNCTIONS__', ($definitions['../../automation/Yuruna.Common.psm1'] + "`n" + $definitions['Test.Diagnostic.psm1']))
+        $path = Join-Path $Directory 'diagnostic-ladder-worker.ps1'
+        [IO.File]::WriteAllText($path, ($workerText.Substring(0, $firstImport.Extent.StartOffset) +
+                $fixtureModules + "`n" + $workerText.Substring($captureStart)), [Text.UTF8Encoding]::new($false))
+        return $path
+    }
+
+    function Invoke-ProductionDiagnosticWorkerFixture {
+        param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$Mode, [int]$TimeoutSeconds = 10,
+            [string]$WorkerPath)
+        $hostModulePath = New-DiagnosticHostFixture -Directory $Directory -Mode $Mode
+        if (-not $WorkerPath) { $WorkerPath = Join-Path $PSScriptRoot '../Invoke-GuestDiagnosticWorker.ps1' }
         $workingDirectory = (Get-Location).ProviderPath
         $context = Get-YurunaOperatorLocale
         return & $script:diagnosticModule {
@@ -865,7 +917,8 @@ Describe 'the production diagnostic worker starts without a host or guest depend
     }
 
     It 'preserves failed SSH output before a later console fallback stops responding' {
-        $result = Invoke-ProductionDiagnosticWorkerFixture -Directory $TestDrive -Mode console-timeout -TimeoutSeconds 4
+        $worker = New-DiagnosticLadderWorkerFixture -Directory $TestDrive
+        $result = Invoke-ProductionDiagnosticWorkerFixture -Directory $TestDrive -Mode console-timeout -TimeoutSeconds 4 -WorkerPath $worker
 
         Assert-True (Test-Path -LiteralPath (Join-Path $TestDrive 'console.started')) "The real capture ladder must reach its console fallback: $($result.reason)"
         Assert-True $result.timedOut

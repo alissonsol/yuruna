@@ -537,7 +537,7 @@ const DataenUSexceptions = `{
     }
   ],
   "exceptions.host_dd6d74db4a58cc9d": [
-    "Fido.ps1 hash mismatch (pinned v1.71): expected ",
+    "Fido.ps1 hash mismatch (pinned v1.72): expected ",
     {
       "arg": "fidoSha256",
       "type": "detail",
@@ -1766,6 +1766,20 @@ const DataenUSexceptions = `{
       "trust": "internal"
     },
     "' that cannot be forwarded through the sg relaunch; pass only strings, numbers, switches, booleans and string arrays."
+  ],
+  "exceptions.runner_ssh_key_read_only_invalid": [
+    "Cannot read the existing SSH key pair at '",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' without repair: ",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    }
   ],
   "exceptions.setup_service_vm_preserved": [
     {

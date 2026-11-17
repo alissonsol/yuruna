@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42fe4c73-e319-458f-b4f5-d66b50142f3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,8 +28,8 @@
     ConvertFrom-PoolStorageMountLine already performs -- a format quirk fixed in
     one parser would silently diverge from the other and misdetect a live mount.
     These guards assert the detector delegates to the general parser and that
-    each parse token appears exactly once in the module. Source-text only. Runs under Pester 5.x
-    (script-scoped throw helper).
+    each parse token appears exactly once in the module. Source-text only. Runs under Pester 6.x
+    (Test.Assert.psm1 throw helpers).
 #>
 
 BeforeAll {

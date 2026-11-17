@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42fca3ae-ff54-4779-a27e-25c44c02ade3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     test.config.yml. These AST guards assert it is now in one
     Test-ConfigDiffersOutsideSecretNode helper, both entry points delegate to it,
     the helper strips + serializes, and it stays private. AST/source-only.
-    Runs under Pester 5.x (script-scoped throw helper).
+    Runs under Pester 6.x (Test.Assert.psm1 throw helpers).
 #>
 
 BeforeAll {

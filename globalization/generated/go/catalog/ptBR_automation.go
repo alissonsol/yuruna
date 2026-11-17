@@ -5273,6 +5273,47 @@ const DataptBRautomation = `{
       "trust": "external"
     }
   ],
+  "automation.retry_already_applied": [
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": a tentativa ",
+    {
+      "arg": "attempt",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "/",
+    {
+      "arg": "maxAttempts",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " falhou (exit=",
+    {
+      "arg": "lastExit",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "), mas seu resultado já havia sido aplicado por uma tentativa anterior; o comando conta como concluído."
+  ],
+  "automation.retry_succeed_when_threw": [
+    "!! ",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": o predicado SucceedWhen lançou uma exceção (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); a tentativa continua sendo uma falha"
+  ],
   "automation.runtime_ipc_remove_action": "Remover a entrada remanescente do runtime .NET de um processo que já não existe",
   "automation.seed_value_unsafe": [
     "O valor de seed para ",
@@ -5458,6 +5499,22 @@ const DataptBRautomation = `{
   "automation.system_diagnostic_kernel_log_unavailable": "(sem log do kernel: não é possível ler o dmesg aqui e journalctl -k -b 0 não retornou entradas; veja Acesso ao diário do sistema em RECENT SYSTEM EVENTS)",
   "automation.system_diagnostic_lockup_settings": "Configurações de travamento e de evidências de falha",
   "automation.system_diagnostic_networkmanager_dhcp_none": "(nenhuma entrada dhcp4 do NetworkManager nesta inicialização)",
+  "automation.system_diagnostic_previous_boot_middle_omitted": "... (linhas intermediárias puladas sem contá-las, para que uma inicialização anterior longa não atrase este relatório) ...",
+  "automation.system_diagnostic_probe_stopped": [
+    "  (",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " não terminou em ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "s e foi interrompido; o que imprimiu até então está acima)"
+  ],
   "automation.system_diagnostic_registry_images_refused": [
     "REGISTRY: o cache recusou ",
     {
@@ -5596,6 +5653,16 @@ const DataptBRautomation = `{
       "trust": "external"
     }
   ],
+  "automation.system_diagnostic_restart_not_pending": "Reinicialização pendente: não",
+  "automation.system_diagnostic_restart_pending": [
+    "Reinicialização pendente: sim (",
+    {
+      "arg": "sources",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ")"
+  ],
   "automation.system_diagnostic_utmctl_list_incomplete": [
     "  utmctl list não retornou uma resposta completa em ",
     {
@@ -5613,6 +5680,45 @@ const DataptBRautomation = `{
       "trust": "internal"
     },
     ")"
+  ],
+  "automation.tofu_init_fetch_failed": [
+    "tofu init falhou para o recurso '",
+    {
+      "arg": "resourceName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' após ",
+    {
+      "arg": "attempts",
+      "type": "detail",
+      "trust": "external"
+    },
+    " tentativas (saída final ",
+    {
+      "arg": "lastExit",
+      "type": "detail",
+      "trust": "external"
+    },
+    "): a última tentativa não conseguiu baixar ",
+    {
+      "arg": "url",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Inspecione ",
+    {
+      "arg": "tofuLogFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    " para ver a saída completa."
   ],
   "automation.top_processes_private_bytes": "Top 10 por bytes privados (cobrança de commit)"
 }

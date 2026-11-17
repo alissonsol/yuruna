@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42b667c7-9705-40d2-b7ab-42c08bffb2a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     only in the module-name string. These AST guards assert the policy is now in
     one Install-YurunaGalleryModuleIfMissing helper, both wrappers delegate, the
     raw Install-Module call appears exactly once, and the helper stays private.
-    AST/source-only. Runs under Pester 5.x (script-scoped throw helper).
+    AST/source-only. Runs under Pester 6.x (Test.Assert.psm1 throw helpers).
 
     The host installers and tools/Install-TestModule.ps1 each carry their own
     copy of the pin they install from (each runs alone, before the harness
@@ -283,7 +283,7 @@ Describe 'hostgit-install -- the shell installers'' powershell-yaml block raises
         if (-not $match.Success) { throw 'install/ubuntu.kvm.sh carries no powershell-yaml install script' }
         # The gallery is never reached: a download stands in as offline, so a case
         # that installs ends in the block's own failure path.
-        $script:YamlScript = "function Invoke-WebRequest { throw 'offline in this test' }`n" + $match.Groups['script'].Value
+        $script:YamlScript = '$env:PSModulePath = $env:YURUNA_TEST_MODULE_PATH + [IO.Path]::PathSeparator + (Join-Path $PSHOME Modules)' + "`nfunction Invoke-WebRequest { throw 'offline in this test' }`n" + $match.Groups['script'].Value
         $script:PwshPath = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
     }
 
@@ -297,8 +297,8 @@ Describe 'hostgit-install -- the shell installers'' powershell-yaml block raises
         $null = $Case
         $root = New-YurunaTestTempDir -Prefix 'yuruna-yamlpin'
         try {
-            # The child sees only this tree's modules: PSModulePath names it, and
-            # XDG_DATA_HOME moves the current user's module folder into it.
+            # Set the module path inside the child because Windows startup adds
+            # the operator's normal module folders even when PSModulePath is set.
             $modules = Join-Path $root 'data/powershell/Modules'
             if ($Present) {
                 $dir = Join-Path $modules "powershell-yaml/$Present"
@@ -308,7 +308,7 @@ Describe 'hostgit-install -- the shell installers'' powershell-yaml block raises
             $run = Invoke-BoundedNativeCommand -FilePath $script:PwshPath -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $script:YamlScript) `
                 -TimeoutSeconds 120 -Environment @{
                     YURUNA_MODULE_VERSION = '0.4.12'; YURUNA_MODULE_SHA512 = 'not-reached'
-                    XDG_DATA_HOME = (Join-Path $root 'data'); PSModulePath = (Join-Path $root 'mods')
+                    XDG_DATA_HOME = (Join-Path $root 'data'); PSModulePath = $modules; YURUNA_TEST_MODULE_PATH = $modules
                 }
             Assert-Match ([regex]::Escape($Expected)) "$($run.StdOut)" "the block says what it does with a $(if ($Present) { $Present } else { 'missing' }) copy"
             Assert-Equal -Expected $Exit -Actual ([int]$run.ExitCode)

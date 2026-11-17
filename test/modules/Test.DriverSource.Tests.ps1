@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42c6f065-60ee-4e8b-8462-a3be21141250
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,8 +66,8 @@ Describe 'Reading a driver split into a root module and parts' {
         $repo = New-DriverFixture -Root $script:Root -Part $script:Part
         $files = @(Get-YurunaDriverFile -Driver macos.utm -RepoRoot $repo)
         $files.Count | Should -Be 2
-        $files[0] | Should -BeLike '*host/macos.utm/modules/Yuruna.Host.psm1'
-        $files[1] | Should -BeLike '*host/macos.utm/modules/Yuruna.Host.Capture.ps1'
+        $files[0] | Should -Be (Join-Path $repo 'host/macos.utm/modules/Yuruna.Host.psm1')
+        $files[1] | Should -Be (Join-Path $repo 'host/macos.utm/modules/Yuruna.Host.Capture.ps1')
     }
 
     It 'reads the source in the order it runs, each part without its own header' {

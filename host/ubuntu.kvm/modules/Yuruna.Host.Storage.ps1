@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42d2b83f-8a58-4d6d-9a83-a7a7ff4e90fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,7 @@ function Get-KvmDirectoryDiskOwner {
     [CmdletBinding()]
     [OutputType([hashtable[]])]
     param([Parameter(Mandatory)][string]$Directory)
-    $root = [System.IO.Path]::GetFullPath($Directory).TrimEnd('/') + '/'
+    $root = [System.IO.Path]::GetFullPath($Directory).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
     $owners = foreach ($domain in @(Get-VMName)) {
         if (-not $domain) { continue }
         foreach ($source in @(Get-KvmDomainDiskSource -VMName $domain)) {
@@ -76,12 +76,12 @@ function Repair-KvmVMStorageLocation {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
-    $vmsRoot = [System.IO.Path]::GetFullPath($script:VmRootDir).TrimEnd('/') + '/'
+    $vmsRoot = [System.IO.Path]::GetFullPath($script:VmRootDir).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
     $foreign = $null
     foreach ($source in @(Get-KvmDomainDiskSource -VMName $VMName)) {
         $full = [System.IO.Path]::GetFullPath($source)
         if (-not $full.StartsWith($vmsRoot, [System.StringComparison]::Ordinal)) { continue }
-        $leaf = $full.Substring($vmsRoot.Length).Split('/')[0]
+        $leaf = $full.Substring($vmsRoot.Length).Split([System.IO.Path]::DirectorySeparatorChar)[0]
         if ($leaf -and $leaf -cne $VMName) { $foreign = $leaf; break }
     }
     if (-not $foreign) { return $true }
@@ -243,7 +243,9 @@ function Complete-KvmDomainRename {
         # directory: a bare $oldDir is also a prefix of $newDir whenever the
         # new name extends the old one, and a second run would then rewrite
         # paths that are already right.
-        $newXmlText = $xmlText.Replace("$oldDir/$VMName.", "$newDir/$NewName.").Replace("$oldDir/", "$newDir/")
+        $oldPrefix = $oldDir + [System.IO.Path]::DirectorySeparatorChar
+        $newPrefix = $newDir + [System.IO.Path]::DirectorySeparatorChar
+        $newXmlText = $xmlText.Replace("$oldPrefix$VMName.", "$newPrefix$NewName.").Replace($oldPrefix, $newPrefix)
         # See https://yuruna.link/42e220c4-0004
         $renameMacBefore = Get-GuestMacFromDomainXml -DomainXml $newXmlText
         $renameMac = Resolve-YurunaRenameMac -MacAddress $renameMacBefore -VMName $VMName -NewName $NewName

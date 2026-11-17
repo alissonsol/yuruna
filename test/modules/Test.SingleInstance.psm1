@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42228108-7cf2-409b-8ae4-1bb3028f378f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -4872,10 +4872,12 @@ function Register-YurunaRunnerExitRecord {
         Writes runner.session.json: the process id and start time (those of
         runner.pid and runner.start), when it was written, the host's boot
         time, whether the process runs under an SSH session, a terminal
-        program or a terminal multiplexer, and its parent processes. Removes a
-        previous runner's runner.exit.json, which the boot sweep has already
-        reported, then registers the signal handlers. Best-effort: a runner
-        that cannot record keeps running.
+        program or a terminal multiplexer, and its parent processes; on
+        Windows also its session id, SESSIONNAME, whether Windows Terminal
+        hosts it and whether it runs elevated. Removes a previous runner's
+        runner.exit.json, which the boot sweep has already reported, then
+        registers the signal handlers. Best-effort: a runner that cannot
+        record keeps running.
     .PARAMETER RuntimeDir
         The runtime directory that holds runner.pid.
     .PARAMETER HostBootUtc
@@ -4918,6 +4920,20 @@ function Register-YurunaRunnerExitRecord {
             sshSession = [bool]($env:SSH_CONNECTION -or $env:SSH_TTY); terminalProgram = $env:TERM_PROGRAM
             multiplexer = $multiplexer; parents = @($parents)
         }
+        if ($IsWindows) {
+            # Windows sets no TERM_PROGRAM, and the parent of a console runner
+            # is often gone or unreadable, so these say how it was started: the
+            # session it ran in (SESSIONNAME is Console on the local desktop
+            # and RDP-Tcp#<n> over remote desktop, unset for a scheduled task),
+            # whether Windows Terminal hosted it, and whether it ran elevated.
+            try {
+                $session.sessionId = $self.SessionId
+                $session.sessionName = $env:SESSIONNAME
+                $session.windowsTerminal = [bool]$env:WT_SESSION
+                $session.elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+                    [Security.Principal.WindowsBuiltInRole]::Administrator)
+            } catch { Write-Verbose "Register-YurunaRunnerExitRecord: the Windows session is unreadable: $($_.Exception.Message)" }
+        }
         $temporary = "$sessionPath.$PID.tmp"
         [IO.File]::WriteAllText($temporary, ($session | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
         [IO.File]::Move($temporary, $sessionPath, $true)
@@ -4946,27 +4962,40 @@ function Get-YurunaRunnerExitReport {
         The runtime directory that holds the records.
     .PARAMETER HostBootUtc
         The host's boot time now, or $null when it cannot be read.
+    .PARAMETER AbsenceReason
+        Caller passes [ref]$reason to learn why nothing is reported:
+        no-session-record when there is no runner.session.json, unreadable when
+        there is one that does not parse as a record with a pid.
     .OUTPUTS
         [ordered] pid, startedUtc, recordedUtc, sshSession, terminalProgram,
-        multiplexer, parents, hostBootUtc, signal, signalAtUtc, hostRestarted;
-        $null when there is no readable session record.
+        multiplexer, parents, hostBootUtc, signal, signalAtUtc, hostRestarted,
+        and sessionId, sessionName, windowsTerminal and elevated when the record
+        carries them; $null when there is no readable session record.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
     param(
         [Parameter(Mandatory)][string]$RuntimeDir,
-        [AllowNull()][object]$HostBootUtc
+        [AllowNull()][object]$HostBootUtc,
+        [ref]$AbsenceReason
     )
     $sessionPath = Join-Path $RuntimeDir $script:RunnerSessionRecordName
-    if (-not [IO.File]::Exists($sessionPath)) { return $null }
+    if (-not [IO.File]::Exists($sessionPath)) {
+        if ($AbsenceReason) { $AbsenceReason.Value = 'no-session-record' }
+        return $null
+    }
     $jsonOption = @{}
     if ((Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $jsonOption.DateKind = 'String' }
     try { $session = [IO.File]::ReadAllText($sessionPath) | ConvertFrom-Json -AsHashtable @jsonOption -ErrorAction Stop }
     catch {
         Write-Verbose "Get-YurunaRunnerExitReport: $sessionPath is unreadable: $($_.Exception.Message)"
+        if ($AbsenceReason) { $AbsenceReason.Value = 'unreadable' }
         return $null
     }
-    if ($session -isnot [System.Collections.IDictionary] -or -not $session.Contains('pid')) { return $null }
+    if ($session -isnot [System.Collections.IDictionary] -or -not $session.Contains('pid')) {
+        if ($AbsenceReason) { $AbsenceReason.Value = 'unreadable' }
+        return $null
+    }
     $signal = $null; $signalAt = $null
     $exitPath = Join-Path $RuntimeDir $script:RunnerExitRecordName
     if ([IO.File]::Exists($exitPath)) {
@@ -4983,12 +5012,16 @@ function Get-YurunaRunnerExitReport {
         [datetime]::TryParse([string]$session['hostBootUtc'], [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$recordedBoot)) {
         $restarted = (([datetime]$HostBootUtc).ToUniversalTime() - $recordedBoot.ToUniversalTime()).TotalSeconds -gt $script:RunnerSessionBootToleranceSeconds
     }
-    return [ordered]@{
+    $report = [ordered]@{
         pid = [int]$session['pid']; startedUtc = [string]$session['startedUtc']; recordedUtc = [string]$session['recordedUtc']
         sshSession = [bool]$session['sshSession']; terminalProgram = $session['terminalProgram']; multiplexer = $session['multiplexer']
         parents = @($session['parents']); hostBootUtc = $session['hostBootUtc']
         signal = $signal; signalAtUtc = $signalAt; hostRestarted = $restarted
     }
+    foreach ($name in @('sessionId', 'sessionName', 'windowsTerminal', 'elevated')) {
+        if ($session.Contains($name)) { $report[$name] = $session[$name] }
+    }
+    return $report
 }
 
 Export-ModuleMember -Function `

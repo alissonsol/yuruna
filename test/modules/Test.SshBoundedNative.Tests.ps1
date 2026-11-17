@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42f71118-c871-4ce5-99f5-744301324e82
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -259,6 +259,20 @@ Describe 'Invoke-GuestSsh bounded result contract' {
         $r.success | Should -BeTrue
         $r.output | Should -Be "one`ntwo"
         Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.Ssh -Times 1 -Exactly -ParameterFilter { $FilePath -eq 'ssh' -and $StreamEncoding.WebName -eq 'utf-8' -and $MaxCapturedChars -eq 67108864 }
+    }
+
+    It 'does not claim the command started when the TCP connection timed out' {
+        $script:SshNativeResult.ExitCode = 255
+        $script:SshNativeResult.StdOut = ''
+        $script:SshNativeResult.StdErr = 'ssh: connect to host 127.0.0.1 port 22: Connection timed out'
+        $result = Invoke-GuestSsh @script:SshArguments
+        $result.success | Should -BeFalse
+        $result.exitCode | Should -Be 255
+        $result.transportLost | Should -BeTrue
+        $result.output | Should -Match 'Connection timed out'
+        $result.output | Should -Not -Match 'while the command was running|where the connection broke'
+        $result.output | Should -Match 'cannot determine whether the command started or completed'
+        Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.Ssh -Times 1 -Exactly
     }
 
     It 'rejects an oversized detached command before starting ssh on Windows' -Skip:(-not $IsWindows) {

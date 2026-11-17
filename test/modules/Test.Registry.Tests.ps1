@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4296f1a1-76e4-44f9-8c28-9bc89641228f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     comparer; reusing an anchor with a mismatched explicit -Comparer migrates the live
     entries into the requested comparer, reports it, preserves the entries, and keeps
     that case-sensitivity across Clear -- without throwing. Each test uses a unique
-    global anchor and removes it afterward. Pester 5.x.
+    global anchor and removes it afterward. Pester 6.x.
 #>
 
 BeforeAll {

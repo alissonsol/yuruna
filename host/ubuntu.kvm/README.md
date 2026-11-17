@@ -152,8 +152,8 @@ no systemd, no sudo, a malformed target), and 2 when a component failed.
 Running it again changes only what drifted; without `-NetconsoleTarget` it
 keeps the target already set.
 
-On a host that runs the test runner, the runner's boot recovery copies each
-bundle written since a cycle's last write into that cycle's folder, and it
+On a host that runs the test runner, the runner's boot recovery copies up to
+four of the newest bundles written since a cycle's last write into that cycle's folder, and it
 can read the bundles only as a member of the `systemd-journal` group.
 [`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1) adds the runner
 account to that group: run it (before or after this script), log out and back
@@ -309,6 +309,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../../README.md)

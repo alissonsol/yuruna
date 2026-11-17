@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -409,6 +409,7 @@ function Invoke-Remediation {
             guestKernelFaultKinds  = $kernelFaultKinds
             silentProcessors       = $silentProcessors
             guestLivelockedSeconds = $livelockedSeconds
+            guestDisplayStallEnd = & $causeField 'guestDisplayStallEnd'
         }
     }
     $handler = Get-RecoveryHandler -FailureClass $failureClass
@@ -483,6 +484,11 @@ function Invoke-Remediation {
             $val = $ctx.Context[$key]
             if ($val) { $emit[$key] = [string]$val }
         }
+        # The last guest retry that gave up during the failed step is read from
+        # its execution log after step_failure was sent, so this is the
+        # failure's first event that can carry it.
+        $retryExhausted = & $causeField 'retryExhausted'
+        if ($retryExhausted -is [System.Collections.IDictionary]) { $emit['causeRetryExhausted'] = $retryExhausted }
         Send-CycleEventSafely -EventRecord ([hashtable]$emit)
     }
     # Persist the recommendation as a durable, self-contained record beside
@@ -553,6 +559,25 @@ function Register-BuiltinRecoveryHandler {
 
     Register-RecoveryHandler -FailureClass 'ocr_timeout' -Handler {
         param([hashtable]$c)
+        # A screen wait can time out on a guest whose kernel left a processor
+        # servicing no interrupt before the livelock verdict or a kernel-stall
+        # end could name it. The advice then names the wedged kernel instead of
+        # a diverged workload, as wait_timeout's does; the class and the
+        # recommendation stay.
+        $silent = @($c.Context.silentProcessors)
+        if ($silent.Count) {
+            $kinds = @($c.Context.guestKernelFaultKinds)
+            return @{
+                Recommendation = 'restart_from_snapshot'
+                Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.ocr_timeout_kernel_stall_rationale' -Arguments @{ vmName = "$($c.Context.vmName)"
+                    kinds = $(if ($kinds.Count) { $kinds -join ', ' } else { '-' }); processors = ($silent -join ', ') })
+                Actions        = @(
+                    (Format-YurunaOperatorMessage -Key 'remediation.kernel_stall_action_evidence'),
+                    (Format-YurunaOperatorMessage -Key 'remediation.kernel_stall_action_rerun'),
+                    (Format-YurunaOperatorMessage -Key 'remediation.kernel_stall_action_family')
+                )
+            }
+        }
         return @{
             Recommendation = 'restart_from_snapshot'
             Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.operator_0ddb7073d12e8400' -Arguments @{ vmName = "$($c.Context.vmName)" })
@@ -851,6 +876,22 @@ function Register-BuiltinRecoveryHandler {
                 (Format-YurunaOperatorMessage -Key 'remediation.guest_kernel_stalled_action_evidence'),
                 (Format-YurunaOperatorMessage -Key 'remediation.kernel_stall_action_rerun'),
                 (Format-YurunaOperatorMessage -Key 'remediation.kernel_stall_action_family')
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'guest_display_stalled' -Handler {
+        param([hashtable]$c)
+        $stall = $c.Context.guestDisplayStallEnd
+        return @{
+            Recommendation = 'restart_from_snapshot'
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.guest_display_stalled_rationale' -Arguments @{
+                vmName = "$($c.Context.vmName)"; driver = $(if ($stall) { [string]$stall.driver } else { '-' })
+                reports = $(if ($stall) { [int]$stall.reports } else { 0 })
+            })
+            Actions        = @(
+                (Format-YurunaOperatorMessage -Key 'remediation.guest_display_stalled_action_evidence'),
+                (Format-YurunaOperatorMessage -Key 'remediation.guest_display_stalled_action_restore')
             )
         }
     }

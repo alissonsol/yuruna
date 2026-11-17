@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -662,6 +662,231 @@ Describe 'Get-GuestAptIndexMismatch (which cached apt index disagreed with its I
     }
 }
 
+Describe 'Get-GuestAptUpdateStall (which apt-get update attempts the per-attempt bound killed)' {
+
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking
+        # The shape of a guest log from an update.sh whose apt-get update the
+        # 300-second bound killed twice: every line arrives twice, from two
+        # writers whose clocks differ by about a second, and apt fetches one
+        # origin's InRelease files one at a time, so most of them sit at Ign.
+        $script:killedTwice = @(
+            '# Yuruna fetch-and-execute log'
+            '# script:    guest/ubuntu.server.26/ubuntu.server.26.update.sh'
+            '# ---'
+            '[  25.757] ==== Update system packages ===='
+            '[  40.691] Hit:1 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[  41.749] Hit:1 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[  86.034] Ign:2 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[  87.092] Ign:2 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[ 100.715] Ign:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 101.773] Ign:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 161.780] Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 162.838] Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 209.138] Err:2 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[ 209.138]   Connection failed [IP: 192.0.2.10 3128]'
+            '[ 210.195] Err:2 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[ 210.197]   Connection failed [IP: 192.0.2.10 3128]'
+            '[ 222.839] Ign:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 223.902] Ign:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 284.882] Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 285.942] Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 326.039] !! apt_retry: attempt 1/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+            '[ 327.103] !! apt_retry: attempt 1/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+            '[ 326.050] YURUNA_RETRY {"stack":"bash","label":"apt_retry","event":"attempt","attempt":1,"maxAttempts":2,"rc":124,"permanent":false}'
+            '[ 326.231] !! apt_retry: sleeping 10s before retry (backoff 10s, jittered)'
+            '[ 336.263] >> apt_retry: attempt 2/2 for: sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+            '[ 337.327] >> apt_retry: attempt 2/2 for: sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+            '[ 363.276] Hit:1 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[ 364.338] Hit:1 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[ 396.616] Ign:2 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[ 397.678] Ign:2 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[ 457.688] Ign:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 458.752] Ign:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 518.756] Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 519.816] Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 535.468] Hit:2 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[ 536.529] Hit:2 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[ 583.725] Hit:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 584.783] Hit:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 636.496] !! apt_retry: attempt 2/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+            '[ 636.504] YURUNA_RETRY {"stack":"bash","label":"apt_retry","event":"outcome","outcome":"exhausted","attempt":2,"maxAttempts":2,"rc":124}'
+            '[ 636.505] !! apt_retry: all 2 attempts exhausted for: sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+            '# exit code: 124'
+            '[ 637.569] !! apt_retry: attempt 2/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+            '[ 637.620]     NONZERO SCRIPT EXIT:'
+        ) -join "`n"
+    }
+
+    It 'names the attempts, the bound, the server apt named and the source the last attempt still waited on' {
+        $s = Get-GuestAptUpdateStall -Output $script:killedTwice
+        Assert-Equal -Expected '1,2' -Actual (@($s.stalledAttempts) -join ',')
+        Assert-Equal -Expected 2 -Actual $s.maxAttempts
+        Assert-Equal -Expected 300 -Actual $s.boundSeconds
+        Assert-Equal -Expected 124 -Actual $s.rc
+        Assert-Equal -Expected '192.0.2.10:3128' -Actual $s.server
+        Assert-Equal -Expected 'archive.ubuntu.com/ubuntu resolute-backports' -Actual (@($s.pendingSources) -join '|')
+        Assert-Equal -Expected 0 -Actual @($s.failedSources).Count -Because 'the security index answered in the second attempt'
+        Assert-Equal -Expected 'attempt 1,2 of 2 killed at 300s (rc=124) via 192.0.2.10:3128; pending archive.ubuntu.com/ubuntu resolute-backports' -Actual $s.summary
+    }
+
+    It 'reads the sources of the last killed attempt only' {
+        # An index the first attempt reached can be the one the second never got.
+        $out = @(
+            '[  77.186] Ign:1 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[  77.186] Ign:2 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[ 200.315] Err:2 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[ 200.315]   Connection failed [IP: 192.0.2.10 3128]'
+            '[ 234.051] Hit:1 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[ 234.124] Hit:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 294.187] Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 317.179] !! apt_retry: attempt 1/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env apt-get update'
+            '[ 325.214] >> apt_retry: attempt 2/2 for: sudo env apt-get update'
+            '[ 385.797] Ign:1 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[ 385.798] Ign:2 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[ 386.985] Hit:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 447.041] Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 508.917] Err:1 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[ 508.917]   Connection failed [IP: 192.0.2.10 3128]'
+            '[ 625.382] !! apt_retry: attempt 2/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env apt-get update'
+        ) -join "`n"
+        $s = Get-GuestAptUpdateStall -Output $out
+        Assert-Equal -Expected 'archive.ubuntu.com/ubuntu resolute|archive.ubuntu.com/ubuntu resolute-backports' -Actual (@($s.pendingSources) -join '|')
+        Assert-Equal -Expected 'security.ubuntu.com/ubuntu resolute-security' -Actual (@($s.failedSources) -join '|')
+        Assert-Match -Pattern '; failed security\.ubuntu\.com/ubuntu resolute-security$' -Actual $s.summary
+    }
+
+    It 'counts a stall line the late writer repeats after the next banner once, and keeps that attempt open' {
+        $out = @(
+            '[ 10.000] Ign:1 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[ 20.000] !! apt_retry: attempt 1/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env apt-get update'
+            '[ 21.000] >> apt_retry: attempt 2/2 for: sudo env apt-get update'
+            '[ 21.100] !! apt_retry: attempt 1/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env apt-get update'
+            '[ 40.000] Ign:1 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 50.000] !! apt_retry: attempt 2/2 stalled; killed by the 300s per-attempt bound (rc=137): sudo env apt-get update'
+        ) -join "`n"
+        $s = Get-GuestAptUpdateStall -Output $out
+        Assert-Equal -Expected '1,2' -Actual (@($s.stalledAttempts) -join ',')
+        Assert-Equal -Expected 137 -Actual $s.rc -Because 'the KILL backstop ended the last attempt'
+        Assert-Equal -Expected 'archive.ubuntu.com/ubuntu resolute-backports' -Actual (@($s.pendingSources) -join '|')
+    }
+
+    It 'takes only the stall lines from OCR text, through OCR damage and a wrapped line' {
+        # Two engines read one frame: the first turned 300s into SOOS, which
+        # names no bound, and dropped the underscore the second also dropped.
+        $ocr = @(
+            '!! apt_retrg: attempt. 1/2 stalled; killed bg the SOOS per-attempt. bound (rc=124): sudo env apt-get. update'
+            'Err: 2 http://securitg.ubuntu.com/ubuntu resolute-security InRelease'
+            'connection failed [IP: 132.0.2.10 312B]'
+            'I aptretry: attempt 2/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env DEBIAN_FRONTEND=noninteract ive DEBIANPRIORITY=critical apt-get unde'
+            'Err:2 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            'Connection failed [IP: 192.0.2.10 3128]'
+            'NONZERO SCRIPT EXIT'
+        ) -join "`n"
+        $s = Get-GuestAptUpdateStall -Output $ocr -FromOcr
+        Assert-Equal -Expected '2' -Actual (@($s.stalledAttempts) -join ',')
+        Assert-Equal -Expected 300 -Actual $s.boundSeconds
+        Assert-Equal -Expected '' -Actual $s.server -Because 'an address read off the screen can be damaged'
+        Assert-Equal -Expected 0 -Actual (@($s.pendingSources).Count + @($s.failedSources).Count)
+        Assert-Equal -Expected 'attempt 2 of 2 killed at 300s (rc=124)' -Actual $s.summary
+        $wrapped = Get-GuestAptUpdateStall -FromOcr -Output "Il apt_retry: attempt 2/2 stalled; killed by the 300s per-att`nempt bound (rc=124): sudo env apt-get update"
+        Assert-Equal -Expected 'attempt 2 of 2 killed at 300s (rc=124)' -Actual $wrapped.summary
+    }
+
+    It 'reads no cause from a kill of an earlier attempt on screen, where nothing shows how the update ended' {
+        $s = Get-GuestAptUpdateStall -FromOcr -Output 'apt_retry: attempt 1/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env apt-get update'
+        Assert-True ($null -eq $s) 'the next attempt may have succeeded, which apt_retry prints nothing for'
+    }
+
+    It 'reads a digit OCR took from another script as no number, without throwing' {
+        # A recognizer created from the user's profile languages can return
+        # fullwidth or Arabic-Indic digits, which an [int] cast refuses.
+        $fullwidthOne = [char]0xFF11; $fullwidthTwo = [char]0xFF12; $fullwidthThree = [char]0xFF13; $arabicIndicTwo = [char]0x0662
+        foreach ($text in @(
+                "apt_retry: attempt $fullwidthTwo/2 stalled; killed by the 300s per-attempt bound (rc=124)"
+                "apt_retry: attempt 2/$arabicIndicTwo stalled; killed by the 300s per-attempt bound (rc=124)"
+                "apt_retry: attempt 2/2 stalled; killed by the ${fullwidthThree}00s per-attempt bound (rc=124)"
+                "apt_retry: attempt 2/2 stalled; killed by the 300s per-attempt bound (rc=${fullwidthOne}24)")) {
+            Assert-True ($null -eq (Get-GuestAptUpdateStall -FromOcr -Output $text)) "no reading from: $text"
+        }
+        # Another engine's ASCII copy of the same frame still reads.
+        $frame = "apt_retry: attempt $fullwidthTwo/2 stalled; killed by the 300s per-attempt bound (rc=124)`n" +
+            'apt_retry: attempt 2/2 stalled; killed by the 300s per-attempt bound (rc=124)'
+        Assert-Equal -Expected 'attempt 2 of 2 killed at 300s (rc=124)' -Actual (Get-GuestAptUpdateStall -FromOcr -Output $frame).summary
+    }
+
+    It 'reads no cause from a kill the next attempt recovered from, when <Case> failed the script later' -TestCases @(
+        @{ Case = 'a package transaction'; Later = @(
+                '[ 902.411] !! apt_retry: all 5 attempts exhausted for: sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get -o APT::Get::Always-Include-Phased-Updates=true dist-upgrade -y'
+                '[ 903.473] !! apt_retry: all 5 attempts exhausted for: sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get -o APT::Get::Always-Include-Phased-Updates=true dist-upgrade -y'
+                '# exit code: 100') },
+        @{ Case = 'the project clone'; Later = @(
+                '[ 480.100] project git clone failed after 3 attempts'
+                '[ 481.162] project git clone failed after 3 attempts'
+                '# exit code: 1') }
+    ) {
+        param($Case, $Later)
+        $null = $Case
+        # apt_retry prints nothing when an attempt succeeds: here the second
+        # attempt fetched every index the first one never finished.
+        $out = (@(
+            '[  25.757] ==== Update system packages ===='
+            '[ 284.882] Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 285.942] Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 326.039] !! apt_retry: attempt 1/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+            '[ 327.103] !! apt_retry: attempt 1/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+            '[ 326.231] !! apt_retry: sleeping 10s before retry (backoff 10s, jittered)'
+            '[ 336.263] >> apt_retry: attempt 2/2 for: sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+            '[ 337.327] >> apt_retry: attempt 2/2 for: sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+            '[ 340.276] Hit:1 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[ 341.338] Hit:1 http://security.ubuntu.com/ubuntu resolute-security InRelease'
+            '[ 340.616] Hit:2 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[ 341.678] Hit:2 http://archive.ubuntu.com/ubuntu resolute InRelease'
+            '[ 341.688] Hit:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 342.750] Hit:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease'
+            '[ 341.756] Hit:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 342.818] Hit:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '[ 342.100] Reading package lists...'
+            '[ 343.162] Reading package lists...'
+        ) + $Later) -join "`n"
+        Assert-True ($null -eq (Get-GuestAptUpdateStall -Output $out)) 'an update that recovered did not fail the script'
+    }
+
+    It 'reads the kill as the cause when apt_retry closed the update as failed (<Case>)' -TestCases @(
+        @{ Case = 'attempts exhausted after a failed last attempt'; Max = 2; Closing = @(
+                '[ 326.231] !! apt_retry: sleeping 10s before retry (backoff 10s, jittered)'
+                '[ 336.263] >> apt_retry: attempt 2/2 for: sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+                '[ 398.512] Err:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+                '[ 398.512]   Could not connect to archive.ubuntu.com:80, connection timed out'
+                '[ 640.112] !! apt_retry: attempt 2/2 failed (rc=100): sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update'
+                '[ 640.130] !! apt_retry: all 2 attempts exhausted for: sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update') },
+        @{ Case = 'the retry window closed'; Max = 9; Closing = @(
+                '[ 326.240] !! apt_retry: the 1200s retry window closed after 1 attempt(s) for: sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update') }
+    ) {
+        param($Case, $Max, $Closing)
+        $null = $Case
+        $out = (@(
+            '[ 284.882] Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            "[ 326.039] !! apt_retry: attempt 1/$Max stalled; killed by the 300s per-attempt bound (rc=124): sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get update"
+        ) + $Closing) -join "`n"
+        $s = Get-GuestAptUpdateStall -Output $out
+        Assert-Equal -Expected '1' -Actual (@($s.stalledAttempts) -join ',')
+        Assert-Equal -Expected "attempt 1 of $Max killed at 300s (rc=124); pending archive.ubuntu.com/ubuntu resolute-backports" -Actual $s.summary
+    }
+
+    It 'returns nothing for an apt failure no bound killed, and leaves an index mismatch to its own reading' {
+        $url = 'https://download.docker.com/linux/ubuntu/dists/noble/stable/binary-arm64/Packages.bz2'
+        $out = @(
+            "[   4.512] E: Failed to fetch $url  File has unexpected size (68990 != 68750). Mirror sync in progress? [IP: 192.0.2.10 3129]"
+            '[   4.600] !! apt_retry: attempt 1/2 failed (rc=100): sudo env apt-get update'
+        ) -join "`n"
+        Assert-True ($null -eq (Get-GuestAptUpdateStall -Output $out)) 'a failed attempt is not a stalled one'
+        Assert-Equal -Expected $url -Actual (Get-GuestAptIndexMismatch -Output $out).url
+        Assert-True ($null -eq (Get-GuestAptUpdateStall -Output '')) 'empty output names nothing'
+        Assert-True ($null -eq (Get-GuestAptUpdateStall -Output $null -FromOcr)) 'no output names nothing'
+    }
+}
+
 Describe 'Initial ARM64 Hyper-V installer recovery' {
     BeforeAll {
         Import-Module $script:modulePath -Force -DisableNameChecking
@@ -871,9 +1096,10 @@ Describe 'Provider-neutral login-wait cold recovery' {
             function Save-StepFailureEvidence {
                 [CmdletBinding(SupportsShouldProcess)]
                 [OutputType([string])]
-                param($VMName, $Label, $DiagnosticRecord)
+                param($VMName, $Label, $DiagnosticRecord, $StepStartedUtc)
                 $null = $Label, $PSCmdlet.ShouldProcess($VMName, 'Record fixture evidence')
                 $script:ColdStub.Diagnostic = $DiagnosticRecord
+                $script:ColdStub.EvidenceStepStartedUtc = $StepStartedUtc
                 $script:ColdStub.Calls.Add('evidence')
                 if (-not $script:ColdStub.EvidenceAvailable) { return }
                 return 'failed-attempt'
@@ -931,13 +1157,19 @@ Describe 'Provider-neutral login-wait cold recovery' {
                 $script:ColdStub.Calls.Add('attempt')
                 $script:ColdStub.Attempts++
                 if ($script:ColdStub.Attempts -ge $script:ColdStub.SuccessAttempt) { return $true }
-                $script:Fail.LastFailedAction = 'waitForTextWithNudge'
+                $script:Fail.LastFailedAction = $script:ColdStub.FailedAction
+                $script:Fail.StepFailurePhase = $script:ColdStub.FailurePhase
                 $script:Fail.LastFailureLabel = 'login timeout'
                 $script:Fail.WaitForTextOcrTail = $script:ColdStub.OcrTail
                 $script:Fail.WaitForTextMatchedFailurePattern = $script:ColdStub.Pattern
                 $script:Fail.WaitForTextConsoleFlood = $script:ColdStub.Flood
                 $script:Fail.WaitForTextConsoleSecondOpinion = if ($script:ColdStub.EmitOpinion) { @{Verdict='guest-wedged';VMState='running';CpuPercent=1080} } else { $null }
                 $script:Fail.WaitForTextDisplayStallEnd = $script:ColdStub.DisplayStall
+                $script:Fail.WaitForTextKernelStallEnd = $script:ColdStub.KernelStallEnd
+                $script:Fail.WaitForTextGuestLivelock = $script:ColdStub.Livelock
+                $script:Fail.WaitForTextInstallerStage = $script:ColdStub.InstallerStage
+                $script:Fail.WaitForTextInstallerStageSeconds = $script:ColdStub.InstallerStageSeconds
+                $script:Fail.LastFailedStepStartedUtc = $script:ColdStub.StepStartedUtc
                 return $false
             }
         }
@@ -945,7 +1177,8 @@ Describe 'Provider-neutral login-wait cold recovery' {
     BeforeEach {
         $script:coldStub = & $script:coldModule {
             $script:ColdStub = @{Calls=[Collections.Generic.List[string]]::new();Events=[Collections.Generic.List[object]]::new();State='running';Failure='';Attempts=0;SuccessAttempt=2;OcrTail='Display output is not active.';Pattern=$null;Flood=$null;EmitOpinion=$true;EvidenceAvailable=$true
-                DisplayStall=$null;Seen=[Collections.Generic.List[object]]::new()}
+                DisplayStall=$null;Seen=[Collections.Generic.List[object]]::new();FailedAction='waitForTextWithNudge';FailurePhase='wait'
+                KernelStallEnd=$null;Livelock=$null;InstallerStage='';InstallerStageSeconds=0;StepStartedUtc=$null;EvidenceStepStartedUtc=$null}
             return $script:ColdStub
         }
         $script:coldContext = @{
@@ -1015,6 +1248,59 @@ Describe 'Provider-neutral login-wait cold recovery' {
         (& $script:coldHandler $script:coldContext) | Should -BeFalse
         $script:coldStub.Calls.Count | Should -Be 0
     }
+    It 'cold-restarts an untyped retype-password wait and replays from login' {
+        $script:coldContext.Step.steps += @(
+            @{action='passwdPrompt';pattern='guest login:';text='user'},
+            @{action='passwdPrompt';pattern='Password:';text='old'},
+            @{action='passwdPrompt';pattern=@('Current password','urrent password:');text='old'},
+            @{action='passwdPrompt';pattern='New password';text='new'},
+            @{action='passwdPrompt';pattern=@('Retype new password','etype new password:');text='new'}
+        )
+        $script:coldStub.FailedAction = 'passwdPrompt'
+        $script:coldStub.DisplayStall = @{driver='virtio_gpu';reports=8;spanSeconds=30.9;consoleUnchangedSeconds=30}
+        (& $script:coldHandler $script:coldContext) | Should -BeTrue
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence,stop,start,console,ring,recovery,attempt'
+        $first = @($script:coldStub.Seen[0])
+        $second = @($script:coldStub.Seen[-1])
+        @($first | Where-Object action -EQ 'passwdPrompt').Count | Should -Be 5
+        @($first | Where-Object action -EQ 'passwdPrompt' | Where-Object { -not $_.endWaitOnDisplayStall }).Count | Should -Be 0
+        $second[2].pattern | Should -BeExactly 'guest login:'
+        $second[-1].pattern | Should -Be @('Retype new password','etype new password:')
+        $script:coldContext.Step.steps[-1].ContainsKey('endWaitOnDisplayStall') | Should -BeFalse
+        @($script:coldStub.Events | Where-Object event -EQ 'retry_vm_restart')[0].guestDisplayStall.driver | Should -BeExactly 'virtio_gpu'
+    }
+    It 'does not replay the password flow after <Case>' -ForEach @(
+        @{Case='the current prompt began typing';Phase='input';Stall=$true;Pattern=''},
+        @{Case='an ordinary password timeout';Phase='wait';Stall=$false;Pattern=''},
+        @{Case='an explicit password rejection';Phase='wait';Stall=$true;Pattern='passwords do not match'}
+    ) {
+        $script:coldContext.Step.steps += @(
+            @{action='passwdPrompt';pattern='guest login:';text='user'},
+            @{action='passwdPrompt';pattern='Password:';text='old'},
+            @{action='passwdPrompt';pattern=@('Current password','urrent password:');text='old'},
+            @{action='passwdPrompt';pattern='New password';text='new'},
+            @{action='passwdPrompt';pattern=@('Retype new password','etype new password:');text='new'}
+        )
+        $script:coldStub.FailedAction = 'passwdPrompt'
+        $script:coldStub.FailurePhase = $Phase
+        $script:coldStub.Pattern = $Pattern
+        $script:coldStub.DisplayStall = if ($Stall) { @{driver='hyperv_drm';reports=8} } else { $null }
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence'
+        @($script:coldStub.Events | Where-Object event -EQ 'retry_suppressed')[0].reason | Should -BeExactly 'login-wait-failure-not-restartable'
+    }
+    It 'refuses a password flow that could replay work after the confirming entry' {
+        $script:coldContext.Step.steps += @(
+            @{action='passwdPrompt';pattern='guest login:';text='user'},
+            @{action='passwdPrompt';pattern='Password:';text='old'},
+            @{action='passwdPrompt';pattern=@('Current password','urrent password:');text='old'},
+            @{action='passwdPrompt';pattern='New password';text='new'},
+            @{action='passwdPrompt';pattern=@('Retype new password','etype new password:');text='new'},
+            @{action='waitForTextWithNudge';pattern='guest login:';nudgeKey='Enter';nudgeIntervalSeconds=60}
+        )
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        $script:coldStub.Calls.Count | Should -Be 0
+    }
     It 'rejects unsafe recovery <Reason> before executing any step' -ForEach @(
         @{Reason='credential input';Action='passwdPrompt';Sensitive=$false;Skips=@('Bahasa Indonesia','subiquity/Install/install/configure_apt','subiquity/Install/install/curtin_install')},
         @{Reason='sensitive boot input';Action='waitForAndEnter';Sensitive=$true;Skips=@('Bahasa Indonesia','subiquity/Install/install/configure_apt','subiquity/Install/install/curtin_install')},
@@ -1077,10 +1363,103 @@ Describe 'Provider-neutral login-wait cold recovery' {
         $restartEvent.ok | Should -BeTrue
         $restartEvent.guestDisplayStall.driver | Should -BeExactly 'hyperv_drm'
     }
+    It 'preserves the display-stall class through real retry exhaustion' {
+        $script:coldStub.SuccessAttempt = 99
+        $script:coldStub.DisplayStall = @{driver='hyperv_drm';reports=8;spanSeconds=30;consoleUnchangedSeconds=30}
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        $terminal = @($script:coldStub.Events | Where-Object event -EQ 'retry_exhausted')
+        $terminal.Count | Should -Be 1
+        $terminal[0].failureClass | Should -BeExactly 'guest_display_stalled'
+        & $script:coldModule { $script:Fail.LastInnerFailureClass } | Should -BeExactly 'guest_display_stalled'
+        @(& $script:coldModule { $script:Fail.LastInnerSuggestedRecoveries }) | Should -Be @('restart_from_snapshot', 'pause_and_inspect')
+    }
     It 'records no display stall on an ordinary login timeout' {
         (& $script:coldHandler $script:coldContext) | Should -BeTrue
         @($script:coldStub.Events | Where-Object { $_.event -eq 'retry_attempt' })[0].guestDisplayStall | Should -BeNullOrEmpty
         @($script:coldStub.Events | Where-Object { $_.event -eq 'retry_vm_restart' })[0].guestDisplayStall | Should -BeNullOrEmpty
+    }
+    It 'names the attempt''s kernel-stall end, its processors and the installer stage on retry_attempt, and restarts as before' {
+        Import-Module (Join-Path $PSScriptRoot 'Test.EventSchema.psm1') -Force -DisableNameChecking
+        # A two-processor guest whose wait ended on processor 1 servicing no
+        # interrupt, with processor 0 in the storm shape too.
+        $script:coldStub.KernelStallEnd = [ordered]@{ basis = 'no-interrupts-serviced'; processors = [string[]]@('1'); noInterruptsServicedSeconds = 195
+            kinds = [string[]]@('rcu-stall'); outputStaticSeconds = 230; recorderUploadAgeSeconds = $null; waitedSeconds = 442 }
+        $script:coldStub.Livelock = [pscustomobject]@{ Verdict = 'not-livelocked'; LivelockedSeconds = 0; VirtualProcessors = 0
+            ProcessorWindow = [pscustomobject]@{ StormedProcessors = @('0', '1'); NoInterruptsServicedProcessors = @('1')
+                Processors = @([pscustomobject]@{ Processor = '0'; Stormed = $true; NoInterruptsServicedSeconds = 0 }
+                    [pscustomobject]@{ Processor = '1'; Stormed = $true; NoInterruptsServicedSeconds = 195 }) } }
+        $script:coldStub.InstallerStage = 'start: subiquity/Install/install/postinstall/restore_apt_config'
+        $script:coldStub.InstallerStageSeconds = 250
+        (& $script:coldHandler $script:coldContext) | Should -BeTrue
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence,stop,start,console,ring,recovery,attempt' -Because 'the readings name the attempt and decide nothing'
+        $attemptEvent = @($script:coldStub.Events | Where-Object { $_.event -eq 'retry_attempt' })[0]
+        $attemptEvent.guestKernelStallEnd.basis | Should -BeExactly 'no-interrupts-serviced'
+        $attemptEvent.guestKernelStallEnd.waitedSeconds | Should -Be 442
+        @($attemptEvent.stormedProcessors) | Should -Be @('0', '1')
+        $attemptEvent.noInterruptsServicedProcessors -is [array] | Should -BeTrue -Because 'a one-processor list stays a list on the event'
+        @($attemptEvent.noInterruptsServicedProcessors) | Should -Be @('1')
+        $attemptEvent.longestNoInterruptsServicedSeconds | Should -Be 195
+        $attemptEvent.installerStage | Should -BeExactly 'start: subiquity/Install/install/postinstall/restore_apt_config'
+        $attemptEvent.installerStageUnchangedSeconds | Should -Be 250
+        $attemptEvent.failureClass | Should -BeExactly 'ocr_timeout' -Because 'the attempt keeps the verb''s class'
+        @(Test-CycleEventSchema -Record $attemptEvent) | Should -BeNullOrEmpty
+    }
+    It 'records an unmeasured processor window as null and no installer stage as empty' {
+        Import-Module (Join-Path $PSScriptRoot 'Test.EventSchema.psm1') -Force -DisableNameChecking
+        (& $script:coldHandler $script:coldContext) | Should -BeTrue
+        $attemptEvent = @($script:coldStub.Events | Where-Object { $_.event -eq 'retry_attempt' })[0]
+        foreach ($field in 'guestKernelStallEnd', 'stormedProcessors', 'noInterruptsServicedProcessors', 'longestNoInterruptsServicedSeconds') {
+            $attemptEvent.ContainsKey($field) | Should -BeTrue -Because "$field is always present, so absence never reads as a missing producer"
+            $attemptEvent[$field] | Should -BeNullOrEmpty
+        }
+        $attemptEvent.installerStage | Should -BeExactly ''
+        $attemptEvent.installerStageUnchangedSeconds | Should -Be 0
+        @(Test-CycleEventSchema -Record $attemptEvent) | Should -BeNullOrEmpty
+    }
+    It 'hands the evidence snapshot the failed step''s start' {
+        $script:coldStub.StepStartedUtc = [datetime]::new(2026, 1, 2, 3, 4, 5, [DateTimeKind]::Utc)
+        (& $script:coldHandler $script:coldContext) | Should -BeTrue
+        $script:coldStub.EvidenceStepStartedUtc | Should -Be ([datetime]::new(2026, 1, 2, 3, 4, 5, [DateTimeKind]::Utc))
+    }
+}
+
+Describe 'A password prompt distinguishes an untyped display stall from an input failure' {
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking
+        . (Get-Module Test.SequenceHandler) {
+            function Wait-ForText {
+                param($HostType, $VMName, $Pattern, $TimeoutSeconds, $PollSeconds, $FreshMatch, $FreshMatchTailLines,
+                    [switch]$SinceStepStart, [switch]$NoSegmentMatch, $FailurePattern, [switch]$EndOnDisplayStall)
+                $null = $HostType, $VMName, $Pattern, $TimeoutSeconds, $PollSeconds, $FreshMatch, $FreshMatchTailLines,
+                    $SinceStepStart, $NoSegmentMatch, $FailurePattern, $EndOnDisplayStall
+                throw 'The password wait must be mocked.'
+            }
+        }
+        $script:passwordHandler = (Get-SequenceAction -Name passwdPrompt).Handler
+    }
+    BeforeEach {
+        Mock Wait-ForText -ModuleName Test.SequenceHandler { return $false }
+        Mock Send-TabNavigation -ModuleName Test.SequenceHandler { }
+        Mock Invoke-TypeDrainEnter -ModuleName Test.SequenceHandler { return $false }
+        $script:passwordContext = @{
+            Step=@{pattern='Retype new password';text='fixture-password';endWaitOnDisplayStall=$true}
+            Vars=@{};ExpandVariable={param($value,$variables) $null=$variables; $value}
+            DefaultTimeoutSeconds=60;DefaultPollSeconds=1;HostType='host.macos.utm';VMName='test-vm';ShowSensitive=$false
+        }
+    }
+    AfterAll { Remove-Module Test.SequenceHandler -Force }
+
+    It 'passes the display-stall switch to its wait and types nothing when that wait fails' {
+        (& $script:passwordHandler $script:passwordContext) | Should -BeFalse
+        Should-Invoke Wait-ForText -ModuleName Test.SequenceHandler -Times 1 -Exactly -ParameterFilter { $EndOnDisplayStall }
+        Should-Invoke Invoke-TypeDrainEnter -ModuleName Test.SequenceHandler -Times 0 -Exactly
+        & (Get-Module Test.SequenceHandler) { $script:Fail.StepFailurePhase } | Should -BeExactly 'wait'
+    }
+    It 'records the input phase once the prompt has started typing' {
+        Mock Wait-ForText -ModuleName Test.SequenceHandler { return $true }
+        (& $script:passwordHandler $script:passwordContext) | Should -BeFalse
+        Should-Invoke Invoke-TypeDrainEnter -ModuleName Test.SequenceHandler -Times 1 -Exactly
+        & (Get-Module Test.SequenceHandler) { $script:Fail.StepFailurePhase } | Should -BeExactly 'input'
     }
 }
 
@@ -1514,6 +1893,34 @@ Describe 'The ssh verbs publish their proof that a failed step did nothing' {
         $null = & (Get-SequenceAction -Name sshFetchAndExecute).Handler $script:proofContext 3>$null
         Assert-True ($null -eq (Get-SequenceFailureState).StepEffect) 'a script that ran is no proof'
     }
+    It 'sshFetchAndExecute records the apt-get update stall its output shows, sources included' {
+        # The session output is the guest's own bytes, so it names the sources.
+        $output = @(
+            'Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '!! apt_retry: attempt 1/1 stalled; killed by the 300s per-attempt bound (rc=124): sudo env apt-get update'
+            'NONZERO SCRIPT EXIT: 124'
+        ) -join "`n"
+        Set-SshProofResult @{ success = $false; exitCode = 124; output = $output; addressResolved = $true; transportLost = $false; runLost = $false }
+        $null = & (Get-SequenceAction -Name sshFetchAndExecute).Handler $script:proofContext 3>$null
+        $stall = (Get-SequenceFailureState).StepAptUpdateStall
+        Assert-Equal -Expected 'attempt 1 of 1 killed at 300s (rc=124); pending archive.ubuntu.com/ubuntu resolute-backports' -Actual $stall.summary
+        Set-SshProofResult @{ success = $false; exitCode = 1; output = 'NONZERO SCRIPT EXIT: 1'; addressResolved = $true; transportLost = $false; runLost = $false }
+        $null = & (Get-SequenceAction -Name sshFetchAndExecute).Handler $script:proofContext 3>$null
+        Assert-True ($null -eq (Get-SequenceFailureState).StepAptUpdateStall) 'the next failure without a stall clears the reading'
+    }
+    It 'sshFetchAndExecute records no apt-get update stall the next attempt recovered from' {
+        $output = @(
+            'Ign:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            '!! apt_retry: attempt 1/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env apt-get update'
+            '>> apt_retry: attempt 2/2 for: sudo env apt-get update'
+            'Hit:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease'
+            'project git clone failed after 3 attempts'
+            'NONZERO SCRIPT EXIT: 1'
+        ) -join "`n"
+        Set-SshProofResult @{ success = $false; exitCode = 1; output = $output; addressResolved = $true; transportLost = $false; runLost = $false }
+        $null = & (Get-SequenceAction -Name sshFetchAndExecute).Handler $script:proofContext 3>$null
+        Assert-True ($null -eq (Get-SequenceFailureState).StepAptUpdateStall) 'the step failed after the update recovered'
+    }
 }
 
 # A guest that accepts connections but never answers ends the last detached
@@ -1742,5 +2149,69 @@ Describe 'the sequence schema types the install power-off wait on startVm' {
             'a startVm step may declare failure patterns'
         Assert-False (Test-Json -Json (ConvertTo-FailurePatternSequenceJson -FailurePatterns 7) -Schema $script:startSchemaJson -ErrorAction SilentlyContinue) `
             'a failure pattern must be text'
+    }
+}
+
+# A wait that reads no text leaves the log root's failure_ocr_<vm>.txt as an
+# earlier wait wrote it; the attempt's evidence must not pass that text off as
+# its own screen.
+Describe 'A failed retry attempt keeps only OCR text its own step read' {
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking
+        # The real evidence writer, found by the handler the way a runner finds it.
+        $script:ocrLoadedLog = -not (Get-Module Test.Log)
+        if ($script:ocrLoadedLog) { Import-Module (Join-Path $PSScriptRoot 'Test.Log.psm1') -Global -DisableNameChecking }
+        $script:ocrModule = Get-Module Test.SequenceHandler
+        $script:ocrHandler = (Get-SequenceAction -Name retry).Handler
+        . $script:ocrModule {
+            function Get-PollDelay { return 0 }
+            function Send-CycleEventSafely { param($EventRecord) $null = $EventRecord }
+            $script:OcrInvokeSteps = {
+                param($Steps)
+                $null = $Steps
+                $script:OcrAttempts++
+                if ($script:OcrAttempts -ge 2) { return $true }
+                $script:Fail.LastFailedAction = 'waitForTextWithNudge'
+                $script:Fail.LastFailureLabel = 'login timeout'
+                $script:Fail.WaitForTextOcrTail = $null
+                $script:Fail.LastFailedStepStartedUtc = [DateTime]::UtcNow.AddMinutes(-10)
+                return $false
+            }
+        }
+    }
+    BeforeEach {
+        & $script:ocrModule { $script:OcrAttempts = 0 }
+        $script:ocrSaved = @{ Globals = (Save-YurunaTestGlobal -Name '__YurunaCycleFolder')
+            Environment = (Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR', 'YURUNA_RUNTIME_DIR') }
+        $script:ocrCycle = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:ocrCycle 'log') -Force
+        Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $script:ocrCycle }
+        $env:YURUNA_LOG_DIR = Join-Path $script:ocrCycle 'log'
+        $env:YURUNA_RUNTIME_DIR = $script:ocrCycle
+    }
+    AfterEach {
+        Restore-YurunaTestGlobal -Saved $script:ocrSaved.Globals
+        Restore-YurunaTestEnvironment -Saved $script:ocrSaved.Environment
+    }
+    AfterAll {
+        Remove-Module Test.SequenceHandler -Force
+        if ($script:ocrLoadedLog) { Remove-Module Test.Log -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'writes a note instead of an earlier wait''s text' {
+        $stale = Join-Path $env:YURUNA_LOG_DIR 'failure_ocr_test-vm.txt'
+        Set-Content -LiteralPath $stale -Value 'start: subiquity/Install/install/curtin_install from an earlier wait'
+        [IO.File]::SetLastWriteTimeUtc($stale, [DateTime]::UtcNow.AddMinutes(-30))
+        $context = @{
+            Step = @{ maxAttempts = 2; steps = @(@{ action = 'waitForTextWithNudge'; pattern = 'guest login:'; nudgeKey = 'Enter'; nudgeIntervalSeconds = 60 }) }
+            InvokeStepBlock = (& $script:ocrModule { $script:OcrInvokeSteps })
+            StepNum = 18; StepCount = 19; Description = 'post-provision login'; VMName = 'test-vm'; HostType = 'host.windows.hyper-v'
+        }
+        (& $script:ocrHandler $context) | Should -BeTrue
+        $copied = Join-Path $script:ocrCycle 'test-vm/failed_step18-attempt1/failure_ocr.txt'
+        Test-Path -LiteralPath $copied | Should -BeTrue
+        $text = Get-Content -Raw -LiteralPath $copied
+        $text | Should -Not -Match 'curtin_install' -Because 'the attempt read no text, so an earlier wait''s screen is not its evidence'
+        $text | Should -Match 'No OCR text from this attempt'
     }
 }

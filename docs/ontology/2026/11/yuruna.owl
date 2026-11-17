@@ -445,6 +445,19 @@
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Identifier" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#GuestDisplayStalledFailure">
+    <rdfs:label xml:lang="en">guest display stalled</rdfs:label>
+    <skos:prefLabel xml:lang="en">guest display stalled</skos:prefLabel>
+    <skos:definition xml:lang="en">A step's console wait ended on sustained display-driver page-flip timeout reports while the console remained unchanged, although the guest may still be running.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="urn:sha256:37fb3a5bc1034a08ff40145e1b8888a1db8427233347650241cf1bb39daeb4eb" />
+    <dcterms:source rdf:resource="urn:sha256:8cf0e1a7ca88f9e8c694aec8f0cff3acf2227941980572b0d41de82f8219dcd1" />
+    <skos:scopeNote xml:lang="en">Requires timeout reports from the wait's own serial capture and an unchanged console; a static frame alone or a guest clock jump does not establish this failure. The existing bounded login cold restart is unchanged, with no new unattended retry or warm resume. A proved kernel stall takes precedence.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/testing#SequenceFailure" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:codeToken>guest_display_stalled</y:codeToken>
+    <y:codeVocabulary>failureClass</y:codeVocabulary>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#GuestKernelStall">
     <rdfs:label xml:lang="en">guest kernel stall</rdfs:label>
     <skos:prefLabel xml:lang="en">guest kernel stall</skos:prefLabel>

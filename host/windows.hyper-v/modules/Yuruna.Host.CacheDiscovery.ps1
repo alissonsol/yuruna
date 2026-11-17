@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4220bbab-79ca-404d-a1ce-4cb14b7a89c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1054,7 +1054,8 @@ function Get-OrCreateYurunaExternalSwitch {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     param(
-        [string]$SwitchName = 'Yuruna-External'
+        [string]$SwitchName = 'Yuruna-External',
+        [switch]$ReadOnly
     )
 
     # Emit only a switch name or $null; diagnostics must stay off the pipeline.
@@ -1142,6 +1143,7 @@ function Get-OrCreateYurunaExternalSwitch {
     # A Wi-Fi default route was already diverted to NAT at step 0, so the
     # NIC reached here is wired -- safe to bridge.
 
+    if ($ReadOnly) { return $SwitchName }
     if (-not $PSCmdlet.ShouldProcess($SwitchName, (Format-YurunaOperatorMessage -Key 'host.operator_1cc226961160e63b' -Arguments @{ interfaceAlias = "$($nic.InterfaceAlias)" }))) {
         return $null
     }

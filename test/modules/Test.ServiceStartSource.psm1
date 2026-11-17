@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4227c856-a95f-4a92-aad7-e9c25f3fbe58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,8 +80,8 @@ function Get-YurunaServiceStartText {
         with the service's part in place of the line that loads it.
     .DESCRIPTION
         The order is the order the start runs, so a call-order check or a
-        banner search reads across the move from one script into a shared one
-        and a part. The other services' parts are not included.
+        banner search reads the shared pipeline and the part as one script.
+        The other services' parts are not included.
     #>
     [CmdletBinding()]
     [OutputType([string])]

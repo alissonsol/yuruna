@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 427f1267-e087-42e4-ad77-aab3e3216101
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -224,5 +224,114 @@ Describe 'Set-LogLevelPreference -- the captured ProgressPreference survives a f
         Assert-Equal -Expected 0 -Actual $run.ExitCode -Because "the scenario child must exit clean: $($run.Output)"
         Assert-Equal -Expected 'Continue' -Actual ($run.Result -join '') `
             'a capture slot that a re-import empties records SilentlyContinue as the caller value and pins the progress bar off for the rest of the run'
+    }
+}
+
+Describe 'Read-only callers apply log levels without opening a child transcript' {
+    It 'preserves an <Case> transcript directory and applies the inherited level' -ForEach @(
+        @{ Case = 'absent'; Existing = $false }, @{ Case = 'existing'; Existing = $true }
+    ) {
+        $work = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        [void](New-Item -ItemType Directory -Path $work)
+        $transcripts = Join-Path $work 'transcripts'
+        if ($Existing) {
+            [void](New-Item -ItemType Directory -Path $transcripts)
+            [IO.File]::WriteAllText((Join-Path $transcripts 'kept.log'), 'existing transcript bytes')
+        }
+        $before = @(Get-ChildItem -LiteralPath $transcripts -File -ErrorAction SilentlyContinue | ForEach-Object {
+                "$($_.Name)|$((Get-FileHash -LiteralPath $_.FullName).Hash)|$($_.LastWriteTimeUtc.Ticks)"
+            })
+        $child = Join-Path $work 'readonly-child.ps1'
+        $result = Join-Path $work 'level.txt'
+        [IO.File]::WriteAllText($child, @'
+param([string]$ModulePath, [string]$ResultPath)
+Import-Module $ModulePath -Force -DisableNameChecking
+Use-LogLevelFromEnv -NoTranscript
+[IO.File]::WriteAllText($ResultPath, [string]$global:InformationPreference)
+'@)
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_CHILD_TRANSCRIPT_DIR', 'YURUNA_LOG_LEVEL'
+        try {
+            $env:YURUNA_CHILD_TRANSCRIPT_DIR = $transcripts
+            $env:YURUNA_LOG_LEVEL = 'Error'
+            $output = & (Get-PwshPath) -NoProfile -File $child -ModulePath $script:LogModule -ResultPath $result 2>&1 | Out-String
+            $LASTEXITCODE | Should -Be 0 -Because $output
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+        (Get-Content -LiteralPath $result -Raw) | Should -Be 'SilentlyContinue'
+        (Test-Path -LiteralPath $transcripts) | Should -Be $Existing
+        $after = @(Get-ChildItem -LiteralPath $transcripts -File -ErrorAction SilentlyContinue | ForEach-Object {
+                "$($_.Name)|$((Get-FileHash -LiteralPath $_.FullName).Hash)|$($_.LastWriteTimeUtc.Ticks)"
+            })
+        $after | Should -Be $before
+    }
+
+    It 'still starts the requested transcript when NoTranscript is omitted' {
+        $run = Invoke-TranscriptChild -Body @'
+param([string]$ModulePath, [string]$ResultPath)
+Import-Module $ModulePath -Force -DisableNameChecking
+Use-LogLevelFromEnv
+Write-Output 'normal-transcript-marker'
+Set-Content -LiteralPath $ResultPath -Value 'completed'
+'@
+        $run.ExitCode | Should -Be 0
+        $run.TranscriptFile.Count | Should -Be 1
+        $run.TranscriptText | Should -Match 'normal-transcript-marker'
+    }
+}
+
+Describe 'Service builder logging supports an already-loaded legacy helper' {
+    It '<Builder> preserves <Kind> logger behavior when PlanOnly is <Preview>' -ForEach @(
+        foreach ($platform in 'ubuntu.kvm', 'macos.utm', 'windows.hyper-v') {
+            foreach ($service in 'caching-proxy-service', 'stash-service', 'pool-control-service', 'download-agent-service') {
+                foreach ($kind in 'legacy unbound', 'legacy advanced', 'modern') {
+                    foreach ($preview in $true, $false) {
+                        @{ Builder = "host/$platform/guest.$service/New-VM.ps1"; Kind = $kind; Preview = $preview }
+                    }
+                }
+            }
+        }
+    ) {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $script:LogModule))
+        $builderAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repoRoot $Builder), [ref]$null, [ref]$null)
+        $prelude = @($builderAst.EndBlock.Statements | Where-Object { $_.Extent.Text -match '\bUse-LogLevelFromEnv\b' } |
+                ForEach-Object { $_.Extent.Text }) -join "`n"
+        $prelude | Should -Not -BeNullOrEmpty
+        $definition = @'
+function Use-LogLevelFromEnv {
+    if ($env:YURUNA_LOG_LEVEL -and $script:LogLevelRank.Contains($env:YURUNA_LOG_LEVEL)) {
+        Set-LogLevelPreference -Level $env:YURUNA_LOG_LEVEL
+    }
+    [void](Start-YurunaChildTranscript)
+}
+'@
+        if ($Kind -eq 'legacy advanced') {
+            $definition = $definition.Replace("function Use-LogLevelFromEnv {", "function Use-LogLevelFromEnv {`n    [CmdletBinding()]param()")
+        } elseif ($Kind -eq 'modern') {
+            $moduleAst = [Management.Automation.Language.Parser]::ParseFile($script:LogModule, [ref]$null, [ref]$null)
+            $definition = $moduleAst.Find({ param($node)
+                    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Use-LogLevelFromEnv'
+                }, $true).Extent.Text
+        }
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_LOG_LEVEL'
+        try {
+            $env:YURUNA_LOG_LEVEL = 'Error'
+            $result = & {
+                param($Definition, $Prelude, $Preview)
+                Set-Variable -Name PlanOnly -Value $Preview
+                $script:LogLevelRank = @{ Error = 1 }
+                $script:TranscriptCalls = 0
+                $script:PreferenceCalls = 0
+                $script:ReloadCalls = 0
+                Set-Item -Path Function:Start-YurunaChildTranscript -Value { $script:TranscriptCalls++ }
+                Set-Item -Path Function:Set-LogLevelPreference -Value { $script:PreferenceCalls++ }
+                Set-Item -Path Function:Import-Module -Value { $script:ReloadCalls++ }
+                . ([scriptblock]::Create($Definition))
+                . ([scriptblock]::Create($Prelude))
+                @{ Transcripts = $script:TranscriptCalls; Preferences = $script:PreferenceCalls; Reloads = $script:ReloadCalls }
+            } $definition $prelude $Preview
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+        $result.Transcripts | Should -Be ([int](-not $Preview))
+        $result.Reloads | Should -Be 0
+        $expectedPreferences = if ($Preview -and $Kind -ne 'modern') { 0 } else { 1 }
+        $result.Preferences | Should -Be $expectedPreferences
     }
 }

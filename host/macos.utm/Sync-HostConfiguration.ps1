@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4294865c-194b-42cf-97c1-6dee3c2b9aa4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,7 +88,7 @@ if (-not $IsMacOS) {
     throw (Format-YurunaOperatorMessage -Key 'exceptions.host_75249e3feb95694e')
 }
 
-# --- REGION: Elevation notice
+# --- REGION: Elevation announcement
 # Announce conditional privileged writes without requesting unused credentials.
 if (-not $NoPool -and -not $NonInteractive -and -not $WhatIfPreference) {
     Write-Information (Format-YurunaOperatorMessage -Key 'host.operator_2866f93b528080e2')

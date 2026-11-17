@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 421ee60b-7cf9-4ac6-8c6b-77960d28d454
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -208,7 +208,44 @@ Describe 'Invoke-HostVmAdmission' {
         $doc = Get-Content -LiteralPath $script:Record -Raw | ConvertFrom-Json
         $doc.state | Should -Be 'occupied'
         @($doc.occupants) | Should -Be @('stubborn')
+        @($doc.stoppedVms.name) | Should -Be @('stubborn') -Because 'the stop was issued to it, so it was read first'
         Should -Invoke -CommandName Write-Warning -ModuleName Test.HostContract -Scope It
+    }
+    # The cycle-start sweep records what became of each leftover guest, and by
+    # then the stop has made a guest the hypervisor was running read as one
+    # that never started.
+    It 'records each guest it stops as its hypervisor reported it just before the stop' {
+        $global:__vmHost.Names = @('test-guest-a', 'test-guest-b')
+        $global:__vmHost.States = @{ 'test-guest-a' = 'running'; 'test-guest-b' = 'stopped' }
+        $a = Invoke-HostVmAdmission -HostType 'host.ubuntu.kvm' -ProbeDelaySeconds 0 -RuntimeDir $script:Runtime 6>$null
+        $a.State | Should -Be 'clear'
+        $doc = Get-Content -LiteralPath $script:Record -Raw | ConvertFrom-Json
+        @($doc.stoppedVms).Count | Should -Be 1 -Because 'only the guest it stopped is read'
+        $doc.stoppedVms[0].name | Should -Be 'test-guest-a'
+        $doc.stoppedVms[0].state | Should -Be 'running' -Because 'the reading is taken before the stop'
+    }
+    It 'records no stopped guest on a host it found clear' {
+        $global:__vmHost.Names = @('test-guest-b')
+        $global:__vmHost.States = @{ 'test-guest-b' = 'stopped' }
+        $null = Invoke-HostVmAdmission -HostType 'host.ubuntu.kvm' -ProbeDelaySeconds 0 -RuntimeDir $script:Runtime 6>$null
+        $doc = Get-Content -LiteralPath $script:Record -Raw | ConvertFrom-Json
+        $doc.PSObject.Properties.Name | Should -Contain 'stoppedVms'
+        @($doc.stoppedVms).Count | Should -Be 0
+    }
+    It 'stops a guest whose reading fails, reaches the same verdict, and records the reading as unknown' {
+        $global:__vmHost.Names = @('test-guest-a')
+        $global:__vmHost.States = @{ 'test-guest-a' = 'running' }
+        function global:Get-KvmDomainState { param([string]$VMName) $null = $VMName; throw 'virsh domstate refused' }
+        try {
+            $a = Invoke-HostVmAdmission -HostType 'host.ubuntu.kvm' -ProbeDelaySeconds 0 -RuntimeDir $script:Runtime 6>$null
+        } finally {
+            Remove-Item -Path Function:\Get-KvmDomainState -ErrorAction SilentlyContinue
+        }
+        $a.State | Should -Be 'clear'
+        @($global:__vmHost.Stopped) | Should -Be @('test-guest-a') -Because 'a failed reading never skips the stop'
+        $doc = Get-Content -LiteralPath $script:Record -Raw | ConvertFrom-Json
+        $doc.stoppedVms[0].state | Should -Be 'unknown'
+        $doc.stoppedVms[0].reason | Should -Match 'virsh domstate refused'
     }
     It 'refuses a host that cannot say what is running, instead of proceeding' {
         $global:__vmHost.ListFailures = 99

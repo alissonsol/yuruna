@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42c94790-0880-4f88-b0b7-07f2de824904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     snippet-free sequence is returned unchanged. Each case uses a unique temp
     dir so the path-keyed library cache never collides across cases.
 
-    Fixtures and helpers live in BeforeAll for Pester 5.x discovery/run scope.
+    Fixtures and helpers live in BeforeAll for Pester 6.x discovery/run scope.
     See https://yuruna.link/42d38664-000b for suite execution.
 #>
 

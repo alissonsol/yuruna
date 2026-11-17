@@ -533,15 +533,16 @@ Windows test-cycle host runs elevated as well. Git tools: several suites run
 `usr\bin`. The private suites under `dev-only/test` follow the same rule.
 
 **Plan for the time.** Three quarters of the logical processors, at least 8 and
-at most 24, run suite processes at once (`-ThrottleLimit`). Suites spend much of
-their time waiting on child processes, timers and the disk, so fewer workers
-leave processors idle; past this the processors are saturated and the longest
-suites slow down faster than the extra workers finish the rest. A full run of the
-tracked suites takes about 8 minutes on the Ubuntu KVM host the baseline is
-recorded on, about 7 minutes on macOS and 17 to 20 minutes on Windows. A suite
-runs beside up to twenty-three others, so a timing bound inside a suite has to
-hold on a busy machine, and a test that needs a free port must not assume that a
-port it just released stays free.
+at most 24, run suite processes at once by default (`-ThrottleLimit`). Past three
+quarters the suites, which start child processes of their own, only stretch one
+another: on the 32-thread Ubuntu KVM reference host a complete run takes as long
+at 28 as at 24, and at 32 timing bounds inside suites begin to fail. An explicit
+`-ThrottleLimit` may exceed 24, and the private suite wrapper inherits the same
+default. Recorded complete runs of the tracked suites have taken about 5 minutes
+on that reference host, about 7 minutes on macOS and 17 to 20 minutes on Windows.
+A suite runs beside up to twenty-three others by default, so a timing bound inside
+a suite has to hold on a busy machine, and a test that needs a free port must not
+assume that a port it just released stays free.
 
 **Recorded passes.** On Linux with `strace` and `python3`, `-Record` traces each
 suite the run executes (`tools/suite_impact.py`) and keeps, for each suite that
@@ -567,7 +568,7 @@ known. A traced suite that does not pass runs again untraced, and that run
 decides: ptrace changes how a traced process ends, so a test that bounds how
 long a process takes to die can fail only because it was traced. A suite that
 fails that way twice in a day runs untraced for the rest of it. A reused suite
-still meets all five conditions below, from its recorded NUnit file; the report
+still meets all six conditions below, from its recorded NUnit file; the report
 marks it `reused`, and `suite-results.json` gives each suite's `impact`: why it
 ran, and whether it was recorded. Such a run is complete for a commit. A release
 runs every suite with `-All`, as `-UpdateBaseline` and `-RegisterNewSuites`
@@ -607,9 +608,11 @@ Test programs written in other languages run only when a suite names them,
 because the runner discovers `*.Tests.ps1` files alone. `Test.TestPrograms`
 runs the Python, PowerShell-contract and Node programs beside the tools, each
 with the number of tests it must still report, and its guard fails on any
-tracked test program (`test_*.py`, `*.test.js`, `*.test.cjs`, `*_contracts.*`)
+tracked or untracked test program (`test_*.py`, `*.test.js`, `*.test.cjs`,
+`*.test.mjs`, `*_contracts.*`, `test/shell/test-*.sh`)
 that no suite names. The private `Test-OntologyTests` runs the ontology's own
-tests from `dev-only/ontology/.venv` (see `dev-only/ontology/README.md`). The
+tests with `YURUNA_ONTOLOGY_PYTHON`, else `dev-only/ontology/.venv`, else a
+`python3` that imports the required packages (see `dev-only/ontology/README.md`). The
 cross-repository gate runs yuruna-project's test programs (`project-tests`)
 and, when an amisad.dev checkout sits beside this one, its regression suite
 (`amisad-tests`).
@@ -1324,6 +1327,10 @@ revisions used by a cycle without fetching the host's status.json -- which by th
 stream is read describes whichever cycle is running now, not the one those
 events belong to. Framework entry first, project entry second, short SHAs, and
 the key is absent entirely on a cycle whose commits could not be resolved.
+The same event carries `runnerPowerShellVersion`, the runner's
+`$PSVersionTable.PSVersion`: a Store or package update can replace the
+runner's PowerShell between cycles, and nothing else in the stream records
+which release ran a cycle.
 
 <a id="42d38664-0020"></a>
 
@@ -1588,9 +1595,12 @@ a scored non-pass and a resident still running.
 
 | Code | Meaning |
 |------|---------|
-| `0` | All guests passed (runner was interrupted or completed) |
-| `1` | One or more guests failed, or preflight error |
-| `2` | A gate could not produce a verdict (VM admission could not prove the host free of other guests) |
+| `0` | Success, including a passed cycle or an orderly resident-runner stop |
+| `1` | One or more guests failed, or an ordinary preflight error |
+| `2` | A gate could not produce a verdict, or a one-shot dispatch did not run a cycle |
+| `70` | A cycle exited cleanly without a usable outcome record |
+| `75` | No guest failed, but a planned guest was skipped (degraded cycle) |
+| `78` | The configuration gate refused the cycle before tests ran |
 
 ---
 
@@ -1598,6 +1608,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

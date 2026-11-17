@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 427642c0-6914-46fa-a327-c4a7e4ddc547
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -730,7 +730,8 @@ Describe 'the configuration editor saves under the config write lock' {
         $locked | Should -Not -BeNullOrEmpty
         $repoRoot = Join-Path $script:Work ('lock-' + [guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Force -Path (Join-Path $repoRoot 'test')
-        $config = Join-Path $repoRoot 'test/test.config.yml'
+        $testConfigFile = Join-Path $repoRoot 'operator-selected.config.yml'
+        $config = $testConfigFile
         $script:LockSeenBySave = $null
         # Stands in for the save: it reads the lock's state from inside.
         function Invoke-TestConfigWrite {

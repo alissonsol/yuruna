@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42c231a1-4c53-4217-8d5b-b85c629fe1c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,7 @@ BeforeAll {
     }
     function Show-FileTreeWalkTimeout { param($Walk) $null = $Walk }
     function Get-LocalRegistryCatalog { return , @('website/web', 'unused/image') }
+    function Write-DiagnosticEtcdEvidence { 'etcd write-path evidence' }
     $script:KubeBody = $script:DiagnosticAst.Find({ param($node)
             $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Invoke-DiagnosticSection' -and
             $node.CommandElements[1].Value -eq 'KUBERNETES' }, $true).CommandElements[2].ScriptBlock.GetScriptBlock()
@@ -299,6 +300,150 @@ Describe 'Production Kubernetes and gap sections consume the same snapshots' {
         $script:HelmCalls | Should -Be 1
         $script:ImageQuery | Should -Match 'initContainers'
         $script:ImageQuery | Should -Match 'ephemeralContainers'
+        # etcd runs on a kubeadm control-plane node, which is Linux.
+        ($printed -contains 'etcd write-path evidence') | Should -Be $IsLinux
+    }
+}
+
+Describe 'etcd write-path evidence' {
+    BeforeAll {
+        foreach ($name in @('Get-PrometheusReading', 'Get-PrometheusValue', 'Protect-DiagnosticSecretText',
+                'Get-DiagnosticEtcdMetricLine', 'Write-DiagnosticEtcdEvidence')) {
+            $definition = $script:DiagnosticAst.Find({ param($node)
+                    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+            if (-not $definition) { throw "Get-SystemDiagnostic.ps1 no longer defines $name." }
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+        $pattern = $script:DiagnosticAst.Find({ param($node)
+                $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$script:EtcdWarningPattern' }, $true)
+        if (-not $pattern) { throw 'Get-SystemDiagnostic.ps1 no longer sets $script:EtcdWarningPattern.' }
+        . ([scriptblock]::Create($pattern.Extent.Text))
+        function Format-YurunaOperatorMessage {
+            param($Key, $Arguments, $FormatValues, $FormatBindings)
+            $null = $FormatValues, $FormatBindings
+            return "$Key state=$($Arguments.state)"
+        }
+        # The shared loopback helpers stand in for etcd's metrics listener.
+        Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+        $script:EtcdMetricsContentType = 'text/plain; version=0.0.4; charset=utf-8'
+        $script:EtcdMetricsFixture = @'
+# HELP etcd_disk_wal_fsync_duration_seconds The latency distributions of fsync called by WAL.
+# TYPE etcd_disk_wal_fsync_duration_seconds histogram
+etcd_disk_wal_fsync_duration_seconds_bucket{le="0.001"} 10
+etcd_disk_wal_fsync_duration_seconds_bucket{le="0.128"} 115
+etcd_disk_wal_fsync_duration_seconds_bucket{le="1.024"} 118
+etcd_disk_wal_fsync_duration_seconds_bucket{le="+Inf"} 120
+etcd_disk_wal_fsync_duration_seconds_sum 9.5
+etcd_disk_wal_fsync_duration_seconds_count 120
+etcd_server_has_leader 1
+# TYPE etcd_server_slow_apply_total counter
+etcd_server_slow_apply_total 3
+'@
+    }
+
+    It 'summarizes the write-path histograms and slow-apply count, and names a metric etcd did not publish' {
+        $culture = [Threading.Thread]::CurrentThread.CurrentCulture
+        try {
+            [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('pt-BR')
+            $lines = @(Get-DiagnosticEtcdMetricLine -Text $script:EtcdMetricsFixture)
+        } finally { [Threading.Thread]::CurrentThread.CurrentCulture = $culture }
+        $lines | Should -Be @(
+            'etcd_disk_wal_fsync_duration_seconds count=120 sum=9.5s mean=79.167ms buckets(le=count) 0.001=10 0.128=115 1.024=118 +Inf=120',
+            'etcd_disk_backend_commit_duration_seconds state=absent',
+            'etcd_server_slow_apply_total 3')
+        @(Get-DiagnosticEtcdMetricLine -Text '') | Should -Contain 'etcd_server_slow_apply_total state=absent'
+    }
+
+    It 'prints the newest fifty matching warnings across the container logs and skips an absent endpoint' -Skip:(-not $IsLinux) {
+        $logs = Join-Path $TestDrive 'pods/kube-system_etcd-node-a_0123/etcd'
+        $null = New-Item -ItemType Directory -Path $logs
+        # The earlier container's log, then the current one; the warnings
+        # sit among ordinary lines the filter drops.
+        [IO.File]::WriteAllLines((Join-Path $logs '0.log'), [string[]]@(1..40 | ForEach-Object {
+                '2026-01-01T00:00:{0:00}.000000000Z stderr F {{"level":"warn","msg":"apply request took too long","took":"{0}s"}}' -f $_
+                '2026-01-01T00:00:{0:00}.500000000Z stderr F {{"level":"info","msg":"ordinary {0}"}}' -f $_ }))
+        [IO.File]::WriteAllLines((Join-Path $logs '1.log'), [string[]]@(41..60 | ForEach-Object {
+                '2026-01-01T00:01:{0:00}.000000000Z stderr F {{"level":"warn","msg":"slow fdatasync","took":"{1}s"}}' -f ($_ - 40), $_ }))
+        # The logs are read in the order they were last written, which two
+        # writes in a row may not tell apart.
+        (Get-Item -LiteralPath (Join-Path $logs '0.log')).LastWriteTimeUtc = [datetime]::new(2026, 1, 1, 0, 0, 40, [DateTimeKind]::Utc)
+        (Get-Item -LiteralPath (Join-Path $logs '1.log')).LastWriteTimeUtc = [datetime]::new(2026, 1, 1, 0, 1, 20, [DateTimeKind]::Utc)
+        $printed = @(Write-DiagnosticEtcdEvidence -PodLogRoot (Join-Path $TestDrive 'pods') -MetricsUri "http://127.0.0.1:$(Get-YurunaTestFreePort)/metrics")
+        $warnings = @($printed | Where-Object { $_ -match 'stderr F' })
+        $warnings.Count | Should -Be 50
+        $warnings[0] | Should -Match '"took":"11s"'
+        $warnings[-1] | Should -Match '"took":"60s"'
+        @($printed | Where-Object { $_ -match 'ordinary' }).Count | Should -Be 0
+        $printed | Should -Contain 'automation.operator_bc9fc9dd34fb6538 state=read'
+        $printed[-1] | Should -Be 'automation.operator_bc9fc9dd34fb6538 state=absent'
+    }
+
+    It 'prints the current container''s warnings last when <Case>' -Skip:(-not $IsLinux) -ForEach @(
+        @{ Case = 'its restart count gains a digit'; Root = 'digit'
+            Previous = 'kube-system_etcd-node-a_0123/etcd/9.log'; Current = 'kube-system_etcd-node-a_0123/etcd/10.log' }
+        @{ Case = 'its restart count gains a third digit'; Root = 'third-digit'
+            Previous = 'kube-system_etcd-node-a_0123/etcd/99.log'; Current = 'kube-system_etcd-node-a_0123/etcd/100.log' }
+        @{ Case = 'a replaced static pod left its earlier directory'; Root = 'replaced'
+            Previous = 'kube-system_etcd-node-a_ffff/etcd/0.log'; Current = 'kube-system_etcd-node-a_0000/etcd/0.log' }
+    ) {
+        $pods = Join-Path $TestDrive $Root
+        $previousPath = Join-Path $pods $Previous
+        $currentPath = Join-Path $pods $Current
+        foreach ($path in @($previousPath, $currentPath)) { $null = New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force }
+        # Name order puts the current log first, and so does write order:
+        # only the dates of their last writes put the earlier log first.
+        [IO.File]::WriteAllLines($currentPath, [string[]]@(1..5 | ForEach-Object {
+                '2026-01-01T00:05:{0:00}.000000000Z stderr F {{"level":"warn","msg":"slow fdatasync","log":"current","n":{0}}}' -f $_ }))
+        [IO.File]::WriteAllLines($previousPath, [string[]]@(1..60 | ForEach-Object {
+                '2026-01-01T00:01:{0:00}.000000000Z stderr F {{"level":"warn","msg":"apply request took too long","log":"previous","n":{1}}}' -f ($_ - 1), $_ }))
+        (Get-Item -LiteralPath $previousPath).LastWriteTimeUtc = [datetime]::new(2026, 1, 1, 0, 1, 59, [DateTimeKind]::Utc)
+        (Get-Item -LiteralPath $currentPath).LastWriteTimeUtc = [datetime]::new(2026, 1, 1, 0, 5, 5, [DateTimeKind]::Utc)
+        $printed = @(Write-DiagnosticEtcdEvidence -PodLogRoot $pods -MetricsUri "http://127.0.0.1:$(Get-YurunaTestFreePort)/metrics")
+        $warnings = @($printed | Where-Object { $_ -match 'stderr F' })
+        $warnings.Count | Should -Be 50
+        $warnings[0] | Should -Match '"log":"previous","n":16\}$'
+        @($warnings[-5..-1] | ForEach-Object { if ($_ -match '"log":"current","n":(\d+)\}$') { [int]$Matches[1] } }) | Should -Be @(1, 2, 3, 4, 5)
+    }
+
+    It 'stops at its bound on a metrics endpoint that never answers' {
+        $silent = New-YurunaTestTcpListener
+        try {
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $printed = @(Write-DiagnosticEtcdEvidence -PodLogRoot (Join-Path $TestDrive 'no-pods') `
+                    -MetricsUri "http://127.0.0.1:$(([Net.IPEndPoint]$silent.LocalEndpoint).Port)/metrics" -TimeoutSeconds 1)
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 5
+        } finally { $silent.Stop() }
+        $printed[-1] | Should -Be 'automation.operator_bc9fc9dd34fb6538 state=timeout'
+        if ($IsLinux) { $printed | Should -Contain 'automation.operator_bc9fc9dd34fb6538 state=absent' }
+    }
+
+    It 'stops at its bound on a metrics body that stalls after its headers' {
+        # Invoke-WebRequest's -TimeoutSec ends at the headers and would wait
+        # out this stall; the bound has to cover the body too. The reply names
+        # the whole body's length but carries half of it, and the connection
+        # stays open behind it, as a wedged writer would leave it.
+        $body = $script:EtcdMetricsFixture
+        $reply = "HTTP/1.1 200 OK`r`nContent-Type: $script:EtcdMetricsContentType`r`nContent-Length: $([Text.Encoding]::UTF8.GetByteCount($body))`r`nConnection: close`r`n`r`n" +
+            $body.Substring(0, [int]($body.Length / 2))
+        $responder = Start-YurunaTestHttpResponder -Reply $reply -HoldOpen
+        try {
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $printed = @(Write-DiagnosticEtcdEvidence -PodLogRoot (Join-Path $TestDrive 'no-pods') -MetricsUri "$($responder.BaseUrl)/metrics" -TimeoutSeconds 1)
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 5
+        } finally { $null = Stop-YurunaTestHttpResponder $responder }
+        $printed[-1] | Should -Be 'automation.operator_bc9fc9dd34fb6538 state=timeout'
+    }
+
+    It 'summarizes the metrics an endpoint serves' {
+        $responder = Start-YurunaTestHttpResponder -Reply (New-YurunaTestHttpReply -Body $script:EtcdMetricsFixture -ContentType $script:EtcdMetricsContentType)
+        $uri = "$($responder.BaseUrl)/metrics"
+        try {
+            $printed = @(Write-DiagnosticEtcdEvidence -PodLogRoot (Join-Path $TestDrive 'no-pods') -MetricsUri $uri)
+        } finally { $null = Stop-YurunaTestHttpResponder $responder }
+        $printed | Should -Contain "etcd: GET $uri"
+        $printed | Should -Contain 'automation.operator_bc9fc9dd34fb6538 state=read'
+        $printed | Should -Contain 'etcd_disk_wal_fsync_duration_seconds count=120 sum=9.5s mean=79.167ms buckets(le=count) 0.001=10 0.128=115 1.024=118 +Inf=120'
+        $printed[-1] | Should -Be 'etcd_server_slow_apply_total 3'
     }
 }
 }

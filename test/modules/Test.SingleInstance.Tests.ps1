@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42645f00-faa2-428e-bbc3-6249194cf5b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -777,6 +777,16 @@ Start-Sleep -Seconds 60
             @($session.parents)[0] | Should -Be "$((Get-Process -Id $PID).ProcessName)[$PID]" -Because 'the nearest parent is the process that started it'
             foreach ($parent in @($session.parents)) { $parent | Should -Match '^[^\s\[\]]{1,32}\[\d+\]$' -Because 'a name carries no command line' }
             $session.sshSession | Should -BeOfType [bool]
+            if ($IsWindows) {
+                $session.sessionId | Should -Be $child.SessionId
+                $session.windowsTerminal | Should -BeOfType [bool]
+                $session.elevated | Should -BeOfType [bool]
+                $session.PSObject.Properties.Name | Should -Contain 'sessionName'
+            } else {
+                foreach ($name in 'sessionId', 'sessionName', 'windowsTerminal', 'elevated') {
+                    $session.PSObject.Properties.Name | Should -Not -Contain $name -Because 'these say how a Windows runner was started'
+                }
+            }
         } finally {
             if (-not $child.HasExited) { $child.Kill() }
             $child.Dispose()
@@ -833,12 +843,40 @@ Start-Sleep -Seconds 60
         $report.signalAtUtc | Should -Be '2026-11-07T15:35:02.0000000Z'
     }
 
-    It 'reports nothing without a readable session record' {
+    It 'reports nothing without a readable session record, and says which' {
         $runtime = Join-Path $script:SingleInstanceTempRoot ('none-' + [guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Path $runtime
-        Get-YurunaRunnerExitReport -RuntimeDir $runtime | Should -BeNullOrEmpty
+        $reason = $null
+        Get-YurunaRunnerExitReport -RuntimeDir $runtime -AbsenceReason ([ref]$reason) | Should -BeNullOrEmpty
+        $reason | Should -Be 'no-session-record'
         [IO.File]::WriteAllText((Join-Path $runtime 'runner.session.json'), '{"pid":')
-        Get-YurunaRunnerExitReport -RuntimeDir $runtime | Should -BeNullOrEmpty
+        $reason = $null
+        Get-YurunaRunnerExitReport -RuntimeDir $runtime -AbsenceReason ([ref]$reason) | Should -BeNullOrEmpty
+        $reason | Should -Be 'unreadable'
+        [IO.File]::WriteAllText((Join-Path $runtime 'runner.session.json'), '{"schemaVersion":1}')
+        $reason = $null
+        Get-YurunaRunnerExitReport -RuntimeDir $runtime -AbsenceReason ([ref]$reason) | Should -BeNullOrEmpty
+        $reason | Should -Be 'unreadable' -Because 'a record without a pid names no runner'
+        [IO.File]::WriteAllText((Join-Path $runtime 'runner.session.json'), '{"schemaVersion":1,"pid":4242}')
+        $reason = $null
+        Get-YurunaRunnerExitReport -RuntimeDir $runtime -AbsenceReason ([ref]$reason) | Should -Not -BeNullOrEmpty
+        $reason | Should -BeNullOrEmpty -Because 'a report is no absence'
+    }
+
+    It 'carries the Windows session facts the record holds, and adds none to a record without them' {
+        $runtime = Join-Path $script:SingleInstanceTempRoot ('windows-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $runtime
+        [IO.File]::WriteAllText((Join-Path $runtime 'runner.session.json'), (@{ schemaVersion = 1; pid = 7240; startedUtc = '2026-01-12T02:23:25.0000000Z'
+            recordedUtc = '2026-01-12T02:23:26.0000000Z'; hostBootUtc = '2026-01-05T05:25:57.0000000Z'; sshSession = $false; terminalProgram = $null
+            multiplexer = $null; parents = @(); sessionId = 1; sessionName = 'Console'; windowsTerminal = $true; elevated = $true } | ConvertTo-Json -Compress))
+        $report = Get-YurunaRunnerExitReport -RuntimeDir $runtime
+        $report.sessionId | Should -Be 1
+        $report.sessionName | Should -Be 'Console'
+        $report.windowsTerminal | Should -BeTrue
+        $report.elevated | Should -BeTrue
+        [IO.File]::WriteAllText((Join-Path $runtime 'runner.session.json'), '{"schemaVersion":1,"pid":52011,"parents":["zsh[2101]"],"terminalProgram":"Apple_Terminal"}')
+        $report = Get-YurunaRunnerExitReport -RuntimeDir $runtime
+        foreach ($name in 'sessionId', 'sessionName', 'windowsTerminal', 'elevated') { $report.Contains($name) | Should -BeFalse }
     }
 }
 

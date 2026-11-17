@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42efe80f-2ccd-4c3a-890a-629945247656
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -147,7 +147,7 @@ Describe 'Receive-Netconsole.ps1' {
             Assert-Match '^netconsole-127\.0\.0\.1-\d{8}\.log$' $log[0].Name 'named for the sender and the UTC day'
             Assert-True (Wait-LogText -Path $log[0].FullName -Pattern 'yuruna-vitals') 'the last line arrives'
             Assert-False $receiver.Process.HasExited 'the line was readable while the receiver still ran, so it was flushed'
-            $lines = @((Read-SharedText -Path $log[0].FullName) -split "`n" | Where-Object { $_ -and $_ -notmatch 'ready probe$' })
+            $lines = @((Read-SharedText -Path $log[0].FullName) -split '\r?\n' | Where-Object { $_ -and $_ -notmatch 'ready probe$' })
             foreach ($line in $lines) { Assert-Match $script:Stamp $line 'every line starts with its UTC arrival time' }
             $text = ($lines | ForEach-Object { $_ -replace $script:Stamp, '' }) -join "`n"
             Assert-Equal (@(

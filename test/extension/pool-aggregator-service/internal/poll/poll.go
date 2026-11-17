@@ -41,6 +41,7 @@ type (
 	gatingPolicy  = incident.GatingPolicy
 	incidentEvent = incident.Event
 	controlStatus = hostpoll.ControlStatus
+	runnerStatus  = hostpoll.RunnerStatus
 )
 
 var (
@@ -208,7 +209,7 @@ func (s *Poller) EvaluatePoolGate(view *poolstate.View, now time.Time) []inciden
 			switch hv.StatusCode() {
 			// running, pass, idle, pause-armed but still running, runner stopped,
 			// runner lost mid-cycle. A stale fail behind a stopped or lost runner is
-			// no longer counted against the pool; a host that is genuinely failing is
+			// not counted against the pool; a host that is genuinely failing is
 			// excluded by its open incident, which does not care what its current
 			// status reads.
 			case 1, 2, 4, 6, 7, 8, 10:
@@ -364,8 +365,7 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 		refreshOK  bool                 // control-status answered this poll (false = transport, oversize or parse failure)
 		stepParked bool                 // current-action sidecar says the runner is sitting at a step boundary
 		parkedOK   bool                 // the sidecar was read this poll (false = keep the prior reading)
-		runnerDead bool                 // runner-status says the outer runner is verifiably not alive
-		runnerLost bool                 // ...and that it died inside a cycle (in-cycle, pid file left behind)
+		runner     runnerStatus         // runner-status: whether the outer runner is verifiably gone, lost mid-cycle, and how it ended
 		runnerOK   bool                 // runner-status answered this poll (false = keep the prior reading)
 	}
 	// This proxy's own token tag, computed once per poll: the value every host's
@@ -413,8 +413,8 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 				// one probe that cannot be skipped on a hint from status.json,
 				// since a stopped runner is precisely the case where status.json
 				// has stopped changing.
-				if dead, lost, rerr := hostpoll.FetchRunnerStopped(client, base); rerr == nil {
-					pr.runnerDead, pr.runnerLost, pr.runnerOK = dead, lost, true
+				if rs, rerr := hostpoll.FetchRunnerStopped(client, base); rerr == nil {
+					pr.runner, pr.runnerOK = rs, true
 				}
 				// Only while the step-pause flag is armed: the sidecar is the one
 				// thing that separates "parked at the boundary" from "still running
@@ -446,6 +446,7 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 	// re-seed its volatile view from Loki on a restart (rehydrate's Reader.Presence).
 	var presence []presenceTarget
 	var cycleTransitions []cycleTransition
+	var observed []observedEvent
 	var deleted []string
 	// Snapshot the event-tail targets while holding the lock; the fetch+push
 	// itself runs unlocked below so a slow host can't stall the handlers.
@@ -479,7 +480,7 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 			}
 			base := fmt.Sprintf("http://%s:%d", r.ip, s.statusPort)
 			prevBase := hv.BaseURL
-			hv.CurrentIP, hv.BaseURL, hv.Reachable, hv.LastError = r.ip, base, true, ""
+			hv.CurrentIP, hv.BaseURL, hv.Reachable, hv.LastError, hv.UnreachableReported = r.ip, base, true, "", false
 			// New host (prevBase "") or an IP change -> re-beacon its address. A
 			// re-probe of a Loki-seeded stub at the SAME IP leaves base == prevBase, so
 			// it does NOT churn a presence line every restart. Streamed under s.pool (the
@@ -507,7 +508,7 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 			// Keep the prior runner verdict when the route did not answer this tick, the
 			// same guard as Control: a missed probe is not a runner that started.
 			if r.runnerOK {
-				hv.RunnerStopped, hv.RunnerLostMidCycle = r.runnerDead, r.runnerLost
+				hv.RunnerStopped, hv.RunnerLostMidCycle = r.runner.Stopped, r.runner.LostMidCycle
 			}
 			// An unarmed host has no boundary to be parked at, so the reading is cleared
 			// rather than kept -- otherwise a stale true would resurface the moment the
@@ -544,6 +545,12 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 					view.SetGating(r.poolID, *r.gating)
 				}
 			}
+			// After the registration merge, so the line carries the host's pool.
+			if r.runnerOK && r.runner.LostMidCycle {
+				if ev, ok := runnerLostEvent(s.PoolFor(view, hid), hid, hv, r.runner, r.st, now); ok {
+					observed = append(observed, ev)
+				}
+			}
 			refreshed[hid] = true
 			cycleStatus := r.st.CycleStatus()
 			if cycleStatus.CycleStartUtc != "" {
@@ -570,14 +577,17 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 				hv.Reachable = false
 				hv.Refresh = demoteRefresh(hv.Refresh, sdkpool.RefreshReasonHostUnreachable)
 				// Surface WHY this tick's probe of the host's last-known IP failed, so
-				// /api/v1/pool-status is no longer blind about an unreachable host. Left
+				// /api/v1/pool-status says why a host is unreachable. Left
 				// as-is when the IP was not a candidate this tick (no fresh reason).
 				if msg, ok := ipErr[hv.CurrentIP]; ok {
 					hv.LastError = msg
 				}
 				if now.UnixMilli()-hv.LastSeenUnixMs > s.hostTtl.Milliseconds() {
+					observed = append(observed, hostDroppedEvent(s.PoolFor(view, hid), hid, hv, s.hostTtl, now))
 					view.DropHost(hid)
 					deleted = append(deleted, hid)
+				} else if ev, ok := hostUnreachableEvent(s.PoolFor(view, hid), hid, hv, now); ok {
+					observed = append(observed, ev)
 				}
 			}
 		}
@@ -634,6 +644,7 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 	for _, ev := range gateEvents {
 		s.PushIncident(client, lokiURL, ev.PoolLabel, ev)
 	}
+	s.queueObserved(client, lokiURL, observed)
 	// Beacon each newly-discovered / IP-changed host's address to Loki so a restart
 	// can re-seed the volatile view (rehydrate's Reader.Presence). On-change only,
 	// so this is a low-volume feed -- a steady pool pushes nothing here per poll.

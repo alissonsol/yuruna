@@ -5,8 +5,11 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -327,14 +330,58 @@ func TestFetchRunnerStopped(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(body))
 		}))
-		got, lost, err := hostpoll.FetchRunnerStopped(srv.Client(), srv.URL)
+		got, err := hostpoll.FetchRunnerStopped(srv.Client(), srv.URL)
 		srv.Close()
 		if err != nil {
 			t.Errorf("%s: unexpected error: %v", c.name, err)
 			continue
 		}
-		if got != c.want || lost != c.wantLost {
-			t.Errorf("%s: fetchRunnerStopped = (%v, %v), want (%v, %v)", c.name, got, lost, c.want, c.wantLost)
+		if got.Stopped != c.want || got.LostMidCycle != c.wantLost {
+			t.Errorf("%s: fetchRunnerStopped = (%v, %v), want (%v, %v)", c.name, got.Stopped, got.LostMidCycle, c.want, c.wantLost)
 		}
 	}
+}
+
+// A lost runner's lastExit says how it ended, and the pool records it on the
+// runner_lost line. The report is decoded on its own: one this collector cannot
+// read is dropped, and the stopped and lost verdicts stand without it.
+func TestFetchRunnerStoppedDecodesTheExitReport(t *testing.T) {
+	const lost = `{"running":false,"pid":4242,"liveness":"idle","runnerState":"in-cycle","lastExit":%s}`
+	sighup := `{"pid":4242,"startedUtc":"2026-11-09T02:23:25.1234567Z","recordedUtc":"2026-11-09T02:23:26.0000000Z","sshSession":false,"terminalProgram":"Apple_Terminal","multiplexer":null,"parents":["zsh[1432]","login[1430]"],"hostBootUtc":"2026-10-27T15:34:30.0000000Z","signal":"SIGHUP","signalAtUtc":"2026-11-11T23:18:46.8000000Z","hostRestarted":false}`
+	uncaught := `{"pid":4242,"startedUtc":"2026-11-09T02:23:25.1234567Z","recordedUtc":"2026-11-09T02:23:26.0000000Z","sshSession":true,"terminalProgram":null,"multiplexer":"tmux","parents":[],"hostBootUtc":null,"signal":null,"signalAtUtc":null,"hostRestarted":null}`
+	for _, c := range []struct {
+		name, lastExit string
+		want           *hostpoll.RunnerExit
+	}{
+		{"signal caught", sighup, &hostpoll.RunnerExit{Pid: 4242, StartedUtc: "2026-11-09T02:23:25.1234567Z",
+			Signal: ptr("SIGHUP"), SignalAtUtc: ptr("2026-11-11T23:18:46.8000000Z"), HostRestarted: ptr(false), TerminalProgram: ptr("Apple_Terminal")}},
+		{"no signal caught and boot unknown", uncaught, &hostpoll.RunnerExit{Pid: 4242, StartedUtc: "2026-11-09T02:23:25.1234567Z", SSHSession: true}},
+		{"no session record", `null`, nil},
+		{"unreadable report", `{"pid":"4242","signal":7}`, nil},
+		{"report of no process", `{"startedUtc":"2026-11-09T02:23:25Z"}`, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprintf(w, lost, c.lastExit)
+			}))
+			defer srv.Close()
+			got, err := hostpoll.FetchRunnerStopped(srv.Client(), srv.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.Stopped || !got.LostMidCycle || got.Pid != 4242 {
+				t.Fatalf("verdicts = %+v, want a lost runner 4242 whatever its report says", got)
+			}
+			if !reflect.DeepEqual(got.LastExit, c.want) {
+				t.Fatalf("lastExit = %s, want %s", describeExit(got.LastExit), describeExit(c.want))
+			}
+		})
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func describeExit(x *hostpoll.RunnerExit) string {
+	b, _ := json.Marshal(x)
+	return string(b)
 }

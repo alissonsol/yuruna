@@ -150,6 +150,39 @@ func TestPickFolderFromListingStillFallsBackToOldest(t *testing.T) {
 	}
 }
 
+// The boot sweep keeps a cycle whose runner died as <identity>.aborted.<UTC>, and
+// the host's /log/ index lists only that folder for it, folding any archive copy,
+// named by the bare identity, into the local entry. A click inside that cycle has
+// to land on the kept folder; skipping the suffixed name lands on the cycle before.
+func TestListingResolvesAClickInsideAnAbortedCycle(t *testing.T) {
+	aborted := "001802.2026-09-15.10-07-39." + histHostID + ".aborted.2026-09-15T11-00-00Z"
+	listing := `<a href="001801.2026-09-15.09-50-29.` + histHostID + `/">x</a>
+<a href="` + aborted + `/">x</a>
+<a href="001803.2026-09-15.11-05-00.` + histHostID + `.incomplete/">x</a>`
+	click := histAt("2026-09-15T10:30:00Z")
+	if best, _ := scanListingForHost(listing, histHostID, click); best != aborted+"/" {
+		t.Errorf("a click inside the aborted cycle resolved to %q", best)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/log/" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, listing)
+	}))
+	t.Cleanup(srv.Close)
+	s := newPoolState("default", 8080)
+	s.httpClient = srv.Client()
+	if got := s.resolveFolderByListing(srv.URL, histHostID, click); got != "log/"+aborted+"/" {
+		t.Errorf("the listing resolver answered %q", got)
+	}
+	// Only the sweep's UTC stamp makes the suffix part of a cycle folder name.
+	odd := `<a href="001802.2026-09-15.10-07-39.` + histHostID + `.aborted.later/">x</a>`
+	if best, earliest := scanListingForHost(odd, histHostID, click); best != "" || earliest != "" {
+		t.Errorf("a malformed suffix matched: best=%q earliest=%q", best, earliest)
+	}
+}
+
 func writeTestIndex(t *testing.T, dir string, folders ...cycleFolder) {
 	t.Helper()
 	m := map[string]cycleFolder{}

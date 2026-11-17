@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -193,6 +193,16 @@ BeforeAll {
                 if ($previous -lt 0 -or $lines[$previous] -cne "# --- REGION: $name") {
                     "line $($index + 1): '${name}:' requires its canonical REGION"
                 }
+            }
+        }
+    }
+
+    function Get-DocumentationRegionViolation {
+        param([Parameter(Mandatory)][string]$Text)
+        $pattern = '(?m)^[ \t]*(?:#|//|--|<!--|/\*)[ \t]*(?:---[ \t]+)?REGION:[ \t]*(?<target>https?://[^\r\n]+?)[ \t]*(?:-->|\*/)?[ \t]*$'
+        foreach ($match in [regex]::Matches($Text, $pattern)) {
+            if ($match.Groups['target'].Value -cnotmatch '^https://yuruna\.link/42[0-9a-f]{6}-[0-9a-f]{4}$') {
+                $match
             }
         }
     }
@@ -810,12 +820,14 @@ Describe 'Shared source regions' {
         foreach ($hostKind in 'windows.hyper-v', 'ubuntu.kvm', 'macos.utm') {
             $names = @($common + $providerPhases[$hostKind])
             $expected = $null
-            foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service') {
+            foreach ($service in 'stash-service', 'pool-control-service', 'download-agent-service', 'caching-proxy-service') {
                 $path = Join-Path $script:RepoRoot "host/$hostKind/guest.$service/New-VM.ps1"
                 # Indented markers count: a builder's seed-folder try/finally
-                # encloses the later phases.
+                # encloses the later phases. The disk size in the grow phase is
+                # the service's own; the phase's place is shared.
                 $regions = @([regex]::Matches((Get-ConsistencyWorkflowSource -Path $path),
-                        '(?m)^[ \t]*# --- REGION: ([^\r\n]+)') | ForEach-Object { $_.Groups[1].Value })
+                        '(?m)^[ \t]*# --- REGION: ([^\r\n]+)') | ForEach-Object {
+                        $_.Groups[1].Value -replace '^Grow the per-VM disk to \d+ GB$', 'Grow the per-VM disk to 256 GB' })
                 $observed = @($regions | Where-Object { $_ -in $names })
                 if ($null -eq $expected) { $expected = $observed -join '|' }
                 ($observed -join '|') | Should -BeExactly $expected -Because "$hostKind/$service shares the provider's service phases"
@@ -1017,6 +1029,17 @@ Describe 'Shared source regions' {
         $findings | Should -BeNullOrEmpty -Because 'a REGION rationale links to its stable yuruna.link heading'
     }
 
+    It 'uses a heading-specific docid-number link for every documentation REGION' {
+        $findings = @()
+        foreach ($file in Get-ConsistencySourceFile) {
+            $text = Get-ConsistencySourceText -Path $file.FullName
+            foreach ($match in Get-DocumentationRegionViolation -Text $text) {
+                $findings += Format-SourceMatch -File $file -Text $text -Match $match
+            }
+        }
+        $findings | Should -BeNullOrEmpty -Because 'a documentation REGION points to a stable document heading, while header links remain ordinary comments'
+    }
+
     It 'keeps documentation links as ordinary comments beside named regions' {
         $pattern = '(?m)^[ \t]*(?<comment>#|//)[ \t]*---[ \t]+REGION:[ \t]*(?:https://yuruna\.link/[^\r\n]+\r?\n[ \t]*\k<comment>[ \t]*---[ \t]+REGION:[ \t]*(?!https://)|(?!(?:https://))[^\r\n]+\r?\n[ \t]*\k<comment>[ \t]*---[ \t]+REGION:[ \t]*https://yuruna\.link/)'
         $findings = @()
@@ -1064,7 +1087,7 @@ Describe 'Shared source regions' {
     }
 
     It 'uses the canonical recurring REGION vocabulary' {
-        $pattern = '(?m)^[ \t]*(?:#|//)[ \t]*---[ \t]+REGION:[ \t]*(?:Install logging|Storage dirs|Cleanup temporary files|Log level from the environment)[ \t]*$'
+        $pattern = '(?m)^[ \t]*(?:#|//)[ \t]*---[ \t]+REGION:[ \t]*(?:Install logging|Storage dirs|Cleanup temporary files|Log level from the environment|Elevation notice|Newer versions report)[ \t]*$'
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile) {
             $text = Get-ConsistencySourceText -Path $file.FullName
@@ -1286,6 +1309,31 @@ Describe 'SQL and CSS divider fixtures' {
         param($Name, $Text)
         $null = $Name
         [regex]::IsMatch($Text, $script:SqlCssRegionBlankPattern) | Should -BeFalse
+    }
+}
+
+Describe 'Documentation region guard fixtures' {
+    It 'accepts a heading-specific region in <Kind> comments' -ForEach @(
+        @{ Kind='shell'; Text='# --- REGION: https://yuruna.link/42e220c4-000a' },
+        @{ Kind='Go'; Text='// --- REGION: https://yuruna.link/42e220c4-000a' },
+        @{ Kind='SQL'; Text='-- --- REGION: https://yuruna.link/42e220c4-000a' },
+        @{ Kind='XML'; Text='<!-- REGION: https://yuruna.link/42e220c4-000a -->' },
+        @{ Kind='CSS'; Text='/* REGION: https://yuruna.link/42e220c4-000a */' }
+    ) {
+        @(Get-DocumentationRegionViolation -Text $Text).Count | Should -Be 0
+    }
+
+    It 'rejects a documentation REGION using <Kind>' -ForEach @(
+        @{ Kind='only a file id'; Text='# --- REGION: https://yuruna.link/42e220c4' },
+        @{ Kind='a mnemonic alias'; Text='// --- REGION: https://yuruna.link/network' },
+        @{ Kind='a title fragment'; Text='<!-- REGION: https://yuruna.link/42e220c4#region-conventions -->' },
+        @{ Kind='an external URL'; Text='/* REGION: https://example.com/42e220c4-000a */' }
+    ) {
+        @(Get-DocumentationRegionViolation -Text $Text).Count | Should -Be 1
+    }
+
+    It 'leaves an ordinary header link outside documentation regions' {
+        @(Get-DocumentationRegionViolation -Text '# See https://yuruna.link/42e220c4').Count | Should -Be 0
     }
 }
 

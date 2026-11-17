@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 421e5032-3844-4d14-b69c-9033a127d516
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,8 @@ BeforeAll {
         $null = Invoke-FixtureGit $remote @('add', '.')
         $null = Invoke-FixtureGit $remote @('commit', '--quiet', '-m', 'old release')
         $url = ([UriBuilder]::new('file', '', -1, $remote)).Uri.AbsoluteUri
-        $arguments = @('clone', '--quiet')
+        # The initial checkout must use the same line-ending policy as later fixture commands.
+        $arguments = @('-c', 'core.autocrlf=false', 'clone', '--quiet')
         if ($Shallow) { $arguments += @('--depth', '1') }
         $null = Invoke-FixtureGit $root ($arguments + @($url, $local))
         Set-YurunaTestGitIdentity -Path $local

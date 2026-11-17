@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a04c70-e7da-4354-977e-5dd4778e74a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -221,6 +221,9 @@ function Write-VmAdmissionRecord {
         host that could not show it was free of other guests. Written on every
         verdict, a clear one included, so a later cycle's record replaces an
         older refusal instead of leaving it to be read as current.
+    .PARAMETER StoppedVm
+        Each VM admission found running and stopped (or tried to stop), as its
+        hypervisor reported it just before the stop (Get-VMPlatformState).
     .OUTPUTS
         [bool] $true when the record was written.
     #>
@@ -229,7 +232,8 @@ function Write-VmAdmissionRecord {
     param(
         [Parameter(Mandatory)]$Admission,
         [string]$HostType,
-        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
+        [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR,
+        [object[]]$StoppedVm = @()
     )
     if ([string]::IsNullOrWhiteSpace($RuntimeDir) -or -not (Test-Path -LiteralPath $RuntimeDir -PathType Container)) { return $false }
     if (-not (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue)) {
@@ -244,12 +248,73 @@ function Write-VmAdmissionRecord {
         state         = [string]$Admission.State
         reason        = [string]$Admission.Reason
         occupants     = @($Admission.Occupants)
+        stoppedVms    = @($StoppedVm)
         probes        = [int]$Admission.Probes
         detail        = [string]$Admission.Detail
         hostType      = [string]$HostType
         observedUtc   = (Get-Date).ToUniversalTime().ToString('o', [Globalization.CultureInfo]::InvariantCulture)
     }
     return [bool](Write-YurunaStateFileJson -Path $path -InputObject $record -Depth 4 -Confirm:$false)
+}
+
+function Get-VMPlatformState {
+    <#
+    .SYNOPSIS
+        One VM as its hypervisor reports it: name, state, uptime and creation
+        time. Never throws.
+    .DESCRIPTION
+        The state is the platform's own word, read through the driver's
+        bounded state read, because Get-VMState folds the words that tell a
+        restored VM from an abandoned one: Hyper-V Saved and Off, UTM suspended
+        and stopped, libvirt paused and shut off all read 'stopped' there.
+        Hyper-V's read (Resolve-HyperVVM) also carries the VM's uptime and
+        creation time; UTM's (Get-VMStateRecord) and libvirt's
+        (Get-KvmDomainState) carry neither, so those stay $null. A driver with
+        none of these reads answers through Get-VMState. A read that fails or
+        does not answer is 'unknown' with its reason: the reading is evidence
+        for the admission stop and the cycle-start sweep, never a condition on
+        either.
+    .OUTPUTS
+        [ordered] name, state, uptimeSeconds, createdUtc, and reason when the
+        state is 'unknown'.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $record = [ordered]@{ name = $VMName; state = 'unknown'; uptimeSeconds = $null; createdUtc = $null }
+    $reason = ''
+    try {
+        if (Get-Command Resolve-HyperVVM -ErrorAction SilentlyContinue) {
+            $resolved = Resolve-HyperVVM -VMName $VMName
+            if ($resolved.Presence -eq 'present') {
+                $record.state = [string]$resolved.VM.State
+                if ($resolved.VM.Uptime -is [timespan]) { $record.uptimeSeconds = [long]$resolved.VM.Uptime.TotalSeconds }
+                $created = $resolved.VM.CreationTime
+                if ($created -is [datetime] -and $created -ne [datetime]::MinValue) {
+                    $record.createdUtc = $created.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                }
+            } else {
+                $record.state = [string]$resolved.Presence
+                $reason = [string]$resolved.Cause
+            }
+        } elseif (Get-Command Get-VMStateRecord -ErrorAction SilentlyContinue) {
+            $read = Get-VMStateRecord -VMName $VMName
+            $record.state = if ([string]$read.RawState) { [string]$read.RawState } else { [string]$read.State }
+            $reason = [string]$read.Reason
+        } elseif (Get-Command Get-KvmDomainState -ErrorAction SilentlyContinue) {
+            $read = Get-KvmDomainState -VMName $VMName
+            $record.state = if ([string]$read.Raw) { [string]$read.Raw } else { [string]$read.State }
+            $reason = [string]$read.Reason
+        } else {
+            $record.state = [string](Get-VMState -VMName $VMName)
+        }
+    } catch {
+        $record.state = 'unknown'
+        $reason = $_.Exception.Message
+    }
+    if (-not $record.state) { $record.state = 'unknown' }
+    if ($record.state -eq 'unknown') { $record.reason = if ($reason) { $reason } else { 'unclassified' } }
+    return $record
 }
 
 function Invoke-HostVmAdmission {
@@ -273,9 +338,11 @@ function Invoke-HostVmAdmission {
                     one cycle on a host whose hypervisor CLI is wedged, and says
                     so.
 
-        The verdict is recorded (Write-VmAdmissionRecord) whatever it is. The
-        caller exits on anything but 'clear': 1 for occupied, 2 (cannot run) for
-        unknown, so the two read differently to whoever looks at the exit code.
+        The verdict is recorded (Write-VmAdmissionRecord) whatever it is, with
+        each guest it stopped as its hypervisor reported it just before the
+        stop. The caller exits on anything but 'clear': 1 for occupied, 2
+        (cannot run) for unknown, so the two read differently to whoever looks
+        at the exit code.
         On a clear host the driver's Repair-VMStorageLocation, where it has one,
         then finishes any rename an interrupted snapshot promotion left half done.
     .PARAMETER HostType
@@ -296,7 +363,12 @@ function Invoke-HostVmAdmission {
         [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
     )
     $admission = Get-VmAdmission -ExceptVmName $ExceptVmName -MaxProbes $MaxProbes -ProbeDelaySeconds $ProbeDelaySeconds
+    $stoppedVms = @()
     if ($admission.State -eq 'occupied') {
+        # Read before the stop: afterwards a guest the hypervisor restored and
+        # ran reads as one that never started (Hyper-V Off with no uptime), and
+        # the cycle-start sweep that records the leftover guests runs later.
+        $stoppedVms = @(foreach ($name in @($admission.Occupants)) { Get-VMPlatformState -VMName $name })
         $null = Stop-ConcurrentVM -ExceptVmName $ExceptVmName
         $admission = Get-VmAdmission -ExceptVmName $ExceptVmName -MaxProbes $MaxProbes -ProbeDelaySeconds $ProbeDelaySeconds
     }
@@ -323,8 +395,8 @@ function Invoke-HostVmAdmission {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.vm_storage_reconcile_failed' -Arguments @{ message = "$($_.Exception.Message)" })
         }
     }
-    $null = Write-VmAdmissionRecord -Admission $admission -HostType $HostType -RuntimeDir $RuntimeDir -Confirm:$false
+    $null = Write-VmAdmissionRecord -Admission $admission -HostType $HostType -RuntimeDir $RuntimeDir -StoppedVm $stoppedVms -Confirm:$false
     return $admission
 }
 
-Export-ModuleMember -Function Get-HostType, Get-HostFolder, Invoke-LibvirtGroupReExecIfNeeded, Initialize-YurunaHost, Get-GuestList, Test-GuestFolder, Get-TestVMName, Test-ElevationRequired, Test-HostRequirement, Assert-HostConditionSet, Get-HostConditionVerdict, Initialize-SudoCache, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacScreenLockIssue, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Set-WindowsHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Stop-ConcurrentVM, Get-VmAdmission, Write-VmAdmissionRecord, Invoke-HostVmAdmission, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Get-WindowsDisplayScaleSetting, Get-WindowsDisplayScaleIssue
+Export-ModuleMember -Function Get-HostType, Get-HostFolder, Invoke-LibvirtGroupReExecIfNeeded, Initialize-YurunaHost, Get-GuestList, Test-GuestFolder, Get-TestVMName, Test-ElevationRequired, Test-HostRequirement, Assert-HostConditionSet, Get-HostConditionVerdict, Initialize-SudoCache, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacScreenLockIssue, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Set-WindowsHostConditionSet, Invoke-GitPull, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Stop-ConcurrentVM, Get-VmAdmission, Write-VmAdmissionRecord, Get-VMPlatformState, Invoke-HostVmAdmission, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Get-WindowsDisplayScaleSetting, Get-WindowsDisplayScaleIssue

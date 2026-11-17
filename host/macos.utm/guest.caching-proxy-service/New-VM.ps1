@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4220d762-3e46-4f5b-808c-166adb4d8b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,7 +83,11 @@ $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
 }
-if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+$loadedLogLevel = Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue
+if ($loadedLogLevel) {
+    if (-not $PlanOnly) { Use-LogLevelFromEnv }
+    elseif ($loadedLogLevel.Parameters.ContainsKey('NoTranscript')) { Use-LogLevelFromEnv -NoTranscript }
+}
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
@@ -105,7 +109,7 @@ if ($MacAddress) {
 }
 
 $GuestDir = "$HOME/yuruna/guest.nosync"
-New-Item -ItemType Directory -Force -Path $GuestDir | Out-Null
+if (-not $PlanOnly) { New-Item -ItemType Directory -Force -Path $GuestDir | Out-Null }
 $UtmDir = "$GuestDir/$VMName.utm"
 $DataDir = "$UtmDir/Data"
 
@@ -125,25 +129,35 @@ if (-not (Test-Path $utmPlist)) {
 # Seed the shared harness key so guest provisioning and failure diagnostics agree.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
-$SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
+$SshAuthorizedKey = Get-YurunaSshPublicKey -ReadOnly:$PlanOnly
+if (-not $SshAuthorizedKey -and -not $PlanOnly) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
 # --- REGION: Vault admin password
 # See https://yuruna.link/42f6b05f-0041
 # The runtime state file <track>/yuruna-caching-proxy-service.yml is the source of
-# truth; Set-Password rehydrates the vault from it before Get-Password.
+# truth; a real build rehydrates the vault before Get-Password, while the
+# read-only plan validates the same proposed value without persisting it.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$persisted = (Read-CachingProxyServiceState).password
-if ($persisted) { Set-Password -Username 'caching-proxy-service-admin' -NewPassword $persisted }
-$AdminPassword = Get-Password -Username 'caching-proxy-service-admin'
-if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_47959938846e1bd4'); exit 1 }
+$persisted = (Read-CachingProxyServiceState -ReadOnly:$PlanOnly).password
+$passwordArguments = @{ Username = 'caching-proxy-service-admin' }
+if ($PlanOnly) {
+    $passwordCommand = Get-Command -Name 'Get-Password' -ErrorAction Stop
+    if (-not $passwordCommand.Parameters.ContainsKey('ReadOnly') -or
+        ($persisted -and -not $passwordCommand.Parameters.ContainsKey('ProposedSecret'))) {
+        throw (Format-YurunaOperatorMessage -Key 'host.service_build_plan_auth_readonly_unsupported' -Arguments @{ provider = "$_authActiveName" })
+    }
+    $passwordArguments.ReadOnly = $true
+    if ($persisted) { $passwordArguments.ProposedSecret = $persisted }
+} elseif ($persisted) { Set-Password -Username 'caching-proxy-service-admin' -NewPassword $persisted }
+$AdminPassword = Get-Password @passwordArguments
+if (-not $AdminPassword -and -not $PlanOnly) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_47959938846e1bd4'); exit 1 }
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
-[void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false)
-$PasswordFile = Get-CachingProxyServiceStatePath
+if (-not $PlanOnly) { [void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false) }
+$PasswordFile = Get-CachingProxyServiceStatePath -ReadOnly:$PlanOnly
 
 # Check the shared seed templates before the guest network is resolved.
 foreach ($f in @((Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.base.user-data'),
@@ -505,7 +519,6 @@ try {
     Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy-service.meta-data') -Destination "$SeedDir/meta-data"
 
     Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
-
     # --- REGION: https://yuruna.link/4220a755-000b
     Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
@@ -517,19 +530,18 @@ try {
         Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_fea701fd46026b88')
         exit 1
     }
-
     Publish-SeedMediaImage -Workspace $seedWorkspace -Path $SeedIso -Confirm:$false
+
+    # --- REGION: Create and configure the UTM bundle
+    # config.plist selects the QEMU backend.
+    Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
+    New-UtmServiceBundleConfiguration -TemplatePath (Join-Path $ScriptDir 'config.plist.template') -BundlePath $UtmDir -VMName $VMName -NetworkMode $NetworkMode -MemoryMb $MemoryMb -MacAddress $MacAddress -Confirm:$false
+    $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 
 } finally {
     # --- REGION: Clean up temporary files
     Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
-
-# --- REGION: Create and configure the UTM bundle
-# config.plist selects the QEMU backend.
-Import-Module (Join-Path $PSScriptRoot '../modules/Yuruna.Host.psm1') -DisableNameChecking -Verbose:$false
-New-UtmServiceBundleConfiguration -TemplatePath (Join-Path $ScriptDir 'config.plist.template') -BundlePath $UtmDir -VMName $VMName -NetworkMode $NetworkMode -MemoryMb $MemoryMb -MacAddress $MacAddress -Confirm:$false
-$VncDisplay = Get-VncDisplayForVm -VMName $VMName
 
 # --- REGION: Guidance
 # See https://yuruna.link/42e220c4-0004

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Version: 2026.11.08
+# Version: 2026.11.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42f6780f-6201-4bb8-94a5-7862ef198dac
@@ -73,9 +73,65 @@ print(p)
 ' 2>/dev/null) || fail "the config service returned no usable credential"
 NAS_USER=$(printf '%s\n' "$FIELDS" | sed -n 1p)
 NAS_PASS=$(printf '%s\n' "$FIELDS" | sed -n 2p)
+# A disconnected CIFS mount can make mountpoint's filesystem probe fail.
+# Read the mount table without resolving the target; keep the original probe
+# as a fallback where findmnt is absent or cannot answer.
+share_is_mounted() {
+  if command -v findmnt >/dev/null 2>&1 && \
+     findmnt --nocanonicalize --mountpoint "$MOUNT" --noheadings --output TARGET >/dev/null 2>&1; then
+    return 0
+  fi
+  mountpoint -q "$MOUNT" 2>/dev/null
+}
+# Linux refuses a changed primary password while its session is active. A
+# password2-only reconfigure leaves that primary alone across successive
+# rotations. Both source and target are named so mount does not merge the
+# fstab credentials back in. Existing noncredential mount options are retained.
+# https://github.com/piastry/cifs-utils/blob/master/mount.cifs.rst
+remount_alternate_password() {
+  python3 - "$MOUNT" "$CRED" <<'PY_REMOUNT'
+import json, os, subprocess, sys, tempfile, time
+from pathlib import Path
+
+mount, credentials = sys.argv[1:]
+path = None
+try:
+    table = subprocess.run(["findmnt", "--json", "--nocanonicalize", "--mountpoint", mount,
+                            "--output", "SOURCE,OPTIONS"], capture_output=True, text=True, timeout=5, check=True)
+    entry = json.loads(table.stdout)["filesystems"][0]
+    values = dict(line.split("=", 1) for line in Path(credentials).read_text().splitlines() if "=" in line)
+    excluded = {"credentials", "cred", "password", "pass", "password2", "pass2", "username", "user"}
+    options = [item for item in entry["options"].split(",") if item.split("=", 1)[0] not in excluded]
+    with tempfile.NamedTemporaryFile(mode="w", prefix=".nas-remount-", dir=Path(credentials).parent,
+                                     delete=False) as temporary:
+        path = Path(temporary.name)
+        temporary.write("username=" + values["username"] + "\npassword2=" + values["password"] + "\n")
+    deadline = time.monotonic() + 60
+    subprocess.run(["mount", "-t", "cifs", "-o", "remount," + ",".join(options) + ",credentials=" + str(path),
+                    entry["source"], mount], timeout=60, check=True)
+    # Updating the alternate password need not finish the kernel's reconnect.
+    # Wait for a bounded filesystem read instead of reporting the mount call alone.
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        try:
+            ready = subprocess.run(["stat", "-f", mount], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   timeout=min(5, remaining)).returncode == 0
+        except subprocess.TimeoutExpired:
+            ready = False
+        if ready:
+            sys.exit(0)
+        time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+except (OSError, ValueError, KeyError, IndexError, subprocess.SubprocessError):
+    pass
+finally:
+    if path is not None:
+        path.unlink(missing_ok=True)
+sys.exit(1)
+PY_REMOUNT
+}
 # remount_share: in place, with the credentials file the share's fstab entry names.
 remount_share() {
-  if timeout 60 mount -o remount "$MOUNT"; then
+  if timeout 60 mount -o remount "$MOUNT" || remount_alternate_password; then
     echo "yuruna-nas-credential: $NAME: $MOUNT remounted with the current credentials"
   else
     fail "$MOUNT could not be remounted; it keeps its previous session until the guest is rebuilt or the share is remounted by hand"
@@ -83,7 +139,7 @@ remount_share() {
 }
 if [ -n "$MOUNT" ] && [ -f "$CRED" ] && \
    [ "$(cat "$CRED" 2>/dev/null)" = "$(printf 'username=%s\npassword=%s' "$NAS_USER" "$NAS_PASS")" ]; then
-  if mountpoint -q "$MOUNT" 2>/dev/null && ! timeout 15 stat -f "$MOUNT" >/dev/null 2>&1; then
+  if share_is_mounted && ! timeout 15 stat -f "$MOUNT" >/dev/null 2>&1; then
     echo "yuruna-nas-credential: $NAME: $MOUNT does not answer; remounting it"
     remount_share
   fi
@@ -100,7 +156,7 @@ if ! { chmod 600 "$TMP" && mv -f "$TMP" "$CRED"; }; then
   fail "could not install $CRED"
 fi
 echo "yuruna-nas-credential: $NAME: credentials written to $CRED"
-if [ -n "$MOUNT" ] && mountpoint -q "$MOUNT" 2>/dev/null; then
+if [ -n "$MOUNT" ] && share_is_mounted; then
   remount_share
 fi
 exit 0

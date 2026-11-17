@@ -11,7 +11,7 @@ bootstrap:
 
 Os scripts permanecem deliberadamente pequenos -- cada seção aqui
 corresponde a um divisor `# --- REGION: Section name` no corpo do script.
-A única linha `# --- REGION: https://yuruna.link/429fb30b` perto
+Um comentário comum `# See https://yuruna.link/429fb30b` perto
 do topo de cada instalador é o ponto de entrada do operador para este
 documento; a partir dali, navegue até a seção correspondente ao divisor
 acima do código em estudo.
@@ -609,6 +609,11 @@ fixada (escopo CurrentUser): baixa o pacote dessa versão da PowerShell Gallery
 e o recusa se o SHA-512 não corresponder ao hash publicado pela galeria.
 Todos os instaladores e `Test.HostGit.psm1` mantêm a mesma versão e o mesmo
 hash, e `Test.HostGitInstall` verifica a igualdade entre as cópias.
+Para atualizar uma versão fixada, leia o SHA-512 em base64 de `PackageHash` em
+`https://www.powershellgallery.com/api/v2/Packages(Id='<name>',Version='<version>')`
+e compare-o com o `.nupkg` baixado antes de atualizar a versão e o hash em
+todas as cópias. Isso impede que um pacote alterado substitua silenciosamente
+o código importado pelos runners.
 O `Install-PowerShellYamlIfMissing` (definido em
 [test/modules/Test.HostGit.psm1](../../test/modules/Test.HostGit.psm1)
 e reexportado via `Test.HostContract`) ainda é chamado a partir do
@@ -1082,15 +1087,9 @@ são lidos de forma idêntica sem isso.
 
 Depois da verificação de pisos, o instalador imprime `Newer versions
 available` e uma linha por ferramenta cuja própria fonte ainda oferece uma
-versão mais nova que a que este Mac executa:
-
-```
-==> Newer versions available
-==>   utm: 5.0.7 -> 5.0.8 (Homebrew cask; a service VM is running, so UTM cannot quit)
-==>   gh: 2.102.0 -> 2.103.3 (Homebrew formula; held by 'brew pin' -- 'brew unpin gh' lets it upgrade)
-==>   PowerShell: 7.6.6 -> 7.6.9 (GitHub release; /usr/local/bin/pwsh comes from a source this installer does not manage)
-==>   powershell-yaml: 0.4.11 -> 0.4.12 (pinned in the PowerShell Gallery; the install of the pin did not complete)
-```
+versão mais nova que a que este Mac executa. Cada linha traz a ferramenta,
+a versão instalada e a oferecida, a fonte e o motivo pelo qual esta execução
+deixou a ferramenta ali.
 
 As fontes são aquelas de onde o instalador atualiza: o `brew outdated`
 para suas fórmulas e o cask do UTM, a versão mais recente do GitHub para um
@@ -1248,10 +1247,10 @@ No x86_64, o instalador tenta cada fonte por vez até que o `pwsh` responda:
 o repositório apt da Microsoft para a release do hospedeiro; o `.deb` que a
 release do PowerShell no GitHub publica, conferido com o `hashes.sha256`
 dessa release e instalado pelo apt; a suíte apt do Ubuntu 24.04 da
-Microsoft; e o tarball da release. A suíte 26.04 da Microsoft publica
-apenas `powershell-preview`, então um hospedeiro 26.04 novo recebe o
-`.deb` da release, o mesmo arquivo que o repositório 24.04 da Microsoft
-serve para essa versão; o apt o instala, de modo que o dpkg registra a
+Microsoft; e o tarball da release. Quando a suíte da Microsoft para a
+release do hospedeiro não oferece um pacote estável `powershell`, o
+hospedeiro recebe o `.deb` da release, o mesmo arquivo que o repositório
+24.04 da Microsoft serve para essa versão; o apt o instala, de modo que o dpkg registra a
 versão que está em disco. O aarch64 não tem pacote apt da Microsoft, então
 o instalador usa o tarball do PowerShell sob `/opt/microsoft/powershell/7`
 com um symlink `/usr/local/bin/pwsh`. O `.deb` da release e o tarball
@@ -1293,6 +1292,9 @@ publicando-o para a release do hospedeiro -- e quando `apt-get update`
 falha com eles configurados, de modo que a suíte nunca interrompe uma
 execução. Os arquivos de fonte da Microsoft do próprio operador nunca são
 tocados.
+
+Ao atualizar a impressão digital fixada da suíte, `gpg --list-packets` no
+arquivo `InRelease` identifica a chave de assinatura.
 
 Essas fontes instalam o `pwsh` quando ele está ausente. Uma nova execução
 também leva um PowerShell instalado à release mais recente que a sua
@@ -1488,6 +1490,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.11.08
+Última revisão: 2026.11.16
 
 Voltar para [Yuruna](../../README.md)

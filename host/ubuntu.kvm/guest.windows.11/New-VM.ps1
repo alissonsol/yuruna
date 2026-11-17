@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4210ad59-ce3d-4890-bc1a-eb6a22a42087
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -142,7 +142,7 @@ try {
         -FrameworkUrl $ghSource.FrameworkUrl -ProjectUrl $ghSource.ProjectUrl
 
     $autoXml = (Get-Content -Raw -LiteralPath $autoTemplate).
-        Replace('COMPUTERNAME_PLACEHOLDER', $VMName).
+        Replace('COMPUTERNAME_PLACEHOLDER', (Resolve-YurunaWindowsComputerName -Name $VMName)).
         Replace('GUEST_BOOTSTRAP_B64_PLACEHOLDER', $_kvmBootstrap.EncodedCommand)
     foreach ($seedFile in $_kvmBootstrap.Files.Keys) {
         [IO.File]::WriteAllText((Join-Path $autoSrc $seedFile), $_kvmBootstrap.Files[$seedFile], [Text.UTF8Encoding]::new($true))
@@ -176,6 +176,11 @@ try {
         Copy-Item -Path $ovmfVars -Destination $nvram
     }
 
+    # --- REGION: https://yuruna.link/4220a755-000a
+    # Key the MAC by VM name so a rebuild presents the same address and keeps its DHCP lease.
+    $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
+    Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
+
     # --- REGION: https://yuruna.link/42fa6f45-0015
     $hostCores = [int](& nproc --all)
     if ($hostCores -lt 4) {
@@ -185,11 +190,6 @@ try {
     # See https://yuruna.link/42fa6f45-0015
     # Reserve at least one host thread while applying the shared guest core policy.
     $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
-
-    # --- REGION: https://yuruna.link/4220a755-000a
-    # Key the MAC by VM name so a rebuild presents the same address and keeps its DHCP lease.
-    $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
-    Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
 
     # --- REGION: Create and configure the libvirt domain
     $installArgs = @(
@@ -213,17 +213,51 @@ try {
         '--noautoconsole'
     )
 
-    Write-Verbose "virt-install $($installArgs -join ' ')"
-    # Bounded like every other libvirt call: a daemon that stops answering is
-    # recorded as such for the runner instead of holding the build.
-    $installed = Invoke-BoundedNativeCommand -FilePath 'virt-install' -ArgumentList $installArgs -TimeoutSeconds 300
-    Get-BoundedNativeOutputLine -Result $installed -IncludeError | ForEach-Object { Write-Information "$_" -InformationAction Continue }
+    Write-Verbose "virt-install --print-xml=1 $($installArgs -join ' ')"
+    $installed = Invoke-BoundedNativeCommand -FilePath 'virt-install' -ArgumentList (@($installArgs) + '--print-xml=1') -TimeoutSeconds 300
+    $installXml = @(Get-BoundedNativeOutputLine -Result $installed) -join "`n"
     $virtInstallExit = if (Test-BoundedNativeResultComplete -Result $installed) { $installed.ExitCode } else { -1 }
     if ($virtInstallExit -ne 0) {
+        Get-BoundedNativeOutputLine -Result $installed -IncludeError | ForEach-Object { Write-Information "$_" -InformationAction Continue }
         $message = Format-YurunaOperatorMessage -Key 'host.operator_385530ac2faec54f' -Arguments @{ lASTEXITCODE = "$virtInstallExit" }
         Write-YurunaProvisionResult -Kind $(if ($installed.Started -and $virtInstallExit -eq -1) { 'unresponsive' } else { 'tool' }) -Message $message
         Write-Error $message
         exit 1
+    }
+
+    # virt-install's initial install domain destroys itself on a guest reboot,
+    # even with --events on_reboot=restart. Windows Setup needs several reboots
+    # before first logon, so define the persistent restart policy explicitly.
+    $patchedXml = $installXml -replace '<on_reboot>[^<]*</on_reboot>', '<on_reboot>restart</on_reboot>'
+    if ($patchedXml -eq $installXml -and $installXml -notmatch '<on_reboot>restart</on_reboot>') {
+        Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_7dcd4815768ac5a4')
+        exit 1
+    }
+    $xmlFile = New-TemporaryFile
+    try {
+        Set-Content -LiteralPath $xmlFile.FullName -Value $patchedXml -NoNewline
+        # The domain starts right after it is defined, so KVM has no Start Windows
+        # installer region: its start sequence presses the DVD boot key instead.
+        foreach ($operation in @('define', 'start')) {
+            $arguments = if ($operation -eq 'define') { @('define', $xmlFile.FullName) } else { @('start', $VMName) }
+            $result = Invoke-BoundedNativeCommand -FilePath 'virsh' -ArgumentList (@('--connect', $virshUri) + $arguments) `
+                -Environment @{ LC_MESSAGES = 'C'; LC_ALL = '' } -TimeoutSeconds 120
+            Get-BoundedNativeOutputLine -Result $result -IncludeError | ForEach-Object { Write-Information "$_" -InformationAction Continue }
+            $complete = Test-BoundedNativeResultComplete -Result $result
+            if (-not $complete -or $result.ExitCode -ne 0) {
+                $exitCode = if ($complete) { $result.ExitCode } else { -1 }
+                $message = if ($operation -eq 'define') {
+                    Format-YurunaOperatorMessage -Key 'host.operator_a419339df771d79e' -Arguments @{ lASTEXITCODE = "$exitCode" }
+                } else {
+                    Format-YurunaOperatorMessage -Key 'host.operator_1b83e0a223018f37' -Arguments @{ lASTEXITCODE = "$exitCode" }
+                }
+                Write-YurunaProvisionResult -Kind $(if ($result.Started -and -not $complete) { 'unresponsive' } else { 'tool' }) -Message $message
+                Write-Error $message
+                exit 1
+            }
+        }
+    } finally {
+        Remove-Item -LiteralPath $xmlFile.FullName -Force -ErrorAction SilentlyContinue
     }
 } finally {
     # --- REGION: Clean up temporary files

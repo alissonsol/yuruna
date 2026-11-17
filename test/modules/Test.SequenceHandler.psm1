@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -163,6 +163,108 @@ function Get-GuestAptIndexMismatch {
     }
 }
 
+# See https://yuruna.link/4220a755-0006
+function Get-GuestAptUpdateStall {
+    <#
+    .SYNOPSIS
+        The killed attempts of an apt-get update that then failed, or $null.
+    .DESCRIPTION
+        The framework bounds only apt-get update, so a killed attempt is an index
+        fetch that never ended. apt_retry prints nothing when an attempt
+        succeeds, so a kill is read as the failure's cause only when it hit the
+        call's last attempt or apt_retry's own closing line for the update
+        follows it. From guest output read as bytes, apt's progress lines say
+        which InRelease files the last killed attempt still waited on (last line
+        Ign) and which had failed (Err), and the server apt named for a failure.
+        That server is the caching proxy when the fetch went through it, so the
+        reading alone cannot tell a stalled origin from a stalled proxy.
+        The guest log can carry every line twice, from two writers about a second
+        apart, so each attempt counts once, closes at its first stall line, and a
+        line between that and the next attempt's banner is a late copy.
+        -FromOcr reads console text instead and takes only the stall lines: two
+        OCR engines' copies of one frame can share the text, and a damaged host
+        name would read as another source. OCR drops the underscore and spaces
+        and reads y as g or u, and the console wraps a long line mid-word, so
+        the words are matched loosely across line breaks; the numbers must still
+        read as ASCII digits, the only digits an [int] cast accepts. OCR text
+        holds neither apt_retry's banners nor its closing lines, so there only a
+        kill of the last attempt counts.
+    .OUTPUTS
+        [System.Collections.Specialized.OrderedDictionary] or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [AllowNull()][string]$Output,
+        [switch]$FromOcr
+    )
+    if ([string]::IsNullOrEmpty($Output)) { return $null }
+    $stallPattern = '(?i)apt[_ ]?retr[ygu]:\s*atte[mn]pt\.?\s*(?<attempt>[0-9]{1,6})\s*/\s*(?<max>[0-9]{1,6})\s*stalled[;:,.]?\s*ki[l1I]{2}ed\s*b[ygu]\s*the\s*(?<bound>[0-9]{1,6})\s*s\s*per-?\s*atte[mn]pt\.?\s*bo[uv]nd\s*\(\s*rc\s*[=:]\s*(?<rc>[0-9]{1,6})\s*\)'
+    $stalled = [System.Collections.Generic.List[int]]::new()
+    $started = [System.Collections.Generic.HashSet[int]]::new()
+    $current = [ordered]@{}
+    $final = [ordered]@{}
+    $open = $true
+    $last = $null
+    $server = ''
+    $ended = $false
+    $lines = if ($FromOcr) { @($Output -replace '\r?\n', '') } else { $Output -split "`r?`n" }
+    foreach ($raw in $lines) {
+        $line = $raw -replace '^\s*\[\s*\d+(?:\.\d+)?\]\s?', ''
+        $stalls = [regex]::Matches($line, $stallPattern)
+        if ($stalls.Count -gt 0) {
+            foreach ($stall in $stalls) {
+                if ($stalled.Contains([int]$stall.Groups['attempt'].Value)) { continue }
+                $stalled.Add([int]$stall.Groups['attempt'].Value)
+                $last = $stall
+                $final = $current
+                $open = $false
+                $ended = $false
+            }
+            continue
+        }
+        if ($FromOcr) { continue }
+        # The line must name the update: apt_retry also wraps the package
+        # transactions that run after it, and their own closing lines say
+        # nothing about how the update ended.
+        if ($line -match '^!! apt_retry: (?:all \d{1,6} attempts exhausted|the \d{1,6}s retry window closed after \d{1,6} attempt\(s\)) for: .*\bapt(?:-get)? update\b') {
+            $ended = $true
+            continue
+        }
+        if ($line -match '^>> apt_retry: attempt ([0-9]{1,6})/[0-9]+ for:') {
+            if ($started.Add([int]$Matches[1])) { $current = [ordered]@{}; $open = $true }
+            continue
+        }
+        if (-not $open) { continue }
+        if ($line -match '^(Hit|Get|Ign|Err):\d+\s+[a-z][a-z0-9+.-]*://(?:[^/@\s]*@)?(\S+)\s+(?:(\S+)\s+)?InRelease\b') {
+            $current["$($Matches[2]) $($Matches[3])".TrimEnd()] = $Matches[1]
+        } elseif ($line -match '\[IP:\s*([^\s\]]+)\s+(\d+)\]') {
+            $server = "$($Matches[1]):$($Matches[2])"
+        }
+    }
+    if ($stalled.Count -eq 0) { return $null }
+    # A later attempt that succeeded prints nothing, so after a kill before the
+    # call's last attempt only apt_retry's closing line shows the update failed.
+    if ([int]$last.Groups['attempt'].Value -lt [int]$last.Groups['max'].Value -and -not $ended) { return $null }
+    [string[]]$pending = @($final.Keys | Where-Object { $final[$_] -eq 'Ign' })
+    [string[]]$failed = @($final.Keys | Where-Object { $final[$_] -eq 'Err' })
+    $attempts = [int[]]@($stalled | Sort-Object)
+    $summary = "attempt $($attempts -join ',') of $($last.Groups['max'].Value) killed at $($last.Groups['bound'].Value)s (rc=$($last.Groups['rc'].Value))"
+    if ($server) { $summary += " via $server" }
+    if ($pending.Count -gt 0) { $summary += "; pending $($pending -join ', ')" }
+    if ($failed.Count -gt 0) { $summary += "; failed $($failed -join ', ')" }
+    return [ordered]@{
+        stalledAttempts = $attempts
+        maxAttempts     = [int]$last.Groups['max'].Value
+        boundSeconds    = [int]$last.Groups['bound'].Value
+        rc              = [int]$last.Groups['rc'].Value
+        server          = $server
+        pendingSources  = $pending
+        failedSources   = $failed
+        summary         = $summary
+    }
+}
+
 # See https://yuruna.link/4213a0b3-0157
 $script:ShellRejectedCommandPattern = @(
     'command not found',
@@ -298,7 +400,7 @@ function Resolve-WaitForTextStepParam {
         expectBlankConsole = $step.expectBlankConsole -eq $true
         # Set only on the copies of its steps that a retry block able to
         # cold-restart the guest hands down (see the retry handler). A splat,
-        # so a wait without them binds exactly as it did before the switches.
+        # so a wait without them binds neither switch and keeps their defaults.
         livelockExit    = & {
             $exit = @{}
             if ($step.endWaitOnGuestLivelock -eq $true) { $exit.EndOnGuestLivelock = $true }
@@ -389,12 +491,31 @@ function Invoke-Arm64HyperVColdPowerCycle {
 
 function Test-SequenceColdPowerCyclePolicy {
     <# .SYNOPSIS
-        Restrict cold recovery to login observation and non-credential boot confirmation.
+        Restrict cold recovery to first login and its uncommitted password prompts.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][System.Collections.IDictionary]$Step)
     $steps = @($Step.steps)
+    if (@($steps | Where-Object action -EQ 'passwdPrompt').Count) {
+        # PAM commits the password only after the final confirming entry. A
+        # stalled wait before that entry can replay this exact flow from login;
+        # a later action or any failure while typing cannot use this recovery.
+        if ($steps.Count -lt 6) { return $false }
+        $passwordSteps = @($steps[-5..-1])
+        if (@($passwordSteps | Where-Object action -NE 'passwdPrompt').Count -or
+            @($passwordSteps[0].pattern).Count -ne 1 -or [string]$passwordSteps[0].pattern -notmatch '\blogin:\s*$' -or
+            [string]$passwordSteps[1].pattern -cne 'Password:' -or
+            (@($passwordSteps[2].pattern) -join '|') -cne 'Current password|urrent password:' -or
+            [string]$passwordSteps[3].pattern -cne 'New password' -or
+            (@($passwordSteps[4].pattern) -join '|') -cne 'Retype new password|etype new password:' -or
+            [string]::IsNullOrEmpty([string]$passwordSteps[0].text) -or
+            [string]::IsNullOrEmpty([string]$passwordSteps[1].text) -or
+            [string]::IsNullOrEmpty([string]$passwordSteps[3].text) -or
+            [string]$passwordSteps[1].text -cne [string]$passwordSteps[2].text -or
+            [string]$passwordSteps[3].text -cne [string]$passwordSteps[4].text) { return $false }
+        $steps = @($steps[0..($steps.Count - 6)])
+    }
     if ($steps.Count -eq 0 -or [string]$steps[-1].action -ne 'waitForTextWithNudge') { return $false }
     $loginWaits = 0
     foreach ($item in $steps) {
@@ -658,7 +779,8 @@ function Test-SequenceCpuClockApplicable {
 function Save-SequenceCpuRestartEvidence {
     <#
     .SYNOPSIS
-        Records advisory evidence without adding guest discovery or recovery.
+        Records advisory evidence without adding recovery; after the restart, the
+        sample's bounded SSH wait resolves and proves the guest address.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable]$Context,
@@ -680,12 +802,17 @@ function Save-SequenceCpuRestartEvidence {
                 -StepInvocationId $Context.StepInvocationId -SequenceInvocationId $Context.SequenceInvocationId
             $Context.DiagnosticOutcome = [string]$capture.diagnosticOutcome
             if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
-                Send-CycleEventSafely -EventRecord @{
+                $clockEvent = @{
                     timestamp=[DateTime]::UtcNow.ToString('o'); event='guest_clock_accounting'; phase=$Phase
                     guestKey=$Context.GuestKey; vmName=$Context.VMName; stepInvocationId=$Context.StepInvocationId
                     sequenceInvocationId=$Context.SequenceInvocationId; diagnosticOutcome=$capture.diagnosticOutcome
                     advisoryOnly=$true; analysis=$capture.analysis; outPath=$capture.outPath
                 }
+                # Why a sample is missing, and what the SSH wait before it saw,
+                # read without opening the capture file.
+                if ($capture.reason) { $clockEvent.reason = [string]$capture.reason }
+                if ($capture.sshReadiness) { $clockEvent.sshReadiness = $capture.sshReadiness }
+                Send-CycleEventSafely -EventRecord $clockEvent
             }
         }
     } catch { Write-Verbose "CPU restart evidence unavailable: $($_.Exception.Message)" }
@@ -948,16 +1075,10 @@ Register-SequenceAction -Name 'startVm' -ReplaySafety 'state-changing' -HostIORe
         $installPowerOff = ($c.Step.installPowerOff -eq $true)
         $requestedAt = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
         # The stopped boundary is observed through the host, never assumed from
-        # a typed command. A guest that never gets there leaves its console,
-        # OCR text, hypervisor counters, and observed state on the record, and
-        # is filed vm_not_stopped rather than as a start that failed. A VM the
-        # host reports absent leaves no such evidence and keeps the registry's
-        # provisioning_failure. A wait for an install's own power-off
-        # (installPowerOff) that never sees it leaves the same evidence but also
-        # keeps provisioning_failure: the install did not finish, and an
-        # installer still drawing its own screen is not marked silent. A declared
-        # failure pattern on a frame ends the wait as a pattern match, the same
-        # filing an installer crash gets from a login wait on the other hosts.
+        # a typed command: a guest that never gets there files vm_not_stopped,
+        # or keeps provisioning_failure when absent or under installPowerOff,
+        # and a declared failure pattern ends the wait as a pattern match.
+        # See https://yuruna.link/428e4df6-0039
         [string[]]$failurePatterns = @($c.Step.failurePatterns | Where-Object { $_ } | ForEach-Object { & $c.ExpandVariable $_ $c.Vars })
         if ($failurePatterns.Count -gt 0) { Reset-SequenceFailureSlot -Lifetime wait -State $script:Fail }
         $wait = Wait-VmStopped -Context $c -TimeoutSeconds $timeoutSeconds -FrameIntervalSeconds $frameInterval -FailurePattern $failurePatterns
@@ -1733,12 +1854,13 @@ Register-SequenceAction -Name 'passwdPrompt' -ReplaySafety 'input' -HostIORequir
     -Handler {
         param([hashtable]$c)
         $p = Resolve-WaitForTextStepParam -Context $c -DefaultNoSegmentMatch
+        $livelockExit = $p.livelockExit
         $patternDisplay = $p.patterns -join "' | '"
         Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s$(if ($p.sinceStepStart) { ', sinceStepStart' }))"
         $ok = Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
-            -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns
+            -NoSegmentMatch:$p.noSegmentMatch -FailurePattern $p.failurePatterns @livelockExit
         if ($ok -eq $false) { $script:Fail.StepFailurePhase = 'wait'; return $false }
         Send-TabNavigation -Context $c
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
@@ -2390,12 +2512,19 @@ function Save-FetchExecutionEvidence {
     <#
     .SYNOPSIS
         Records capture outcomes and collects traces before the guest log is reused.
+    .PARAMETER PublishRetryMarker
+        Publish the guest retry records of a step that passed from the execution
+        log this capture read. The console verb passes it: its output reaches
+        the host only through that log, while the SSH verbs publish the records
+        from their output, and the runner's failure path publishes a failed
+        step's records from the log it reads.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][hashtable]$Context,
         [bool]$Succeeded,
-        [double]$ElapsedSeconds
+        [double]$ElapsedSeconds,
+        [switch]$PublishRetryMarker
     )
     $Context.ExecutionProfile = @{ diagnosticOutcome='skipped'; reasonCode='fast-success'; outPath=$null }
     if ($Context.Step.sensitive) { $Context.ExecutionProfile.reasonCode='sensitive-step'; return }
@@ -2422,6 +2551,16 @@ function Save-FetchExecutionEvidence {
         }
         $Context.ExecutionProfile = Save-GuestExecutionProfile -VMName $Context.VMName -GuestKey $Context.GuestKey `
             -OutputFolder $folder -StepInvocationId $sourceId -TimeoutSeconds 20 -Variables $Context.Vars @identity
+        if ($PublishRetryMarker -and $Succeeded -and $Context.ExecutionProfile.outPath) {
+            try {
+                # The capture holds the execution log, then the command profile
+                # and the recorder's samples, which are not the payload's output.
+                $captured = [IO.File]::ReadAllText([string]$Context.ExecutionProfile.outPath)
+                $executionLog = ($captured -split '(?m)^--- YURUNA (?:COMMAND PROFILE|RECORDER EVIDENCE)', 2)[0]
+                $null = Publish-GuestRetryMarker -Output $executionLog -FromExecutionLog -GuestKey $Context.GuestKey `
+                    -VmName $Context.VMName -StepInvocationId $sourceId
+            } catch { Write-Verbose "Guest retry records not published: $($_.Exception.Message)" }
+        }
     } catch {
         $captureReason = if (Get-Command Protect-GuestEvidenceText -ErrorAction SilentlyContinue) {
             Protect-GuestEvidenceText -Text $_.Exception.Message -Variables $Context.Vars
@@ -2453,6 +2592,13 @@ function Save-FetchExecutionEvidence {
                         # guest's own time base moved, which nothing host-side sees.
                         if (Get-Command Get-GuestRecorderClockAnalysis -ErrorAction SilentlyContinue) {
                             $recorder.clockAnalysis=Get-GuestRecorderClockAnalysis -Path $artifact
+                        }
+                        # How long the guest stalled on I/O and how slow its
+                        # disks' writes and flushes were, interval by interval;
+                        # without it a step that failed on a write's timeout
+                        # reads as the timeout alone.
+                        if (Get-Command Get-GuestRecorderIoAnalysis -ErrorAction SilentlyContinue) {
+                            $recorder.ioAnalysis=Get-GuestRecorderIoAnalysis -Path $artifact
                         }
                         # The first stall report the guest froze during the step,
                         # read the way the host reads the serial console.
@@ -2486,6 +2632,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         $executionSucceeded = $false
         $c.GuiTransfer = $null
         $script:Fail.StepLauncherRejection = $null
+        $script:Fail.StepAptUpdateStall = $null
         try {
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         $fetchContext = Get-FetchExecutionContext -Context $c -CommandLine $text -Compress
@@ -2586,6 +2733,9 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
             -EarlyFailureSeconds $script:ShellRejectionWindowSeconds -EndOnGuestLivelock `
             -GuestRecorderPath ([string]$c.RecorderArtifactPath))
         if ($executionSucceeded) { break }
+        # The screen keeps apt_retry's stall line; the guest's own log, read
+        # after the record is written, adds the sources it waited on.
+        $script:Fail.StepAptUpdateStall = Get-GuestAptUpdateStall -Output ([string]$script:Fail.WaitForTextOcrTail) -FromOcr
         $rejection = $null
         if ($c.GuiTransfer -and $script:Fail.WaitForTextMatchedFailurePattern) {
             $rejection = Get-GuiFetchRejection -VMName $c.VMName -GuestKey $c.GuestKey `
@@ -2635,7 +2785,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         }
         return $executionSucceeded
         } finally {
-            Save-FetchExecutionEvidence -Context $c -Succeeded $executionSucceeded -ElapsedSeconds $executionClock.Elapsed.TotalSeconds
+            Save-FetchExecutionEvidence -Context $c -Succeeded $executionSucceeded -ElapsedSeconds $executionClock.Elapsed.TotalSeconds -PublishRetryMarker
         }
     }
 
@@ -2741,14 +2891,125 @@ Register-SequenceAction -Name 'sshWaitReady' -ReplaySafety 'observe' -HostIORequ
         return $false
     }
 
+function ConvertFrom-GuestRetryMarker {
+    <#
+    .SYNOPSIS
+        The YURUNA_RETRY {json} records in guest output, in order, as objects.
+        A malformed record line is skipped.
+    .DESCRIPTION
+        The guest retry libraries, bash and pwsh, print attempt records and one
+        outcome record for a retry that ended without a plain success.
+
+        -FromExecutionLog reads the fetch-and-execute wrapper's saved log, which
+        prefixes every line with the seconds since the wrapper started; a
+        record read from a stamped line carries that stamp as logSeconds. A
+        generated entry point delegates to its shared workflow through a nested
+        wrapper, and both wrappers write each payload line to that one log, so
+        when the header's script and payload-script differ every record is
+        there twice, and one record is kept per pair. It carries the pair's
+        later stamp: the outer wrapper started first, so its stamps read later,
+        and its clock stamps the log's last lines.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([AllowNull()]$Output, [switch]$FromExecutionLog)
+    if ($null -eq $Output) { return }
+    $text = (@($Output) | ForEach-Object { [string]$_ }) -join "`n"
+    $pattern = '^\s*YURUNA_RETRY\s+(?<json>\{.*\})\s*$'
+    $copies = 1
+    if ($FromExecutionLog) {
+        $pattern = '^\s*(?:\[\s*(?<stamp>\d+\.\d{3})\]\s)?YURUNA_RETRY\s+(?<json>\{.*\})\s*$'
+        $invoked = [regex]::Match($text, '(?m)^# script: *(\S+)\r?$')
+        $payload = [regex]::Match($text, '(?m)^# payload-script: *(\S+)\r?$')
+        if ($invoked.Success -and $payload.Success -and $invoked.Groups[1].Value -cne $payload.Groups[1].Value) { $copies = 2 }
+    }
+    $seen = [Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
+    $kept = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    $records = [Collections.Generic.List[object]]::new()
+    foreach ($line in ($text -split "`r?`n")) {
+        $m = [regex]::Match($line, $pattern)
+        if (-not $m.Success) { continue }
+        $json = $m.Groups['json'].Value
+        # Invariant: under pt-BR, for one, '900.100' would parse as 900100.
+        $stamp = if ($m.Groups['stamp'].Success) { [double]::Parse($m.Groups['stamp'].Value, [Globalization.CultureInfo]::InvariantCulture) }
+        $seen[$json] = 1 + $(if ($seen.ContainsKey($json)) { $seen[$json] } else { 0 })
+        if (($seen[$json] - 1) % $copies -eq 0) {
+            try { $record = $json | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+            if ($null -ne $stamp) { $record | Add-Member -NotePropertyName logSeconds -NotePropertyValue $stamp -Force }
+            $kept[$json] = $record
+            $records.Add($record)
+        } elseif ($null -ne $stamp -and $kept.ContainsKey($json)) {
+            $first = $kept[$json]
+            if ($null -eq $first.logSeconds -or $stamp -gt $first.logSeconds) {
+                $first | Add-Member -NotePropertyName logSeconds -NotePropertyValue $stamp -Force
+            }
+        }
+    }
+    # Emitted once every pair is complete, so a reader streaming the records
+    # never sees a stamp the pair's later copy has yet to raise.
+    foreach ($record in $records) { $record }
+}
+
+function Get-GuestRetryExhausted {
+    <#
+    .SYNOPSIS
+        The last guest retry in an execution log that gave up, from its outcome
+        record: what it fetched, the status it got, how long it tried, and when
+        in the log it gave up. $null when no retry gave up.
+    .DESCRIPTION
+        An outcome is exhausted when the attempts or the window ran out, and
+        permanent when a classifier stopped the retry on a failure that cannot
+        clear, such as a 404. url and httpStatus come only from the guest's
+        curl and wget wrappers, and every field a record lacks is $null.
+
+        The retry named is the last one that gave up anywhere in the log, which
+        can be one the payload tolerated and continued past before it failed on
+        something else. atSeconds is the wrapper's stamp on its outcome record
+        (the later of a nested pair's, see ConvertFrom-GuestRetryMarker) and
+        logEndSeconds the log's last stamp, so the two tell those cases apart: a
+        retry that ended the step gave up seconds before the log ended. Both are
+        $null in a log without stamps.
+    .OUTPUTS
+        [ordered] @{ label; outcome; url; httpStatus; rc; attempts; maxAttempts; windowSeconds; elapsedSeconds; atSeconds; logEndSeconds }
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([AllowNull()]$ExecutionLog)
+    $text = (@($ExecutionLog) | ForEach-Object { [string]$_ }) -join "`n"
+    $last = @(ConvertFrom-GuestRetryMarker -Output $text -FromExecutionLog |
+        Where-Object { [string]$_.event -ceq 'outcome' -and [string]$_.outcome -cne 'recovered' }) | Select-Object -Last 1
+    if (-not $last) { return $null }
+    $number = { param($Value) $parsed = 0; if ([int]::TryParse([string]$Value, [ref]$parsed)) { $parsed } else { $null } }
+    $end = [regex]::Match($text, '(?m)^\[\s*(\d+\.\d{3})\]', [Text.RegularExpressions.RegexOptions]::RightToLeft)
+    return [ordered]@{
+        label          = [string]$last.label
+        outcome        = [string]$last.outcome
+        url            = if ($null -eq $last.url) { $null } else { [string]$last.url }
+        httpStatus     = & $number $last.httpStatus
+        rc             = & $number $last.rc
+        attempts       = & $number $last.attempt
+        maxAttempts    = & $number $last.maxAttempts
+        windowSeconds  = & $number $last.windowSeconds
+        elapsedSeconds = & $number $last.elapsedSeconds
+        atSeconds      = if ($last.logSeconds -is [double]) { $last.logSeconds } else { $null }
+        logEndSeconds  = if ($end.Success) { [double]::Parse($end.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) } else { $null }
+    }
+}
+
 function Publish-GuestRetryMarker {
     <#
     .SYNOPSIS
-        Parse YURUNA_RETRY {json} markers out of captured guest SSH output and
-        re-emit each as a retry_attempt NDJSON event, so guest-side retries on the
-        SSH path become queryable in the cycle stream (the bash lib emits the
-        markers but cannot reach the host stream itself). Best-effort; a malformed
-        marker line is skipped.
+        Re-emit the guest's YURUNA_RETRY {json} records as retry events, so
+        guest-side retries become queryable in the cycle stream: the guest
+        libraries print the records but cannot reach the host stream
+        themselves. Best-effort; a malformed record is skipped.
+    .DESCRIPTION
+        An attempt record becomes retry_attempt, an exhausted or permanent
+        outcome retry_exhausted, and a recovered outcome (a pwsh retry accepted
+        as the completion of an earlier attempt) retry_recovered. Each event
+        carries origin 'guest' and the step invocation the records came from.
+        -FromExecutionLog reads them from the wrapper's saved log (see
+        ConvertFrom-GuestRetryMarker).
     .OUTPUTS
         [int] the number of markers published.
     #>
@@ -2756,29 +3017,42 @@ function Publish-GuestRetryMarker {
     param(
         [AllowNull()]$Output,
         [string]$GuestKey,
-        [string]$VmName
+        [string]$VmName,
+        [string]$StepInvocationId,
+        [switch]$FromExecutionLog
     )
     if ($null -eq $Output) { return 0 }
     if (-not (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) { return 0 }
-    $text  = (@($Output) | ForEach-Object { [string]$_ }) -join "`n"
     $count = 0
-    foreach ($line in ($text -split "`r?`n")) {
-        $m = [regex]::Match($line, '^\s*YURUNA_RETRY\s+(\{.*\})\s*$')
-        if (-not $m.Success) { continue }
-        try { $obj = $m.Groups[1].Value | ConvertFrom-Json -ErrorAction Stop } catch { continue }
-        $rec = @{
-            timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-            event     = 'retry_attempt'
-            stack     = 'bash'
-        }
-        if ($obj.label)                 { $rec['description'] = [string]$obj.label }
-        if ($null -ne $obj.attempt)     { $rec['attempt']     = [int]$obj.attempt }
-        if ($null -ne $obj.maxAttempts) { $rec['maxAttempts'] = [int]$obj.maxAttempts }
-        if ($null -ne $obj.rc)          { $rec['exitCode']    = [int]$obj.rc }
-        if ($null -ne $obj.permanent)   { $rec['permanent']   = [bool]$obj.permanent }
-        if ($GuestKey) { $rec['guestKey'] = [string]$GuestKey }
-        if ($VmName)   { $rec['vmName']   = [string]$VmName }
-        Send-CycleEventSafely -EventRecord ([hashtable]$rec)
+    foreach ($obj in @(ConvertFrom-GuestRetryMarker -Output $Output -FromExecutionLog:$FromExecutionLog)) {
+        try {
+            $outcome = [string]$obj.outcome
+            $eventName = if ([string]$obj.event -cne 'outcome') { 'retry_attempt' }
+                elseif ($outcome -ceq 'recovered') { 'retry_recovered' } else { 'retry_exhausted' }
+            $rec = @{
+                timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                event     = $eventName
+                stack     = if ($obj.stack) { [string]$obj.stack } else { 'bash' }
+                origin    = 'guest'
+            }
+            if ($obj.label)                    { $rec['description']    = [string]$obj.label }
+            if ($null -ne $obj.attempt)        { $rec['attempt']        = [int]$obj.attempt }
+            if ($null -ne $obj.maxAttempts)    { $rec['maxAttempts']    = [int]$obj.maxAttempts }
+            if ($null -ne $obj.rc)             { $rec['exitCode']       = [int]$obj.rc }
+            if ($null -ne $obj.permanent)      { $rec['permanent']      = [bool]$obj.permanent }
+            elseif ($eventName -ceq 'retry_exhausted') { $rec['permanent'] = $outcome -ceq 'permanent' }
+            if ($null -ne $obj.transient)      { $rec['transient']      = [bool]$obj.transient }
+            if ($null -ne $obj.sleepSeconds)   { $rec['sleepSeconds']   = [int]$obj.sleepSeconds }
+            if ($obj.basis)                    { $rec['basis']          = [string]$obj.basis }
+            if ($null -ne $obj.windowSeconds)  { $rec['windowSeconds']  = [int]$obj.windowSeconds }
+            if ($null -ne $obj.elapsedSeconds) { $rec['elapsedSeconds'] = [int]$obj.elapsedSeconds }
+            if ($obj.url)                      { $rec['url']            = [string]$obj.url }
+            if ($null -ne $obj.httpStatus)     { $rec['httpStatus']     = [int]$obj.httpStatus }
+            if ($GuestKey)         { $rec['guestKey']         = [string]$GuestKey }
+            if ($VmName)           { $rec['vmName']           = [string]$VmName }
+            if ($StepInvocationId) { $rec['stepInvocationId'] = [string]$StepInvocationId }
+        } catch { continue }
+        Send-CycleEventSafely -EventRecord $rec
         $count++
     }
     return $count
@@ -2806,7 +3080,7 @@ Register-SequenceAction -Name 'sshExec' -ReplaySafety 'state-changing' -HostIORe
         $transportRetries = $null -ne $c.Step.transportRetries ? [int]$c.Step.transportRetries : 0
         $result  = Invoke-GuestSsh -VMName $c.VMName -GuestKey $c.GuestKey -Command $cmd -TimeoutSeconds $timeout -TransportRetryCount $transportRetries
         Write-Debug "      sshExec output: $($result.output)"
-        [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName)
+        [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName -StepInvocationId $c.StepInvocationId)
         if (-not $result.success) {
             if ($c.Step.allowFailure -eq $true) {
                 Write-Debug "      sshExec exit=$($result.exitCode) (allowFailure=true)"
@@ -2845,6 +3119,7 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -ReplaySafety 'state-changing
         $script:Fail.StepGuestRunLost           = $null
         $script:Fail.StepGuestPayloadUnavailable = $null
         $script:Fail.StepAptIndexMismatch = $null
+        $script:Fail.StepAptUpdateStall = $null
         # --- REGION: https://yuruna.link/4220a755-0041
         # See https://yuruna.link/4213a0b3-0161
         $detach = $null -ne $c.Step.detach ? [bool]$c.Step.detach : $true
@@ -2864,7 +3139,7 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -ReplaySafety 'state-changing
         } elseif ($result.output -match '(?m)^YURUNA_EXECUTION stepInvocationId=([A-Za-z0-9-]{1,64})(?:\s|$)') {
             if ($Matches[1] -ne $c.StepInvocationId) { $c.CheckpointSourceStepInvocationId = $Matches[1] }
         }
-        [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName)
+        [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName -StepInvocationId $c.StepInvocationId)
         if (-not $result.success) {
             if (-not $result.addressResolved) { $script:Fail.StepGuestAddressUnresolved = $true }
             if ([int]$result.exitCode -eq -2) { Set-StepEffectNoneProven -Context $c -Source 'address-unresolved' }
@@ -2880,6 +3155,7 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -ReplaySafety 'state-changing
                 $script:Fail.StepAptIndexMismatch = $aptMismatch
                 Write-Warning "      apt index disagrees with its InRelease ($($aptMismatch.kind)) via $(if ($aptMismatch.server) { $aptMismatch.server } else { 'no proxy named' }): $($aptMismatch.url)"
             }
+            $script:Fail.StepAptUpdateStall = Get-GuestAptUpdateStall -Output $result.output
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_35be02c672504936' -Arguments @{ exitCode = "$($result.exitCode)"; cmd = "$($fetchContext.Launch)" })
             if ($result.output) { Write-Warning "      output: $($result.output)" }
             return $false
@@ -2920,6 +3196,7 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
         $retrySuppressionReason = ''
         $innerSteps  = @($c.Step.steps)
         $genericColdRetry = ([string]$c.Step.restartVmBeforeRetry -eq 'coldPowerCycle')
+        $passwordColdRetry = $genericColdRetry -and @($innerSteps | Where-Object action -EQ 'passwdPrompt').Count -gt 0
         if ($genericColdRetry) {
             $policyRefusal = if ($c.HostType -notin @('host.windows.hyper-v', 'host.ubuntu.kvm', 'host.macos.utm')) {
                 'cold-power-cycle-unsupported-host'
@@ -2977,16 +3254,17 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                 1
             }
         } elseif ($genericColdRetry -or (Test-Arm64HyperVColdPowerCycleMode -Mode ([string]$c.Step.restartVmBeforeRetry) -HostType $c.HostType)) {
-            # The login wait this mode restarts on ends early on a livelocked
-            # guest for the same reason, and on a display that stopped
+            # The login wait ends early on a livelocked guest. It and the
+            # uncommitted password prompts also end on a display that stopped
             # presenting frames, which in that boot will never show the prompt.
             # Copies, so the declared steps keep their wait policy for every
             # other invocation.
             $innerSteps = @(foreach ($innerStep in $innerSteps) {
-                if ([string]$innerStep.action -eq 'waitForTextWithNudge') {
+                if ([string]$innerStep.action -eq 'waitForTextWithNudge' -or
+                    ($passwordColdRetry -and [string]$innerStep.action -eq 'passwdPrompt')) {
                     $loginStep = @{}
                     foreach ($key in $innerStep.Keys) { $loginStep[$key] = $innerStep[$key] }
-                    $loginStep.endWaitOnGuestLivelock = $true
+                    if ([string]$innerStep.action -eq 'waitForTextWithNudge') { $loginStep.endWaitOnGuestLivelock = $true }
                     $loginStep.endWaitOnDisplayStall = $true
                     $loginStep
                 } else { $innerStep }
@@ -3066,6 +3344,12 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                         $evidenceArguments.DiagnosticRecord = $diagnosticRecord
                     }
                 }
+                # The failed step's start dates the log root's OCR text: a wait
+                # that read none leaves an earlier wait's file there.
+                if ($script:Fail.LastFailedStepStartedUtc -and
+                    (Get-Command Save-StepFailureEvidence).Parameters.ContainsKey('StepStartedUtc')) {
+                    $evidenceArguments.StepStartedUtc = $script:Fail.LastFailedStepStartedUtc
+                }
                 $evidenceRel = Save-StepFailureEvidence @evidenceArguments
             } else {
                 $evidenceRel = $null
@@ -3075,6 +3359,13 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
             # from an installed guest, so any of them in the failed wait's tail
             # means the install had not finished. OCR often renders the q as g.
             $installerRunning = ([string]$script:Fail.WaitForTextOcrTail -match '(?i)\bsubi[qg]uity/')
+            # The attempt's processors as its wait last read them, and the
+            # installer stage its OCR showed, as the failure record reads them,
+            # so boot-wedge shapes and restarts of a progressing install can be
+            # counted from the event stream alone.
+            $processorSummary = Get-GuestProcessorWindowSummary -LivelockVerdict $script:Fail.WaitForTextGuestLivelock
+            $attemptInstallerStage = [string]$script:Fail.WaitForTextInstallerStage
+            $attemptInstallerStageSeconds = if ($attemptInstallerStage) { [int]$script:Fail.WaitForTextInstallerStageSeconds } else { 0 }
 
             # Structured per-attempt record so a flaky retry is queryable in the
             # cycle NDJSON stream, not just the human log. evidencePath carries
@@ -3100,9 +3391,19 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                     # stopped presenting frames, or $null, so restarts a
                     # display stall justified are queryable too.
                     guestDisplayStall      = $script:Fail.WaitForTextDisplayStallEnd
+                    # Why the attempt's wait ended early on a wedged guest
+                    # kernel (the rule that held and its readings), or $null.
+                    guestKernelStallEnd    = $script:Fail.WaitForTextKernelStallEnd
+                    # $null when no host recording read the processors.
+                    stormedProcessors      = $processorSummary.stormedProcessors
+                    noInterruptsServicedProcessors = $processorSummary.noInterruptsServicedProcessors
+                    longestNoInterruptsServicedSeconds = $processorSummary.longestNoInterruptsServicedSeconds
                     # Whether the live installer was still on screen, which
                     # decides whether a cold restart must boot the installer DVD.
                     installerRunning       = [bool]$installerRunning
+                    # '' and 0 when the attempt's OCR showed no installer stage.
+                    installerStage         = $attemptInstallerStage
+                    installerStageUnchangedSeconds = $attemptInstallerStageSeconds
                     consoleSecondOpinion = $script:Fail.WaitForTextConsoleSecondOpinion
                     ok           = $false
                 }
@@ -3111,7 +3412,9 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                 $restartMode = [string]$c.Step.restartVmBeforeRetry
                 $nativeArm64HyperV = Test-Arm64HyperVColdPowerCycleMode -Mode $restartMode -HostType $c.HostType
                 $restartableLoginOcrTimeout = (
-                    [string]$script:Fail.LastFailedAction -eq 'waitForTextWithNudge' -and
+                    ([string]$script:Fail.LastFailedAction -eq 'waitForTextWithNudge' -or
+                        ($passwordColdRetry -and [string]$script:Fail.LastFailedAction -eq 'passwdPrompt' -and
+                            [string]$script:Fail.StepFailurePhase -eq 'wait' -and $script:Fail.WaitForTextDisplayStallEnd)) -and
                     -not $script:Fail.WaitForTextMatchedFailurePattern -and
                     -not $script:Fail.WaitForTextConsoleFlood
                 )
@@ -3246,7 +3549,14 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
             $innerThrew = $script:Fail.StepHandlerError -and
                 [string]$script:Fail.StepHandlerError['stepInvocationId'] -ceq [string]$script:Fail.LastFailedStepInvocationId
             $innerInputDeterministic = (-not $innerThrew) -and (Test-StepHostInputFaultDeterministic -State $script:Fail)
+            # The wait's serial-backed display verdict must survive exhaustion:
+            # its registered OCR or password class describes a different cause.
+            # Explicit guest statements and kernel evidence retain precedence.
+            $innerDisplayStalled = (-not $innerThrew) -and $script:Fail.WaitForTextDisplayStallEnd -and
+                -not $script:Fail.WaitForTextMatchedFailurePattern -and -not $script:Fail.StepDeployResult -and
+                -not $script:Fail.WaitForTextKernelStallEnd -and -not $script:Fail.WaitForTextGuestLivelocked
             $script:Fail.LastInnerFailureClass        = if ($innerInputDeterministic) { 'plan_invalid' }
+                elseif ($innerDisplayStalled) { 'guest_display_stalled' }
                 elseif ($innerVerbEntry -and -not $innerThrew) { [string]$innerVerbEntry.FailureClass } else { 'unknown' }
             $script:Fail.LastInnerSeverity            = if ($innerVerbEntry) { [string]$innerVerbEntry.Severity }     else { 'unknown' }
             # [string[]] cast prevents the single-element unwrap so a
@@ -3258,6 +3568,8 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
             $script:Fail.LastInnerSuggestedRecoveries = [string[]]@()
             if ($innerInputDeterministic) {
                 $script:Fail.LastInnerSuggestedRecoveries = [string[]]@('pause_and_inspect')
+            } elseif ($innerDisplayStalled) {
+                $script:Fail.LastInnerSuggestedRecoveries = [string[]]@('restart_from_snapshot','pause_and_inspect')
             } elseif ($innerVerbEntry -and $null -ne $innerVerbEntry.SuggestedRecoveries) {
                 $script:Fail.LastInnerSuggestedRecoveries = [string[]]@($innerVerbEntry.SuggestedRecoveries)
             }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4255aa64-3611-4e05-addc-aea90bd5791a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     directly (StartStep=1 equivalence, prerequisite chain, partway start, out-of-range,
     empty). Its descent through wrapper steps is covered in Test.SequenceRunner.Tests.ps1.
     An AST guard asserts the pre-start block routes through it with -StartStep rather than
-    hard-coding ChainEntries[0].steps[0]. Pester 5.x.
+    hard-coding ChainEntries[0].steps[0]. Pester 6.x.
 #>
 
 BeforeAll {

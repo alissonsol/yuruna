@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 429cf70d-40bb-4de7-a305-1a10d263253b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -184,6 +184,81 @@ Describe 'kvm DHCP evidence: armed at the only moment that sees the first ask' {
     }
 }
 
+Describe 'kvm DHCP evidence: a wire capture that cannot run never costs the journal window' -Skip:(-not $IsLinux) {
+
+    # The wire half is optional evidence; the journal window is what a failed
+    # guest's folder needs. These cases launch for real against stand-ins put
+    # first on PATH, so they need no tcpdump, no bridge and no capability.
+    BeforeAll {
+        $script:StubRoot  = New-YurunaTestTempDir -Prefix 'yuruna-dhcp-stub'
+        $script:SavedPath = Save-YurunaTestEnvironment -Name 'PATH'
+        function Set-DhcpStubTool {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes a stand-in tool into the suite''s scratch directory.')]
+            param([string]$Name, [string]$Body)
+            $path = Join-Path $script:StubRoot $Name
+            [IO.File]::WriteAllText($path, $Body)
+            [IO.File]::SetUnixFileMode($path, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+            return $path
+        }
+        # Only has to be found: the stand-in timeout of each case never starts it.
+        $null = Set-DhcpStubTool -Name 'tcpdump' -Body "#!/bin/sh`nexit 0`n"
+        $env:PATH = $script:StubRoot + [IO.Path]::PathSeparator + $env:PATH
+    }
+
+    AfterAll {
+        Restore-YurunaTestEnvironment -Saved $script:SavedPath
+        Remove-YurunaTestTempDir $script:StubRoot
+        & $script:Driver { $script:YurunaDhcpCapture = $null; $script:YurunaDhcpWireRefusal = '' }
+    }
+
+    BeforeEach {
+        & $script:Driver { $script:YurunaDhcpCapture = $null; $script:YurunaDhcpWireRefusal = ''; $script:YurunaDhcpTrail = '' }
+        Mock -ModuleName 'Yuruna.Host' Get-YurunaGuestBridge { @{ Bridge = 'br-test0'; Network = '' } }
+        Mock -ModuleName 'Yuruna.Host' Get-VMMac { '52:54:00:0a:0b:0c' }
+    }
+
+    It 'arms the window when tcpdump refuses the bridge and is gone before its stdin is written' {
+        # Start-Process copies a stdin file into the child after the launch, and
+        # a tcpdump refused the bridge can have exited by then, so the copy hits
+        # a pipe nobody reads and Start-Process throws IOException: Broken pipe.
+        # The stand-in below is that child; the mock is that throw.
+        Mock -ModuleName 'Yuruna.Host' Start-Process { throw [System.IO.IOException]::new('Broken pipe') }
+        # The settle that tells a refused capture from a running one, lengthened
+        # so a loaded host still sees the stand-in gone when it ends.
+        Mock -ModuleName 'Yuruna.Host' Start-Sleep { [System.Threading.Thread]::Sleep(1500) }
+        $null = Set-DhcpStubTool -Name 'timeout' -Body ("#!/bin/sh`n" +
+            "echo ""tcpdump: br-test0: You don't have permission to perform this capture on that device"" >&2`nexit 1`n")
+        $warned = @()
+        $armed = Yuruna.Host\Start-VMDhcpCapture -VMName 'test-guest-01' -WarningVariable warned -WarningAction SilentlyContinue
+        $armed | Should -BeTrue -Because 'the journal half does not depend on the wire half'
+        $capture = & $script:Driver { $script:YurunaDhcpCapture }
+        $capture.VMName | Should -Be 'test-guest-01'
+        $capture.ArmedUtc | Should -BeGreaterThan 0 -Because 'the window opens at the instant the guest was started'
+        $capture.WireNote | Should -Match "^no wire capture: tcpdump: br-test0: You don't have permission" `
+            -Because 'the note must carry the refusal tcpdump printed, not an error of the launch'
+        $capture.WireNote | Should -Match 'setcap cap_net_raw' -Because 'a refusal is answered with the grant that lifts it'
+        (& $script:Driver { $script:YurunaDhcpWireRefusal }) | Should -Be $capture.WireNote `
+            -Because 'the refusal is kept in the driver module until it is imported again, which a runner does at every cycle start, so later guests of that cycle skip the spawn'
+        $warned | Should -BeNullOrEmpty -Because 'a refused wire capture is not a missing window'
+    }
+
+    It 'arms the window when the wire capture cannot be started at all' {
+        $stub = Set-DhcpStubTool -Name 'timeout' -Body "#!/nonexistent/yuruna-test-interpreter`n"
+        $warned = @()
+        $armed = Yuruna.Host\Start-VMDhcpCapture -VMName 'test-guest-02' -WarningVariable warned -WarningAction SilentlyContinue
+        $armed | Should -BeTrue -Because 'a launch failure ends only the wire half'
+        $capture = & $script:Driver { $script:YurunaDhcpCapture }
+        $capture.ArmedUtc | Should -BeGreaterThan 0
+        $capture.Process | Should -BeNullOrEmpty -Because 'nothing was started, so nothing may be believed to run'
+        $capture.WireNote | Should -Match '^no wire capture: the capture could not be started: ' `
+            -Because 'dhcp.capture.txt has to say why there is no pcap beside it'
+        $capture.WireNote | Should -Match ([regex]::Escape($stub)) -Because 'the system reason names what could not be run'
+        (& $script:Driver { $script:YurunaDhcpWireRefusal }) | Should -Be $capture.WireNote
+        $warned | Should -BeNullOrEmpty -Because 'the window was armed, so there is no gap to report'
+    }
+}
+
 Describe 'kvm DHCP evidence: collected with the failure, discarded with the guest' {
 
     It 'lands beside the failure diagnostics, by feature detection' {
@@ -210,8 +285,12 @@ Describe 'kvm DHCP evidence: collected with the failure, discarded with the gues
                      Yuruna.Host\Remove-VM -VMName 'test-other-01' -Confirm:$false | Out-Null }
            Expect = "was discarded when 'test-other-01' was removed"
            Case   = 'a teardown took it -- the hole is in the discard guard' }
+        @{ Setup = { Mock -ModuleName 'Yuruna.Host' Get-YurunaGuestBridge { throw 'fixture: virsh did not answer' }
+                     Yuruna.Host\Start-VMDhcpCapture -VMName 'test-guest-01' -WarningAction SilentlyContinue | Out-Null }
+           Expect = "arming the window for 'test-guest-01' failed: fixture: virsh did not answer"
+           Case   = 'the arm ran and failed -- the hole is in the arm, not in the start path' }
     ) {
-        # An empty slot has one message and three histories behind it, each
+        # An empty slot has one message and four histories behind it, each
         # pointing at a different file. Without the transition recorded, the
         # cycle that most needs the evidence reports only that it is missing,
         # and the next occurrence is as unreadable as this one.
@@ -321,5 +400,29 @@ Describe 'kvm DHCP evidence: what the failure folder ends up holding' {
 
     AfterAll {
         & $script:Driver { $script:YurunaDhcpCapture = $null }
+    }
+}
+
+Describe 'kvm DHCP evidence: the reported gap names its guest' {
+
+    # The driver finds the degradation emitter by name, so the runner module
+    # that provides it is loaded here, as a cycle loads it.
+    BeforeAll {
+        $script:HadTestLog = [bool](Get-Module -Name 'Test.Log')
+        Import-Module (Join-Path $PSScriptRoot 'Test.Log.psm1') -Force -Global -DisableNameChecking
+    }
+
+    AfterAll {
+        if (-not $script:HadTestLog) { Remove-Module -Name 'Test.Log' -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'puts the VM name on the degradation event, not only in the console warning' {
+        Mock -ModuleName 'Yuruna.Host' Send-YurunaDegradation { }
+        & $script:Driver {
+            Write-YurunaDhcpGap -Reason 'fixture: a gap reported for one guest' -VMName 'test-guest-03' -WarningAction SilentlyContinue
+        }
+        Should -Invoke -ModuleName 'Yuruna.Host' Send-YurunaDegradation -Times 1 -Exactly -ParameterFilter {
+            $Dependency -eq 'dhcp-capture' -and $VMName -eq 'test-guest-03'
+        } -Because 'a query over the event stream has to say which guest lost its window'
     }
 }

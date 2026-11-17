@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4245d8ae-72c4-4ea3-87f6-c420ac0eb0f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,6 +74,26 @@ Describe 'yuruna.conf answers mutable apt metadata from the origin' {
         $acl.Success | Should -BeTrue
         $acl.Groups[1].Value | Should -Be '255.255.255.255/32'
         $script:squidConf.IndexOf('acl yuruna_no_upstream') | Should -BeLessThan $script:squidConf.IndexOf('send_hit deny yuruna_apt_index')
+    }
+
+    It 'never lets a request for that metadata wait on another client''s fetch of it' {
+        # A collapsed request waits for the joined fetch's headers without asking
+        # the origin, so one stalled fetch fails every apt-get update that joined
+        # it, while send_hit refuses the joined answer anyway. Collapsing is
+        # therefore denied exactly where hits are.
+        $sendHit = [regex]::Match($script:squidConf, '(?m)^send_hit deny (yuruna_apt_index .*)$')
+        $sendHit.Success | Should -BeTrue
+        $rule = [regex]::Match($script:squidConf, '(?m)^collapsed_forwarding_access deny yuruna_apt_index .*$')
+        $rule.Success | Should -BeTrue -Because 'without it a stalled origin fetch fails every request that joins it'
+        $rule.Value | Should -BeExactly "collapsed_forwarding_access deny $($sendHit.Groups[1].Value)"
+        foreach ($acl in 'yuruna_apt_index', 'yuruna_apt_by_hash', 'yuruna_no_upstream') {
+            $defined = [regex]::Match($script:squidConf, "(?m)^acl $acl ")
+            $defined.Success | Should -BeTrue
+            $defined.Index | Should -BeLessThan $rule.Index -Because "squid reads the rule only after $acl is defined"
+        }
+        # The first matching line decides, so an allow line ahead of it would let
+        # this metadata collapse.
+        $script:squidConf.Substring(0, $rule.Index) | Should -Not -Match '(?m)^collapsed_forwarding_access allow'
     }
 }
 

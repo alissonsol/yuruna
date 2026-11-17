@@ -537,7 +537,7 @@ const DatazhCNexceptions = `{
     }
   ],
   "exceptions.host_dd6d74db4a58cc9d": [
-    "Fido.ps1哈希值不匹配（固定版本v1.71）：预期为",
+    "Fido.ps1哈希值不匹配（固定版本v1.72）：预期为",
     {
       "arg": "fidoSha256",
       "type": "detail",
@@ -1766,6 +1766,20 @@ const DatazhCNexceptions = `{
       "trust": "internal"
     },
     "”，无法在通过sg重新启动时转发；请仅传入字符串、数字、开关、布尔值和字符串数组。"
+  ],
+  "exceptions.runner_ssh_key_read_only_invalid": [
+    "无法在不修复的情况下读取 '",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 处现有的 SSH 密钥对：",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    }
   ],
   "exceptions.setup_service_vm_preserved": [
     {

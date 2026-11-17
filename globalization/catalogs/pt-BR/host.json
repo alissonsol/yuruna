@@ -5,17 +5,14 @@
   "messages": {
     "host.kvm_running_cache_unreachable": {
       "sourceHash": "81042c1a1152d4a8d96f13c8007b4cd1eb09b5b61b1e8f1152b1fe97e110ad65",
-      "origin": "machine",
       "message": "A VM caching-proxy-service está em execução, mas seu proxy está inacessível. Execute test/service/Start-CachingProxyServiceVM.ps1 para restaurá-lo ou passe -CachingProxyServiceUrl \"\" para baixar diretamente."
     },
     "host.media_digest_mismatch": {
       "sourceHash": "3ba9e00ae704363ace6af00e2c1f2e0d6babb3b6537232b9285fb2ef73241b85",
-      "origin": "machine",
       "message": "{file} de {url} tem SHA-256 {actual}, e não o {expected} fixado para essa versão; o download foi descartado e a mídia existente não foi alterada."
     },
     "host.utm_cache_state_unconfirmed": {
       "sourceHash": "7a6eef76a798f82d67d54f517af7235733d3a48fe238b592158281846a2333d1",
-      "origin": "machine",
       "message": "Não foi possível confirmar o estado da VM caching-proxy-service ({state}; {reason}). Restaure o acesso ao UTM ou passe -CachingProxyServiceUrl \"\" para baixar diretamente."
     },
     "host.clock_service_description": {
@@ -1512,7 +1509,6 @@
     },
     "host.kvm_config_port_rule_delete": {
       "sourceHash": "20e8aa7e997c6819f5a1e10b952d15749ec47e3a67641991d4de27ccb1d72443",
-      "origin": "machine",
       "message": "Excluir a regra do serviço de configuração que o Yuruna adicionou"
     },
     "host.operator_50978cbbff00be18": {
@@ -1741,7 +1737,6 @@
     },
     "host.kvm_config_port_firewall": {
       "sourceHash": "f199338c13ac23b004d72128fe56eb9472639efe0d1e318dc36b5901194192a5",
-      "origin": "machine",
       "message": "  firewall do serviço de configuração: {message}"
     },
     "host.operator_5c039b0b7884d16b": {
@@ -2018,7 +2013,6 @@
     },
     "host.operator_69569daab01168ea": {
       "sourceHash": "10d50550b0675a10ed469287d631553bc18c27c4a0767b0deb8541d2d4f6495e",
-      "origin": "machine",
       "message": "Remove-UtmTestVM: '{vMName}' não confirmou que está desligada dentro do tempo limite; preservando o registro e o pacote."
     },
     "host.operator_6959d402ef57f18d": {
@@ -2543,7 +2537,6 @@
     },
     "host.operator_891e818fe6ad2659": {
       "sourceHash": "55caf09b2df58413a3a69a99da8ea510cf62df49b8eb83b7961b07e29e7ee329",
-      "origin": "machine",
       "message": "Assinatura do SHA256SUMS não verificada (o gpg ou o chaveiro fixado não está instalado); continuando apenas com o hash."
     },
     "host.operator_89af27dbbf79e963": {
@@ -2792,12 +2785,10 @@
     },
     "host.service_build_plan_accepted": {
       "sourceHash": "d5ded036a903d0630b6da3d65612f268f52d701da6acdd0aff75f01a04862f15",
-      "origin": "machine",
       "message": "Plano de build de '{vMName}' aceito: todas as entradas de que o build precisa estão presentes, e nada foi alterado."
     },
     "host.service_seed_degraded": {
       "sourceHash": "aca2d845f6dcec894ca8254c4adced41e310d3c02c93015ed8a07e37a09837eb",
-      "origin": "machine",
       "message": "A seed de '{vMName}' está degradada: {name} foi gravado vazio. O convidado inicia sem ele, e o Start dele relata a inicialização como degradada."
     },
     "host.operator_9a26d7342217e270": {
@@ -2922,7 +2913,6 @@
     },
     "host.operator_a0e97dcbb626019f": {
       "sourceHash": "3e6200b8bb70bd8bf58878661018ab2ece763d9c4e7b8b9e9fbed9dce368221b",
-      "origin": "machine",
       "message": "Somente as regras do ufw que o Yuruna marcou como suas serão removidas. Membros do grupo, o $HOME ACL, libvirtd/virtlogd e as teclas GNOME são deixadas exatamente como são, e relatadas."
     },
     "host.operator_a127790ebde6e4ff": {
@@ -3387,7 +3377,6 @@
     },
     "host.operator_bb96ec06f5e4f923": {
       "sourceHash": "44708bc4b698ea3899993e76be435b1f9e70e610029cc0189631afa391a22316",
-      "origin": "machine",
       "message": "  UI:       http://{dockIp}/  (Board / Hosts / Pools)"
     },
     "host.operator_bba21c5cbbc83755": {
@@ -4272,7 +4261,6 @@
     },
     "host.operator_f11ac5338e134c99": {
       "sourceHash": "025859b6823167d9fbb715936657a771a78fea41c437be55cf7e22e17f10554d",
-      "origin": "machine",
       "message": "Save-ImageWithChecksum: assinatura do SHA256SUMS não verificada (o gpg ou o chaveiro fixado não está instalado); continuando apenas com o hash."
     },
     "host.operator_f138be59eb9fb325": {
@@ -4521,813 +4509,659 @@
     },
     "host.enable_automation_no_prompt_confirm_conflict": {
       "sourceHash": "c04c4874b74d96a07da9cdff620ab695f13bfc22c3bd5fb3d240d53d72c571a1",
-      "origin": "machine",
       "message": "Enable-TestAutomation: -NoOperatorPrompt não pode ser combinado com -Confirm, que pede confirmação antes de cada alteração; nada foi capturado nem alterado."
     },
     "host.enable_automation_no_prompt_mode": {
       "sourceHash": "0a9fd378e45bb1f90c1a5e92e5710a5c4870ef2e96e4125e91419576b6c3d12d",
-      "origin": "machine",
       "message": "Enable-TestAutomation: executando com -NoOperatorPrompt -- sem diálogos de consentimento, sem reinício do Dock ou do protetor de tela, sem instalação de módulos, sem solicitação de senha do sudo e sem questionário de networkStorage. As configurações que exigem um operador são informadas como ainda não atendidas."
     },
     "host.enable_automation_no_prompt_unsupported": {
       "sourceHash": "08b0c0896a3a1b437befbb5ad91a5d57c19d4620c62bc16db4e8c27cec6bb628",
-      "origin": "machine",
       "message": "Enable-TestAutomation: -NoOperatorPrompt requer Set-MacHostConditionSet -NoGuiDisruption, que esta cópia do repositório não fornece; nada foi capturado nem alterado. Em vez disso, execute-o sem -NoOperatorPrompt a partir de uma sessão assistida."
     },
     "host.forwarder_identity_unverified": {
       "sourceHash": "a71da9112c6928be4776439d3acc10877b9d734321e4ea3b4fe1e66ddcfcb2e8",
-      "origin": "machine",
       "message": "Stop-CachingProxyServiceForwarder: não foi possível ler o processo com PID {forwarderPid} dentro do tempo limite; o arquivo de PID foi mantido e nada foi sinalizado."
     },
     "host.hyperv_dism_timed_out": {
       "sourceHash": "48c516227006be75632a6641dc391cfa8af55ef22d2ebb952192a8708c0861f1",
-      "origin": "machine",
       "message": "Assert-HyperVEnabled: dism.exe não informou o estado do recurso Hyper-V em até {seconds} segundos; o estado do recurso é desconhecido."
     },
     "host.hyperv_start_vmms_action": {
       "sourceHash": "67e843b2a80948667175001f474926a9235ef2f0154423dec375ebf16a4f7e53",
-      "origin": "machine",
       "message": "Iniciar o serviço de gerenciamento de máquinas virtuais do Hyper-V, que está parado"
     },
     "host.hyperv_vm_removal_unconfirmed": {
       "sourceHash": "901f9594dada20fdb54b484ea114aea87bb1f323bb4a99c57c583b06597999b9",
-      "origin": "machine",
       "message": "Remove-VM: o Hyper-V não conseguiu confirmar que '{vMName}' não está mais registrada; por isso, o diretório de disco dela foi mantido."
     },
     "host.hyperv_vm_state_unknown": {
       "sourceHash": "80089953136a18cd9cd7ff2e857628cb372219e99cee88d0dde59a2907f662b2",
-      "origin": "machine",
       "message": "{operation}: o Hyper-V não conseguiu determinar se '{vMName}' existe; nada foi alterado."
     },
     "host.kvm_force_stop_pid_unverified": {
       "sourceHash": "d4d41b78038683997bfac26fdc475f374f9b10c978d33b9c3a708acb0fe3095b",
-      "origin": "machine",
       "message": "Stop-VMForce: o processo {processId} indicado em {pidFile} não é o processo qemu de '{vMName}'; por isso, não foi sinalizado."
     },
     "host.kvm_force_stop_pidfile_invalid": {
       "sourceHash": "4dbd9ed4d28997db4b655a82201fcce04e6043751e4f1ae99540a99bd349398c",
-      "origin": "machine",
       "message": "Stop-VMForce: {pidFile} não contém um PID utilizável; por isso, nenhum processo qemu foi sinalizado."
     },
     "host.kvm_force_stop_signal_refused": {
       "sourceHash": "ebfe41022257c23dfbedf78c29a4927f9524a2dd359d013fbb807c5f88ddb869",
-      "origin": "machine",
       "message": "Stop-VMForce: o sudo se recusou a sinalizar o processo qemu {processId} de '{vMName}'; instale uma regra do sudoers para /bin/kill ou pare o domínio manualmente."
     },
     "host.kvm_rename_source_not_stopped": {
       "sourceHash": "5a446b693d51840c77efa385268264bbbf4e20f090ba0ead758ff17c29379495",
-      "origin": "machine",
       "message": "Rename-VM: o estado de '{vMName}' é {state}; a libvirt só renomeia um domínio confirmado como parado."
     },
     "host.kvm_start_network_action": {
       "sourceHash": "171b46952854708028975f24b9f31d59c846a68eab16f3e49467ba6f5126b722",
-      "origin": "machine",
       "message": "Iniciar a rede inativa da libvirt"
     },
     "host.kvm_start_unit_action": {
       "sourceHash": "5864a21e2a4fe5a8e7844f6b14d1401a08604a0b7c24ee5f951499ab442ba5ae",
-      "origin": "machine",
       "message": "Iniciar a unidade parada da libvirt"
     },
     "host.rename_vm_inventory_unavailable": {
       "sourceHash": "819b6c34d067df1478d9c3b6c85713e36fc6a56859ca26fd2e98d74920841b2f",
-      "origin": "machine",
       "message": "Rename-VM: não foi possível ler a lista de VMs em execução ({reason}); o UTM não foi encerrado, portanto nenhuma VM de serviço ficou suspensa. Renomeie '{vmName}' depois que o UTM voltar a responder."
     },
     "host.rename_vm_relaunch_unconfirmed": {
       "sourceHash": "89a63db6a2cefadcbff1e967af63fb7be2217427ed20a7b9c584c50c8a61ef6a",
-      "origin": "machine",
       "message": "Rename-VM: a reabertura do UTM não foi confirmada ({outcome}); estas VMs de serviço não foram retomadas: {names}. Abra o UTM e, em seguida, execute: {commands}"
     },
     "host.rename_vm_stop_unconfirmed": {
       "sourceHash": "1173349a08200f4f9e7aedc67b3b80f7305ed85d9f06ffc80ff6a9d21348f002",
-      "origin": "machine",
       "message": "Rename-VM: o UTM não parou ({outcome}); '{vmName}' não foi renomeada e o pacote dela não foi editado."
     },
     "host.utm_app_census_unknown": {
       "sourceHash": "5982ec9ca2f82e6734f8221f116cd94b317b9fd9342443dc870868bd03e8e2bf",
-      "origin": "machine",
       "message": "{operation}: não foi possível determinar quais processos do UTM pertencem a este usuário ({reason}); nada foi parado nem iniciado."
     },
     "host.utm_app_control_refused": {
       "sourceHash": "a83239b8145dab348781b020888b46618d5d51f713fd9540fcb16d24658a3790",
-      "origin": "machine",
       "message": "{operation}: recusado ({reason}); o UTM foi mantido como estava."
     },
     "host.utm_app_flush_skipped_root": {
       "sourceHash": "d4f9f1616eea22bc6fa4672d5a9a893415bd83d517b46742ad32c255a97bcf97",
-      "origin": "machine",
       "message": "{operation}: a limpeza do cache de preferências foi ignorada porque este processo é executado como root, caso em que o killall atingiria o cfprefsd de todos os usuários."
     },
     "host.utm_app_hard_stop_signal": {
       "sourceHash": "e002a7a667b95e2bbcf78d017fdd970ecca4f5917cd7a3e3e3e38072853bae6d",
-      "origin": "machine",
       "message": "Stop-UtmApplication: enviando {signal} para {processName} (PID {processId}) porque o processo não terminou após o pedido de encerramento."
     },
     "host.utm_app_identity_changed": {
       "sourceHash": "31672fd9184c8d9283b5c168c61de7b1e2e86efb762f2572c54710d990033fc6",
-      "origin": "machine",
       "message": "Stop-UtmApplication: o PID {processId} não corresponde mais ao processo {processName} observado antes; ele não foi sinalizado."
     },
     "host.utm_app_launch_action": {
       "sourceHash": "b7e14fdc0749c93118d1e26d5dec565ae0b65f0bb150b011f057436ef1f680d7",
-      "origin": "machine",
       "message": "Abrir o UTM para este usuário"
     },
     "host.utm_app_launch_not_observed": {
       "sourceHash": "2d28531e3680ab1fb6db36a7e01528cbc9a18d5acfe66bc6b569c66545c37ff9",
-      "origin": "machine",
       "message": "Start-UtmApplication: o UTM não foi observado em execução para este usuário em até {waitSeconds}s após 'open -a UTM' (confirmado: {acknowledged}, código de saída {exitCode})."
     },
     "host.utm_app_quit_action": {
       "sourceHash": "3416041159c8c92a5e53bf6567e709a89cb5afff31a72c91af68a23c057ee2b0",
-      "origin": "machine",
       "message": "Encerrar o UTM e aguardar o término de seus processos auxiliares de VM"
     },
     "host.utm_app_quit_not_confirmed": {
       "sourceHash": "934a38ab6c8e175f32797c7a6437b33ff726a0e1faf53de90131c1aaf949406d",
-      "origin": "machine",
       "message": "Stop-UtmApplication: o UTM não terminou em até {waitSeconds}s após o pedido de encerramento; restam {utmCount} processo(s) UTM e {helperCount} processo(s) QEMUHelper deste usuário, que foram deixados em execução."
     },
     "host.utm_app_restart_action": {
       "sourceHash": "82621bf185797b78ef610be4177d145497caf1149712fbc9fbbc8ccd37d94f0e",
-      "origin": "machine",
       "message": "Encerrar e reabrir o UTM"
     },
     "host.utm_app_signal_action": {
       "sourceHash": "d394003e0eafa0fd1a00ff999b4dad4bd5dfdf51d904338c4e162340aaeb90ee",
-      "origin": "machine",
       "message": "Enviar TERM e depois KILL se o processo persistir, após revalidar a identidade do processo"
     },
     "host.utm_detached_launch_action": {
       "sourceHash": "8da6c50198066b91318d250dbb53f2f5debeea81dde4bc0b0cf2eeb3c54171fd",
-      "origin": "machine",
       "message": "Executar {tool} sem aguardar o aplicativo que ele abre"
     },
     "host.utm_dialog_watchdog_unverified": {
       "sourceHash": "0097247c74027014403c5d34ffa6326debab671b3496bfebabebd83a5313a582",
-      "origin": "machine",
       "message": "Stop-UtmDialogWatchdog: não foi possível verificar se o PID {processId} registrado em {pidFile} é o watchdog de diálogos deste usuário ({reason}); ele não foi sinalizado."
     },
     "host.utm_restart_evidence_refused": {
       "sourceHash": "fd8ad3820d3e40e782640c4d0499c490854553142ab150e06c5673e6375a30a2",
-      "origin": "machine",
       "message": "Restart-UtmApplication: reinício recusado, pois a evidência é {state}/{reason} (idade {ageMs} ms); somente um tempo limite de controle corroborado, observado nos últimos {maxAgeSeconds}s, permite reiniciar."
     },
     "host.utm_resume_deadline_exhausted": {
       "sourceHash": "71348b3d8825ce3381be808430a378fce27c812a4d353649f173b222a0144476",
-      "origin": "machine",
       "message": "Resume-YurunaServiceVM: a VM '{name}' não foi retomada porque não restava tempo no prazo compartilhado; retome-a manualmente (utmctl start '{name}')."
     },
     "host.utm_start_absent_observed": {
       "sourceHash": "14bf6185ea70e5fa32b436ef98e5d7ec07792d01854b29e851fc5489ab893548",
-      "origin": "machine",
       "message": "A VM '{vmName}' permaneceu não registrada no UTM por {waitSeconds}s na tentativa {attempt}; nenhuma solicitação de início foi enviada."
     },
     "host.utm_start_dropped": {
       "sourceHash": "83aebef39a06302bda1af7d84d5c137366fbe2595fc8eeca17310b700dd8da32",
-      "origin": "machine",
       "message": "A VM '{vmName}' não atingiu o estado 'running' em {attempts} tentativa(s); como o utmctl não relatou erro, o UTM aceitou e descartou cada solicitação."
     },
     "host.utm_start_exit_code": {
       "sourceHash": "cbaf9329e257c731d40cdf914226ad8ea55405c45745f8a59f5b2e3b19713da0",
-      "origin": "machine",
       "message": "utmctl start terminou com o código {exitCode}"
     },
     "host.utm_start_exit_detail": {
       "sourceHash": "170d3c9e374ad640cca2bd1af558fb42e48550e60da90cc1c66993080788e167",
-      "origin": "machine",
       "message": "utmctl start terminou com o código {exitCode}: {text}"
     },
     "host.utm_start_not_acted": {
       "sourceHash": "aea1adc4b4b09d40287186ce87ffdb366a58452638b812297bbfb7a92f5c12a1",
-      "origin": "machine",
       "message": "O UTM não atendeu à solicitação de início da VM '{vmName}' em {attempts} tentativa(s); a última relatou '{lastError}'. O utmctl conseguiu se comunicar com o UTM.app -- as consultas de estado foram respondidas o tempo todo --, mas o início em si nunca foi executado; portanto, a VM nunca foi iniciada e o disco dela está intacto. Tente novamente (utmctl start '{vmName}'); reconstruir a VM não resolve nada neste caso."
     },
     "host.utm_start_control_hung": {
       "sourceHash": "c9d057ba43796fb3b9a31f0907dd458da26998e8c7b115bc09ec40206fe11821",
-      "origin": "machine",
       "message": "O canal de controle do UTM parou de atender às solicitações de ciclo de vida: {attempts} solicitação(ões) consecutiva(s) de início da VM '{vmName}' ficaram sem resposta, e a última relatou '{lastError}'. O utmctl ainda alcançou o UTM.app para consultas de estado, portanto o aplicativo está em execução, mas não executa mais start, stop ou delete, e tentar de novo só acrescenta outro tempo limite. Reinicie o UTM.app nesta máquina (encerre-o na sessão da área de trabalho ou execute test/lab/Invoke-HostRefresh.ps1) e inicie a VM novamente. A VM nunca foi iniciada e o disco dela está intacto."
     },
     "host.utm_control_snapshot_action": {
       "sourceHash": "0edb078c35115edfdd56fc887938f57308ba7770305b9e5b63b3120e5b766edf",
-      "origin": "machine",
       "message": "Registrar o instantâneo do canal de controle do UTM ({trigger})"
     },
     "host.utm_start_not_running": {
       "sourceHash": "405cc00b9fe1b1ba8dc88dc3493caf320fe85a56d3fb4c99892bf31b083c3971",
-      "origin": "machine",
       "message": "A VM '{vmName}' não atingiu o estado 'running' em {attempts} tentativa(s): {lastError}"
     },
     "host.utmctl_lifecycle_deadline": {
       "sourceHash": "b0a0f79985799341b39bd1ff72125318dba6965ec3393fa773c82fdb63143ef5",
-      "origin": "machine",
       "message": "utmctl {verb} '{vmName}' não foi executado: não restava tempo no prazo da operação."
     },
     "host.utmctl_lifecycle_timeout": {
       "sourceHash": "9412b53986257f13f5463409005188169462ab8e549fa2671c677a201f1700f4",
-      "origin": "machine",
       "message": "utmctl {verb} '{vmName}' não retornou em até {timeoutSeconds}s e foi interrompido; o efeito é desconhecido até que o estado da VM seja lido novamente."
     },
     "host.hyperv_rename_source_not_stopped": {
       "sourceHash": "c187a949d519838f7c9b207a0057571bc62ea2379703c36fb19969e8c63b94ea",
-      "origin": "machine",
       "message": "Rename-VM: o estado de '{vMName}' é {state}; uma VM só é renomeada enquanto o Hyper-V a informa, de forma confirmada, como parada."
     },
     "host.utm_app_launch_refused": {
       "sourceHash": "cebe9013ff5a5cd9ee469b5b6955f56da46215ad2cba51e64caf90eaff1abb40",
-      "origin": "machine",
       "message": "Start-UtmApplication: 'open -a UTM' terminou com o código {exitCode} e o UTM não foi aberto: {detail}"
     },
     "host.utm_app_executable_mismatch": {
       "sourceHash": "60fe8942763e48f55f1e2499005ce8d7b52ec86379e133ba60dfc2140d84eddc",
-      "origin": "machine",
       "message": "Stop-UtmApplication: o PID {processId} foi listado como {processName}, mas o executável que ele executa não é o {processName} deste usuário; ele não foi sinalizado."
     },
     "host.utm_app_flush_skipped_census": {
       "sourceHash": "3a68e4e7faf54da71ff37a012ac6eefe389100043497ee539fbc735f9d937935",
-      "origin": "machine",
       "message": "{operation}: a limpeza do cache de preferências foi ignorada porque não foi possível contar os processos do UTM deste usuário ({reason}); uma limpeza com o UTM em execução permitiria que ele gravasse de volta suas preferências antigas."
     },
     "host.utm_app_identity_unreadable": {
       "sourceHash": "81219c520853d2263b61629050b0e105b6822675b63bf1295041497d2689277d",
-      "origin": "machine",
       "message": "{operation}: não foi possível ler a identidade de {processName} (PID {processId}) ({reason}); ele não foi sinalizado."
     },
     "host.utm_dialog_watchdog_identity_action": {
       "sourceHash": "8f5d4a12d08083553d4abed93b3b59cf8e4660f174ce6bb20b7025aab14d0a67",
-      "origin": "machine",
       "message": "Registrar a identidade do watchdog de diálogos que acabou de ser iniciado"
     },
     "host.utm_dialog_watchdog_start_skipped": {
       "sourceHash": "9689552e905b2d3e3926efbb8aa4568604cd6972008eac6bd0ecbea955555723",
-      "origin": "machine",
       "message": "Start-UtmDialogWatchdog: não foi possível confirmar que o watchdog registrado em {pidFile} foi parado; por isso, um segundo não foi iniciado, e o registro dele é mantido para a próxima parada."
     },
     "host.orphan_sweep_registration_unknown": {
       "sourceHash": "3afb9a95efc18cc2c808b624fd2773e21ff2defd2074039db7a9625e8d1aedbe",
-      "origin": "machine",
       "message": "{path} mantido: o UTM não informou se {target} está registrado (utmctl status não retornou uma resposta reconhecida)."
     },
     "host.orphan_sweep_utmctl_unanswered": {
       "sourceHash": "80373783ece58084b41df85021f62a3214f36ce9714682e5f637f3a6dea861c3",
-      "origin": "machine",
       "message": "utmctl {verb} não terminou em {seconds} segundos, então os registros do UTM são desconhecidos; nada foi excluído. Execute novamente quando o UTM responder."
     },
     "host.windows_installer_boot_key_timeout": {
       "sourceHash": "77b62b3bb39cd82c527244867ce76f4ed23605154ab9ee838554d982c69b8926",
-      "origin": "machine",
       "message": "A VM '{vmName}' não aceitou uma tecla de inicialização do instalador do Windows em {seconds} segundos."
     },
     "host.kvm_rename_destination_dir_exists": {
       "sourceHash": "4b3d974279588ce38a9b8a9905f134cccf65204575d9784698ece0a65c64e943",
-      "origin": "machine",
       "message": "Não é possível renomear para '{newName}': o diretório {newDir} já existe, e mover o armazenamento para ele poderia sobrescrever discos."
     },
     "host.vm_storage_reference_unknown": {
       "sourceHash": "b7939d379e67a7ff686510f6a5505bf09f52e1441d332c73f82703ce78382279",
-      "origin": "machine",
       "message": "{vmDir} foi mantido: não foi possível ler quais máquinas virtuais usam discos nele ({message})."
     },
     "host.vm_storage_delete_refused": {
       "sourceHash": "7daeaa25c45a790e4a6e7fe74bb9beb859c436287232fc54de7c3ca5914f40bf",
-      "origin": "machine",
       "message": "{vmDir} foi mantido: ele ainda contém discos que uma máquina virtual registrada usa ({owners})."
     },
     "host.vm_storage_relocate_action": {
       "sourceHash": "7ee21afdf2b33972fd24efd366621fcc5a49c9a1f8f8ccd17493eb2fab850735",
-      "origin": "machine",
       "message": "Mover o armazenamento deixado em '{fromName}' para o nome desta máquina virtual"
     },
     "host.vm_storage_relocation_failed": {
       "sourceHash": "193c701139ef6a718fab1db481c50ac8463843ce290d0f5fc0688774e9c833ee",
-      "origin": "machine",
       "message": "Não foi possível mover o armazenamento de '{vMName}' para fora do diretório de '{fromName}': {reason}."
     },
     "host.vm_storage_relocated": {
       "sourceHash": "0ed84581a58174a809c52e4f44f8a3fd84104fdce45b3cd6e81fed3963a0fa88",
-      "origin": "machine",
       "message": "Uma renomeação interrompida foi concluída: o armazenamento de '{vMName}' saiu do diretório de '{fromName}'."
     },
     "host.vm_build_storage_in_use": {
       "sourceHash": "b70e67d63b395dd5953a5d20afe49a4f03d3043d6ee50806052263611ef94b78",
-      "origin": "machine",
       "message": "'{vMName}' não foi recriada: {vmDir} ainda contém discos que outra máquina virtual usa, ou não foi possível ler quem os usa. Nada nele foi alterado."
     },
     "host.hyperv_rename_destination_dir_occupied": {
       "sourceHash": "28e14b347d0c84f811c990b594e61323b077b36d0c4ebab0eca7998e39464c74",
-      "origin": "machine",
       "message": "Não é possível renomear para '{newName}': o diretório {newDir} já contém arquivos de armazenamento de máquina virtual, e mover o armazenamento para ele falharia depois da renomeação e a deixaria pela metade."
     },
     "host.hyperv_checkpoint_not_listed": {
       "sourceHash": "f35cebf8e3639fe6cf34969153a00a3c6362f33a0f28ed514f2d87c1d851d580",
-      "origin": "machine",
       "message": "Save-VMDiskSnapshot: Checkpoint-VM informou sucesso para '{vMName}/{id}', mas o checkpoint não aparece na listagem em seguida. Checkpoint-VM retornou [{made}]; o módulo Hyper-V listou [{listed}]; o registro do próprio Hyper-V contém [{held}] (? quando não pôde ser lido)."
     },
     "host.hyperv_checkpoint_listing_lagged": {
       "sourceHash": "2170a28941372832ddaadbd99d5581a90442024726bb039a1c9fef9a8112c43f",
-      "origin": "machine",
       "message": "Save-VMDiskSnapshot: o Hyper-V contém o checkpoint '{vMName}/{id}', mas o módulo Hyper-V não o listou em {seconds} segundos."
     },
     "host.hyperv_checkpoint_listing_unanswered": {
       "sourceHash": "9f46a825fe9251f31c3d56ea6c05b2879047a7e7f587faf046918ea480fd2c94",
-      "origin": "machine",
       "message": "Save-VMDiskSnapshot: a listagem de checkpoints do módulo Hyper-V para '{vMName}' falhou ou não respondeu enquanto o salvamento aguardava {seconds} segundos pelo checkpoint '{id}'; o registro do próprio Hyper-V contém [{held}] (? quando não pôde ser lido)."
     },
     "host.hyperv_bounded_call_no_answer": {
       "sourceHash": "ceebd004fd1615852ff3216da8f1e05042fdaf0948d624205806f89040c76c25",
-      "origin": "machine",
       "message": "A chamada ao Hyper-V terminou sem retornar resposta (código de saída do processo filho: {exitCode}; motivo: {reason})."
     },
     "host.hyperv_worker_lookup_unanswered": {
       "sourceHash": "241b947d6129abef092494e8bfa7aac1c036c38f2685c75f76ef8260d6c284dd",
-      "origin": "machine",
       "message": "  A busca pelo trabalhador vmwp.exe da VM {vmId} não respondeu em {seconds} segundos; irá tentar novamente Stop-VM."
     },
     "host.hyperv_worker_lookup_failed": {
       "sourceHash": "b511b1575e9e01041dd8b3b8b1d27d94273d30bae5fb876b10e4bca0a29b6b85",
-      "origin": "machine",
       "message": "  A busca pelo trabalhador vmwp.exe da VM {vmId} falhou; irá tentar novamente Stop-VM. Erro: {message}"
     },
     "host.vm_storage_reconcile_action": {
       "sourceHash": "518ebc15e6c396cd1dc4a0f1dc5d0d10450037b1cc28c9b504784ba5ff8c1ed1",
-      "origin": "machine",
       "message": "Concluir as renomeações que uma promoção de snapshot interrompida deixou pela metade"
     },
     "host.vm_storage_repair_unknown": {
       "sourceHash": "f0ab49131809c3ecf754a0223559367eae71bb89f1979ff1b4048bc684c1f09b",
-      "origin": "machine",
       "message": "Não foi possível verificar se '{vMName}' ainda tem armazenamento sob outro nome ({message}); o armazenamento foi mantido como está, e o próximo ciclo verifica de novo."
     },
     "host.proxy_ca_refused_build": {
       "sourceHash": "643de5f5e6aef1937e9ed81d27541922f0d9f67306cc88920fbd9f9dee30887a",
-      "origin": "machine",
       "message": "'{vMName}' não foi criada: o proxy de cache em {cacheHost} serve uma CA na qual este hospedeiro não confia ({reason}). O convidado não é semeado contornando isso, e a falha é classificada como source_integrity."
     },
     "host.agent_image_unverifiable": {
       "sourceHash": "ee96e9d45bc4a212644685e9f24f2d3ed01466c51ba3a84be74f0bc82aeb394a",
-      "origin": "machine",
       "message": "O agente de download serviu {isoFileName} a partir de {sourceUrl}, mas nenhuma lista de somas de verificação do publicador o nomeia, então a imagem não é usada."
     },
     "host.snapshot_state_unknown": {
       "sourceHash": "0c80dc7ea13c4d1bcf48f7e671df4e7bd3d0b47de472ef5163f735cd8339dda0",
-      "origin": "machine",
       "message": "Não foi possível saber se o snapshot '{id}' existe em {vMName}: o hipervisor não respondeu."
     },
     "host.signature_could_not_be_checked": {
       "sourceHash": "e1981edf8a70ecd44e5c2031b45f959b3a99fbcde406e1d266e1b6002d545b77",
-      "origin": "machine",
       "message": "  A ASSINATURA GPG DO SHA256SUMS NÃO PÔDE SER VERIFICADA"
     },
     "host.signature_could_not_be_checked_detail": {
       "sourceHash": "d0a392ea9fec5c3af72b58f5e9835f393c212763ef4e705316b9f56d572dcf97",
-      "origin": "machine",
       "message": "  O gpg e as chaves de assinatura do Ubuntu fixadas estão presentes, mas a assinatura não pôde ser obtida nem verificada; a soma de verificação é recusada por não estar autenticada."
     },
     "host.base_image_publish_failed": {
       "sourceHash": "891986811834ded8494d25e5df6050ca2f3681cf7e9737154ed2386097dcea1a",
-      "origin": "machine",
       "message": "Não foi possível colocar o download no lugar como {baseImageFile}: {message} Nenhum sentinela ou registro de origem foi gravado para ele."
     },
     "host.hyperv_lifecycle_unanswered": {
       "sourceHash": "1a33900ee7d9c7684f3eceeb9f98ac7a60f33c47ba01a7464526229d8277f444",
-      "origin": "machine",
       "message": "O Hyper-V não respondeu a {verb} para '{vMName}' em {seconds} segundos; o serviço de gerenciamento de máquinas virtuais pode estar travado."
     },
     "host.snapshot_leftover_unsettled": {
       "sourceHash": "17ec215e94db28004dee34cadf27d6ced008416c7b1cd8bd4d6eff8eeb517d7a",
-      "origin": "machine",
       "message": "O snapshot '{id}' não foi salvo: um salvamento anterior interrompido deixou '{previous}', e sua resolução parou em {reason}."
     },
     "host.snapshot_previous_not_removed": {
       "sourceHash": "d8b4edd61e6423a0b2cb0499a555b662857e5368b106c0dd54469822cb337c98",
-      "origin": "machine",
       "message": "O snapshot '{id}' foi salvo, mas a VM persistida anterior '{previous}' não pôde ser removida; o próximo salvamento de '{id}' a remove."
     },
     "host.snapshot_save_rolled_back": {
       "sourceHash": "f149d920f5911d0c39cb227f6c308de74ed73c30cafa23baafc4258247f36d74",
-      "origin": "machine",
       "message": "O snapshot '{id}' não foi salvo a partir de '{vMName}' ({step} falhou); as duas VMs mantêm os nomes que tinham antes da tentativa."
     },
     "host.snapshot_save_rollback_incomplete": {
       "sourceHash": "b86e723699d06b06be25caba4e7e4bf504c755f43d1452cb1baceac573e241d1",
-      "origin": "machine",
       "message": "O snapshot '{id}' não foi salvo a partir de '{vMName}' ({step} falhou), e nem todas as VMs puderam voltar aos nomes anteriores; o próximo salvamento de '{id}' as acerta."
     },
     "host.portmap_port_held": {
       "sourceHash": "34ab182cfc35c22077bf6e35fe5d0f286622a04af727077e64c899907fccb6ef",
-      "origin": "machine",
       "message": "Os encaminhamentos de porta de {owner} não foram alterados: a porta {port} do host pertence a {holder}."
     },
     "host.portmap_ledger_busy": {
       "sourceHash": "117ac031c1bd8e79d80182a4daa5356dc9a42ab1d6e029868a57f962dc7184f9",
-      "origin": "machine",
       "message": "O registro de mapeamento de portas {path} permaneceu bloqueado por outro processo; os encaminhamentos de {owner} estão ativos, mas não foram registrados."
     },
     "host.portmap_ledger_unwritten": {
       "sourceHash": "0daf2f7a2ae459aabd351b05cd6ea7eed8ffff398059b43b7eebf906af9fc26d",
-      "origin": "machine",
       "message": "Não foi possível gravar o registro de mapeamento de portas {path} para {owner}: {message}"
     },
     "host.download_incomplete": {
       "sourceHash": "f9e98167cc295b055bd08d2232dfd51afd0b07096d61dead8fbed458d671fcea",
-      "origin": "machine",
       "message": "O download de {uri} não foi concluído ({bytes} bytes estão preparados para a próxima tentativa): {detail}"
     },
     "host.kvm_journal_group_missing": {
       "sourceHash": "959a3184ce5dd537d0c419ed9af27e3ec3802386ddd0d7ddeec5ee9084f4279b",
-      "origin": "machine",
       "message": "o grupo 'systemd-journal' não existe, então os diagnósticos do executor de testes não podem ler o diário do sistema nem o log do kernel da inicialização anterior. O systemd o cria a partir de sysusers.d; 'sudo systemd-sysusers' o restaura; depois, execute este script novamente."
     },
     "host.kvm_journal_group_session_stale": {
       "sourceHash": "f88518214624d1392e44e5a735e816d46ae699a3a9c4536c7c2d292a9672744b",
-      "origin": "machine",
       "message": "  A associação a 'systemd-journal' está em /etc/group; o conjunto de grupos deste shell está desatualizado. Saia da sessão e entre novamente; depois, inicie o executor de testes a partir dessa nova sessão para que os diagnósticos dele possam ler o diário do sistema."
     },
     "host.deep_diagnostics_requires_linux": {
       "sourceHash": "6b05aeded11bfb3fbe2143cb0f0b2eb731dff67549ebde8823b41459d32e036a",
-      "origin": "machine",
       "message": "O modo de diagnóstico aprofundado é para um hospedeiro Ubuntu KVM, e este hospedeiro não executa Linux. Nada foi alterado."
     },
     "host.deep_diagnostics_requires_systemd": {
       "sourceHash": "140ff13f904adbd57dbb40d5c17fd6177970b25b8686590144f53c79a3b1407a",
-      "origin": "machine",
       "message": "O modo de diagnóstico aprofundado precisa do systemd como sistema init em execução, e /run/systemd/system não existe neste hospedeiro. Nada foi alterado."
     },
     "host.deep_diagnostics_target_invalid": {
       "sourceHash": "4a5fbc432b0e7b438dac76adce4499912bfdbcbd4b67227ebd1a2bffe101c028",
-      "origin": "machine",
       "message": "-NetconsoleTarget '{target}' não é um endereço IPv4 com porta opcional, como 192.168.1.20 ou 192.168.1.20:6666. Nada foi alterado."
     },
     "host.deep_diagnostics_state_unreadable": {
       "sourceHash": "b5eeab43b4781b4c49cd8dc37783da65b407cff9b3e825c8fa951e232bfc9e70",
-      "origin": "machine",
       "message": "{path} existe, mas não é um arquivo de estado do diagnóstico aprofundado ({message}). Nada foi alterado; restaure o arquivo ou mova-o para outro lugar antes de executar novamente."
     },
     "host.deep_diagnostics_sudo_unavailable": {
       "sourceHash": "085b2ea5ba15995198d1610ef12a55ad483f850010992badf5908e68fe2ffac3",
-      "origin": "machine",
       "message": "O modo de diagnóstico aprofundado altera configurações que pertencem ao root, e o sudo não executou um comando sem pedir senha. Nada foi alterado. Execute o script novamente em um terminal onde você possa digitar a senha do sudo, ou como root."
     },
     "host.deep_diagnostics_plan_header": {
       "sourceHash": "93f182324d96e9c4a211328e4e128fd392425488d893ee795992a6c33d8360a4",
-      "origin": "machine",
       "message": "Modo de diagnóstico aprofundado em {hostName}: alterações planejadas"
     },
     "host.deep_diagnostics_plan_apply": {
       "sourceHash": "90abb32af843093d728561eb69befd3b6e51c69a3dbdc0d5b266e6f0273f6a72",
-      "origin": "machine",
       "message": "  {component} ({title}): será aplicado"
     },
     "host.deep_diagnostics_plan_current": {
       "sourceHash": "e8c4d1bdec6c29e91f74628b23bcb83866e3c6c4e0fcb7aea32a20796499e893",
-      "origin": "machine",
       "message": "  {component} ({title}): já está em vigor"
     },
     "host.deep_diagnostics_plan_skip": {
       "sourceHash": "d667df05a7d7a07ec6afea949a86a2356748e152ff70a91482a0ab2973e2114d",
-      "origin": "machine",
       "message": "  {component} ({title}): ignorado -- {reason}"
     },
     "host.deep_diagnostics_change": {
       "sourceHash": "f64563285514e9f41aff0483e32247cdeab458d5d2af944a1ae276bad67812d4",
-      "origin": "machine",
       "message": "    {key}: {previous} -> {new}"
     },
     "host.deep_diagnostics_plan_note": {
       "sourceHash": "2290f352f10fbdeaedb2acd773883bc7460789676a550159a94ac51dc4c3135e",
-      "origin": "machine",
       "message": "    nota: {note}"
     },
     "host.deep_diagnostics_state_record": {
       "sourceHash": "acfa6fffe838eb8c061b7cd91dea999e71f05a2330c1d484bf12259ccd2a47a3",
-      "origin": "machine",
       "message": "Todos os valores acima são registrados em {path} antes da primeira alteração; Disable-DeepDiagnostics.ps1 restaura o hospedeiro a partir desse registro."
     },
     "host.deep_diagnostics_title_sysctl": {
       "sourceHash": "b99dee601390d5383306032b6d364536a82183dedffd573c6b0a49badfc48c1d",
-      "origin": "machine",
       "message": "pânico e reinicialização em caso de travamentos e oopses"
     },
     "host.deep_diagnostics_title_pstore": {
       "sourceHash": "5afb2adb367f08c36e860b89ca8b1c13a9ee8be430311372d70b411c35d5ee03",
-      "origin": "machine",
       "message": "registros de falhas no armazenamento UEFI"
     },
     "host.deep_diagnostics_title_watchdog": {
       "sourceHash": "0cf99a53ad4c2e29b4d5e7cc851e4b8a41ff9732e0f7b584c8c172da4bd6db7f",
-      "origin": "machine",
       "message": "reinicialização por watchdog de hardware"
     },
     "host.deep_diagnostics_title_journald": {
       "sourceHash": "6928e1288545bcae81a5822288377286ca60cbfcf5e4641ac139621db1e6c148",
-      "origin": "machine",
       "message": "diário persistente sincronizado a cada 10 segundos"
     },
     "host.deep_diagnostics_title_rasdaemon": {
       "sourceHash": "bf11a2cf1687ff3b5c00951d6dbfbb685a3cabfd491755e766627ed3e993905c",
-      "origin": "machine",
       "message": "log de erros de hardware"
     },
     "host.deep_diagnostics_title_netconsole": {
       "sourceHash": "71852ec2d7f0bcdfda36e2b17a3d3a94d044d7576dc7c679e51711511da3a4d6",
-      "origin": "machine",
       "message": "log do kernel enviado para outra máquina"
     },
     "host.deep_diagnostics_title_vitals": {
       "sourceHash": "fef3b8a0e08f6ee195178027b3ca918551f5d0112efc7fdf79e7700eab3df013",
-      "origin": "machine",
       "message": "sinais vitais do hospedeiro no log do kernel a cada 10 segundos"
     },
     "host.deep_diagnostics_title_boot_evidence": {
       "sourceHash": "2f6dcf73aa5f9f44b4b1990b3d298748bdbf7dca23d3e00edd85477329f70a1f",
-      "origin": "machine",
       "message": "pacote de evidências a cada inicialização"
     },
     "host.deep_diagnostics_value_absent": {
       "sourceHash": "de66465ce8197184bd45fa0c8ff0ad4750423ddc6036db2efe9b4c62410422de",
-      "origin": "machine",
       "message": "ausente"
     },
     "host.deep_diagnostics_value_yuruna_file": {
       "sourceHash": "e763539e8f86109b6dc88d2aeb6f0115c03ebd5eb655d6f47be6d706e65f70d4",
-      "origin": "machine",
       "message": "a versão do diagnóstico aprofundado"
     },
     "host.deep_diagnostics_value_saved_content": {
       "sourceHash": "c93b56c4f137b6c73055aeacc292668c97de4f11176b1fac7822f2da2751adab",
-      "origin": "machine",
       "message": "outro conteúdo, guardado em {statePath}"
     },
     "host.deep_diagnostics_value_restored_content": {
       "sourceHash": "6bb3e689ea3831c78c2af6d1ecbeb9f0441d2210635acc9f341fe9ff285ef07a",
-      "origin": "machine",
       "message": "o conteúdo anterior guardado em {statePath}"
     },
     "host.deep_diagnostics_value_removed": {
       "sourceHash": "7d13121e6168384d737b8c509b9b66b1218a99eb346eba444a4f567d1992b0a5",
-      "origin": "machine",
       "message": "removido"
     },
     "host.deep_diagnostics_value_loaded": {
       "sourceHash": "dac66a41a0362379c4d458ab4c2e14e8ed3cd002ade1ce383ccec7d21d7b149d",
-      "origin": "machine",
       "message": "carregado"
     },
     "host.deep_diagnostics_value_not_loaded": {
       "sourceHash": "d90f1bb08c796195592d70fb9f77a5b42104a1c419ccd2c356b985beb36f51e8",
-      "origin": "machine",
       "message": "não carregado"
     },
     "host.deep_diagnostics_value_installed": {
       "sourceHash": "855a99e9d5c3a53556dc4766d10b9bac4326b0e985b0cbc06e648f1ec76e9a72",
-      "origin": "machine",
       "message": "instalado"
     },
     "host.deep_diagnostics_value_not_installed": {
       "sourceHash": "30194887522dcb661c5e129f67a1e16be4387c3c9c6ce9449ce63a9826c1a206",
-      "origin": "machine",
       "message": "não instalado"
     },
     "host.deep_diagnostics_value_none": {
       "sourceHash": "b43067ea1bc0cd80e851e3c69c5d02ce5fee95dea5834b9d1c34c11931f9c486",
-      "origin": "machine",
       "message": "nenhum"
     },
     "host.deep_diagnostics_key_netconsole": {
       "sourceHash": "d6f49bce41cedf33a6e7b8542f7ab2dfa5dfebcf5b910d8e56d5a05d7f3a5388",
-      "origin": "machine",
       "message": "destino do netconsole"
     },
     "host.deep_diagnostics_key_pstore_backend": {
       "sourceHash": "4b697eec73e824d58e0ecc2d3a97d072e9d638be24e4ed1efc470009f439497d",
-      "origin": "machine",
       "message": "backend do pstore"
     },
     "host.deep_diagnostics_sysctl_not_exposed": {
       "sourceHash": "0d14f303bc164a3dd5bcc7372eec90e9f43aac8cd8cccb16fba5eafa46b3fffb",
-      "origin": "machine",
       "message": "{key} não é exposto por este kernel, por isso fica de fora."
     },
     "host.deep_diagnostics_setting_overridden": {
       "sourceHash": "d37e2aaf1b611ba93aa2f4ac302c0bf540772a97bb5683369743701bbe9f2bdb",
-      "origin": "machine",
       "message": "{path} define {key}={value} e é lido depois do drop-in do diagnóstico aprofundado, por isso o valor dele prevalece na inicialização."
     },
     "host.deep_diagnostics_pstore_legacy_bios": {
       "sourceHash": "8c1c8a89fbdcc446020b9196a754287992dce0551f1e55f0d3b30c1191f89443",
-      "origin": "machine",
       "message": "este hospedeiro foi inicializado com BIOS legado, e o efi-pstore precisa de UEFI"
     },
     "host.deep_diagnostics_pstore_unsupported": {
       "sourceHash": "b56250bd228a31dbfb233008cbe264638b79f17605378744f3c3d88a4ddbc2e4",
-      "origin": "machine",
       "message": "este kernel não tem suporte a pstore"
     },
     "host.deep_diagnostics_pstore_unit_masked": {
       "sourceHash": "d515d44479ed6f6f63f20dbb4e494ca354f7df63f57e903ab3f64fd685252e69",
-      "origin": "machine",
       "message": "systemd-pstore.service está mascarado; desmascare-o para arquivar os registros de falhas na inicialização"
     },
     "host.deep_diagnostics_pstore_backend": {
       "sourceHash": "5c24abc4ae7281fa2cb5406b0130d847f0013223b2dfe496027667ca4470f743",
-      "origin": "machine",
       "message": "o pstore já usa o backend {backend}"
     },
     "host.deep_diagnostics_pstore_no_backend": {
       "sourceHash": "05d00b7a4b08dd4dd5b0d64034934d6111ffe5b5584bc816ba11c38f46075d4f",
-      "origin": "machine",
       "message": "efi_pstore foi carregado, mas o pstore ainda não informa nenhum backend ({backend})"
     },
     "host.deep_diagnostics_watchdog_daemon": {
       "sourceHash": "d5a9229957b4b2d84a91ac937ba617ba4b4a4d494e5484fb52409e299b25f772",
-      "origin": "machine",
       "message": "{unit} está em execução e retém o dispositivo watchdog; pare-o e desative-o para que o systemd possa usar o dispositivo"
     },
     "host.deep_diagnostics_watchdog_held": {
       "sourceHash": "5743b5803c9204852e61c3ff8039a8b767251b16488b77f2b87a096653d2f719",
-      "origin": "machine",
       "message": "{device} está aberto por outro processo, e um dispositivo watchdog aceita um usuário por vez; pare esse processo para que o systemd possa usá-lo"
     },
     "host.deep_diagnostics_watchdog_nowayout": {
       "sourceHash": "b2ac7b9b4301ac93b262f471c799e8c06b8fe16d8114ec85c4064415bf26264f",
-      "origin": "machine",
       "message": "{device} tem nowayout definido: depois de armado, ele não pode ser parado sem uma reinicialização, então Disable-DeepDiagnostics.ps1 não conseguiria restaurar este hospedeiro"
     },
     "host.deep_diagnostics_watchdog_softdog": {
       "sourceHash": "8381fbb56daa05c0374930eddaff5cd39e16b88e9b76eaf578682f645ccb10d0",
-      "origin": "machine",
       "message": "apenas o softdog está registrado ({device}). O softdog é executado nos processadores que congelam, então não consegue disparar em um congelamento total, e um driver de hardware não se registraria como watchdog0 enquanto o softdog estiver carregado; descarregue-o (sudo modprobe -r softdog) e execute novamente"
     },
     "host.deep_diagnostics_watchdog_no_driver": {
       "sourceHash": "d58c83ad2ef3b807aed21883f12bf96bbf30bbe4789c8725bb52fd7e709632c3",
-      "origin": "machine",
       "message": "nenhum watchdog de hardware está registrado e nenhum driver é conhecido para o fabricante de CPU '{vendor}'; o softdog não é usado porque não consegue disparar em um congelamento total"
     },
     "host.deep_diagnostics_watchdog_no_device": {
       "sourceHash": "a2408b963eed9e009726b619879ef8e062e2c7a8822df76b910297e99cee5ef8",
-      "origin": "machine",
       "message": "{module} foi carregado, mas não registrou nenhum watchdog de hardware, o que geralmente significa que o firmware o desativou (veja: sudo dmesg | grep -i {module})"
     },
     "host.deep_diagnostics_netconsole_no_target": {
       "sourceHash": "48dce015e2a8b88e597a07c6cbcd738d8f1570b153ad67be4726c2a0e219d5a0",
-      "origin": "machine",
       "message": "nenhum -NetconsoleTarget foi informado"
     },
     "host.deep_diagnostics_netconsole_how_to": {
       "sourceHash": "0b814309d771e829a9aa828c2ca0914cfe2b1a9532e7a77efde547d2fa209c58",
-      "origin": "machine",
       "message": "Para enviar o log do kernel para outra máquina em tempo real, execute pwsh test/lab/Receive-Netconsole.ps1 nela e, depois, execute este script novamente com -NetconsoleTarget <IPv4 dessa máquina>[:porta]."
     },
     "host.deep_diagnostics_netconsole_no_dispatcher": {
       "sourceHash": "634089ea5b1bf9eb5593697c0ecf4df3a824125bc823b2c12a50f159b12882a5",
-      "origin": "machine",
       "message": "o NetworkManager não está instalado, então o destino é definido apenas na inicialização, e não novamente quando o endereço deste hospedeiro muda"
     },
     "host.deep_diagnostics_netconsole_not_enabled": {
       "sourceHash": "62b1f64884e33d03a771b8c27d70c1b586c419cc0dee2389bd05b1d3eebac0c8",
-      "origin": "machine",
       "message": "o destino do netconsole não ficou ativo; veja: journalctl -t yuruna-netconsole"
     },
     "host.deep_diagnostics_existing_unreadable": {
       "sourceHash": "54b308d98d8ad851056e1654ab9f6363338e34facaf88d7c6384e29962263dea",
-      "origin": "machine",
       "message": "{path} existe, mas não pode ser lido, então não poderia ser restaurado depois; ele foi deixado como está"
     },
     "host.deep_diagnostics_step_failed": {
       "sourceHash": "67f91e75215cd0072714b307120b993389e41341d1d0362a04a95698902e8ade",
-      "origin": "machine",
       "message": "{command} falhou (código de saída {exitCode}): {output}"
     },
     "host.deep_diagnostics_reason_interrupted": {
       "sourceHash": "0c98ffb961b6c99bc391d32bb3122d127b416720117a82bc3ad143ab41110052",
-      "origin": "machine",
       "message": "Enable-DeepDiagnostics.ps1 parou antes de este componente entrar em vigor"
     },
     "host.deep_diagnostics_reason_declined": {
       "sourceHash": "8ff34314fcc674351af08029040586a8d11b9405ac10b3f0aa768f4ec69aaf08",
-      "origin": "machine",
       "message": "não confirmado"
     },
     "host.deep_diagnostics_applying": {
       "sourceHash": "baa277e4f5776186b62feeb9236c54fe84d7afeeca3febd36120ae8d48b32f94",
-      "origin": "machine",
       "message": "Aplicando {component} ({title})..."
     },
     "host.deep_diagnostics_component_failed": {
       "sourceHash": "6cf2655cdf38304644af922d98f1a589f7eed757a5f869cc9b5f3a1a8273d827",
-      "origin": "machine",
       "message": "{component} não foi aplicado: {reason}"
     },
     "host.deep_diagnostics_summary_header": {
       "sourceHash": "254aea78d7f5251b798565882d4aea83077bb3052f445e7c3321e8aaa4b2a922",
-      "origin": "machine",
       "message": "Modo de diagnóstico aprofundado:"
     },
     "host.deep_diagnostics_summary_applied": {
       "sourceHash": "21cec2498c46ab7dddf62ff506d7f1dddb547cc9d3f45f6e067a599ff1870308",
-      "origin": "machine",
       "message": "  {component}: aplicado"
     },
     "host.deep_diagnostics_summary_skipped": {
       "sourceHash": "9dbefe557de9c84b7045f1a136f693c0355a77e1cb6baee9589443c8b6618986",
-      "origin": "machine",
       "message": "  {component}: ignorado -- {reason}"
     },
     "host.deep_diagnostics_summary_failed": {
       "sourceHash": "6118c1f77ae58e29227accd35814c8b8aa142b584662b3a57b23319acfa54102",
-      "origin": "machine",
       "message": "  {component}: falhou -- {reason}"
     },
     "host.deep_diagnostics_nothing_to_change": {
       "sourceHash": "1d4658fbf592d71a4ae4a53ae6f60315824ace0c72fab7c455ef09223caf1541",
-      "origin": "machine",
       "message": "O modo de diagnóstico aprofundado já está em vigor neste hospedeiro; nada foi alterado."
     },
     "host.deep_diagnostics_receiver_command": {
       "sourceHash": "8847e7f5806edaf80f102dab5b98f7b6d89b12121a477bb8d3a99cb891721e09",
-      "origin": "machine",
       "message": "Mantenha o receptor em execução na máquina de destino: pwsh test/lab/Receive-Netconsole.ps1 -Port {port}"
     },
     "host.deep_diagnostics_verify": {
       "sourceHash": "f84f4d3a3810c6760cc82222df8376fd1323ae54c9e28cc22b6a40a0b623dd19",
-      "origin": "machine",
       "message": "Para verificar o caminho de ponta a ponta, execute: echo '<5>yuruna-deep-diagnostics: check' | sudo tee /dev/kmsg -- a linha aparece em 'journalctl -k -n 5' aqui e, com o netconsole, no log do receptor."
     },
     "host.deep_diagnostics_enable_incomplete": {
       "sourceHash": "34d619152e9f904c2d770cfa1840106510e0957e7e2d80a56d29a6e2c5b6f8ba",
-      "origin": "machine",
       "message": "{count} componente(s) com falha, e os demais estão em vigor; corrija a causa e execute Enable-DeepDiagnostics.ps1 novamente."
     },
     "host.deep_diagnostics_should_record": {
       "sourceHash": "d8ef8dcc86a8932be9c37985f50d618f4271e3c8c05df829d104c8ed7c3d80dd",
-      "origin": "machine",
       "message": "Registrar os valores atuais e aplicar o modo de diagnóstico aprofundado"
     },
     "host.deep_diagnostics_should_apply": {
       "sourceHash": "4f72e0b25041f9ce22a660da511994cae6a6925b582d795504bda95170f9e2ae",
-      "origin": "machine",
       "message": "Aplicar"
     },
     "host.deep_diagnostics_should_restore": {
       "sourceHash": "f755d69f8166b16dd2ee8ea6c9c8d6a6bc6c0f45204fbfc9e1f3a1d07178a213",
-      "origin": "machine",
       "message": "Restaurar os valores registrados antes do modo de diagnóstico aprofundado"
     },
     "host.deep_diagnostics_not_enabled": {
       "sourceHash": "d3efade36c8cb2684a1382e70fbc2586c2ba3aac49d1bf18d1cb1cd59b9a26bc",
-      "origin": "machine",
       "message": "O modo de diagnóstico aprofundado não está ativado neste hospedeiro: {path} não existe."
     },
     "host.deep_diagnostics_restore_header": {
       "sourceHash": "722f5740d76ea24c4d05b0877b12bc1a00b805d35e973fef8f45ed87c3294746",
-      "origin": "machine",
       "message": "Modo de diagnóstico aprofundado, ativado em {enabledAtUtc} por {enabledBy}: restauração planejada"
     },
     "host.deep_diagnostics_restore_failed": {
       "sourceHash": "82fe1525917028e95190b7d494ced77911125bf64003950c9fb73a66056736ae",
-      "origin": "machine",
       "message": "{item} não foi restaurado: {message}"
     },
     "host.deep_diagnostics_restore_done": {
       "sourceHash": "cc0eb7256fcc9373f8af3c9695f9894d20751d586ea96718e187bf5fe49abcde",
-      "origin": "machine",
       "message": "O modo de diagnóstico aprofundado está desativado; {count} alteração(ões) revertida(s)."
     },
     "host.deep_diagnostics_restore_incomplete": {
       "sourceHash": "5439dd6fcc36df7d6fa51a467c3c63b64430df56122d72c93cbec72177fad7c1",
-      "origin": "machine",
       "message": "Não foi possível reverter {count} alteração(ões); {path} foi mantido, então executar Disable-DeepDiagnostics.ps1 novamente conclui a restauração."
     },
     "host.deep_diagnostics_evidence_kept": {
       "sourceHash": "59e6df48eb7809b61b14f1c633d4be5d239b8590ce56d5d0676838bb9480a299",
-      "origin": "machine",
       "message": "os pacotes de evidências permanecem em {path}; -RemoveEvidence os exclui"
     },
     "host.deep_diagnostics_module_in_use": {
       "sourceHash": "9948fb83d9b1a39b16500aeb0460663cd5aa5c5f93d0b190237b12c5845c571f",
-      "origin": "machine",
       "message": "{module} continua carregado porque algo ainda o usa"
     },
     "host.deep_diagnostics_journal_directory_created": {
       "sourceHash": "8b9fea77c799f6e51ffce071e6238187afdd4ba00977689895d563828a291cd5",
-      "origin": "machine",
       "message": "{path} foi criado enquanto o modo de diagnóstico aprofundado estava ativado, e o journald mantém um diário persistente enquanto esse diretório existir. Para voltar a um diário volátil: sudo rm -rf {path} && sudo systemctl restart systemd-journald"
     },
     "host.deep_diagnostics_watchdog_provider_unknown": {
       "sourceHash": "105c4c2e87e0910a0ccc323369a908a1081c741d2711c0b1600d74960e51591a",
-      "origin": "machine",
       "message": "não foi possível identificar o módulo do kernel que fornece {device} ('{identity}') (drivers de watchdog carregados: {drivers}), então nada o carregaria na próxima inicialização e o watchdog sumiria após uma reinicialização; com exatamente um driver de watchdog de hardware carregado, execute isto novamente"
     },
     "host.deep_diagnostics_dependencies_kept": {
       "sourceHash": "40b04747a120d8fce2a38d170a9297af66b87661949ed75514f44ba57d30f96e",
-      "origin": "machine",
       "message": "os pacotes que a instalação de {package} trouxe, que o apt marcou como instalados automaticamente, permanecem porque outro software pode usá-los; /var/log/apt/history.log os lista sob essa instalação. Para removê-los também: sudo apt-get purge <esses pacotes>. apt-get autoremove também removeria todos os outros pacotes de que o apt não precisa mais, entre eles kernels antigos"
     },
     "host.deep_diagnostics_value_evidence": {
       "sourceHash": "94132803a79189da09a466128fefa3117c8b08d51e96bec2b667bc0d47cbf5e5",
-      "origin": "machine",
       "message": "os pacotes de evidências"
+    },
+    "host.service_build_plan_auth_readonly_unsupported": {
+      "sourceHash": "f33f600fac53ee4ba8d4640de0429b0ec7fb8a6ef1799f226473810bd162c95d",
+      "message": "O provedor de autenticação {provider} não oferece validação de senha somente para leitura. O plano de criação não pode chamar o método que altera os dados."
+    },
+    "host.service_build_plan_cache_state_invalid": {
+      "sourceHash": "e41a8521d8a7909a3e3e0c4aaa094a9cac50b503278b2403197e85d8b2a608bc",
+      "message": "Não é possível validar o estado do caching-proxy em {path} sem alterá-lo: o arquivo principal e sua cópia de segurança contêm dados inutilizáveis."
     }
   }
 }

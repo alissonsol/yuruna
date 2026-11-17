@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4246d32b-8525-4736-8ed7-b3883787ca97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,6 +128,25 @@ Describe 'New-YurunaDegradationRecord' {
         try { [void](New-YurunaDegradationRecord -Dependency 'd' -Primary 'p' -Fallback 'f' -Severity 'bogus') }
         catch { $threw = $true }
         Assert-True $threw 'ValidateSet should reject severity=bogus'
+    }
+
+    It 'names the guest a degradation concerns, and only when there is one' {
+        $r = New-YurunaDegradationRecord -Dependency 'dhcp-capture' -Primary 'armed-window' -Fallback 'none' `
+            -Reason 'the window could not be armed' -VMName 'test-guest-01' -Timestamp '2026-06-08T12:00:00Z'
+        Assert-Equal -Expected 'test-guest-01' -Actual $r.vmName -Because 'a pool query has to say which guest lost the evidence'
+        $violations = @(Test-CycleEventSchema -Record $r)
+        Assert-Equal -Expected 0 -Actual $violations.Count -Because "schema violations: $($violations -join '; ')"
+        $hostWide = New-YurunaDegradationRecord -Dependency 'caching-proxy-service' -Primary 'squid' -Fallback 'direct-internet'
+        Assert-False ($hostWide.Contains('vmName')) 'a degradation about no guest keeps its shape'
+    }
+
+    It 'passes the guest name from Send-YurunaDegradation into the emitted record' {
+        Mock -ModuleName 'Test.Log' Send-CycleEventSafely { }
+        Send-YurunaDegradation -Dependency 'dhcp-capture' -Primary 'armed-window' -Fallback 'none' `
+            -Reason 'r' -VMName 'test-guest-01' -InformationAction SilentlyContinue
+        Should -Invoke -ModuleName 'Test.Log' Send-CycleEventSafely -Times 1 -Exactly -ParameterFilter {
+            $EventRecord['vmName'] -eq 'test-guest-01' -and $EventRecord['dependency'] -eq 'dhcp-capture'
+        }
     }
 }
 
@@ -646,6 +665,206 @@ Describe 'Add-OcrHistoryFrame keeps the earliest frames of a guest' {
         $record.consoleSecondOpinion.Verdict | Should -Be 'guest-wedged'
         & (Get-Module Test.Log) { $script:OrdinarySnapshotCalls } | Should -Be 0
         $record.controlSnapshot | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Save-StepFailureEvidence keeps only what the failed attempt itself left' {
+    BeforeAll {
+        function Invoke-InEvidenceCycle {
+            param([string]$CycleFolder, [string]$LogDir, [scriptblock]$Action)
+            $saved = @{ Globals = (Save-YurunaTestGlobal -Name '__YurunaCycleFolder'); Environment = (Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR') }
+            try {
+                Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $CycleFolder }
+                $env:YURUNA_LOG_DIR = $LogDir
+                $null = New-Item -ItemType Directory $LogDir -Force
+                & $Action
+            } finally {
+                Restore-YurunaTestGlobal -Saved $saved.Globals
+                Restore-YurunaTestEnvironment -Saved $saved.Environment
+            }
+        }
+        # The log root's OCR text as an earlier or the current wait left it.
+        function Set-RootOcrFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: writes a fixture file under the test drive.')]
+            param([string]$LogDir, [string]$Text, [datetime]$WrittenUtc)
+            $null = New-Item -ItemType Directory $LogDir -Force
+            $path = Join-Path $LogDir 'failure_ocr_vm-01.txt'
+            Set-Content -LiteralPath $path -Value $Text
+            [IO.File]::SetLastWriteTimeUtc($path, $WrittenUtc)
+        }
+    }
+    It 'copies OCR text written since the failed step began' {
+        $cycle = Join-Path $TestDrive 'ocr-fresh'
+        $log = Join-Path $TestDrive 'ocr-fresh-log'
+        $started = [DateTime]::UtcNow.AddMinutes(-2)
+        Set-RootOcrFixture -LogDir $log -Text 'yuhost26 login:' -WrittenUtc $started.AddSeconds(90)
+        $relative = Invoke-InEvidenceCycle -CycleFolder $cycle -LogDir $log -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step2-attempt1' -StepStartedUtc $started -Confirm:$false
+        }
+        (Get-Content -Raw -LiteralPath (Join-Path $cycle "$relative/failure_ocr.txt")).Trim() | Should -BeExactly 'yuhost26 login:'
+    }
+    It 'writes a one-line note in place of the text an earlier wait left' {
+        $cycle = Join-Path $TestDrive 'ocr-stale'
+        $log = Join-Path $TestDrive 'ocr-stale-log'
+        $started = [datetime]::new(2026, 1, 2, 8, 5, 38, [DateTimeKind]::Utc)
+        Set-RootOcrFixture -LogDir $log -Text 'start: subiquity/Install/install/curtin_install' -WrittenUtc ([datetime]::new(2026, 1, 2, 7, 44, 49, [DateTimeKind]::Utc))
+        $relative = Invoke-InEvidenceCycle -CycleFolder $cycle -LogDir $log -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step18-attempt1' -StepStartedUtc $started -Confirm:$false
+        }
+        $lines = @(Get-Content -LiteralPath (Join-Path $cycle "$relative/failure_ocr.txt"))
+        $lines.Count | Should -Be 1
+        $lines[0] | Should -Not -Match 'curtin_install' -Because 'the earlier wait''s screen is not this attempt''s evidence'
+        $lines[0] | Should -Match '^No OCR text from this attempt'
+        $lines[0] | Should -Match '2026-01-02T07:44:49Z' -Because 'the note dates the file it did not copy'
+        $lines[0] | Should -Match '2026-01-02T08:05:38Z'
+        Test-Path -LiteralPath (Join-Path $log 'failure_ocr_vm-01.txt') | Should -BeTrue -Because 'the log root keeps its file for the failure record to judge'
+    }
+    It 'allows the two seconds of slack the failure record''s own check allows' {
+        $cycle = Join-Path $TestDrive 'ocr-slack'
+        $log = Join-Path $TestDrive 'ocr-slack-log'
+        $started = [DateTime]::UtcNow.AddMinutes(-1)
+        Set-RootOcrFixture -LogDir $log -Text 'Password:' -WrittenUtc $started.AddSeconds(-1)
+        $relative = Invoke-InEvidenceCycle -CycleFolder $cycle -LogDir $log -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step3-attempt1' -StepStartedUtc $started -Confirm:$false
+        }
+        (Get-Content -Raw -LiteralPath (Join-Path $cycle "$relative/failure_ocr.txt")).Trim() | Should -BeExactly 'Password:'
+    }
+    It 'copies the text as found when no step start is known' {
+        $cycle = Join-Path $TestDrive 'ocr-unbounded'
+        $log = Join-Path $TestDrive 'ocr-unbounded-log'
+        Set-RootOcrFixture -LogDir $log -Text 'earlier text' -WrittenUtc ([DateTime]::UtcNow.AddHours(-1))
+        $relative = Invoke-InEvidenceCycle -CycleFolder $cycle -LogDir $log -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step4-attempt1' -Confirm:$false
+        }
+        (Get-Content -Raw -LiteralPath (Join-Path $cycle "$relative/failure_ocr.txt")).Trim() | Should -BeExactly 'earlier text'
+    }
+}
+
+Describe 'Save-StepFailureEvidence keeps the serial console a cold restart would delete' {
+    BeforeAll {
+        function Invoke-InSerialCycle {
+            param([string]$CycleFolder, [scriptblock]$Action)
+            $saved = @{ Globals = (Save-YurunaTestGlobal -Name '__YurunaCycleFolder'); Environment = (Save-YurunaTestEnvironment -Name 'YURUNA_LOG_DIR') }
+            try {
+                Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = $CycleFolder }
+                $env:YURUNA_LOG_DIR = Join-Path $CycleFolder 'log'
+                $null = New-Item -ItemType Directory $env:YURUNA_LOG_DIR -Force
+                & $Action
+            } finally {
+                Restore-YurunaTestGlobal -Saved $saved.Globals
+                Restore-YurunaTestEnvironment -Saved $saved.Environment
+            }
+        }
+        # The attempt's vm-diagnostics.json with its times kept as the text they
+        # were written with: ConvertFrom-Json turns ISO text into dates unless
+        # told not to (-DateKind String, PowerShell 7.5 and later).
+        $script:StringDates = @{}
+        if ((Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $script:StringDates.DateKind = 'String' }
+        function Read-AttemptDiagnostic {
+            param([string]$Folder)
+            $stringDates = $script:StringDates
+            [IO.File]::ReadAllText((Join-Path $Folder 'vm-diagnostics.json')) | ConvertFrom-Json -AsHashtable @stringDates
+        }
+        $script:SerialText = "[    2.335000] Booting Linux on physical CPU 0x0000000000 [0x512f0010]`n[   59.952000] systemd-logind[1]: New session '2' of user 'testuser'.`n"
+        $script:SerialWrittenUtc = [datetime]::new(2026, 1, 2, 9, 55, 22, [DateTimeKind]::Utc)
+    }
+    BeforeEach {
+        # The Hyper-V driver's verb and the failure path's kernel reading, as
+        # the evidence writer finds them by name.
+        . (Get-Module Test.Log) {
+            $script:SerialFixture = @{ Path = $null; KernelReads = [Collections.Generic.List[string]]::new() }
+            function Get-VMSerialCaptureLogPath {
+                param([string]$VMName)
+                $null = $VMName
+                return $script:SerialFixture.Path
+            }
+            function Save-SerialConsoleKernelFault {
+                param([string]$OutputDirectory)
+                $script:SerialFixture.KernelReads.Add($OutputDirectory)
+            }
+        }
+    }
+    AfterEach {
+        . (Get-Module Test.Log) {
+            Remove-Item -LiteralPath function:\Get-VMSerialCaptureLogPath, function:\Save-SerialConsoleKernelFault -ErrorAction SilentlyContinue
+            Remove-Variable -Name SerialFixture -Scope Script -ErrorAction SilentlyContinue
+        }
+    }
+    It 'copies the live capture while its reader still holds it, keeps its write time, and reads the kernel''s reports from the copy' {
+        $capture = Join-Path $TestDrive 'temp/yuruna-serial-vm-01.log'
+        $null = New-Item -ItemType Directory (Split-Path -Parent $capture) -Force
+        [IO.File]::WriteAllText($capture, $script:SerialText)
+        [IO.File]::SetLastWriteTimeUtc($capture, $script:SerialWrittenUtc)
+        & (Get-Module Test.Log) { param($p) $script:SerialFixture.Path = $p } $capture
+        $cycle = Join-Path $TestDrive 'serial-kept'
+        # Held open for appending with the sharing the reader job uses.
+        $reader = [IO.FileStream]::new($capture, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+        try {
+            $relative = Invoke-InSerialCycle -CycleFolder $cycle -Action {
+                Save-StepFailureEvidence -VMName 'vm-01' -Label 'step18-attempt1' -Confirm:$false -DiagnosticRecord @{
+                    vmName = 'vm-01'; hostType = 'host.windows.hyper-v'; architecture = 'Arm64'; vmState = 'running'; captureStartupSnapshot = $true }
+            }
+        } finally { $reader.Dispose() }
+        $relative | Should -Be 'vm-01/failed_step18-attempt1'
+        $kept = Join-Path $cycle "$relative/serial-console.log"
+        [IO.File]::ReadAllText($kept) | Should -BeExactly $script:SerialText
+        [IO.File]::GetLastWriteTimeUtc($kept) | Should -Be $script:SerialWrittenUtc -Because 'the copy dates the console''s last byte'
+        @(& (Get-Module Test.Log) { $script:SerialFixture.KernelReads }) | Should -Be @((Join-Path $cycle $relative))
+        Test-Path -LiteralPath (Join-Path $cycle "$relative/vm-diagnostics.json") | Should -BeTrue
+        $outcome = (Read-AttemptDiagnostic -Folder (Join-Path $cycle $relative)).serialCapture
+        $outcome.written | Should -BeTrue
+        $outcome.reason | Should -BeExactly 'copied'
+        $outcome.bytes | Should -Be ([Text.Encoding]::UTF8.GetByteCount($script:SerialText))
+        $outcome.lastByteUtc | Should -BeExactly $script:SerialWrittenUtc.ToString('o', [Globalization.CultureInfo]::InvariantCulture) -Because 'the record dates the console''s last byte as the step''s kernel reading does'
+    }
+    It 'keeps no serial copy for <Case>, and records the outcome' -ForEach @(
+        @{ Case = 'a retry that restarts nothing'; Snapshot = $false; Content = 'boot text'; Recorded = 'null' }
+        @{ Case = 'an empty capture'; Snapshot = $true; Content = ''; Recorded = '{"written":false,"reason":"empty","bytes":0,"lastByteUtc":null}' }
+        @{ Case = 'a reader that made no file'; Snapshot = $true; Content = $null; Recorded = '{"written":false,"reason":"no-capture-file","bytes":0,"lastByteUtc":null}' }
+    ) {
+        $capture = Join-Path $TestDrive "temp/yuruna-serial-$([guid]::NewGuid().ToString('N')).log"
+        $null = New-Item -ItemType Directory (Split-Path -Parent $capture) -Force
+        if ($null -ne $Content) {
+            [IO.File]::WriteAllText($capture, $Content)
+            & (Get-Module Test.Log) { param($p) $script:SerialFixture.Path = $p } $capture
+        }
+        $cycle = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $relative = Invoke-InSerialCycle -CycleFolder $cycle -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step2-attempt1' -Confirm:$false -DiagnosticRecord @{
+                vmName = 'vm-01'; hostType = 'host.windows.hyper-v'; captureStartupSnapshot = $Snapshot; consoleSecondOpinion = @{ Verdict = 'guest-static' } }
+        }
+        $relative | Should -Be 'vm-01/failed_step2-attempt1'
+        Test-Path -LiteralPath (Join-Path $cycle "$relative/serial-console.log") | Should -BeFalse
+        @(& (Get-Module Test.Log) { $script:SerialFixture.KernelReads }).Count | Should -Be 0
+        $outcome = (Read-AttemptDiagnostic -Folder (Join-Path $cycle $relative)).serialCapture
+        (ConvertTo-Json -InputObject $outcome -Compress) | Should -BeExactly $Recorded -Because 'a folder without the copy says why it has none'
+    }
+    It 'keeps no serial copy on a host that names no live capture' {
+        . (Get-Module Test.Log) { Remove-Item -LiteralPath function:\Get-VMSerialCaptureLogPath -ErrorAction SilentlyContinue }
+        $cycle = Join-Path $TestDrive 'serial-no-verb'
+        $relative = Invoke-InSerialCycle -CycleFolder $cycle -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step2-attempt1' -Confirm:$false -DiagnosticRecord @{ vmName = 'vm-01'; hostType = 'host.ubuntu.kvm'; captureStartupSnapshot = $true }
+        }
+        @(Get-ChildItem -LiteralPath (Join-Path $cycle $relative) -Name) | Should -Be @('vm-diagnostics.json')
+        (Read-AttemptDiagnostic -Folder (Join-Path $cycle $relative)).serialCapture | Should -BeNullOrEmpty -Because 'a host without a live capture records nothing'
+    }
+    It 'keeps the attempt''s other evidence when the capture cannot be read' {
+        $unreadable = Join-Path $TestDrive 'temp/a-folder-not-a-capture'
+        $null = New-Item -ItemType Directory $unreadable -Force
+        & (Get-Module Test.Log) { param($p) $script:SerialFixture.Path = $p } $unreadable
+        $cycle = Join-Path $TestDrive 'serial-unreadable'
+        $relative = Invoke-InSerialCycle -CycleFolder $cycle -Action {
+            Save-StepFailureEvidence -VMName 'vm-01' -Label 'step2-attempt1' -Confirm:$false -DiagnosticRecord @{ vmName = 'vm-01'; hostType = 'host.windows.hyper-v'; captureStartupSnapshot = $true }
+        }
+        $relative | Should -Be 'vm-01/failed_step2-attempt1'
+        Test-Path -LiteralPath (Join-Path $cycle "$relative/vm-diagnostics.json") | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $cycle "$relative/serial-console.log") | Should -BeFalse
+        $outcome = (Read-AttemptDiagnostic -Folder (Join-Path $cycle $relative)).serialCapture
+        $outcome.written | Should -BeFalse
+        $outcome.reason | Should -Not -BeNullOrEmpty
+        $outcome.reason | Should -Not -BeIn @('copied', 'empty', 'no-capture-file') -Because 'the reason is the error that stopped the copy'
+        $outcome.reason | Should -Match 'a-folder-not-a-capture' -Because 'the error names what could not be read'
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 428ee2d7-b078-4350-802e-6f235f2102bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@ param()
 
 if ($startPart -ne $PSCommandPath) { throw "$PSCommandPath runs only inside Start-ExtensionService.ps1." }
 
+# --- REGION: Resolve the VM address
 # An adopted guest's address is where the readiness wait starts; a rebuilt
 # guest is found by name.
 $stashVmIp = if ($adoption.Decision -ne 'rebuild') { [string]$adoption.Address } else { $null }

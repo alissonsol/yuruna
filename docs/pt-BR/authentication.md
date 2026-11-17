@@ -226,8 +226,24 @@ Limite de confiança:
 | Camada | Mecanismo | Por que texto puro é aceitável |
 |-------|-----------|----------------------------|
 | Sistema de arquivos | O arquivo está no gitignore (regra `test/status/*/` do `.gitignore`); nunca é commitado, nunca é sincronizado. | Um atacante com acesso de leitura ao sistema de arquivos já está na máquina do operador, com capacidade equivalente ou maior. |
-| Processo | Leitura+escrita serializadas por um mutex nomeado a partir do SHA-1 do caminho; gravação atômica em arquivo temporário e renomeação. | Ciclos concorrentes não podem corromper o arquivo; não é um controle de confidencialidade. |
-| Auditoria | Cada leitura / escrita / rotação é acrescentada ao `events.log` como uma linha JSON. Senhas nunca aparecem no log. | Detecção de adulteração, não criptografia. |
+| Processo | Leitura+escrita normais serializadas por um mutex nomeado a partir do SHA-1 do caminho; gravação atômica em arquivo temporário e renomeação. As prévias somente leitura consultam o snapshot atômico atual. | Ciclos concorrentes não podem corromper o arquivo; não é um controle de confidencialidade. |
+| Auditoria | Leituras / escritas / rotações normais acrescentam uma linha JSON ao `events.log`. As prévias somente leitura não gravam eventos de auditoria. Senhas nunca aparecem no log. | Detecção de adulteração, não criptografia. |
+
+As prévias dos construtores de VMs de serviço usam a capacidade opcional
+`Get-Password -ReadOnly` do provedor selecionado. O provedor padrão lê os
+dados existentes de mapeamento e cofre sem inicializar arquivos, mesclar
+usuários do modelo, gerar uma senha ou registrar a leitura. Ele retorna uma
+string não vazia já armazenada, ou null quando a compilação normal pode gerar
+uma credencial automática ausente. Uma credencial explicitamente mapeada que
+esteja ausente, ou um valor armazenado inutilizável, ainda recusa o plano.
+Um provedor personalizado precisa declarar o parâmetro de leitura segura para
+uma prévia; as compilações normais mantêm o contrato existente do getter.
+
+`-ProposedSecret` é aceito somente com `-ReadOnly`. Ele simula uma gravação
+planejada de `Set-Password` na entrada do nome lógico, sem alterar essa entrada.
+Quando `users.yml` mapeia o getter para outra chave do cofre, o getter continua
+lendo essa chave mapeada; fornecer um valor lógico proposto não cria nem
+substitui a credencial mapeada.
 
 Se você estender o harness para operar um sistema de produção, NÃO
 adicione credenciais de produção a esse cofre. Conecte uma extensão de
@@ -246,7 +262,8 @@ para esta seção).
 
 ## O MCP não acrescenta nenhum tipo de credencial
 
-Todo daemon Go do Yuruna e o framework central servem o Model Context Protocol
+O framework central e todos os daemons Go do Yuruna, exceto
+`caching-proxy-parser-service`, servem o Model Context Protocol
 (veja [API de extensões -- endpoints MCP](../extensions-api.md#mcp-endpoints)), e
 nenhum deles introduz um novo segredo, sessão ou limite de confiança para
 fazer isso.
@@ -277,6 +294,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.11.08
+Última revisão: 2026.11.16
 
 Voltar para [Yuruna](../../README.md)

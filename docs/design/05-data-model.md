@@ -104,7 +104,6 @@ erDiagram
         string tagCommand
         string pushCommand
         int commandTimeoutSeconds
-        int buildRetry
         map variables
     }
     workloads-yml {
@@ -127,8 +126,9 @@ erDiagram
 This seven-entity view expands the three list types and the ordered deployments
 inside a workload. The `*-entry` IDs name records under the corresponding YAML
 keys. Fields shown are the fields consumed by the publishers, rather than a
-claim that every field is required on every record. The dotted relation is the
-registry lookup described by `registryName` below.
+claim that every field is required on every record. Each entity shows at most
+seven key fields; retry settings and other constraints appear in the table
+below. The dotted relation is the registry lookup described by `registryName`.
 
 | Record or field | Reference and constraint |
 | --- | --- |
@@ -355,6 +355,12 @@ absent. Credentials persist across successful and failed cycles until explicitly
 changed or removed; password updates retain the previous password and update
 `updatedUtc`.
 
+Service-builder previews use the authentication implementation's `ReadOnly`
+lookup. It reads the existing mapping and vault snapshot without initializing
+files, generating passwords, or writing audit records. A missing automatic
+credential returns no value to represent work for the real build; an absent
+explicit `vaultKey` or an unusable stored credential still fails the preview.
+
 Besides guest login users, the template declares service-VM administrator
 accounts and entries that only name vault secrets: `internal-auth-key`,
 `github-mirror-token`, and `github-mirror-signing-key`. The caching-proxy seed
@@ -393,6 +399,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 [Architecture](../architecture.md) | [Design overview](README.md)

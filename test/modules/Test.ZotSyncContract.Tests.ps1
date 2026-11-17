@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4230f2fc-1a17-4a20-b766-368eff24c01c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@
 
     The shipped scripts are lifted out of the seed and the guest scripts and
     run under bash with curl stubbed, so what is observed is the shipped
-    behavior. Should assertions only, so the suite runs under Pester 5.x.
+    behavior. Should assertions only, so the suite runs under Pester 6.x.
 #>
 
 BeforeDiscovery {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,19 +119,13 @@ $script:GuestLivelockCheckSeconds = 60
 # A wait that ends on a display stall needs at least DisplayStallEndReports
 # page-flip timeout reports from a driver in DisplayStallEndDrivers, spanning at
 # least DisplayStallEndSpanSeconds, the newest within DisplayStallEndSeconds of
-# the newest record the console holds, and the console the wait reads unchanged
-# for DisplayStallEndSeconds. The DRM core waits ten seconds for a flip before
-# it reports, and a stalled commit prints two lines (flip_done, then commit
-# wait), so six reports are three commits in a row that never reached the
-# screen. A single timed-out commit, as a mode set during boot can leave, prints
-# two and ends. On the ARM64 lab host a stalled hyperv_drm reported every ten
-# seconds or so for over eight minutes while the guest ran on to a login
-# prompt, and the screen never changed again. Only drivers named here end a
-# wait.
+# the newest console record, and the console unchanged for DisplayStallEndSeconds.
+# Six reports are three stalled commits in a row; only drivers named here end a
+# wait. See https://yuruna.link/42820e91-0006
 $script:DisplayStallEndReports = 6
 $script:DisplayStallEndSpanSeconds = 20
 $script:DisplayStallEndSeconds = 30
-$script:DisplayStallEndDrivers = @('hyperv_drm')
+$script:DisplayStallEndDrivers = @('hyperv_drm', 'virtio_gpu')
 
 # Exponential-backoff helper for filesystem-state poll loops is
 # centralized in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
@@ -1201,6 +1195,14 @@ function Get-StepGuestKernelFault {
                 # holds only what followed; without that, a reading with no
                 # fault would claim the whole step was clean.
                 $serial.replaced = [bool]$capture.Replaced
+                # How much the capture holds and when it last grew, so a reading
+                # that read nothing says since when the console has been silent
+                # rather than reading like a reader that stopped. $null when the
+                # capture is empty or the driver names no write time.
+                $serial.totalBytes = [long]$capture.Length
+                $serial.lastByteUtc = if ([long]$capture.Length -gt 0 -and $capture.LastWriteUtc -is [datetime]) {
+                    ([datetime]$capture.LastWriteUtc).ToUniversalTime().ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+                } else { $null }
             }
         }
     } catch {
@@ -1356,6 +1358,60 @@ function Get-GuestDisplayStallEnd {
         consoleUnchangedSeconds   = $ConsoleUnchangedSeconds
         text                      = [string]$stall.text
     }
+}
+
+function Get-StepLoginEcho {
+    <#
+    .SYNOPSIS
+        The user name the guest's login(1) refused with keystrokes missing,
+        read when a console wait failed; $null when there is none.
+    .DESCRIPTION
+        A login whose user name lost a keystroke in transit leaves every host
+        record clean, and the wait that follows it times out like any other.
+        The guest's own account is read instead (Get-LoginEchoEvidence): its
+        serial console after the step's mark, where the host driver offers a
+        live capture (Read-VMSerialCapture), and the wait's last screen text.
+        Only a failed console wait is read, and never a sensitive step. A
+        passwdPrompt, whose text is always sensitive, is read only when its
+        FailurePhase is 'wait': it types only after its wait matched, so one
+        that failed waiting typed nothing. The name is compared with the
+        sequence's username variable, which step descriptions and failure
+        labels already show in the clear. Evidence gathering must never fail
+        the step it describes, so a source that cannot be read is skipped.
+    .OUTPUTS
+        [ordered] stepInvocationId, expected, received, source and
+        lostLeadingCharacters; $null when there is no such evidence.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Step,
+        [System.Collections.IDictionary]$Vars,
+        [AllowEmptyString()][string]$VMName,
+        [Nullable[long]]$SerialMark,
+        [AllowEmptyString()][AllowNull()][string]$OcrText,
+        [AllowEmptyString()][string]$FailurePhase,
+        [AllowEmptyString()][string]$StepInvocationId
+    )
+    $action = [string]$Step.action
+    if (-not $action -or $Step.sensitive -or ($action -ceq 'passwdPrompt' -and $FailurePhase -cne 'wait')) { return $null }
+    $entry = Get-SequenceAction -Name $action
+    if (-not $entry -or -not $entry.OcrRequired -or -not $entry.UsesWaitSignals) { return $null }
+    $expected = if ($Vars) { [string]$Vars['username'] } else { '' }
+    if (-not $expected) { return $null }
+    $serialText = $null
+    if ($VMName -and $null -ne $SerialMark -and (Get-Command Read-VMSerialCapture -ErrorAction SilentlyContinue)) {
+        try {
+            $capture = Read-VMSerialCapture -VMName $VMName -FromOffset $SerialMark
+            if ($capture) { $serialText = [string]$capture.Text }
+        } catch {
+            Write-Verbose "      Serial capture unreadable for the login echo of '$VMName': $($_.Exception.Message)"
+        }
+    }
+    $echo = Get-LoginEchoEvidence -ExpectedName $expected -SerialText $serialText -OcrText $OcrText
+    if (-not $echo) { return $null }
+    $echo.Insert(0, 'stepInvocationId', $StepInvocationId)
+    return $echo
 }
 
 function Get-DisplayInactiveLivelockVerdict {
@@ -3221,12 +3277,16 @@ function Invoke-Sequence {
                     $script:Fail.StepProgressAdvisory = $null
                     $script:Fail.WaitForTextConsoleSecondOpinion = $null
                 } else {
+                    $script:Fail.StepLoginEcho = Get-StepLoginEcho -Step $step -Vars $vars -VMName $VMName -SerialMark $stepSerialMark `
+                        -OcrText ([string]$script:Fail.WaitForTextOcrTail) -FailurePhase ([string]$script:Fail.StepFailurePhase) -StepInvocationId $stepInvocationId
                     $script:Fail.StepGuestKernelFault = Get-StepGuestKernelFault -VMName $VMName -SerialMark $stepSerialMark `
                         -ExecutionProfile $(if ($ctx) { $ctx.ExecutionProfile } else { $null }) -StepInvocationId $stepInvocationId
+                    $processorSummary = Get-GuestProcessorWindowSummary -LivelockVerdict $script:Fail.WaitForTextGuestLivelock
                     $script:Fail.StepProgressAdvisory = Get-GuestProgressAdvisory `
                         -OutputStaticSeconds $script:Fail.WaitForTextOutputStaticSeconds `
                         -HeartbeatAgeSeconds $heartbeatAge -SshResponsiveness $sshResponsiveness -ClockWarningCodes $clockWarningCodes `
-                        -KernelFaultKinds @(Get-GuestKernelFaultKind -Reading $script:Fail.StepGuestKernelFault)
+                        -KernelFaultKinds @(Get-GuestKernelFaultKind -Reading $script:Fail.StepGuestKernelFault) `
+                        -NoInterruptsServicedSeconds $processorSummary.longestNoInterruptsServicedSeconds
                 }
                 $script:Fail.OriginatingStepInvocationId = $stepInvocationId
                 $script:Fail.OriginatingSequenceInvocationId = $sequenceInvocationId

@@ -31,7 +31,17 @@ def utc() -> str:
 def atomic_json(path: pathlib.Path, value: dict) -> None:
     temporary = path.with_name(path.name + "." + str(os.getpid()) + ".tmp")
     temporary.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    # Windows snapshot readers can briefly prevent replacement. Keep publication
+    # atomic and surface a persistent lock instead of losing the probe thread.
+    until = time.monotonic() + 0.5
+    while True:
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError as error:
+            if os.name != "nt" or error.winerror not in (5, 32) or time.monotonic() >= until:
+                raise
+            time.sleep(0.01)
 
 
 def stop_backend(process: subprocess.Popen) -> None:

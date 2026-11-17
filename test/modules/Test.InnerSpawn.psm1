@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a27240-9228-4384-9324-f2bcf259469f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,9 +33,9 @@ function New-InnerRunnerArgList {
             & $pwshExe @argList
         The child exits with the script's own exit code. -Command reports only
         whether its last statement succeeded, so without the exit trailer the
-        2 (cannot run), 70 (unrecorded) and 78 (configuration) a script returns
-        would all reach the caller as 1. The trailer is the one the libvirt
-        group relaunch uses: a terminating error still exits 1.
+        2 (cannot run), 70 (unrecorded), 75 (degraded) and 78 (configuration) a
+        script returns would all reach the caller as 1. The trailer is the one
+        the libvirt group relaunch uses: a terminating error still exits 1.
     .PARAMETER ScriptPath
         Absolute path to the .ps1 to run.
     .PARAMETER Parameters

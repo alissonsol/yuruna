@@ -70,7 +70,7 @@ entregar o resultado a `genisoimage` (KVM), `hdiutil makehybrid`
 | `YURUNA_RETRY_LIB_BASE64_PLACEHOLDER` / `YURUNA_VERSIONS_BASE64_PLACEHOLDER` / `YURUNA_FAE_BASE64_PLACEHOLDER` / `YURUNA_NETWORK_BASE64_PLACEHOLDER` / `YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER` | Preenchidos automaticamente por `Get-YurunaGuestScriptBase64` | Os cinco auxiliares de convidado `automation/*.sh`, incorporados como entradas `write_files` em base64. As seeds também instalam o lançador `yfe` em `/usr/local/bin/yfe`. |
 | `YURUNA_HOST_ID_PLACEHOLDER` | Preenchido automaticamente a partir de `$env:YURUNA_RUNTIME_DIR/host.uuid` | A identidade do hospedeiro que um convidado informa quando precisa reencontrar um hospedeiro cujo endereço mudou. Vazio quando o laboratório não tem diretório de grupo, resultado que é suportado. Um chamador que já resolveu o ID (as seeds de VMs de serviço) o informa e tem prioridade. |
 | `YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER` | Preenchido automaticamente a partir de `$env:YURUNA_CACHING_PROXY_SERVICE_IP` | O mesmo caminho de localização; vazio quando a variável não está definida. |
-| `YURUNA_GITHUB_REPO_PLACEHOLDER` / `YURUNA_GITHUB_REF_PLACEHOLDER` / `GH_TOKEN_PLACEHOLDER` / `YURUNA_FRAMEWORK_URL_PLACEHOLDER` / `YURUNA_PROJECT_URL_PLACEHOLDER` | Preenchidos automaticamente por `Get-YurunaGitHubSource` sobre `-RepoRoot` | O identificador do repositório e o commit HEAD do checkout servido por este hospedeiro, o token que permite abri-lo quando privado e as URLs dos clones de framework/projeto que um convidado sem acesso ao hospedeiro ainda precisa. Campos vazios significam "nenhuma alternativa pelo GitHub é possível"; modelos que não contêm esses tokens nunca os consomem. |
+| `YURUNA_GITHUB_REPO_PLACEHOLDER` / `YURUNA_GITHUB_REF_PLACEHOLDER` / `GH_TOKEN_PLACEHOLDER` / `YURUNA_FRAMEWORK_URL_PLACEHOLDER` / `YURUNA_PROJECT_URL_PLACEHOLDER` | Preenchidos automaticamente por `Get-YurunaGitHubSource` sobre `-RepoRoot` | O identificador do repositório e o commit HEAD do checkout servido por este hospedeiro, o token que permite abri-lo quando privado e as URLs dos clones de framework/projeto que um convidado sem acesso ao hospedeiro ainda precisa. Em um ciclo em grupo, as duas URLs de clone são o par do grupo, que o executor publica como `YURUNA_POOL_FRAMEWORK_URL` e `YURUNA_POOL_PROJECT_URL`. Campos vazios significam "nenhuma alternativa pelo GitHub é possível"; modelos que não contêm esses tokens nunca os consomem. |
 
 As linhas marcadas como *Preenchidas automaticamente* são preenchidas pelo próprio `New-CloudInitUserData`,
 portanto um `New-VM.ps1` só as explicita em `-Replacement` para substituir o
@@ -1729,7 +1729,9 @@ desloca o travamento para outro lugar.
 **`quick_abort_min -1 KB`** desabilita inteiramente o limiar de interrupção rápida,
 para que um cliente que se desconecta durante a obtenção (um convidado reiniciando, por exemplo) não
 cancele a transferência. O Squid termina o objeto, e o próximo cliente obtém um
-acerto de cache, em vez de reiniciar o download.
+acerto de cache, em vez de reiniciar o download. Isso exige uma resposta já
+iniciada: uma obtenção que ainda não recebeu cabeçalhos de resposta é descartada
+assim que seu último cliente sai, qualquer que seja o limiar.
 
 **`read_timeout 2 minutes`** limita a inatividade da origem. O padrão do Squid
 é 15 minutos e, com `collapsed_forwarding` habilitado, todos os clientes que compartilham uma
@@ -1740,15 +1742,22 @@ inatividade e reinicia a cada pacote recebido, portanto um objeto grande lento, 
 nunca é interrompido; apenas uma origem realmente silenciosa é.
 
 Os dois minutos do Squid deliberadamente DURAM MAIS que o `Acquire::http::Timeout` dos convidados
-(30 s, até três tentativas -- veja `New-AptProxyBlock`). O convidado desiste primeiro de um
-índice travado, para que a falha ocorra dentro do limite de tempo da etapa da sequência,
-enquanto ainda há tempo para informá-la, e `quick_abort_min -1 KB` acima significa
-que desistir não cancela a obtenção: o squid continua recebendo o objeto pelo
-restante de seu próprio prazo. Se a origem voltar dentro desse intervalo, o
-objeto fica em cache, portanto `retry_with_backoff` do ambiente de testes na etapa obtém um acerto,
-em vez de enfrentar o mesmo travamento. Reduzir o prazo do squid para igualar o do convidado
-descartaria o objeto em transferência todas as vezes e transformaria cada nova tentativa em uma nova
-tentativa na origem.
+(30 s, até três tentativas -- veja `New-AptProxyBlock`). O convidado desiste primeiro de uma
+obtenção travada, para que a falha ocorra dentro do limite de tempo da etapa da sequência,
+enquanto ainda há tempo para informá-la. Quando a resposta já havia começado,
+`quick_abort_min -1 KB` acima significa que desistir não cancela a obtenção: o squid
+continua recebendo o objeto pelo restante de seu próprio prazo e, se a origem voltar
+dentro desse intervalo, o objeto fica em cache, portanto uma nova tentativa daquele
+pacote ou imagem obtém um acerto, em vez de enfrentar o mesmo travamento. Reduzir o
+prazo do squid para igualar o do convidado descartaria esse objeto em transferência
+todas as vezes.
+
+Os metadados de índice do apt (`InRelease`, `Release`, `Packages`) nunca obtêm esse
+acerto. Um índice travado geralmente não envia cabeçalho algum, portanto o squid
+descarta a obtenção quando o convidado desiste, e `send_hit deny` responde a esses
+metadados a partir da origem em toda requisição enquanto o acesso à origem é permitido (veja
+[Metadados do apt sob offline_mode](../caching.md#42f6b05f-0057)): cada nova tentativa
+de um índice é uma nova requisição à origem.
 
 **`collapsed_forwarding on`** agrupa obtenções idênticas concorrentes: quando N
 máquinas iniciam ao mesmo tempo a mesma ISO que não está em cache, o squid encaminha UMA requisição
@@ -1757,6 +1766,16 @@ cliente consulta a origem em paralelo, desperdiçando a largura de banda do espe
 limites por IP em releases.ubuntu.com quando muitas máquinas são reconstruídas. Aplica-se
 a origens HTTP e a HTTPS com SSL-bump em :3129, e não tem
 efeito sobre HTTPS em túnel CONNECT (não armazenável em cache por definição).
+
+Os metadados de índice do apt são uma exceção (`collapsed_forwarding_access deny`, com as
+mesmas ACLs do seu `send_hit deny`): cada requisição por eles faz sua própria obtenção na
+origem. Um cliente que compartilhasse uma obtenção esperaria pelos cabeçalhos dela sem consultar
+a origem, portanto uma única obtenção travada faria falhar, durante todo o prazo do apt, o
+`apt-get update` de cada convidado que a compartilhasse, e compartilhar nunca pouparia uma
+requisição à origem, porque `send_hit deny` envia cada um desses clientes à origem assim que
+os cabeçalhos chegam. Um cache em execução mantém a configuração existente, portanto a exceção
+chega a ele quando a VM é reconstruída a partir da seed
+(`Start-CachingProxyServiceVM.ps1 -ForceRebuild`).
 
 **`range_offset_limit none`** altera como requisições `Range:` preenchem o
 cache. O padrão (`0`) encaminha a parte solicitada à origem e a serve
@@ -1878,7 +1897,7 @@ A seed vincula o Loki a 127.0.0.1:3100 e o Prometheus a 127.0.0.1:9090, substitu
 
 ### Alloy: timestamps sem rótulos adicionais
 
-O Alloy define um rótulo `job` para cada origem e interpreta timestamps de eventos sem usar IPs de clientes ou URLs como rótulos. A seed fixa 1.20.1, valida `/etc/alloy/config.alloy`, para o serviço Promtail legado e importa uma vez suas posições salvas. O estado persistente dos componentes Alloy impede repetição após a reinicialização. Veja [migração do coletor](../caching.md#loki--alloy-boot-order-traps).
+O Alloy define um rótulo `job` para cada origem e interpreta timestamps de eventos sem usar IPs de clientes ou URLs como rótulos. A seed fixa 1.22.0, valida `/etc/alloy/config.alloy`, para o serviço Promtail legado e importa uma vez suas posições salvas. O estado persistente dos componentes Alloy impede repetição após a reinicialização. Veja [migração do coletor](../caching.md#loki--alloy-boot-order-traps).
 
 **Mantenha os erros de sincronização do zot.** A etapa JSON pode encontrar registros de sync-extension sem um `path` HTTP; esses registros explicam os atrasos de novas tentativas e falhas na origem, mesmo quando a requisição final de manifesto registra uma resposta bem-sucedida. O modelo fornece `NO_HTTP_PATH` para caminhos ausentes, e a etapa de descarte remove apenas coletas do próprio serviço em `/metrics`. A sentinela é mantida, não descartada, para que requisições lentas bem-sucedidas preservem as evidências de suas falhas subjacentes.
 
@@ -2777,7 +2796,7 @@ atualize a tag na URL e substitua o hash pelo do novo arquivo:
 ### Adição de um novo overlay de plataforma
 
 1. Crie `host/vmconfig/ubuntu.server.<platform>.overlay.yml` com os
-   seis cabeçalhos de âncora (conteúdos vazios para âncoras que a plataforma não
+   sete cabeçalhos de âncora (conteúdos vazios para âncoras que a plataforma não
    usa).
 2. Acrescente um `New-VM.ps1` em `host/<platform>/guest.ubuntu.server.{24,26}/`
    que chame `New-CloudInitUserData` com o novo caminho de overlay.
@@ -3004,6 +3023,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../../README.md)

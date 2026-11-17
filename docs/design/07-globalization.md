@@ -344,8 +344,10 @@ files. `Program.cs` supports `en-US`, `pt-BR`, `zh-CN`, and `he-IL`, defaults to
 `en-US`, and leaves the framework's request-culture provider collection in place.
 That [default order](https://learn.microsoft.com/aspnet/core/fundamentals/localization/select-language-culture)
 is the `culture` and `ui-culture` query parameters, then the
-`.AspNetCore.Culture` cookie, then the first three `Accept-Language` values by
-quality; a request none of them matches gets `en-US`. There are no manifest
+`.AspNetCore.Culture` cookie, then `Accept-Language`. The
+[.NET 10 header provider](https://github.com/dotnet/aspnetcore/blob/v10.0.0/src/Middleware/Localization/src/AcceptLanguageHeaderRequestCultureProvider.cs)
+considers only the first three header entries and orders those by quality;
+a request none of them matches gets `en-US`. There are no manifest
 aliases, so `pt-PT` does not select `pt-BR`, and the application sets neither
 `Content-Language` nor `Vary`. `ServiceMessages` selects text with
 `CurrentUICulture` and formats arguments with `CurrentCulture`. It does not use
@@ -353,6 +355,7 @@ Yuruna's locale context or compiled message catalogs.
 
 Sources: companion text-to-SQL
 [Program.cs](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/components/frontend/text-to-sql-ui/Program.cs),
+[project framework](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/components/frontend/text-to-sql-ui/text-to-sql-ui.csproj),
 [LlmHttpRetry.cs](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/components/frontend/text-to-sql-ui/Services/LlmHttpRetry.cs),
 [SqlValidator.cs](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/components/frontend/text-to-sql-ui/Services/SqlValidator.cs),
 [ILlmClient.cs](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/components/frontend/text-to-sql-ui/Services/ILlmClient.cs),
@@ -403,6 +406,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 [Architecture](../architecture.md) | [Design overview](README.md)

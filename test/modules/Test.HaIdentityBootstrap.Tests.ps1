@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42b0a145-9469-4519-979e-1183431dba3c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     value the caller casts (so the fingerprint is byte-identical on a working host), and
     a failed/empty read returns $null plus a verbose breadcrumb. AST guards assert the
     macOS fingerprint routes its reads through the guard and retains no bare
-    [int]/[int64] sysctl cast. Pester 5.x.
+    [int]/[int64] sysctl cast. Pester 6.x.
 #>
 
 BeforeAll {

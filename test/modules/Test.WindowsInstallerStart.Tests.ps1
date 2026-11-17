@@ -462,3 +462,51 @@ Describe 'UTM boot input runs while synchronous startup is blocked' {
         Join-Path $fixture.TransportDir 'disconnected' | Should -Exist
     }
 }
+
+Describe 'KVM Windows installer restart policy' {
+    It 'keeps Setup running through its first reboot instead of destroying the install domain' {
+        $source = Join-Path $script:RepoRoot 'host/ubuntu.kvm/guest.windows.11/New-VM.ps1'
+        $ast = [Management.Automation.Language.Parser]::ParseFile($source, [ref]$null, [ref]$null)
+        $build = @($ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] })[-1]
+        $statements = @($build.Body.Statements)
+        $first = 0
+        while ($first -lt $statements.Count -and $statements[$first].Extent.Text -notlike 'Write-Verbose "virt-install*') { $first++ }
+        $first | Should -BeLessThan $statements.Count
+        $start = [scriptblock]::Create(($statements[$first..($statements.Count - 1)].Extent.Text -join "`n"))
+        $VMName = 'fixture-windows'
+        $virshUri = 'qemu:///system'
+        $installArgs = @('--name', $VMName)
+        $fixture = @{ Running = $false; RebootAction = ''; Calls = [Collections.Generic.List[string]]::new() }
+        $xmlPath = Join-Path $TestDrive 'windows-domain.xml'
+        function New-TemporaryFile { [IO.FileInfo]::new($xmlPath) }
+        function Invoke-BoundedNativeCommand {
+            param($FilePath, $ArgumentList, $TimeoutSeconds, $Environment)
+            $fixture.Calls.Add("${FilePath}:$($ArgumentList -join ' ')")
+            $output = ''
+            if ($FilePath -eq 'virt-install') {
+                if (@($ArgumentList) -contains '--print-xml=1') {
+                    $output = '<domain><name>fixture-windows</name><on_reboot>destroy</on_reboot></domain>'
+                } else {
+                    $fixture.Running = $true
+                    $fixture.RebootAction = 'destroy'
+                }
+            } elseif ($FilePath -eq 'virsh' -and @($ArgumentList) -contains 'define') {
+                $xml = [xml][IO.File]::ReadAllText([string]$ArgumentList[-1])
+                $fixture.RebootAction = [string]$xml.domain.on_reboot
+            } elseif ($FilePath -eq 'virsh' -and @($ArgumentList) -contains 'start') {
+                $fixture.Running = $true
+            }
+            return @{ Started = $true; TimedOut = $false; ExitCode = 0; StdOut = $output; StdErr = '' }
+        }
+        function Test-BoundedNativeResultComplete { param($Result) return $Result.Started -and -not $Result.TimedOut }
+        function Get-BoundedNativeOutputLine { param($Result, [switch]$IncludeError) if ($Result.StdOut) { $Result.StdOut } }
+        function Format-YurunaOperatorMessage { param($Key, $Arguments) return $Key }
+        function Write-YurunaProvisionResult { param($Kind, $Message) }
+        & $start
+        $fixture.Running | Should -BeTrue
+        $fixture.RebootAction | Should -BeExactly 'restart'
+        @($fixture.Calls | Where-Object { $_ -like 'virsh:* define *' }).Count | Should -Be 1
+        @($fixture.Calls | Where-Object { $_ -like 'virsh:* start *' }).Count | Should -Be 1
+        $xmlPath | Should -Not -Exist
+    }
+}

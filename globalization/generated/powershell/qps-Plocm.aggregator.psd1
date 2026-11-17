@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42f72b91-c2a2-af97-ae5e-91f746c12317
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -437,11 +437,11 @@
     'aggregator.log_loki_outbox_full' = @(
         '[!‮Ļóķí óúţƀóẋ íš ƒúļļ ('
         @{
-            'arg' = 'lines'
+            'arg' = 'pushes'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' ļíñéš); ñéŵ ļíñéš ářé řéƒúšéď úñţíļ Ļóķí ţáķéš šóɱé‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' ʠúéúéď ƥúšħéš; ţħé ļíɱíţš ářé ĎéƒáúļţⱮáẋÍţéɱš áñď ĎéƒáúļţⱮáẋɃýţéš íñ íñţéřñáļ/loki/outbox.go); ñéŵ ļíñéš ářé řéƒúšéď úñţíļ Ļóķí ţáķéš šóɱé‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'aggregator.log_loki_outbox_memory_only' = @(
         '[!‮Ļóķí óúţƀóẋ: '

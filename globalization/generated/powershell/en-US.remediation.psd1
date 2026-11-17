@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42566df9-1f3e-a604-b789-3ec5dfc0e347
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,29 @@
 # locale: en-US  domain: remediation
 
 @{
+    'remediation.guest_display_stalled_action_evidence' = 'Read causeDetail.guestDisplayStallEnd and serial-console.log in the guest folder; compare the display-driver timeout reports with the saved screenshot and OCR text, and inspect the guest kernel and display-driver versions if the stall recurs'
+    'remediation.guest_display_stalled_action_restore' = 'Restore a clean snapshot or boot the guest again before rerunning the sequence; replaying the wait on the same stalled display cannot recover its frames. Keep the existing bounded login recovery and inspect any password change before attempting recovery by hand'
+    'remediation.guest_display_stalled_rationale' = @(
+        'guest_display_stalled on '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': the guest''s '
+        @{
+            'arg' = 'driver'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' display driver reported '
+        @{
+            'arg' = 'reports'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' page-flip timeouts while the console stopped changing. The guest may still be running; an unchanged display is not evidence that its kernel stopped.'
+    )
     'remediation.guest_kernel_stalled_action_evidence' = 'Read causeDetail.guestKernelStallEnd and causeDetail.guestLivelock in last_failure.json, and the kernel''s reports in the guest folder''s serial-console.log'
     'remediation.guest_kernel_stalled_rationale' = @(
         'guest_kernel_stalled on '
@@ -93,6 +116,27 @@
             'trust' = 'external'
         }
         '), so the script could not finish. This is not a slow package mirror, and re-running the step on the same guest cannot help.'
+    )
+    'remediation.ocr_timeout_kernel_stall_rationale' = @(
+        'ocr_timeout on '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': the guest kernel stopped making progress (kernel reports: '
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; virtual processors that serviced no interrupt: '
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), so the screen could not reach the expected state. This is not a workload that left the recorded path, and the same boot does not recover.'
     )
     'remediation.operator_00fd2209b1a993b2' = 'inspect last_failure.json manually'
     'remediation.operator_01b3c9512f168859' = @(

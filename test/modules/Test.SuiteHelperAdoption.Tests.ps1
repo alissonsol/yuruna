@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 424fcb83-70f8-4a61-899b-5252d0c26fea
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,17 +83,17 @@
 
     The sixth rule covers the $global:__Yuruna* channels the entry points
     publish to the modules (host id, run id, cycle folder, log file, cycle
-    start). Suites set them by hand in four forms and most never put the
-    previous value back, so a later block ran with an earlier test's cycle
-    folder or host id. Save-YurunaTestGlobal, Set-YurunaTestGlobal and
+    start). A hand-made set that does not put the previous value back makes
+    a later block run with an earlier test's cycle folder or host id.
+    Save-YurunaTestGlobal, Set-YurunaTestGlobal and
     Restore-YurunaTestGlobal are the one way a suite changes them; a script
     block handed to a runspace of its own (AddScript, Start-Job,
     Start-ThreadJob) sets them there and is not counted.
 
-    The seventh rule covers the process environment. Suites put entries back by
-    hand in a dozen forms (YURUNA_RUNTIME_DIR, PATH, HOME, GIT_* and retry and
-    translation settings among them), and the forms disagreed: a teardown that
-    removes the entry, or sets it to $null, drops a value the process held
+    The seventh rule covers the process environment (YURUNA_RUNTIME_DIR, PATH,
+    HOME, GIT_* and retry and translation settings among them). Restores made
+    by hand disagree: a teardown that removes the entry, or sets it to $null,
+    drops a value the process held
     before the suite, and a restore guarded by "if it was set" leaves the
     test's value behind when it was not. Save-YurunaTestEnvironment and
     Restore-YurunaTestEnvironment keep the previous value, absent included, so

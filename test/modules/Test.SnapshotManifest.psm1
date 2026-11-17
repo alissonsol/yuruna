@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 421a4d8a-ef0d-4f12-ab3c-235c0e8c3732
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -267,7 +267,8 @@ function Remove-SnapshotManifest {
     return -not (Test-Path -LiteralPath $path)
 }
 
-# --- REGION: https://yuruna.link/428e4df6
+# --- REGION: Get-SnapshotSourceIdentity
+# See https://yuruna.link/428e4df6-0009
 function Get-SnapshotSourceIdentity {
     <#
     .SYNOPSIS

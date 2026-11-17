@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42d6d3a9-02a1-4fb8-87ed-a2137333c910
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,8 +52,14 @@ function Get-YurunaHostCounterSpecification {
         # these are the only host-side readings that show the traffic itself.
         'Hyper-V Virtual Network Adapter' = @('Bytes Received/sec','Bytes Sent/sec','Packets Received/sec','Packets Sent/sec','Dropped Packets Incoming/sec','Dropped Packets Outgoing/sec')
         'Hyper-V Virtual Switch Port' = @('Packets Received/sec','Packets Sent/sec','Dropped Packets Incoming/sec','Dropped Packets Outgoing/sec')
+        # Per-virtual-disk storage object, one instance per attached VHD or
+        # VHDX: a guest can stall on its disk while PhysicalDisk shows the
+        # host's disk idle, and PhysicalDisk counts no flushes. The virtual
+        # device's own latency, queue and flush count show the host side of
+        # that stall.
+        'Hyper-V Virtual Storage Device' = @('Latency','Queue Length','Write Operations/Sec','Write Bytes/sec','Flush Count')
     }
-    $guestObjects = @('Hyper-V Hypervisor Virtual Processor', 'Hyper-V Virtual Network Adapter', 'Hyper-V Virtual Switch Port')
+    $guestObjects = @('Hyper-V Hypervisor Virtual Processor', 'Hyper-V Virtual Network Adapter', 'Hyper-V Virtual Switch Port', 'Hyper-V Virtual Storage Device')
     foreach ($object in $groups.Keys) {
         foreach ($counter in $groups[$object]) {
             [pscustomobject]@{ Object = $object; Counter = $counter; Guest = ($object -in $guestObjects) }

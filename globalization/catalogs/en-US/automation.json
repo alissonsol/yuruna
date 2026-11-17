@@ -42,6 +42,87 @@
         }
       }
     },
+    "automation.retry_already_applied": {
+      "message": "{label}: attempt {attempt}/{maxAttempts} failed (exit={lastExit}), but its outcome had already been applied by an earlier attempt; the command counts as complete.",
+      "description": "Write-Information in automation/Yuruna.Retry.psm1 (Invoke-WithYurunaRetry) when the caller's -SucceedWhen predicate accepts a failed later attempt as the completion of an earlier one, for example a kubectl create refused as AlreadyExists after its first attempt timed out. label is the redacted command line; preserve it, the attempt numbers and the exit code verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "label": {
+          "type": "detail",
+          "trust": "external",
+          "example": "kubectl create namespace website --v=1"
+        },
+        "attempt": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "2"
+        },
+        "maxAttempts": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "5"
+        },
+        "lastExit": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "1"
+        }
+      }
+    },
+    "automation.retry_succeed_when_threw": {
+      "message": "!! {label}: SucceedWhen predicate threw ({message}); the attempt stays a failure",
+      "description": "Write-Information in automation/Yuruna.Retry.psm1 (Invoke-WithYurunaRetry) when the caller's -SucceedWhen predicate throws; the attempt is kept as the failure it was. SucceedWhen is a parameter name and stays in English. label is the redacted command line; preserve it and the exception message verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "label": {
+          "type": "detail",
+          "trust": "external",
+          "example": "kubectl create namespace website --v=1"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "The term 'Test-Outcome' is not recognized as a name of a cmdlet"
+        }
+      }
+    },
+    "automation.tofu_init_fetch_failed": {
+      "message": "tofu init failed for resource '{resourceName}' after {attempts} attempts (final exit {lastExit}): the last attempt could not fetch {url} ({reason}). Inspect {tofuLogFile} for the full output.",
+      "description": "Operator-terminal error in automation/Yuruna.Resource.psm1 when tofu init exhausts its retries and the last attempt's output names the download that failed. url is that address without its query; reason is the HTTP status or client error tofu printed for it. Preserve the command name, the address, the reason and the path verbatim.",
+      "lifecycle": "active",
+      "placeholders": {
+        "resourceName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "componentsRegistry"
+        },
+        "attempts": {
+          "type": "detail",
+          "trust": "external",
+          "example": "6"
+        },
+        "lastExit": {
+          "type": "detail",
+          "trust": "external",
+          "example": "1"
+        },
+        "url": {
+          "type": "detail",
+          "trust": "external",
+          "example": "https://releases.example.invalid/provider_2.4.2_SHA256SUMS"
+        },
+        "reason": {
+          "type": "detail",
+          "trust": "external",
+          "example": "504 Gateway Timeout"
+        },
+        "tofuLogFile": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/srv/project/.yuruna/localhost/resources/componentsRegistry/tofu.stderr.log"
+        }
+      }
+    },
     "automation.diagnostic_checkout_unavailable": {
       "message": "(not applicable: checkout evidence is unavailable; pass -CheckoutRoot to use an existing Yuruna checkout)",
       "description": "Standalone system diagnostic marker when no validated framework checkout exists; preserve the -CheckoutRoot parameter name.",
@@ -7601,6 +7682,23 @@
         }
       }
     },
+    "automation.system_diagnostic_restart_pending": {
+      "message": "Restart pending: yes ({sources})",
+      "description": "Line in automation/Get-SystemDiagnostic.ps1 (Windows HOST section, Get-WindowsRestartPendingLine) after the OS lines when Windows has marked a restart as owed, typically after installing an update. sources lists the registry keys that say so, comma-separated; keep them in English as written: the operator looks them up.",
+      "lifecycle": "active",
+      "placeholders": {
+        "sources": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "WindowsUpdate\\Auto Update\\RebootRequired, Component Based Servicing\\RebootPending"
+        }
+      }
+    },
+    "automation.system_diagnostic_restart_not_pending": {
+      "message": "Restart pending: no",
+      "description": "Line in automation/Get-SystemDiagnostic.ps1 (Windows HOST section, Get-WindowsRestartPendingLine) after the OS lines when neither registry key that marks an owed restart exists.",
+      "lifecycle": "active"
+    },
     "automation.system_diagnostic_utmctl_list_incomplete": {
       "message": "  utmctl list did not return a complete answer within {seconds} seconds; the listing above may be incomplete (UTM may not be answering Apple Events).",
       "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 (macOS tool section) when the bounded utmctl list call did not return a complete answer: it timed out, could not be started, its output could not be read to the end or was cut at the capture cap, or it could not be stopped. Keep the command name utmctl and the term Apple Events.",
@@ -7818,6 +7916,28 @@
           "type": "detail",
           "trust": "internal",
           "example": "/var/log/journal"
+        }
+      }
+    },
+    "automation.system_diagnostic_previous_boot_middle_omitted": {
+      "message": "... (middle lines skipped without counting them, so a long previous boot cannot hold up this report) ...",
+      "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 (Write-LinuxPreviousBootWarning, INSTALL & EARLY-BOOT TIMELINE section) between the oldest and the newest lines of the previous boot's warning journal when that boot holds more than both ends; the lines between are never read, so their number is unknown. Keep the leading and trailing ellipses.",
+      "lifecycle": "active"
+    },
+    "automation.system_diagnostic_probe_stopped": {
+      "message": "  ({label} did not finish within {seconds}s and was stopped; anything it printed before then is above)",
+      "description": "Write-Output line in automation/Get-SystemDiagnostic.ps1 when a bounded probe reached its deadline: one of the two reads of the previous boot's warning journal (Write-LinuxPreviousBootWarning) or the PowerShell module snapshot (Write-DiagnosticModuleSnapshot). label names the command; keep it as given.",
+      "lifecycle": "active",
+      "placeholders": {
+        "label": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "journalctl -b -1 -p warning --no-pager -n 60"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "10"
         }
       }
     }

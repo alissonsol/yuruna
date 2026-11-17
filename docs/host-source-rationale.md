@@ -32,6 +32,27 @@ Related topic: https://yuruna.link/42e5cdfd-0007
 
 **`host/macos.utm/modules/Yuruna.Host.psm1`.**
 
+UTM exposes no rename verb in `utmctl`, and macOS 26 marks the AppleScript
+`name` property of `virtual machine` read-only (`osascript` returns -10006).
+Rename therefore edits the bundle and registry while UTM is offline:
+
+1. Quit UTM and its QEMUHelper children for this user through
+   `Stop-UtmApplication`, then flush cfprefsd so it cannot overwrite the registry
+   edits with its cached copy.
+2. Rename `<guest.nosync>/<VMName>.utm` to `<guest.nosync>/<NewName>.utm`.
+   Its qcow2 disks and snapshots move with the bundle.
+3. Set `:Information:Name` in the new bundle's `config.plist` with PlistBuddy.
+4. Set `:Registry:<UUID>:Name` and `:Registry:<UUID>:Package:Path` in
+   `~/Library/Containers/com.utmapp.UTM/Data/Library/Preferences/com.utmapp.UTM.plist`.
+5. Flush cfprefsd and relaunch through `Start-UtmApplication` so UTM reads the
+   edited registry.
+6. Resume the captured service VMs, then poll until the new name surfaces.
+
+The caller stops the target first because UTM holds an exclusive lock on a
+running bundle. `-AllowHardStop` signals UTM and then its helpers when they
+ignore the quit, revalidating each process identity immediately before the
+signal. An unconfirmed stop prevents every bundle and registry edit.
+
 Quitting UTM is collateral damage for every OTHER VM that happens to
 be running: UTM saves their state on the way out and they come back
 suspended, not started. The service VMs are the ones that matter --
@@ -39,6 +60,13 @@ a cycle consumes them from beginning to end -- so record which are up
 now, while UTM can still be asked, and resume them after the relaunch.
 A listing that could not be read is not an empty one: quitting on it
 would resume nothing and strand every service suspended.
+
+Every exit after sending the quit relaunches UTM and attempts service recovery
+exactly once. Services resume only after the relaunch is acknowledged and UTM
+is observed for this user; otherwise the warning names the suspended services
+and the commands that resume them. `Package.Bookmark` remains untouched:
+macOS bookmarks follow the catalog inode and volume UUID across a directory
+rename on the same volume.
 
 A bundle still holding the address the OLD name derives is holding that
 NAME's address rather than the guest's, and the name is being vacated --
@@ -64,30 +92,28 @@ Related topic: https://yuruna.link/42e220c4-0004
 **`host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1`.**
 
 The Linux cloud-init builders -- Amazon Linux and the four service guests on
-all three hosts -- share one seed-phase order: Yuruna harness SSH key, the
-vault password, Select the guest network, Yuruna host coordinates, any
-service-specific phases, Render user-data / meta-data, and Generate cloud-init
-seed ISO. Service guests copy network-config (https://yuruna.link/4220a755-000b)
-before ISO generation; Amazon Linux preserves cloud-init fallback networking
-and pins DHCP identity in user-data instead. Host-specific phases sit between
-those. All three hosts stage a seed source directory before credentials are
-read; KVM places it beside the guest disk. Hyper-V picks the switch
-first and then asks for the host address reachable through it; UTM and KVM
-resolve the network and that address as one pair, because the bundle or
-domain and the seed must agree on both. The Amazon Linux builder on KVM
-generates its seed before it replaces the guest disk, so a failed seed never
-costs the previous disk.
+all three hosts -- resolve the harness SSH key, vault password, guest network
+and reachable host coordinates before rendering user-data. Service-specific
+inputs follow the coordinates. Hyper-V picks the switch and then asks for the
+host address reachable through it; UTM and KVM resolve the network and address
+as one pair because the VM definition and seed must agree on both.
 
-The caching-proxy builder is the one KVM service builder that validates its
-libvirt network after generating the seed. The stash, pool-control and
-download-agent builders reject a dead bridge inside Select the guest network.
-This validation can exit, and moving it ahead of the vault, internal
-authentication key, client certificate and seed phases would change which of
-their side effects a failed run leaves behind, so it stays after the seed.
-It also warns at length about the NAT fallback. Its Bridge-uplink preflight is
-the same check as the other builders', requiring a physical uplink only for a
-bridge-mode network, nested in this validation instead of in Select the guest
-network.
+Service builders resolve these inputs in their pre-teardown build plan. They
+check the base image and render user-data before removing the existing VM,
+copying its replacement disk and staging the private cloud-init seed directory.
+They copy network-config (https://yuruna.link/4220a755-000b) into that directory
+before generating the seed ISO. Amazon Linux stages its seed directory before
+reading credentials, preserves cloud-init fallback networking and pins DHCP
+identity in user-data. Its KVM builder generates the seed before replacing the
+guest disk, so a failed seed never costs the previous disk.
+
+All four KVM service builders validate their network during the build plan,
+before host-coordinate resolution and seed rendering. The caching-proxy builder
+keeps a separate validation region with longer NAT-fallback warnings; the other
+three validate inside Select the guest network. Their Bridge-uplink preflight
+requires a physical uplink only for a bridge-mode network. These checks precede
+the caching proxy's internal authentication, client-certificate and rendered-seed
+phases, so a network refusal leaves those later phases untouched.
 
 Every KVM service builder checks its seed templates right after the vault
 phase, before any network work, so a missing template fails before the guest
@@ -264,20 +290,30 @@ caller advertises.
 
 <a id="42f52e37-000b"></a>
 
-## host/ubuntu.kvm/modules/Yuruna.Host.psm1: DHCP evidence capture
+## host/ubuntu.kvm/modules/Yuruna.Host.Capture.ps1: DHCP evidence capture
 
 Related topic: https://yuruna.link/42e5cdfd-001f
 
-**`host/ubuntu.kvm/modules/Yuruna.Host.psm1`.**
+**`host/ubuntu.kvm/modules/Yuruna.Host.Capture.ps1`.**
+
+The packet capture outlives its launching call. All three standard streams are
+private pipes: inherited stdout can hold the caller's pipeline open until the
+capture ends, and inherited stdin would give the capture its caller's input.
+`Start-Process` cannot provide private stdin without writing to it; a tcpdump
+that exits immediately after bridge access is refused can make that write fail
+with EPIPE. Closing the empty pipe writes nothing, and the close is guarded.
+Resolve the executable's full path first because a bare name is searched in the
+working directory before PATH.
 
 What last happened to that one slot, in words, for the guest that ends up
-without evidence. An empty slot has exactly one message today and three
-possible histories behind it -- nothing ever armed, another guest's start
-took the slot, or a teardown discarded it -- and they call for different
-fixes in different files. The slot itself cannot carry that: it is null in
-every one of them. Recorded on each transition so the gap can name which
-one it was instead of leaving the reader to reconstruct it from a cycle
-transcript that does not log the arm at all.
+without evidence. An empty slot has exactly one message today and four
+possible histories behind it -- nothing ever armed, an arm that ran and
+failed, another guest's start took the slot, or a teardown discarded it --
+and they call for different fixes in different files. The slot itself
+cannot carry that: it is null in every one of them. Recorded on each
+transition so the gap can name which one it was instead of leaving the
+reader to reconstruct it from a cycle transcript that does not log the
+arm at all.
 
 One window at a time: a later Start-VM for another guest replaces
 it, and the already-running path never arms one at all. Either way
@@ -407,13 +443,13 @@ Related topic: https://yuruna.link/428405a0-0011
 **`host/windows.hyper-v/Sync-HostConfiguration.ps1`.**
 
 The macOS and Ubuntu Sync-HostConfiguration.ps1 scripts open with an
-Elevation notice: they run unprivileged and ask sudo for their conditional
+Elevation announcement: they run unprivileged and ask sudo for their conditional
 privileged writes later, so they announce those prompts before the bootstrap
 starts. This script has no such phase. Its `#requires -RunAsAdministrator`
 line refuses an unelevated session before any statement runs, so by the time
 Initialize host setup executes, the process already holds the elevation every
-later write needs. There is no deferred credential request to announce, and a
-notice would describe a prompt that never comes.
+later write needs. There is no deferred credential request to announce, and an
+announcement would describe a prompt that never comes.
 
 <a id="42f52e37-001c"></a>
 
@@ -564,9 +600,9 @@ Related topic: https://yuruna.link/42e5cdfd-003d
 **`test/service/Start-StatusService.ps1`.**
 
 $env:YURUNA_RUNTIME_DIR (runtime state) + $env:YURUNA_LOG_DIR (transcripts/
-debug artifacts). Default to status/ subdirs so the HTTP server serves
-them at /runtime/* and /log/*. Other status/ subdirs (perf/, extension/,
-captures/, ssh/) are served straight from $StatusDir as relative paths.
+debug artifacts). Default to status/ subdirs mapped at /runtime/* and /log/*.
+Runtime files pass an allow-list. The status root serves top-level
+page files, perf/ and captures/; extension/, ssh/ and other folders are refused.
 StatusService kind imports Test.YurunaDir, Test.VMUtility, Test.CachingProxyService,
 Test.PortOwner, and Test.HostContract -- one call replaces five inline imports
 spread across the bootstrap section of this script.
@@ -611,7 +647,7 @@ Related topic: https://yuruna.link/42e5cdfd-0044
 
 UI banner appends this string to the status text so viewers see at a
 glance whether the harness is behind a local squid. File holds
-ready-to-embed HTML (including <a href> to the Grafana dashboards URL) so the UI
+ready-to-embed HTML (including <a href> to the cache's landing page) so the UI
 injects it without knowing the URL format. Written once at
 Start-StatusService -- restart to refresh after bringing squid up/down.
 Needs $detectedHost, so runs AFTER the SSH block's host detection.
@@ -969,7 +1005,7 @@ here bought nothing and re-parsed the whole document on
 every poll of this route.
 
 'idle' is NOT 'ok': with no runner there is nothing to be
-progressing, and reporting ok would reproduce the very
+progressing, and reporting ok would reproduce the
 false-green this endpoint exists to remove. 'paused' is that
 same argument one step in, which is why it is tested ahead of
 every age comparison: a runner that has declared a hold is
@@ -1197,11 +1233,11 @@ Nothing this service serves has a colon in its name, so such a
 spelling is refused outright rather than resolved.
 
 Unified deny-list across non-yuruna-repo dispatches. The
-/runtime/ route serves runtime/yuruna-caching-proxy-service.yml
-(plaintext caching-proxy-service-admin password); the catch-all serves
-status/extension/ (vault.yml, vault.lock, transports.yml,
-events.log) and status/ssh/ (private SSH key). Block all
-of those uniformly so URL probing never returns secrets.
+/runtime/ route maps to the runtime directory, which also holds
+yuruna-caching-proxy-service.yml (plaintext caching-proxy-service-admin
+password); the catch-all maps to status/, which also holds extension/
+(vault.yml, vault.lock, transports.yml, events.log) and ssh/ (private SSH
+key). Allow-lists and the deny-list block those secrets on every route.
 
 When the resolved path is a directory, serve an HTML index
 of its contents with relative links. Used by the failure-
@@ -1215,9 +1251,13 @@ move-mode host shows an almost empty log directory -- and the pool
 aggregator, which resolves a clicked cycle partly by reading this
 listing, loses its view of everything the host has archived.
 Scoped to the root index only (that is the one level the
-aggregator fetches) and deduplicated by name with the LOCAL entry
-winning, so a copy-mode host -- where every archived cycle is also
-still local -- renders exactly as it did before.
+aggregator fetches) and deduplicated by the cycle's stable identity
+with the LOCAL entry winning, so a copy-mode host -- where every
+archived cycle is also still local -- renders exactly as it did
+before. Identity, not leaf name: the archive names a copy by the bare
+'<base>', while the host keeps an aborted cycle as
+'<base>.aborted.<UTC>', and a name comparison would list that cycle
+twice.
 
 Resolved BEFORE the rendering block below, not inside it. That
 block is lifted out verbatim and run on its own by the page
@@ -1381,5 +1421,7 @@ address discovery instead.
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
+
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

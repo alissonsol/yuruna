@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42e237df-6378-43f5-b1f4-c3f181119e39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     the behavioral tests extract their definitions from the script AST and dot-source
     them into this scope. AST guards then assert the script routes every network probe
     and all three config boolean flags through the helpers, and that the probe helper
-    disposes in a finally. Pester 5.x.
+    disposes in a finally. Pester 6.x.
 #>
 
 BeforeAll {

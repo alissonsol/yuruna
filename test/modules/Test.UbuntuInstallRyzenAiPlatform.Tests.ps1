@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 421942f3-d52f-4211-83d4-3fe55a882f99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,7 +57,12 @@ BeforeDiscovery {
     $probeRoot = New-YurunaTestTempDir -Prefix 'yuruna-ln-probe'
     try {
         Set-Content -LiteralPath (Join-Path $probeRoot 'target') -Value 'probe' -Encoding ascii
-        & ln -s (Join-Path $probeRoot 'target') (Join-Path $probeRoot 'link') 2>$null
+        # Git for Windows ln can copy a file instead of creating a native link.
+        if ($IsWindows) {
+            $null = New-Item -ItemType SymbolicLink -Path (Join-Path $probeRoot 'link') -Target (Join-Path $probeRoot 'target') -Force -ErrorAction Stop
+        } else {
+            & ln -s (Join-Path $probeRoot 'target') (Join-Path $probeRoot 'link') 2>$null
+        }
         $script:SymlinkPermitted = [bool](Get-Item -LiteralPath (Join-Path $probeRoot 'link') -Force -ErrorAction SilentlyContinue).LinkType
     } catch {
         $script:SymlinkPermitted = $false
@@ -357,7 +362,11 @@ Describe 'remove_standalone_python' {
             foreach ($d in $Dir) { New-Item -ItemType Directory -Path (Join-Path $Root $d) -Force | Out-Null }
             foreach ($pair in $Link) {
                 $name, $target = $pair -split '=', 2
-                & ln -s (Join-Path $Root $target) (Join-Path (Join-Path $Root 'local/bin') $name)
+                if ($IsWindows) {
+                    $null = New-Item -ItemType SymbolicLink -Path (Join-Path (Join-Path $Root 'local/bin') $name) -Target (Join-Path $Root $target) -Force -ErrorAction Stop
+                } else {
+                    & ln -s (Join-Path $Root $target) (Join-Path (Join-Path $Root 'local/bin') $name)
+                }
             }
             return $Root
         }
@@ -367,7 +376,10 @@ Describe 'remove_standalone_python' {
         }
         function Invoke-Cleanup {
             param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Tree)
-            return Invoke-PlatformShell -Root $Root -Body "remove_standalone_python '$Tree/local/bin' '$Tree/opt'; echo DONE"
+            # Git Bash can spell native temporary-directory targets through its /tmp mount.
+            $treeSetup = if ($IsWindows) { "tree=`"`$(cygpath -u '$Tree')`"" } else { "tree='$Tree'" }
+            $cleanup = 'remove_standalone_python "$tree/local/bin" "$tree/opt"; echo DONE'
+            return Invoke-PlatformShell -Root $Root -Body "$treeSetup`n$cleanup"
         }
     }
     It 'removes the python3 shadow, its sibling links, its version directory and the emptied tree' -Skip:(-not $script:SymlinkPermitted) {
@@ -395,7 +407,7 @@ Describe 'remove_standalone_python' {
             Assert-True (Test-LinkPresent (Join-Path $tree 'local/bin/python3.12')) 'and so is its link'
         } finally { Remove-YurunaTestTempDir $root }
     }
-    It 'touches nothing when no python3 link points into the tree' {
+    It 'touches nothing when no python3 link points into the tree' -Skip:(-not $script:SymlinkPermitted) {
         $root = New-PlatformSandbox -Version $script:Below
         try {
             $tree = New-ShadowTree -Root (Join-Path $root 'shadow') -Dir 'opt/3.12.7/bin' -Link 'python3.12=opt/3.12.7/bin/python3.12'
@@ -404,7 +416,7 @@ Describe 'remove_standalone_python' {
             Assert-True ($r.Output -notmatch 'removed') 'nothing is reported removed'
         } finally { Remove-YurunaTestTempDir $root }
     }
-    It 'removes only the link for a --prefix install with no version directory' {
+    It 'removes only the link for a --prefix install with no version directory' -Skip:(-not $script:SymlinkPermitted) {
         $root = New-PlatformSandbox -Version $script:Below
         try {
             $tree = New-ShadowTree -Root (Join-Path $root 'shadow') -Dir 'opt/bin', 'opt/lib' -Link 'python3=opt/bin/python3'

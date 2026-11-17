@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42782448-e44d-4353-957b-a836ffda43e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@
     rather than by enumerating today's steps, so a cache-addressed step added
     later is caught without this file being updated.
 
-    Should assertions only, so the suite runs under Pester 5.x.
+    Should assertions only, so the suite runs under Pester 6.x.
 #>
 
 BeforeAll {
@@ -104,6 +104,27 @@ Describe 'A lab with no caching proxy provisions on the direct path' {
             $guardAt | Should -BeGreaterThan 0
             $guardAt | Should -BeLessThan $daemonAt
             $guardAt | Should -BeLessThan $certsAt
+        }
+    }
+    # Docker Engine 29.10 ended the implicit trust of loopback registries for a
+    # daemon whose insecure-registries is set. The guest's own registry is plain
+    # HTTP on loopback, so a daemon.json that names only the cache fails every
+    # workload push with "server gave HTTP response to HTTPS client".
+    It 'keeps the guest''s own loopback registry insecure beside the cache' {
+        $root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $script:k8sPaths[0]))
+        $check = Get-Content -LiteralPath (Join-Path $root 'global/resources/localhost/registry/localhost-registry-check.sh') -Raw
+        $location = [regex]::Match($check, '"registryLocation":"(?<location>[^"]+)"').Groups['location'].Value
+        $bind = [regex]::Match($check, '-p (?<bind>127\.0\.0\.1:\d+):\d+ ').Groups['bind'].Value
+        $location | Should -Not -BeNullOrEmpty
+        $bind | Should -Not -BeNullOrEmpty
+        foreach ($g in $script:k8sPaths) {
+            $t = Get-Content -LiteralPath $g -Raw
+            $json = [regex]::Match($t, '(?s)/etc/docker/daemon\.json >/dev/null <<EOF\r?\n(?<json>.*?)\r?\nEOF').Groups['json'].Value
+            $json | Should -Not -BeNullOrEmpty
+            $daemon = $json.Replace('${CACHE_HOST}', '192.0.2.10') | ConvertFrom-Json
+            $daemon.'insecure-registries' | Should -Contain '192.0.2.10:5000'
+            $daemon.'insecure-registries' | Should -Contain $location
+            $daemon.'insecure-registries' | Should -Contain $bind
         }
     }
     It 'skips both warm passes when no cache was named' {

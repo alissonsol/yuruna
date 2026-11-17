@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a250bd-06e8-40d3-8cee-cc9f04e23650
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -427,8 +427,8 @@ $decideServiceStartOutcome = {
 }
 
 # --- REGION: Run the service's readiness phases
-# Dot-sourcing the part's script block, not its path: the part shares this
-# scope as before, and an exit in it ends this script through the finally
+# Dot-sourcing the part's script block, not its path: the part runs in this
+# script's scope, and an exit in it ends this script through the finally
 # below. An exit in a dot-sourced script FILE would end only that file and
 # fall through to here.
 $startPart = Join-Path $PSScriptRoot "Start-ExtensionService.$ServiceKey.ps1"

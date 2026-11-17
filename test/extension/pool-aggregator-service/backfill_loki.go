@@ -113,9 +113,11 @@ func (b *backfiller) lokiTerminalCycles(ctx context.Context, hostID string, from
 // lokiEventCycles returns the cycles of the host that already have event lines,
 // whether the collector tailed them live or an earlier sweep wrote them. Live
 // event streams carry cycleStartUtc only inside the line; backfilled ones carry it
-// as a label too, and Loki keeps the label's value when both exist.
+// as a label too, and Loki keeps the label's value when both exist. The lines the
+// collector writes from its own observation (the emitter label) are left out: a
+// runner_lost line names its cycle, but it is not one of that cycle's events.
 func (b *backfiller) lokiEventCycles(ctx context.Context, hostID string, from, to time.Time) (map[string]bool, error) {
-	sel := fmt.Sprintf(`{src="event",hostId=%q} | json cycleStartUtc="cycleStartUtc"`, hostID)
+	sel := fmt.Sprintf(`{src="event",hostId=%q,emitter=""} | json cycleStartUtc="cycleStartUtc"`, hostID)
 	return cycleKeys(b.lokiCountBy(ctx, "cycleStartUtc", sel, from, to))
 }
 

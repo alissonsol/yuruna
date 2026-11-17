@@ -1288,7 +1288,12 @@ outage of up to half an hour, as long as GitHub's release endpoints have
 answered `504`.
 Longer outages still surface, framed as "tofu init failed ... after N
 attempts" with the stderr tail attached, so the operator immediately
-sees whether it's a 5xx, a checksum mismatch, or something else. The
+sees whether it's a 5xx, a checksum mismatch, or something else. When
+the last attempt's output names the download that failed, the message
+names it too -- its URL without the query, and the status or client
+error tofu printed for it -- because a provider is fetched from GitHub's
+release hosts as well as from the registry, and a fixed hint naming the
+registry sends the reader to the wrong host. The
 retry sits **inside** the per-resource helper so the captured
 `tofu.stderr.log` records each attempt's exit code separately.
 
@@ -1702,6 +1707,14 @@ incident class that has taken out multiple test hosts at once).
 `$http_proxy`, falling back to the well-known `yuruna-caching-proxy-service`
 hostname.
 
+`insecure-registries` names the cache and the guest's own registry,
+`localhost:5000` and `127.0.0.1:5000`. Docker Engine 29.10 and later stop
+treating loopback registries as insecure once that key is set, so a file
+that names only the cache makes every workload push to the local plain-HTTP
+registry fail with `http: server gave HTTP response to HTTPS client`. Guests
+install the newest Docker release, so a daemon default that changes
+upstream reaches each guest at its next build.
+
 Source:
 [`guest/ubuntu.server.24/ubuntu.server.24.k8s.sh`](../guest/ubuntu.server.24/ubuntu.server.24.k8s.sh)
 (and its `ubuntu.server.26` sibling).
@@ -1767,6 +1780,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

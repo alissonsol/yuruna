@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 426885fa-49ed-4e47-8e22-c7994fa575f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,44 @@ BeforeAll {
     $script:PassingSuite = "Describe 'ok' { It 'a' { 1 | Should -Be 1 }; It 'b' { 2 | Should -Be 2 } }"
     $script:ThisPlatform = if ($IsWindows) { 'windows' } elseif ($IsMacOS) { 'macos' } else { 'linux' }
     $script:OtherPlatform = if ($script:ThisPlatform -eq 'windows') { 'linux' } else { 'windows' }
+}
+
+Describe 'suite concurrency budget' {
+    It 'uses <Expected> workers for <Case>' -ForEach @(
+        @{ Case = 'the default on a small host'; ProcessorCount = 4; RunnerArguments = @(); Expected = 8 }
+        @{ Case = 'the default on a medium host'; ProcessorCount = 12; RunnerArguments = @(); Expected = 9 }
+        @{ Case = 'the default on a large host'; ProcessorCount = 32; RunnerArguments = @(); Expected = 24 }
+        @{ Case = 'the default on a host past the cap'; ProcessorCount = 64; RunnerArguments = @(); Expected = 24 }
+        @{ Case = 'an explicit throttle above the default'; ProcessorCount = 32; RunnerArguments = @('-ThrottleLimit', '28'); Expected = 28 }
+    ) {
+        $root = New-FixtureTree
+        try {
+            Set-FixtureSuite -Root $root -Name Alpha -Body "Describe 'processor budget' { It 'sees the simulated host' { [Environment]::ProcessorCount | Should -Be $ProcessorCount } }"
+            $fixtureRunner = New-FixtureRunner -Root $root
+            $start = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+            $start.UseShellExecute = $false
+            $start.RedirectStandardOutput = $true
+            $start.RedirectStandardError = $true
+            $start.Environment['DOTNET_PROCESSOR_COUNT'] = [string]$ProcessorCount
+            $start.Environment['NO_COLOR'] = '1'
+            foreach ($argument in @('-NoProfile', '-File', $fixtureRunner, '-Root', $root, '-All', '-Quiet') + $RunnerArguments) {
+                $start.ArgumentList.Add($argument)
+            }
+            $process = [Diagnostics.Process]::Start($start)
+            try {
+                $stdout = $process.StandardOutput.ReadToEndAsync()
+                $stderr = $process.StandardError.ReadToEndAsync()
+                $process.WaitForExit()
+                $process.ExitCode | Should -Be 0 -Because ($stdout.Result + $stderr.Result)
+            } finally {
+                $process.Dispose()
+            }
+            $report = Get-Content -LiteralPath (Join-Path $root '.test-results/suite-results.json') -Raw | ConvertFrom-Json
+            $report.totals.tests | Should -Be 1
+            $report.totals.failed | Should -Be 0
+            $report.throttle | Should -Be $Expected
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 Describe 'discovery' {

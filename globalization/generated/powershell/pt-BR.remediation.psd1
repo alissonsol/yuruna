@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 423016db-0df4-34b1-40de-ed496a3fd9c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,29 @@
 # locale: pt-BR  domain: remediation
 
 @{
+    'remediation.guest_display_stalled_action_evidence' = 'Leia causeDetail.guestDisplayStallEnd e serial-console.log na pasta do convidado; compare os relatos de tempo limite do driver de vídeo com a captura de tela e o texto de OCR salvos e examine as versões do kernel e do driver de vídeo do convidado se a paralisação voltar a ocorrer'
+    'remediation.guest_display_stalled_action_restore' = 'Restaure um snapshot limpo ou inicialize o convidado novamente antes de executar a sequência outra vez; repetir a espera na mesma tela paralisada não recupera seus quadros. Mantenha a recuperação de login existente, com limites, e examine qualquer alteração de senha antes de tentar a recuperação manualmente'
+    'remediation.guest_display_stalled_rationale' = @(
+        'guest_display_stalled em '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': o driver de vídeo '
+        @{
+            'arg' = 'driver'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' do convidado relatou '
+        @{
+            'arg' = 'reports'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' tempos limite de troca de quadros enquanto o console parou de mudar. O convidado ainda pode estar em execução; uma tela inalterada não é evidência de que seu kernel parou.'
+    )
     'remediation.guest_kernel_stalled_action_evidence' = 'Leia causeDetail.guestKernelStallEnd e causeDetail.guestLivelock em last_failure.json, e os relatos do kernel em serial-console.log na pasta do convidado'
     'remediation.guest_kernel_stalled_rationale' = @(
         'guest_kernel_stalled em '
@@ -93,6 +116,27 @@
             'trust' = 'external'
         }
         '), então o script não pôde terminar. Não é um espelho de pacote lento, e executar a etapa de novo no mesmo convidado não ajuda.'
+    )
+    'remediation.ocr_timeout_kernel_stall_rationale' = @(
+        'ocr_timeout em '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': o kernel do convidado parou de progredir (relatos do kernel: '
+        @{
+            'arg' = 'kinds'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; processadores virtuais que não atenderam nenhuma interrupção: '
+        @{
+            'arg' = 'processors'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '), então a tela não pôde chegar ao estado esperado. Não é uma carga de trabalho que saiu do caminho gravado, e a mesma inicialização não se recupera.'
     )
     'remediation.operator_00fd2209b1a993b2' = 'inspecionar manualmente last_failure.json'
     'remediation.operator_01b3c9512f168859' = @(

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42fceff5-e96e-4072-9219-6ca416d6489c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -174,6 +174,41 @@ Describe 'Guest archive and clone provenance' {
             $output = Invoke-GuestMetadataFixture -Functions $functions -Fixture 'guest_evidence_provenance' -FixtureHome $fixtureHome
             $output | Should -Match 'guestProvenance.project.tools/example-workload.sh.sha256=unsafe-path'
             $output | Should -Not -Match 'private-outside-content'
+        }
+    }
+
+    It 'records the installed pwsh release from its dependency manifest, without starting pwsh: <Version>' -Skip:(-not $IsLinux) -TestCases @(
+        @{ Version = '7.7.0' }
+        @{ Version = '7.7.0-preview.5' }
+    ) {
+        param($Version)
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $install = Join-Path $root 'opt/powershell'
+        $bin = Join-Path $root 'bin'
+        $null = New-Item -ItemType Directory -Path $install, $bin
+        # A stand-in pwsh that leaves a mark if anything runs it, reached
+        # through a link the way the installers place it on PATH.
+        $started = Join-Path $root 'pwsh-started'
+        [IO.File]::WriteAllText((Join-Path $install 'pwsh'), "#!/bin/sh`ntouch '$started'`n")
+        & chmod +x (Join-Path $install 'pwsh')
+        $deps = '{"targets":{".NETCoreApp,Version=v10.0/linux-x64":{"pwsh/7.7.0.500":{"dependencies":{"Microsoft.PowerShell.SDK":"__V__"}},"Microsoft.PowerShell.SDK/__V__":{}}}}'
+        [IO.File]::WriteAllText((Join-Path $install 'pwsh.deps.json'), $deps.Replace('__V__', $Version))
+        & ln -s (Join-Path $install 'pwsh') (Join-Path $bin 'pwsh')
+        foreach ($functions in $script:metadataFunctions) {
+            $output = Invoke-GuestMetadataFixture -Functions $functions -Fixture "PATH='$bin':`$PATH; guest_evidence_provenance" -FixtureHome (Get-GuestFixtureHome)
+            $output | Should -Match ('(?m)^guestProvenance\.installed\.pwsh\.version=' + [regex]::Escape($Version) + '$')
+        }
+        Test-Path -LiteralPath $started | Should -BeFalse -Because 'the release is read from the installed tree, never by running pwsh'
+    }
+
+    It 'records unknown when the pwsh it resolves has no readable dependency manifest' -Skip:(-not $IsLinux) {
+        $bin = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $bin
+        [IO.File]::WriteAllText((Join-Path $bin 'pwsh'), "#!/bin/sh`nexit 0`n")
+        & chmod +x (Join-Path $bin 'pwsh')
+        foreach ($functions in $script:metadataFunctions) {
+            $output = Invoke-GuestMetadataFixture -Functions $functions -Fixture "PATH='$bin':`$PATH; guest_evidence_provenance" -FixtureHome (Get-GuestFixtureHome)
+            $output | Should -Match '(?m)^guestProvenance\.installed\.pwsh\.version=unknown$'
         }
     }
 

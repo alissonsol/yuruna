@@ -460,7 +460,7 @@ repair a partial install. Run
 used in testing
 ([`automation/Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml)).
 
-- Install [PowerShell Core](https://github.com/powershell/powershell) 7.6.9+ -- the floor in [`Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml); anything older fails `Test-Requirement.ps1`.
+- Install [PowerShell Core](https://github.com/powershell/powershell) 7.7.0+ -- the floor in [`Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml); anything older fails `Test-Requirement.ps1`.
   On Windows, from an Administrator PowerShell:
   - Install it for all users: `winget install --id Microsoft.PowerShell --scope machine`. A per-user copy sits under `%LOCALAPPDATA%`, where no other account can execute it, so the test user from [B.4](#b4-create-the-yuruna-test-user) cannot run `pwsh` at all.
   - `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned` (see [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170))
@@ -694,7 +694,7 @@ pwsh test/service/Start-CachingProxyServiceVM.ps1
 ```
 
 Builds the `yuruna-caching-proxy-service` VM and exposes ports 80 (CA cert),
-3128/3129 (Squid), 3000 (Grafana), 9302 (metrics). Elevated on Windows;
+3128/3129 (Squid), 3000 (Grafana), 9302 (parser live tail). Elevated on Windows;
 unelevated on macOS. Set `vmStart.cachingProxyIp` in
 `test.config.yml` to the proxy's IP so cycles find it. The cache VM
 survives framework reinstalls. Details: [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference).
@@ -834,7 +834,7 @@ Its closing report distinguishes three things:
   whatever its port, and a rule for either port without it stays,
   including one an older version added before the framework began
   marking its rules; a plain allow rule among them is also listed with
-  the command that removes it -- plus `libvirt` / `kvm` group membership
+  the command that removes it -- plus `libvirt` / `kvm` / `systemd-journal` group membership
   and the `libvirt-qemu` ACL on `$HOME`, those last two only when the
   capture proves `Enable-TestAutomation` added them. macOS
   removes nothing. On Windows the config service rule is not in this
@@ -909,6 +909,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

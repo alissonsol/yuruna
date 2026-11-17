@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42d93b11-69e5-4250-b84e-294562b68efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -608,7 +608,9 @@ function Receive-YurunaDownloadResponse {
             $State = @{
                 uri          = $Uri
                 etag         = $(if ($etag -and -not $etag.IsWeak) { $etag.ToString() } else { '' })
-                lastModified = $(if ($response.Content.Headers.LastModified) { $response.Content.Headers.LastModified.Value.ToString('R', [System.Globalization.CultureInfo]::InvariantCulture) } else { '' })
+                # PowerShell hands a Nullable<DateTimeOffset> over already
+                # unwrapped, so the header is the date itself and has no .Value.
+                lastModified = $(if ($response.Content.Headers.LastModified) { $response.Content.Headers.LastModified.ToString('R', [System.Globalization.CultureInfo]::InvariantCulture) } else { '' })
                 # A length the caller already knows wins over this response's:
                 # a relay that cut the body short can also send a short length.
                 length       = $(if ($ExpectedByteCount -gt 0) { $ExpectedByteCount } elseif ($response.Content.Headers.ContentLength) { [int64]$response.Content.Headers.ContentLength } else { 0L })

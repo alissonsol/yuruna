@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42322a4d-f414-3c38-3588-7ad936bc7aa9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5293,6 +5293,47 @@
             'trust' = 'external'
         }
     )
+    'automation.retry_already_applied' = @(
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': ניסיון '
+        @{
+            'arg' = 'attempt'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '/'
+        @{
+            'arg' = 'maxAttempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' נכשל (exit='
+        @{
+            'arg' = 'lastExit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '), אך התוצאה שלו כבר הוחלה על ידי ניסיון קודם; הפקודה נחשבת כהושלמה.'
+    )
+    'automation.retry_succeed_when_threw' = @(
+        '!! '
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': פונקציית התנאי SucceedWhen זרקה חריגה ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); הניסיון נשאר כשל'
+    )
     'automation.runtime_ipc_remove_action' = 'הסירו את רשומת זמן הריצה של .NET שנותרה מתהליך שכבר אינו קיים'
     'automation.seed_value_unsafe' = @(
         'לא ניתן למקם את ערך ה-seed עבור '
@@ -5479,6 +5520,22 @@
     'automation.system_diagnostic_kernel_log_unavailable' = '(אין יומן ליבה: לא ניתן לקרוא את dmesg כאן, ו-journalctl -k -b 0 לא החזיר רשומות; ראו "גישה ליומן המערכת" תחת RECENT SYSTEM EVENTS)'
     'automation.system_diagnostic_lockup_settings' = 'הגדרות היתקעות וראיות קריסה'
     'automation.system_diagnostic_networkmanager_dhcp_none' = '(אין רשומות dhcp4 של NetworkManager באתחול זה)'
+    'automation.system_diagnostic_previous_boot_middle_omitted' = '... (שורות הביניים דולגו בלי לספור אותן, כדי שאתחול קודם ארוך לא יעכב את הדוח הזה) ...'
+    'automation.system_diagnostic_probe_stopped' = @(
+        '  ('
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' לא הסתיים בתוך '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's והופסק; מה שהדפיס עד אז מופיע למעלה)'
+    )
     'automation.system_diagnostic_registry_images_refused' = @(
         'REGISTRY: המטמון סירב ל־'
         @{
@@ -5617,6 +5674,16 @@
             'trust' = 'external'
         }
     )
+    'automation.system_diagnostic_restart_not_pending' = 'הפעלה מחדש ממתינה: לא'
+    'automation.system_diagnostic_restart_pending' = @(
+        'הפעלה מחדש ממתינה: כן ('
+        @{
+            'arg' = 'sources'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ')'
+    )
     'automation.system_diagnostic_utmctl_list_incomplete' = @(
         '  utmctl list לא החזיר תשובה מלאה בתוך '
         @{
@@ -5634,6 +5701,45 @@
             'trust' = 'internal'
         }
         ')'
+    )
+    'automation.tofu_init_fetch_failed' = @(
+        'tofu init נכשל עבור המשאב '''
+        @{
+            'arg' = 'resourceName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' לאחר '
+        @{
+            'arg' = 'attempts'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ניסיונות (קוד יציאה אחרון '
+        @{
+            'arg' = 'lastExit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '): הניסיון האחרון לא הצליח להוריד את '
+        @{
+            'arg' = 'url'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). בדקו את '
+        @{
+            'arg' = 'tofuLogFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' לצפייה בפלט המלא.'
     )
     'automation.top_processes_private_bytes' = '10 המובילים לפי בתים פרטיים (חיוב commit)'
 }

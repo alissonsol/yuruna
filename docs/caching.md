@@ -282,8 +282,12 @@ list; New-VM merges them via
 - `cache_replacement_policy heap LFUDA` +
   `memory_replacement_policy heap GDSF` -- eviction retains large,
   frequently-used blobs (linux-firmware, kernels); drops rare small ones.
-- `quick_abort_min -1 KB` -- finish fetches even when the client
-  disconnects, so the next client gets a cache hit.
+- `quick_abort_min -1 KB` -- finish a fetch whose response has started even
+  when the client disconnects, so the next client gets a cache hit. A fetch
+  with no response headers yet is still dropped when its last client leaves,
+  and apt metadata is answered from the origin while upstream is allowed, so
+  a retry of a stalled `InRelease` asks the origin again (see
+  [Apt metadata under offline_mode](#42f6b05f-0057)).
 
 <a id="42f6b05f-0012"></a>
 
@@ -520,19 +524,33 @@ came hours and one publish later, and every arm64 guest then failed
 `apt-get update` with `File has unexpected size` while amd64 guests
 passed.
 
-So `yuruna.conf` never answers mutable apt metadata from the cache:
+So `yuruna.conf` never answers mutable apt metadata from the cache, and never
+lets a request for it wait on another client's fetch of it:
 
 ```
 acl yuruna_apt_index urlpath_regex -i /dists/ /(InRelease|Release|Release\.gpg)$ /(Packages|Sources)(\.gz|\.xz|\.bz2|\.lz4|\.zst)?$
 acl yuruna_apt_by_hash urlpath_regex -i /by-hash/
 acl yuruna_no_upstream src 255.255.255.255/32
 send_hit deny yuruna_apt_index !yuruna_apt_by_hash !yuruna_no_upstream
+collapsed_forwarding_access deny yuruna_apt_index !yuruna_apt_by_hash !yuruna_no_upstream
 ```
 
 - Each request goes to the origin, which answers apt's
   `If-Modified-Since` with a small `304` when nothing changed, and the
   answer is still stored. `/dists/` covers every index of a suite;
   `/by-hash/` URLs name their content, so they stay cached.
+- Each request also makes its own origin fetch. Under
+  `collapsed_forwarding on`, squid would share the first request's fetch,
+  and every request for the same URL arriving before the origin answered
+  would wait for that fetch's headers without asking the origin; squid logs
+  one that gives up as `TCP_HIT_ABORTED/000` with `HIER_NONE`. Waiting can
+  never save an origin request here, because once headers arrive `send_hit`
+  sends each waiting request to the origin anyway. When an origin stalls,
+  one stuck fetch would fail every `apt-get update` that joined it for apt's
+  whole `Acquire::http::Timeout`, while a fetch of its own can reach an
+  origin server that still answers. The price is more origin requests
+  during a stall, one per guest request, as without a proxy. By-hash
+  indexes, packages and images still share a fetch.
 - [no-upstream mode](#no-upstream-mode) adds the client ranges the cache
   serves (RFC1918 and loopback) to `yuruna_no_upstream`, so the stored
   copies are served while misses are refused. The never-matching value
@@ -549,11 +567,19 @@ it (see the network notes on
 and the [apt index pairs self-test](#42f6b05f-005b) reports
 any pair the cache still serves out of step.
 
+A running cache adopts its existing configuration, so the
+`collapsed_forwarding_access` rule reaches it when the VM is rebuilt from the
+seed (`Start-CachingProxyServiceVM.ps1 -ForceRebuild`). The cache-health
+dashboard shows an apt origin that stops answering
+([index requests with no answer](cache-health-dashboard.md#4227a895-0017)) and
+any request still left waiting on another client's fetch
+([requests that waited on another client's fetch](cache-health-dashboard.md#4227a895-0018)).
+
 <a id="42f6b05f-0016"></a>
 
 ### no-upstream mode
 
-The switch that actually refuses upstream. Off by default.
+The switch that actually refuses upstream.
 
 ```
 sudo yuruna-no-upstream on       # misses refused, nothing leaves the VM
@@ -644,7 +670,7 @@ and the direct pull then egresses from the lab's shared IP and earns a
 `429 Too Many Requests`. A warm, healthy cache does not help: at that
 point it is no longer in the path.
 
-So the scripts take the image from the guest's local docker store first,
+So the scripts take the image from the guest's local Docker store first,
 and otherwise pull `${CACHE_HOST}:5000/library/registry:2.8.3` -- the cache
 addressed **by name**, with the `library/` prefix spelled out (only the
 docker.io mirror protocol lets it be elided). An explicit reference has no
@@ -730,7 +756,7 @@ no retry loop can reach it. The workload scripts therefore never build
 against a remote registry:
 
 1. Every base image the Dockerfile needs is looked up in the guest's
-   local docker store first (matched by `repo:tag` under any registry
+   local Docker store first (matched by `repo:tag` under any registry
    prefix). Only when missing is it pulled into the store, trying
    `${CACHE_HOST}:5000/` (zot pull-through cache -- LAN-fast, absorbs
    MCR TLS jitter) and then `mcr.microsoft.com/` -- the survival path
@@ -850,8 +876,8 @@ Explore. Scrapes `:9090`, `:9301`, `:5000` (zot), `:80` (squid and zot meta),
 `:9100` (node exporter) and `:9400` (pool aggregator), plus the per-host targets
 the aggregator lists, every 15 s.
 
-**Loki + Alloy** -- loopback-only, same repo. The seed pins Alloy 1.20.1
-(package `1.20.1-1`) and validates `/etc/alloy/config.alloy` before starting it.
+**Loki + Alloy** -- loopback-only, same repo. The seed pins Alloy 1.22.0
+(package `1.22.0-1`) and validates `/etc/alloy/config.alloy` before starting it.
 Alloy tails
 `/var/log/squid/yuruna_access.log`, the Squid loopback log and the zot log,
 and ships them to Loki on `127.0.0.1:3100` with configured `job` labels
@@ -1037,15 +1063,7 @@ state, by construction: any tag it can measure cheaply and repeatedly is one the
 cache already holds. The warm-set residency counts are the reading that shows
 it.
 
-**`host/vmconfig/caching-proxy-service.base.user-data`.**
-
-ORDER IS THE ROUTING TABLE: zot tries each entry whose content matches, in
-file order, until one syncs. A failed sync falls through to later matching
-entries and ends at the Docker Hub "**" catch-all.
-docker2s2: zot 2.1.22 and later keep a Docker manifest as served instead of
-converting it to OCI, and refuse to sync one without this compat mode.
-registry.k8s.io and mcr.microsoft.com serve Docker manifest lists, so
-without it every image from them answers HTTP 503 at once.
+Source: **`host/vmconfig/caching-proxy-service.base.user-data`.**
 
 <a id="42f6b05f-0055"></a>
 
@@ -1237,7 +1255,8 @@ The verdict is the `zot sync self-test` line right under liveness on
 last lines of the build's cloud-init readiness summary. From there it reaches:
 
 - **The build.** On Hyper-V and KVM, `New-VM.ps1` waits for the verdict after
-  squid answers and exits 1 for `INCOMPATIBLE`, printing the cache's fix
+  squid answers and exits 1 for `INCOMPATIBLE`, or for a zot that does not
+  answer `/v2/`, printing the cache's fix
   instructions. On UTM, and for a cache built earlier,
   `test/Test-CachingProxyService.ps1` reports it.
 - **Cycle start.** The registry wait before a Kubernetes guest ends at once on
@@ -2126,7 +2145,7 @@ guest install.
 
 ### Rebuild, adopt-if-healthy, and the bring-up lock
 
-`Start-CachingProxyServiceVM.ps1` **adopts a healthy proxy by default** instead of
+`Start-CachingProxyServiceVM.ps1` **adopts a healthy proxy** with `-RepairPoolCaTrust:$false` instead of
 rebuilding it. Each run probes the existing `yuruna-caching-proxy-service` VM at
 the address the host driver resolves now (running + squid `:3128` + ssl-bump
 `:3129` + Grafana `:3000`; the `:80` CA cert only warns); a healthy one skips the ~15-min destroy / image /
@@ -2210,7 +2229,7 @@ Two hold profiles share the one lock, distinguished only by their timeout:
 | Role | Typical hold | Timeout behavior |
 | --- | --- | --- |
 | `rebuild` (`Start-CachingProxyServiceVM`) | ~15 min | Bounded wait, long enough to absorb a runner's sub-second port-map hold; a live holder still there past the bound means fail-fast. |
-| `portmap` (runner `Add-PortMap`) | ~1 s | Try-once (`TimeoutSeconds 0`). If a rebuild holds the lock, the runner skips this cycle's port-map -- the rebuild owns the maps and the cache is down mid-rebuild anyway -- and re-applies on the next cycle. |
+| `portmap` (runner `Add-PortMap`) | ~1 s | Try-once (`TimeoutSeconds 0`). If a rebuild holds the lock, the runner skips this cycle's port map -- the rebuild owns the maps and the cache is down mid-rebuild anyway -- and re-applies on the next cycle. |
 
 The adopt-or-rebuild decision itself is a pure function over the proxy VM's
 state, its live address and a health probe at that address, wrapped by a thin
@@ -3066,7 +3085,7 @@ host. Its optional GitHub token prompt hides the input and automatically stores
 the token in that host's vault, preserving an existing custom vault-key mapping. Use a
 read-only Contents token limited to the GitHub repositories the mirror needs.
 Press Enter to retain the stored token, or anonymous access when none is stored;
-this preserves the normal reuse of a healthy proxy VM.
+healthy-proxy reuse also requires `-RepairPoolCaTrust:$false`.
 
 Entering a token requests a full proxy VM rebuild to apply it, even if the same
 value is already stored on the host: the running VM may hold a different value.
@@ -3102,9 +3121,9 @@ the mirror. Legacy freshness wording is displayed as `mirror.fresh`. The
 [dashboard Commit column guide](pool-dashboard.md#422226cb-0006) explains each
 label, its saved protocol value, and where to find the fallback reason.
 
-A stale selection is permitted only after a bounded
-direct origin attempt fails with a transport error, within the configured age,
-and without replacing a newer or unknown installed snapshot. Authentication,
+A stale selection uses a signed receipt within the configured age and cannot
+replace a newer or unknown installed snapshot. In `fallback` mode, it also requires
+a bounded direct origin attempt to fail with a transport error. Authentication,
 missing refs, invalid signatures, and mismatched objects never authorize stale
 content. Integrity failures retain their diagnostic even when verified origin
 fallback succeeds. Setting the stale age to zero disables stale use.
@@ -3160,6 +3179,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

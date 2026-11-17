@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 421020da-84c1-40cb-8831-6d1e4c24a63f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -107,6 +107,29 @@ BeforeAll {
         param([hashtable]$Evidence)
         Test-GitMirrorQualificationEvidence -Candidate $script:Candidate -Contract $script:Contract `
             -Evidence $Evidence -EvidenceDirectory $TestDrive
+    }
+}
+
+AfterAll {
+    # Git loose objects are read-only on Windows; Pester deletes TestDrive
+    # through Directory.Delete, which cannot remove those fixture files.
+    if ($IsWindows) {
+        foreach ($name in 'framework', 'project') {
+            $objects = $TestDrive
+            foreach ($part in $name, '.git', 'objects') {
+                $objects = Join-Path $objects $part
+                $directory = Get-Item -LiteralPath $objects -Force -ErrorAction SilentlyContinue
+                if (-not $directory -or $directory.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                    $objects = $null
+                    break
+                }
+            }
+            if ($objects) {
+                Get-ChildItem -LiteralPath $objects -Recurse -Force -File |
+                    Where-Object { $_.IsReadOnly -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+                    ForEach-Object { $_.IsReadOnly = $false }
+            }
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 424c3d85-6f03-4c68-b42d-34204ceb41ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,8 +36,8 @@
     hold against the production code path. Candidate IPs are TEST-NET
     (192.0.2.x); the mock intercepts before any packet would be sent.
 
-    The throw-based Assert-* helpers live at script scope and are
-    referenced from It blocks, so this runs under Pester 5.x.
+    The throw-based Assert-* helpers come from Test.Assert.psm1, imported
+    in BeforeAll so the It blocks reach them under Pester's discovery/run split.
 
     Run: pwsh -NoProfile -File test/modules/Test.CachingProxyServiceEndpoint.Tests.ps1
 #>

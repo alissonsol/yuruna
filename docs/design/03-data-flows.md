@@ -97,57 +97,118 @@ sequenceDiagram
     end
 ```
 
-[Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1) drives console actions and expected-text checks; [Test.OcrEngine.psm1](../../test/modules/Test.OcrEngine.psm1) supplies enabled, available OCR engines. [Test.Ssh.psm1](../../test/modules/Test.Ssh.psm1) executes SSH sequences. [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1) registers the step actions. `stopVm` requests shutdown through the driver's `Stop-VM -NoForce`, polls `Get-VMState`, and saves console frames with OCR sidecars while it waits; a guest that ignores the request fails as `vm_not_stopped` with that evidence unless `forceOnTimeout` forces it off and records a degradation. `startVm` waits for the same host-observed stopped state; a declared `failurePatterns` match on a frame saved during that wait ends it at once as `pattern_matched_failure` with the frame as evidence, which the UTM Ubuntu install power-off waits declare for `install_fail.crash`, the installer's error text, and its shell prompt. `inputTextAndEnter` with `acknowledgeWithinSeconds` fails as `input_lost` when the console frame does not change. Each sequence records `firstGuestSilenceUtc` and `firstGuestSilenceSource` from the first silence it observes. On Hyper-V, COM1 output is captured during the cycle and saved as `serial-console.log` on failure, and macOS UTM hosts capture the guest's PL011 serial port the same way. The base configuration sets `ForwardToConsole=no`; the Ubuntu Hyper-V and UTM overlays instead install `yuruna-serial-journal.service`, which copies syslog, journal, and stdout entries to the UART, so a UART that stops draining blocks that service rather than journald, and `sudo` and `sshd` behind it. Hyper-V's `Start-VM` stops the previous boot's reader before starting the VM and arms a new one afterward; UTM arms its reader before power-on, because QEMU drops output while no client is attached, and reuses a reader whose port did not change, skipping one whose process is already dead; a stop requests it on a pool thread, waits 5 seconds, then kills the reader by the process identity it announced. `serial-console.info.txt` records `lastByte`, the capture's last write time, on both. On Hyper-V a failed step's record also reads that capture from the step's start mark for the guest kernel's lockup, RCU stall, hung-task, oops, and panic reports (`causeDetail.guestKernelFault`), names a display driver whose page flips time out as `displayStall` without adding a fault kind or changing the failure class, judges console timestamps against the VM's creation time to name a clock jump, and lists the host's own address moves during the step (`causeDetail.hostAddressChanges`); `serial-console.kernel.json` re-reads the saved log once the capture closes. The fetch completion wait, which passes `-EndOnGuestLivelock` directly, and the waits a retry block marks `endWaitOnGuestLivelock` (its login waits, its `stepsAfterVmRestart` waits, and the ARM64 Hyper-V installer confirmation) end early on a livelock verdict, and on Hyper-V on a kernel fault report the serial console received after the wait began, once one processor has serviced no interrupt for 180 seconds or, for the fetch completion wait, which names the step recorder's upload, once the console text and that upload have both stayed unchanged for 180 seconds (`causeDetail.guestKernelStallEnd`, whose `basis` names the rule), and a wait that ends so, or on a livelock verdict with processor readings, files the step as `guest_kernel_stalled`. [Startup stall cold restart](#startup-stall-cold-restart) shows the bounded recovery inside a start sequence's login wait.
+[Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1) drives console actions and expected-text checks; [Test.OcrEngine.psm1](../../test/modules/Test.OcrEngine.psm1) supplies enabled, available OCR engines. [Test.Ssh.psm1](../../test/modules/Test.Ssh.psm1) executes SSH sequences. [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1) registers the step actions. `stopVm` requests shutdown through the driver's `Stop-VM -NoForce`, polls `Get-VMState`, and saves console frames with OCR sidecars while it waits; a guest that ignores the request fails as `vm_not_stopped` with that evidence unless `forceOnTimeout` forces it off and records a degradation. `startVm` waits for the same host-observed stopped state; a declared `failurePatterns` match on a frame saved during that wait ends it at once as `pattern_matched_failure` with the frame as evidence, which the UTM Ubuntu install power-off waits declare for `install_fail.crash`, the installer's error text, and its shell prompt. `inputTextAndEnter` with `acknowledgeWithinSeconds` fails as `input_lost` when the console frame does not change. Each sequence records `firstGuestSilenceUtc` and `firstGuestSilenceSource` from the first silence it observes. On Hyper-V, COM1 output is captured during the cycle and saved as `serial-console.log` on failure, and macOS UTM hosts capture the guest's PL011 serial port the same way. The base configuration sets `ForwardToConsole=no`; the Ubuntu Hyper-V and UTM overlays instead install `yuruna-serial-journal.service`, which copies syslog, journal, and stdout entries to the UART, so a UART that stops draining blocks that service rather than journald, and `sudo` and `sshd` behind it. Hyper-V's `Start-VM` stops the previous boot's reader before starting the VM and arms a new one afterward; UTM arms its reader before power-on, because QEMU drops output while no client is attached, and reuses a reader whose port did not change, skipping one whose process is already dead; a stop requests it on a pool thread, waits 5 seconds, then kills the reader by the process identity it announced. `serial-console.info.txt` records `lastByte`, the capture's last write time, on both. On Hyper-V a failed step's record also reads that capture from the step's start mark for the guest kernel's lockup, RCU stall, hung-task, oops, and panic reports (`causeDetail.guestKernelFault`), names a display driver whose page flips time out as `displayStall`, a reading that alone adds no kernel-fault kind or failure class, judges console timestamps against the VM's creation time to name a clock jump, and, on every host, lists the host's own address moves during the step (`causeDetail.hostAddressChanges`); `serial-console.kernel.json` re-reads the saved log once the capture closes. The fetch completion wait, which passes `-EndOnGuestLivelock` directly, and the waits a retry block marks `endWaitOnGuestLivelock` (its login waits, its `stepsAfterVmRestart` waits, and the ARM64 Hyper-V installer confirmation) end early on a livelock verdict, and on Hyper-V on a kernel fault report the serial console received after the wait began, once one processor has serviced no interrupt for 180 seconds or, for the fetch completion wait, which names the step recorder's upload, once the console text and that upload have both stayed unchanged for 180 seconds (`causeDetail.guestKernelStallEnd`, whose `basis` names the rule), and a wait that ends so, or on a livelock verdict with processor readings, files the step as `guest_kernel_stalled`. [Startup stall cold restart](#startup-stall-cold-restart) shows the bounded recovery inside a start sequence's login wait.
 
 Fetch steps, typed at the console or run over SSH, execute fetch-and-execute.sh in the guest, which downloads repository payloads from the status service with a runner-supplied digest; [Guest fetch source routing](#guest-fetch-source-routing) shows its fallbacks. Unless the step is sensitive, its context names `E_RECORDER_PATH`, and the guest's recorder POSTs evidence to that `diagnostics/` path on the status service. Process samples default to every 30 seconds, bounded to 240 samples and 7200 seconds; the kernel uploader sends on change or every 60 seconds. Samples include journal clients with their ages and wait channels, the `dev-log` socket queue, and `/proc/tty/driver/serial`. The collector probes `sudo -n` with a one-second bound; a hang records `recorderPrivilege=sudo-unresponsive` and collection continues unprivileged. A sensitive step uploads nothing, so the whole-guest silence rule is off there. A failed Ubuntu install's error hook in [ubuntu.server.base.user-data](../../host/vmconfig/ubuntu.server.base.user-data) PUTs its own bucket to `/log-upload/installer-fail/<hostname>/<UTC>/` on the status service: the mounts, a network snapshot that probes the proxy baked into the seed, curtin's archive and the installer logs, and apt's error lines extracted from that archive into `installer-cause.txt`. `Get-InstallerFailureCause` in [Test.SequenceFailureState.psm1](../../test/modules/Test.SequenceFailureState.psm1) reads the newest bucket written since the step started into `causeDetail.installerFailure` (`kind`, `summary`, `missingPackages`, `lines`, `artifacts`) and the `causeInstallerFailure` event field, which the infra event a lab stage sends also carries, since that event is all the pool receives from those hosts. Failed guests keep screenshots, OCR sidecars, and bounded failure diagnostics in the cycle folder; a passed guest's screen ring buffer is discarded at teardown. Teardown applies to passed guests and to failed guests unless `stopOnFailure` preserves the VM for inspection. [Test.Status.psm1](../../test/modules/Test.Status.psm1) writes status documents; the separate HTTP process [Invoke-StatusServiceRuntime.ps1](../../test/service/Invoke-StatusServiceRuntime.ps1), launched by [Start-StatusService.ps1](../../test/service/Start-StatusService.ps1), reads them and serves artifacts to browsers.
 
-Events raised while no cycle is open wait in `cycle-events.pending.json` in the runtime directory, bounded to 200 events and 512 KiB; past a bound the oldest are dropped and counted. The outer queues one `runner_fault` per failed attempt generation. The boot recovery sweep in [Test.Recovery.psm1](../../test/modules/Test.Recovery.psm1) queues `boot_recovery_completed`, plus `host_restart` for an orphaned cycle the host restarted under, and saves `host-restart.json` and `host-restart.txt` in that cycle's folder. Each runner records how it was started (process, host boot time, SSH session, terminal program, multiplexer, and parent processes) in `runner.session.json` through `Register-YurunaRunnerExitRecord` in [Test.SingleInstance.psm1](../../test/modules/Test.SingleInstance.psm1), and its SIGHUP and SIGTERM handlers write the signal to `runner.exit.json` before it ends the process; the sweep reads both before clearing `runner.pid`, so `boot_recovery_completed` carries them as `previousRunner` with a `hostRestarted` verdict, and `/control/runner-status` reports them as `lastExit` while the runner is gone. As each cycle opens, `Start-LogFile` in [Test.Log.psm1](../../test/modules/Test.Log.psm1) calls `Add-PendingRunnerAttemptFault`, which queues in time order any fault in `runner-attempts/index.json` that no runner queued and no recent stream carries. It then calls `Send-PendingCycleEvent`, which writes the queue oldest first ahead of `cycle_start`, each event keeping its timestamp and `eventId`, preceded by `pending_cycle_events_dropped` for any loss.
+Events raised while no cycle is open wait in `cycle-events.pending.json` in the runtime directory, bounded to 200 events and 512 KiB; past a bound the oldest are dropped and counted. The outer queues one `runner_fault` per failed attempt generation. The boot recovery sweep in [Test.Recovery.psm1](../../test/modules/Test.Recovery.psm1) queues `boot_recovery_completed`, plus `host_restart` for an orphaned cycle the host restarted under, and saves `host-restart.json` and `host-restart.txt` in that cycle's folder; for a cycle whose runner a recorded signal ended on a host that has not rebooted since it queues `runner_ended_by_signal` and saves `runner-signal.json` and `runner-signal.txt`. Each runner records how it was started (process, host boot time, SSH session, terminal program, multiplexer, and parent processes) in `runner.session.json` through `Register-YurunaRunnerExitRecord` in [Test.SingleInstance.psm1](../../test/modules/Test.SingleInstance.psm1), and its SIGHUP and SIGTERM handlers write the signal to `runner.exit.json` before it ends the process; the sweep reads both before clearing `runner.pid`, so `boot_recovery_completed` carries them as `previousRunner` with a `hostRestarted` verdict, and `/control/runner-status` reports them as `lastExit` while the runner is gone. As each cycle opens, `Start-LogFile` in [Test.Log.psm1](../../test/modules/Test.Log.psm1) calls `Add-PendingRunnerAttemptFault`, which queues in time order any fault in `runner-attempts/index.json` that finished after the newest passed attempt of another generation and that no runner queued and no recent stream carries. It then calls `Send-PendingCycleEvent`, which writes the queue oldest first ahead of `cycle_start`, each event keeping its timestamp and `eventId`, preceded by `pending_cycle_events_dropped` for any loss.
 
 [Test.Notify.psm1](../../test/modules/Test.Notify.psm1) dispatches configured notification extensions at cycle end. The `failuresBeforeAlert` threshold, the armed latch, and the `successesBeforeRearm` streak gate delivery; the crash counter only drives backoff and the abort. Cycle-failure sends are synchronous, and each outcome is recorded in `notification.delivery.json`; notification failure does not replace the test verdict. [Lifecycle state](04-lifecycle-state.md) explains retries, cleanup, and durable diagnostic preservation.
 
 ## Startup stall cold restart
 
-The Ubuntu [start sequence](../../test/sequences/start.guest.ubuntu.server.26.yml) wraps its login waits in `retry` steps with `restartVmBeforeRetry: coldPowerCycle`. The `retry` handler in [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1) runs the inner steps, and `Invoke-SequenceColdPowerCycle` restarts the guest through the provider contract. The login-wait participant groups `Wait-ForText` in [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1) and its OCR engines. The evidence participant groups `Save-StepFailureEvidence` in [Test.Log.psm1](../../test/modules/Test.Log.psm1) and the cycle event stream.
+The Ubuntu [start sequence](../../test/sequences/start.guest.ubuntu.server.26.yml) wraps first login and its password-change prompts in `retry` steps with `restartVmBeforeRetry: coldPowerCycle`. The `retry` handler in [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1) runs the inner steps, and `Invoke-SequenceColdPowerCycle` restarts the guest through the provider contract. The first-login participant groups `Wait-ForText` in [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1), its OCR engines, and the sequence handler's `passwdPrompt` action. The evidence participant groups `Save-StepFailureEvidence` in [Test.Log.psm1](../../test/modules/Test.Log.psm1) and the cycle event stream.
 
 ```mermaid
 sequenceDiagram
     participant test-sequence-handler-psm1 as Retry handler
-    participant test-sequence-engine-psm1 as Login wait
+    participant test-sequence-engine-psm1 as First-login steps
     participant yuruna-host-contract-psm1 as Host provider
     participant guest-vm as Guest VM
     participant status-json as Status and evidence
     loop Up to three attempts
-        test-sequence-handler-psm1->>test-sequence-engine-psm1: Run login steps
+        test-sequence-handler-psm1->>test-sequence-engine-psm1: Run first-login steps
         loop Until text or deadline
             test-sequence-engine-psm1->>yuruna-host-contract-psm1: Capture console
             opt Second opinion needed
                 test-sequence-engine-psm1->>yuruna-host-contract-psm1: Read console second opinion
             end
         end
-        test-sequence-engine-psm1-->>test-sequence-handler-psm1: Timeout, livelock, or stall
-        test-sequence-handler-psm1->>status-json: Save startup diagnostics
-        test-sequence-handler-psm1->>status-json: Emit retry_attempt event
-        opt Attempts remain
-            alt Restart permitted
-                test-sequence-handler-psm1->>yuruna-host-contract-psm1: Force stop and confirm
-                yuruna-host-contract-psm1->>guest-vm: Power off
-                opt Installer still running
-                    test-sequence-handler-psm1->>yuruna-host-contract-psm1: Select installer media
+        opt Password prompt matched
+            test-sequence-engine-psm1->>yuruna-host-contract-psm1: Send protected entry
+            yuruna-host-contract-psm1->>guest-vm: Protected input
+        end
+        test-sequence-engine-psm1-->>test-sequence-handler-psm1: Passed, timeout, or stall
+        opt Attempt failed
+            test-sequence-handler-psm1->>status-json: Save startup diagnostics
+            test-sequence-handler-psm1->>status-json: Emit retry_attempt event
+            opt Attempts remain
+                alt Restart permitted
+                    test-sequence-handler-psm1->>yuruna-host-contract-psm1: Force stop and confirm
+                    yuruna-host-contract-psm1->>guest-vm: Power off
+                    opt Installer still running
+                        test-sequence-handler-psm1->>yuruna-host-contract-psm1: Select installer media
+                    end
+                    test-sequence-handler-psm1->>yuruna-host-contract-psm1: Start and reconnect console
+                    yuruna-host-contract-psm1->>guest-vm: Cold boot
+                    test-sequence-handler-psm1->>status-json: Emit retry_vm_restart event
+                    test-sequence-handler-psm1->>test-sequence-engine-psm1: Run recovery steps
+                else Restart refused
+                    test-sequence-handler-psm1->>status-json: Emit retry_suppressed event
                 end
-                test-sequence-handler-psm1->>yuruna-host-contract-psm1: Start and reconnect console
-                yuruna-host-contract-psm1->>guest-vm: Cold boot
-                test-sequence-handler-psm1->>status-json: Emit retry_vm_restart event
-                test-sequence-handler-psm1->>test-sequence-engine-psm1: Run recovery steps
-            else Restart refused
-                test-sequence-handler-psm1->>status-json: Emit retry_suppressed event
             end
         end
     end
 ```
 
-Cold restart is accepted only on the Hyper-V, KVM, and UTM providers and only for a non-sensitive step shape: Enter presses, waits of at most 60 seconds, and one final login `waitForTextWithNudge`, with recovery steps limited to short waits or the installer confirmation. Attempts are capped at three. Those login waits receive `endWaitOnGuestLivelock` and `endWaitOnDisplayStall`. The display-stall end applies when a driver named in `DisplayStallEndDrivers` (`hyperv_drm`) has reported at least six page-flip timeouts on the serial console since the wait began, spanning at least 20 seconds, the newest within 30 seconds of the console's newest record, while the console the wait reads, readable or blank, has stayed unchanged for 30 seconds; the failed-attempt record and `retry_vm_restart` carry it as `guestDisplayStall`, and the failure record as `causeDetail.guestDisplayStallEnd`. When every frame shows QEMU's `Display output is not active` for the livelock minimum, the wait asks the driver's `Get-VMConsoleSecondOpinion` and ends early on a `guest-wedged` verdict. An exhausted console-repair budget also requests that opinion. Only the Hyper-V and UTM drivers provide it. The Hyper-V kernel-stall end described under [Guest test cycle](#guest-test-cycle) applies to these waits through its processor rule only: they name no recorder upload, so they never end as `guest-silent`.
+Cold restart is accepted only on the Hyper-V, KVM, and UTM providers. Its observation prefix permits non-sensitive Enter presses, waits of at most 60 seconds, and one final login `waitForTextWithNudge`; an optional tail must be the exact five-prompt first-login password flow. Recovery steps remain limited to short waits or installer confirmation. Attempts are capped at three, and a passed attempt ends the block. Login waits receive `endWaitOnGuestLivelock` and `endWaitOnDisplayStall`; the admitted password prompts receive only the display-stall end. The display-stall end applies when a driver named in `DisplayStallEndDrivers` (`hyperv_drm` or `virtio_gpu`) has reported at least six page-flip timeouts on the serial console since the wait began, spanning at least 20 seconds, the newest within 30 seconds of the console's newest record, while the console the wait reads, readable or blank, has stayed unchanged for 30 seconds; the failed-attempt record and `retry_vm_restart` carry it as `guestDisplayStall`, and the failure record as `causeDetail.guestDisplayStallEnd`. Only the Hyper-V driver exports the live serial reader this end needs, so it ends waits on Hyper-V guests only. When every frame shows QEMU's `Display output is not active` for the livelock minimum, the wait asks the driver's `Get-VMConsoleSecondOpinion` and ends early on a `guest-wedged` verdict. An exhausted console-repair budget also requests that opinion. Only the Hyper-V and UTM drivers provide it. The Hyper-V kernel-stall end described under [Guest test cycle](#guest-test-cycle) applies to the login waits through its processor rule only: they name no recorder upload, so they never end as `guest-silent`.
 
-A failed attempt saves frames with a diagnostic record holding the VM state and second opinion. A restart then requires that evidence, an OCR timeout rather than a matched failure pattern or console flood, and installer-media selection when Subiquity output shows an unfinished install. The restart stops the VM with `Stop-VMForce`, confirms `stopped`, optionally calls `Set-VMInstallerMediaFirstBoot`, starts it, confirms `running`, and calls `Restart-VMConsole`. Any unconfirmed phase fails the step with its `reasonCode`. Declared `stepsAfterVmRestart` run only after a confirmed restart, and an exhausted retry emits `retry_exhausted` with the deepest inner failure class. A host input fault that would repeat identically suppresses further attempts as `deterministic-input-fault`.
+A failed attempt saves frames with a diagnostic record holding the VM state and second opinion. A restart then requires that evidence, a login OCR timeout or an admitted password prompt whose wait ended on a display stall before its next entry was sent, no matched failure pattern or console flood, and installer-media selection when Subiquity output shows an unfinished install. A failure while typing or after the password-change block cannot replay credentials. The restart stops the VM with `Stop-VMForce`, confirms `stopped`, optionally calls `Set-VMInstallerMediaFirstBoot`, starts it, confirms `running`, and calls `Restart-VMConsole`. Any unconfirmed phase fails the step with its `reasonCode`. Declared `stepsAfterVmRestart` run only after a confirmed restart, and an exhausted retry emits `retry_exhausted` with the deepest inner failure class. The classifier in [Test.SequenceFailureState.psm1](../../test/modules/Test.SequenceFailureState.psm1) records a serial-backed display-stall end as `guest_display_stalled` with `restart_from_snapshot` and `pause_and_inspect`, and the retry handler in [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1) keeps that class as the inner class after retry exhaustion; explicit guest failure statements and kernel-stall evidence retain precedence. A host input fault that would repeat identically suppresses further attempts as `deterministic-input-fault`.
+
+## Advisory restart accounting
+
+The `saveGuestClockSnapshot` action in
+[Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1) records
+processor-restart evidence for Linux guests on native ARM64 Hyper-V hosts.
+`Save-GuestCpuRestartEvidence` in
+[Test.Diagnostic.psm1](../../test/modules/Test.Diagnostic.psm1) groups host
+context, bounded SSH collection, and the guest clock snapshot. The readiness
+participant is `Wait-SshReady` in [Test.Ssh.psm1](../../test/modules/Test.Ssh.psm1);
+the final participant is the event stream written through
+[Test.Log.psm1](../../test/modules/Test.Log.psm1).
+
+```mermaid
+sequenceDiagram
+    participant test-sequence-handler-psm1 as Sequence handler
+    participant test-diagnostic-psm1 as Evidence collector
+    participant test-ssh-psm1 as SSH helper
+    participant guest-vm as Guest VM
+    participant cycle-events-ndjson as Cycle events
+    test-sequence-handler-psm1->>test-diagnostic-psm1: Sample restart phase
+    opt After processor restart
+        test-diagnostic-psm1->>test-ssh-psm1: Wait for login
+        test-ssh-psm1->>guest-vm: Probe SSH readiness
+        guest-vm-->>test-ssh-psm1: Answer or timeout
+        opt Readiness wait failed
+            test-ssh-psm1->>cycle-events-ndjson: Emit ssh_handshake_failed
+        end
+        test-ssh-psm1-->>test-diagnostic-psm1: Readiness verdict
+    end
+    opt Proven address and key
+        test-diagnostic-psm1->>test-ssh-psm1: Read bounded samples
+        test-ssh-psm1->>guest-vm: Execute clock snapshot
+        guest-vm-->>test-ssh-psm1: Samples or timeout
+        test-ssh-psm1-->>test-diagnostic-psm1: Sample result
+    end
+    test-diagnostic-psm1-->>test-sequence-handler-psm1: Capture and reason
+    test-sequence-handler-psm1->>cycle-events-ndjson: Emit guest_clock_accounting
+```
+
+The after-restart login wait has a ten-second polling budget; its final verbose
+probe can add up to 15 seconds while host queries answer promptly. A failed
+wait still permits the bounded sample at an already proven address. The
+readiness event carries `vmName`, `guestKey`, `advisoryOnly`, and the supplied
+phase and step/sequence invocation IDs. Banner-exchange timeouts use
+`probe_timeout`, since the connection reached the SSH handshake. Ordinary
+network failures remain `network_timeout`/soft, and an expired password remains
+`credential_expired`/hard; advisory metadata changes neither classification nor
+retry policy.
+
+The capture records `complete`, `partial`, or `unavailable` independently of the
+workload verdict and saves `guest.cpu-clock.<phase>.{json,txt}`. The action
+returns success even when evidence is unavailable. More generally, a transport
+failure from `Invoke-GuestSsh` supplies no command status and cannot establish
+whether the command started or completed; it does not justify replay by itself.
 
 ## GUI fetch transport
 
@@ -196,9 +257,9 @@ sequenceDiagram
                 yuruna-host-contract-psm1->>guest-vm: Keys and guard
             end
         end
-        opt Evidence capture required
-            test-sequence-handler-psm1->>fetch-and-execute-evidence-json: Save transfer evidence
-        end
+    end
+    opt Evidence capture required
+        test-sequence-handler-psm1->>fetch-and-execute-evidence-json: Save execution evidence
     end
 ```
 
@@ -270,8 +331,8 @@ sequenceDiagram
             end
             git-mirror-worker-->>caching-proxy-service: Signed receipt
             caching-proxy-service-->>test-host-git-psm1: Signed receipt
+            test-host-git-psm1->>test-host-git-psm1: Verify signature and nonce
         end
-        test-host-git-psm1->>test-host-git-psm1: Verify signature and nonce
     end
     opt No usable receipt
         test-host-git-psm1->>github: Query requested ref
@@ -340,7 +401,7 @@ sequenceDiagram
     guest-vm->>guest-vm: Verify trusted digest
 ```
 
-An explicit `EXEC_BASE_URL` skips this resolution; an `http://` value is fetched without a proxy as a host source, and any other scheme as an operator-supplied base. A guest without a global IPv4 address first waits up to 180 seconds (`YURUNA_FETCH_IPV4_WAIT`), re-kicking address acquisition at 60 seconds, when the installed retry library provides the wait. One still without an address skips the probes and goes to GitHub. The locator probes the coordinates in `/etc/yuruna/host.env` first. A guest seeded with `/etc/yuruna/guest-channel.key` sends a fresh nonce with each livecheck and accepts only an answer carrying that key's HMAC over the nonce and host ID, whose `hostId` matches any seeded `YURUNA_HOST_ID`. With the key but without the locator or `openssl`, the guest refuses the host. A guest without the key keeps the plain reachability probe. With a seeded host ID and caching-proxy address, it then queries the directory up to four times, probing each returned endpoint before persisting it. The fallback probes are spaced three seconds apart. The mirror is probed only when the framework pin names a GitHub `owner/repo` and a 40-character commit.
+An explicit `EXEC_BASE_URL` skips this resolution; an `http://` value is fetched without a proxy as a host source, and any other scheme as an operator-supplied base. A guest without a global IPv4 address first waits up to 180 seconds (`YURUNA_FETCH_IPV4_WAIT`), re-kicking address acquisition at 60 seconds, when the installed [network library](../../automation/yuruna-network.sh) provides the wait. One still without an address skips the probes and goes to GitHub. The locator probes the coordinates in `/etc/yuruna/host.env` first. A guest seeded with `/etc/yuruna/guest-channel.key` sends a fresh nonce with each livecheck and accepts only an answer carrying that key's HMAC over the nonce and host ID, whose `hostId` matches any seeded `YURUNA_HOST_ID`. With the key but without the locator or `openssl`, the guest refuses the host. A guest without the key keeps the plain reachability probe. With a seeded host ID and caching-proxy address, it then queries the directory up to four times, probing each returned endpoint before persisting it. The fallback probes are spaced three seconds apart. The mirror is probed only when the framework pin names a GitHub `owner/repo` and a 40-character commit.
 
 Framework paths use `E_FB_REPO` and `E_FB_REF`, falling back to `EXEC_FALLBACK_*` and then `YURUNA_GITHUB_*` from `host.env`. `project/` payloads need their own `E_PROJECT_REPO` and `E_PROJECT_REF` pin or are refused, and a 64-character project ref cannot use the mirror. Mirror downloads ignore wgetrc and proxies, refuse redirects, and are bounded to 16 MiB and 120 seconds. Only an HTTP 404 from the mirror sends that file to GitHub; other mirror errors fail the fetch. GitHub reads use `raw.githubusercontent.com`, or the Contents API when `GH_TOKEN` is present. Payload verification requires the caller's trusted expected digest in `E_SHA` or `EXEC_SHA256`; runner-issued fetches supply `E_SHA` with `EXEC_REQUIRE_SHA256=1`. An explicit `EXEC_ALLOW_UNVERIFIED=1` permits missing-digest execution only when `EXEC_REQUIRE_SHA256=1` is not enforced, marks that provenance as unverified, and is unset before the payload runs. A supplied digest mismatch is re-fetched once, then refused.
 
@@ -403,7 +464,7 @@ cannot compute it and warns, still extracts the archive as served. Archive
 verification is separate from the fetched updater script's `E_SHA` check.
 
 [Windows 11's updater](../../guest/windows.11/windows.11.update.ps1) takes no
-context fields. With the guest-channel key it asks `/archive-digest` with a nonce
+archive context fields. With the guest-channel key it asks `/archive-digest` with a nonce
 for the commit and SHA-256 under the key's HMAC, keeps the archive only when its
 bytes match, and otherwise throws into its pinned-commit or clone fallback.
 Without the key it uses the archive as served.
@@ -446,9 +507,9 @@ sequenceDiagram
     loki-outbox->>loki: Deliver queued lines
 ```
 
-The default poll interval is 30 seconds. Discovery combines Squid access-log client addresses, hosts already known, and host self-announcements. Each poll also reads `/control/runner-status`, the one probe `status.json` cannot replace, and labels a host whose outer runner is verifiably gone `stopped`, or `lost` (status code 10) when it died inside a cycle, leaving `runnerState` at `in-cycle` and `runner.pid` behind; both count as healthy for pool gating, and a missed probe keeps the previous verdict. Push uses the internal authentication key over HTTPS pinned to the pool CA, which the forwarder fetches over HTTP from Apache on the cache VM on first use, caches as `runtime/pool-ca.crt`, and refreshes once when a batch fails. A fetched CA must pass `Resolve-YurunaPinnedProxyCa` in [Test.CachingProxyService.psm1](../../test/modules/Test.CachingProxyService.psm1): the host-owned root, the root pinned for that address, a matching legacy cached root, or a root named by a builder-signed statement verified with an enrolled mirror public key. Only a host without enrolled keys can accept an unpinned root on first use. A signed statement can authorize a rotation; a refused root produces a warning and preserves the pinned copy. The aggregator binds pushed lines to the host already discovered at the sender's address and returns 503 when no key is configured or when the outbox cannot hold the lines. Forwarding is detached, uses bounded HTTP calls, and stops at the first failed batch. Pull remains the discovery and backfill path when push is absent or fails. [Test.PoolNotifier.psm1](../../test/modules/Test.PoolNotifier.psm1) separately evaluates pool alert gauges and, when configured, maintains delivery state and sends through the notification extension.
+The default poll interval is 30 seconds. Discovery combines Squid access-log client addresses, hosts already known, and host self-announcements. Each poll also reads `/control/runner-status`, the one probe `status.json` cannot replace, and labels a host whose outer runner is verifiably gone `stopped`, or `lost` (status code 10) when it died inside a cycle, leaving `runnerState` at `in-cycle` and `runner.pid` behind; both count as healthy for pool gating unless an open incident excludes the host, and a missed probe keeps the previous verdict. Push uses the internal authentication key over HTTPS pinned to the pool CA, which the forwarder fetches over HTTP from Apache on the cache VM on first use, caches as `runtime/pool-ca.crt`, and refreshes once when a batch fails. A fetched CA must pass `Resolve-YurunaPinnedProxyCa` in [Test.CachingProxyService.psm1](../../test/modules/Test.CachingProxyService.psm1): the host-owned root, the root pinned for that address, a matching legacy cached root, or a root named by a builder-signed statement verified with an enrolled mirror public key. Only a host without enrolled keys can accept an unpinned root on first use. A signed statement can authorize a rotation; a refused root produces a warning and preserves the pinned copy. The aggregator binds pushed lines to the host already discovered at the sender's address and returns 503 when no key is configured or when the outbox cannot hold the lines. Forwarding is detached, uses bounded HTTP calls, and stops at the first failed batch. Pull remains the discovery and backfill path when push is absent or fails. [Test.PoolNotifier.psm1](../../test/modules/Test.PoolNotifier.psm1) separately evaluates pool alert gauges and, when configured, maintains delivery state and sends through the notification extension.
 
-The [outbox](../../test/extension/pool-aggregator-service/internal/loki/outbox.go) holds each line as a synced file in `/var/lib/pool-aggregator-service/loki-outbox` until Loki accepts it, up to 20,000 lines and 256 MiB, or in memory up to 64 MiB when that directory is unusable. When it is full, the poll retries from its own records and ingest answers 503. At startup the aggregator waits up to two minutes for Loki and delivers what an earlier run queued. It then [restores](../../test/extension/pool-aggregator-service/internal/rehydrate/rehydrate.go) cycle counts, open incidents, and host addresses from a seven-day window, plus live announcements, before the first poll. A host incident opens at three failed cycles within two hours, and a pool-wide incident when three hosts fail with one class within 15 minutes; incident lines reach Loki as `src=incident`. A separate `pool-history-backfill` service runs [the same binary](../../test/extension/pool-aggregator-service/backfill.go) in `backfill` mode. Every 15 minutes it restores past cycles of current pool hosts, up to 90 days back, from each host or from committed copies under `hosts/`, and writes them to Loki and Prometheus.
+The [outbox](../../test/extension/pool-aggregator-service/internal/loki/outbox.go) holds each queued Loki push, one or more lines, as a synced file in `/var/lib/pool-aggregator-service/loki-outbox` until Loki accepts it, within the count and size limits that file sets in `DefaultMaxItems` and `DefaultMaxBytes`, or in memory within `defaultMemoryMaxBytes` when that directory is unusable. When it is full, the poll retries from its own records and ingest answers 503. At startup the aggregator waits up to two minutes for Loki and delivers what an earlier run queued. It then [restores](../../test/extension/pool-aggregator-service/internal/rehydrate/rehydrate.go) cycle counts, open incidents, and host addresses from a seven-day window, plus live announcements, before the first poll. A host incident opens at three failed cycles within two hours, and a pool-wide incident when three hosts fail with one class within 15 minutes; incident lines reach Loki as `src=incident`. A separate `pool-history-backfill` service runs [the same binary](../../test/extension/pool-aggregator-service/backfill.go) in `backfill` mode. Every 15 minutes it restores past cycles of current pool hosts, up to 90 days back, from each host or from committed copies under `hosts/`, and writes them to Loki and Prometheus.
 
 ## Cached image download
 
@@ -757,7 +818,7 @@ sequenceDiagram
 
 [stash-service.base.user-data](../../host/vmconfig/stash-service.base.user-data) mounts the dedicated share at `/mnt/ystash-nas`. [ubuntu.server.26.stash-service.sh](../../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh) selects `stash/<hostId>/`, containing `hostkey/` and `files/yyyy/mm/dd/`. Committed artifacts carry `.yuruna.meta.json` sidecars so metadata survives a service reimage. Other hosts' uploads resolve through those sidecars; their unflushed local buffers are unavailable through the share.
 
-The SQLite index `stash.sqlite` stays in `/var/lib/stash-service/metadata`; the offline buffer stays in `/var/lib/stash-service/buffer`. [config.go](../../test/extension/stash-service/server/internal/config/config.go) defines these paths and the buffer ceiling. An unavailable share causes buffering; reaching the fixed 5 GB ceiling rejects new uploads. Without configured stash storage, the installer selects the local fallback `/var/lib/stash-service/share-local`.
+The SQLite index `stash.sqlite` stays in `/var/lib/stash-service/metadata`; the offline buffer stays in `/var/lib/stash-service/buffer`. [config.go](../../test/extension/stash-service/server/internal/config/config.go) defines these paths and the buffer ceiling. An unavailable share causes buffering; reaching the fixed 5 GiB ceiling rejects new uploads. Without configured stash storage, the installer selects the local fallback `/var/lib/stash-service/share-local`.
 
 The same commit function in
 [sshsrv.go](../../test/extension/stash-service/server/internal/sshsrv/sshsrv.go)
@@ -793,6 +854,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 [Architecture](../architecture.md) | [Design overview](README.md)

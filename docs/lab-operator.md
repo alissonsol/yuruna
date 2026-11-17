@@ -433,7 +433,7 @@ pwsh test/service/Start-CachingProxyServiceVM.ps1
 
 One proxy serves the whole lab. Builds the
 `yuruna-caching-proxy-service` VM and exposes ports 80 (CA cert),
-3128/3129 (Squid), 3000 (Grafana), 9302 (metrics). Elevated on
+3128/3129 (Squid), 3000 (Grafana), 9302 (parser live tail). Elevated on
 Windows; unelevated on macOS. On every lab machine, set
 `vmStart.cachingProxyIp` to this proxy's IP. The build mints an
 internal authentication key into this host's vault when none exists, and the
@@ -796,6 +796,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

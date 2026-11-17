@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2512,7 +2512,10 @@ function Assert-Virtualization {
 # --- REGION: Exports
 # Invoke-Virsh and Test-VirshLastCallUnanswered are exported for the service
 # builders, which run as their own process and make virsh calls of their own.
-Export-ModuleMember -Function Remove-KvmDomainDefinition, Resolve-KvmOsVariant, New-KvmServiceDomain, Repair-VMStorageLocation, Invoke-Virsh, Test-VirshLastCallUnanswered, `
+# Get-KvmDomainState is exported for Get-VMPlatformState (Test.HostContract),
+# which records libvirt's own state word (paused, shut off) that Get-VMState
+# folds, for the cycle-start admission and the leftover-VM record.
+Export-ModuleMember -Function Remove-KvmDomainDefinition, Resolve-KvmOsVariant, New-KvmServiceDomain, Repair-VMStorageLocation, Invoke-Virsh, Test-VirshLastCallUnanswered, Get-KvmDomainState, `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, Test-VirtualizationResponsive, Start-VirtualizationServiceIfStopped, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, Get-VMDiskSnapshotState, `
     Test-VMConsoleOpen, Restart-VMConsole, `

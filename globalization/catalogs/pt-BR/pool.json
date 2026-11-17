@@ -157,8 +157,7 @@
     },
     "pool.diagnostic_install_git": {
       "sourceHash": "bcfa19bd4c2fb0737488eb6aecc167742930e4d54b13c4546bd6184ddd965cba",
-      "message": "As CLIs de administração do grupo clonam e enviam a configuração do grupo; instale git no convidado.",
-      "origin": "machine"
+      "message": "As CLIs de administração do grupo clonam e enviam a configuração do grupo; instale git no convidado."
     },
     "pool.diagnostic_install_pwsh": {
       "sourceHash": "d062b237b1fc48af7c4e59c7c94e1cc91be3ab2c0268609208f991667e39f9aa",
@@ -166,58 +165,47 @@
     },
     "pool.diagnostic_configuration_absent": {
       "sourceHash": "a54328b595c1b576d8e35e6522c2c2711b0ac69f71a94b42ce5391033385aed6",
-      "message": "nenhuma URL de configuração para verificar",
-      "origin": "machine"
+      "message": "nenhuma URL de configuração para verificar"
     },
     "pool.diagnostic_configuration_configure": {
       "sourceHash": "55685dbe1826e4676945d171e837dfa8d9319237ea5fc2ae952c78a9c9ea85ef",
-      "message": "A preparação do convidado cria um repositório gravável no NAS do grupo quando ele não existe; um valor vazio aqui significa que o NAS não estava montado durante a preparação. Defina POOL_CONTROL_CONFIGURATION_GIT_URL em /etc/yuruna/pool-control-service.env (relido a cada solicitação, sem reiniciar) ou pool.configurationGitUrl em test/test.config.yml antes de reconstruir.",
-      "origin": "machine"
+      "message": "A preparação do convidado cria um repositório gravável no NAS do grupo quando ele não existe; um valor vazio aqui significa que o NAS não estava montado durante a preparação. Defina POOL_CONTROL_CONFIGURATION_GIT_URL em /etc/yuruna/pool-control-service.env (relido a cada solicitação, sem reiniciar) ou pool.configurationGitUrl em test/test.config.yml antes de reconstruir."
     },
     "pool.diagnostic_configuration_empty": {
       "sourceHash": "b190436464cc31e41a271a2151a7e943ec3bc8fad88bf2e2ec1d3a533db8ef0b",
-      "message": "vazio: nenhum repositório de configuração foi determinado pela opção de inicialização ou pelo arquivo de configuração",
-      "origin": "machine"
+      "message": "vazio: nenhum repositório de configuração foi determinado pela opção de inicialização ou pelo arquivo de configuração"
     },
     "pool.diagnostic_configuration_initialize": {
       "sourceHash": "82aabbb5add0c4a8a7bc3f4f5ad5e35574b2829221a06fbecbfe1b052e1b1e26",
-      "message": "O repositório no NAS do grupo é criado durante a preparação do convidado; se o NAS foi montado depois, execute novamente o script de preparação ou use git init --bare para criá-lo.",
-      "origin": "machine"
+      "message": "O repositório no NAS do grupo é criado durante a preparação do convidado; se o NAS foi montado depois, execute novamente o script de preparação ou use git init --bare para criá-lo."
     },
     "pool.diagnostic_configuration_not_bare": {
       "sourceHash": "f2660442d7d1b8e3e9209b19cc320a997213143b688a17b9c38749b65d4754e4",
-      "message": "{path}: não é um repositório git bare ({detail})",
-      "origin": "machine"
+      "message": "{path}: não é um repositório git bare ({detail})"
     },
     "pool.diagnostic_configuration_not_writable": {
       "sourceHash": "4ae3fe6298c476cbc541a60e4e98aa3586bf75d7263449b79bbaa5147d7021ad",
-      "message": "{path}: repositório bare presente, mas NÃO gravável: {detail}",
-      "origin": "machine"
+      "message": "{path}: repositório bare presente, mas NÃO gravável: {detail}"
     },
     "pool.diagnostic_configuration_override": {
       "sourceHash": "3e45029073b4a17f1628a0dde1813c26a5cf844e5d9b71d611a509a5a8aac693",
-      "message": "  (o arquivo de configuração prevalece sobre a opção de inicialização {flag})",
-      "origin": "machine"
+      "message": "  (o arquivo de configuração prevalece sobre a opção de inicialização {flag})"
     },
     "pool.diagnostic_configuration_permission": {
       "sourceHash": "86c0773cfe7c2522063a1f52b0f02a3e64aa43157b83deae22e526b521a61a76",
-      "message": "As gravações falharão no push. Compare uid/gid da montagem do NAS do grupo com o usuário do serviço.",
-      "origin": "machine"
+      "message": "As gravações falharão no push. Compare uid/gid da montagem do NAS do grupo com o usuário do serviço."
     },
     "pool.diagnostic_configuration_pull_only": {
       "sourceHash": "63d61b5a9a827801ef8cfd435bb4f99721d5cbb68028e398561e825115071fcc",
-      "message": "Um repositório de configuração http(s) permite apenas leitura, a menos que o servidor execute git-http-backend: as leituras funcionarão, e todas as gravações falharão no push. O repositório gravável é o repositório bare no NAS do grupo.",
-      "origin": "machine"
+      "message": "Um repositório de configuração http(s) permite apenas leitura, a menos que o servidor execute git-http-backend: as leituras funcionarão, e todas as gravações falharão no push. O repositório gravável é o repositório bare no NAS do grupo."
     },
     "pool.diagnostic_configuration_remote": {
       "sourceHash": "89e8f357b3ed292ff310168a4fa3c09ba25b3886869bf1f312a0ec44de980162",
-      "message": "URL remota; a acessibilidade é verificada por configuration-read",
-      "origin": "machine"
+      "message": "URL remota; a acessibilidade é verificada por configuration-read"
     },
     "pool.diagnostic_configuration_writable": {
       "sourceHash": "9527388290534cfc4e6f6e4fa9bd9002f0e9a0cdd23f05c98754fc8f36a73b13",
-      "message": "{path}: repositório bare, gravável",
-      "origin": "machine"
+      "message": "{path}: repositório bare, gravável"
     },
     "pool.diagnostic_no_output": {
       "sourceHash": "49e33c9bc289586047e8a8c2d33e676c9cf48570890ca11356c25b0170335f0d",
@@ -493,7 +481,6 @@
     },
     "pool.hosts_project_denied": {
       "sourceHash": "37f80205b2d8ec1e519f2e485d9ef29ffe33604ab85d3344efbcdd4bfe2d6e39",
-      "origin": "machine",
       "plural": {
         "variants": {
           "one": "{count} hospedeiro não consegue ler o projeto atribuído. Conceda acesso ao token dele ou defina, na página Pools, uma URL de projeto que todos os membros possam ler.",
@@ -528,13 +515,11 @@
     },
     "pool.configuration_git_url": {
       "sourceHash": "665e2743922781cde016bfb4da478f9a673f00785684c2d0f34926c16cb34871",
-      "message": "URL git da configuração",
-      "origin": "machine"
+      "message": "URL git da configuração"
     },
     "pool.configuration_read_raw_invocation": {
       "sourceHash": "8086621f33a7636bfff9fa3962c1ee6515dfd4dcde1ca58bf308d2bbec8c11c2",
-      "message": "Leitura da configuração — invocação original",
-      "origin": "machine"
+      "message": "Leitura da configuração — invocação original"
     },
     "pool.ips": {
       "sourceHash": "671a7495c4f0ffa81ee3ef6e10e190063b3052b213024a5345fb718c161991d7",
@@ -900,17 +885,14 @@
     },
     "pool.runner": {
       "sourceHash": "826522fded65c6cd289bc866e8839d0ca0124aad4bb9309bb508810f7dc7bb04",
-      "origin": "machine",
       "message": "Executor"
     },
     "pool.runner_cell": {
       "sourceHash": "3888dd780df453c5d669bd79bc33678b3758aa4b4578a5531e7d0c3d762188c7",
-      "origin": "machine",
       "message": "{commit} desde {startedAt}"
     },
     "pool.runner_unreported": {
       "sourceHash": "d1a08c12bd029ef76fbb404c1d85f791776411a1f6f5987ca2bbbd7a5b8e7034",
-      "origin": "machine",
       "message": "O executor deste hospedeiro não informou seu commit e seu horário de início. Um executor iniciado antes de esse relatório existir passa a informá-los após o próximo reinício."
     },
     "pool.running": {
@@ -923,8 +905,7 @@
     },
     "pool.process_environment": {
       "sourceHash": "572b6a87bceec410e6cacd9a3d7b607044f8026640fb39d8b01474e416082f01",
-      "message": "Ambiente do processo",
-      "origin": "machine"
+      "message": "Ambiente do processo"
     },
     "pool.save_failed_value1": {
       "sourceHash": "a49b4fe1befe2f8a1b6bea406a31c6443c65b5cd30df14b9a40c052dbadf9146",
@@ -1200,107 +1181,86 @@
     },
     "pool.host_refresh_body_invalid": {
       "sourceHash": "3f3aa2484e799376937ee893eabba2cd6fc993362516285276a8e7a362c29c7f",
-      "origin": "machine",
       "message": "A solicitação de atualização deve ser um objeto JSON de strings contendo apenas hostId, requestId, tier e maxRung ({detail})."
     },
     "pool.host_refresh_busy": {
       "sourceHash": "8a62eae70fb5a652bfc90cde303c74091170d299a16a04293389072c56c87f0b",
-      "origin": "machine",
       "message": "O hospedeiro {hostId} já está processando a solicitação de atualização {activeRequestId}; acompanhe essa solicitação em vez de iniciar outra."
     },
     "pool.host_refresh_control_proof_unavailable": {
       "sourceHash": "de3debed8c4e4bebc4c708837d84658235f832a1d0b59293fada43a0dae07cea",
-      "origin": "machine",
       "message": "Não foi possível obter uma prova de controle para o hospedeiro {hostId} ({detail})."
     },
     "pool.host_refresh_field_unsupported": {
       "sourceHash": "e387bf39ee96284bd2f162a825da948934fbb9a61380ab7bd22b87c161b8dfaa",
-      "origin": "machine",
       "message": "A solicitação de atualização contém o campo não suportado {field}; as opções de atualização forçada e de parada forçada nunca são aceitas remotamente."
     },
     "pool.host_refresh_host_address_unknown": {
       "sourceHash": "d9d8e6df524734e56ca9db66b49b4edb79a68580e2eaac1995767eb510f39239",
-      "origin": "machine",
       "message": "O agregador do grupo conhece o hospedeiro {hostId}, mas não tem um endereço para ele."
     },
     "pool.host_refresh_host_id_invalid": {
       "sourceHash": "5dc9a87b2c59c2441c514bb916bba7b038d8f8a9eaedd244ca31b333d9ff2372",
-      "origin": "machine",
       "message": "O hostId deve ser um id de hospedeiro de 32 caracteres hexadecimais."
     },
     "pool.host_refresh_host_refused": {
       "sourceHash": "56d33e4c98bb9f50f0973fe020a8ccbbc22243478b347e92df930e6cff593228",
-      "origin": "machine",
       "message": "O hospedeiro {hostId} recusou a atualização (HTTP {status}, {hostReason})."
     },
     "pool.host_refresh_host_unavailable": {
       "sourceHash": "b3715157064bdbbc3984f7b3a9cecd76f96a998750a9636495343efedb01104a",
-      "origin": "machine",
       "message": "O hospedeiro {hostId} não conseguiu iniciar a atualização (HTTP {status}, {hostReason}); tente novamente com o mesmo id da solicitação {requestId}."
     },
     "pool.host_refresh_host_unknown": {
       "sourceHash": "d55e36c504cb8632d76ebce0e6d367903d46b272ad93a702473d2b8e60d61c12",
-      "origin": "machine",
       "message": "O agregador do grupo não conhece o hospedeiro {hostId}."
     },
     "pool.host_refresh_host_unreachable": {
       "sourceHash": "4128a6712f97438127c79ab75f402db993056a6e848fbd76264ba9a9dd5c1af1",
-      "origin": "machine",
       "message": "O hospedeiro {hostId} não respondeu; tente novamente com o mesmo id da solicitação {requestId}."
     },
     "pool.host_refresh_mint_failed": {
       "sourceHash": "70ecd763090de98e8db26e23fae65769e700301ca9afc8f94083c752dc47460e",
-      "origin": "machine",
       "message": "Este serviço não conseguiu assinar a solicitação de atualização para o hospedeiro {hostId}."
     },
     "pool.host_refresh_reply_invalid": {
       "sourceHash": "c492f29caacd46d1f360fc019be01cd247aa895111294cacd79412ad3b83cfb2",
-      "origin": "machine",
       "message": "O hospedeiro {hostId} enviou uma resposta que este serviço não consegue usar ({detail})."
     },
     "pool.host_refresh_request_closed": {
       "sourceHash": "e4cd326b077434b338df403e422adc3c2f5524f511cfdcb155ccb72ef8fced7d",
-      "origin": "machine",
       "message": "A solicitação {requestId} no hospedeiro {hostId} já terminou ({state}, {verdict}); gere um novo id de solicitação para atualizar novamente."
     },
     "pool.host_refresh_request_conflict": {
       "sourceHash": "822c7a70a98b257c68dbdde9ded1ce8cb49ed1fad5c51521eecfaaf2c668bd2d",
-      "origin": "machine",
       "message": "A solicitação {requestId} já foi usada com outro nível ou outro teto; reenvie a política original ou gere um novo id de solicitação."
     },
     "pool.host_refresh_request_id_invalid": {
       "sourceHash": "64a72781f67a966f531d1d4c7fd5ab5db604be990e12c02672dde4efdc2660fb",
-      "origin": "machine",
       "message": "O requestId deve ser um UUID em minúsculas (8-4-4-4-12) que o chamador gera uma vez e reutiliza em cada nova tentativa."
     },
     "pool.host_refresh_rung_unsupported": {
       "sourceHash": "4881b6a2f19d5d28ec8b798d39e30244e3b6363b4bc738a2df48be5f55b9007b",
-      "origin": "machine",
       "message": "O maxRung deve ser probe, reclaim, start-if-stopped, restart-if-hung ou restart-broker."
     },
     "pool.host_refresh_signing_unconfigured": {
       "sourceHash": "087baff37bb2cc3298ad1878c2eb03797a5a2056b41bd3d91848d4ddab966132",
-      "origin": "machine",
       "message": "A atualização remota do hospedeiro está desativada: este serviço não possui autoridade de assinatura de atualização ({path})."
     },
     "pool.host_refresh_tier_unsupported": {
       "sourceHash": "31b81634d2509d6b21e5b2404788fe9097db8d27637fca9b04056354cd32cba0",
-      "origin": "machine",
       "message": "Somente o nível restart pode ser solicitado remotamente; o nível full é apenas local."
     },
     "pool.host_refresh_unavailable": {
       "sourceHash": "5679edd961ccaff90c4861db201288cd8a090985457b4c7611921c887aa3ff86",
-      "origin": "machine",
       "message": "O hospedeiro {hostId} não anuncia suporte à atualização remota ({reason})."
     },
     "pool.board_live_numbers_unavailable": {
       "sourceHash": "1f20844d68c5c193d166e7a0c448cd3525ef8910cdb3f69e759b8fda636e0768",
-      "origin": "machine",
       "message": "Números em tempo real indisponíveis ({detail})."
     },
     "pool.hosts_switch_own_projects": {
       "sourceHash": "e59830a93c7de8f7bf1b269b051fc7747942f6a128617f79b356d34d2366ef2d",
-      "origin": "machine",
       "plural": {
         "variants": {
           "one": "{count} hospedeiro voltará ao próprio projeto no próximo ciclo.",
@@ -1311,47 +1271,38 @@
     },
     "pool.repositories_both_or_neither": {
       "sourceHash": "a2a497e706ba082c4398cbce541dc683b825dbdddf7f144cc15cf1d3e6580d9c",
-      "origin": "machine",
       "message": "Informe uma URL de framework e uma URL de projeto, ou deixe ambas vazias para limpá-las."
     },
     "pool.repositories_clear": {
       "sourceHash": "7e2ced638ce43e592847ba955029b2c4f19530e8ba8ceedc9bc28d47ff019073",
-      "origin": "machine",
       "message": "Limpar"
     },
     "pool.repositories_clear_label": {
       "sourceHash": "011a1220da183a155fc50f15f5c5e98fc1a7daf943119db336420477c3733eb4",
-      "origin": "machine",
       "message": "Limpar as URLs de framework e de projeto do grupo {pool}"
     },
     "pool.repositories_cleared": {
       "sourceHash": "32bf298b2283796bcc36da96619e58db1b4f432284f63e0ce4492ccdd89535e8",
-      "origin": "machine",
       "message": "URLs de framework e de projeto do grupo {pool} limpas. Os hospedeiros dele executam os próprios projetos a partir do próximo ciclo."
     },
     "pool.repositories_framework_label": {
       "sourceHash": "1f8807f0c2099d7c33ab303d8cd26e83413879c0a270413c5d7995238eec33b3",
-      "origin": "machine",
       "message": "URL do framework do grupo {pool}"
     },
     "pool.repositories_project_label": {
       "sourceHash": "d18acad860117e9212b0b9450b870578bdd088620e0c93426845b361b52cc685",
-      "origin": "machine",
       "message": "URL do projeto do grupo {pool}"
     },
     "pool.repositories_save": {
       "sourceHash": "241d1a008c7c72cfec18ff47620f0cf66662632610675b284250d5cf5e56b6e3",
-      "origin": "machine",
       "message": "Salvar"
     },
     "pool.repositories_save_label": {
       "sourceHash": "33344e7f0d2ea7cb00a5c36e93ddd56825a75119ad72fe609c641dc6efd6c31f",
-      "origin": "machine",
       "message": "Salvar as URLs de framework e de projeto do grupo {pool}"
     },
     "pool.repositories_saved": {
       "sourceHash": "c104ef3bb18ad72245077d4b4d8d33d9c747d4de0acddccc27cedf31486f9bcc",
-      "origin": "machine",
       "message": "URLs de framework e de projeto do grupo {pool} salvas."
     }
   }

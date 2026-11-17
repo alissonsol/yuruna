@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4226ec4a-0d3b-407b-80ff-4b853f0a15cc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,7 @@
     inside an identity-gated branch -- so a reused PID is neither mistaken for a live
     inner nor killed. Keyed on AST nodes; all fail if the identity gating is removed.
 
-    The throw-free Should assertions run under Pester 5.x.
+    The throw-free Should assertions run under Pester 6.x.
 #>
 
 BeforeAll {

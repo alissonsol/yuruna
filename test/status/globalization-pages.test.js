@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
-const {makeEl, idsIn} = require('../extension/ui-pages.test.js');
+const {makeEl, idsIn, createTimerQueue} = require('../extension/ui-pages.test.js');
 const ROOT = path.resolve(__dirname, '../..');
 const localeManifest=JSON.parse(fs.readFileSync(path.join(ROOT, 'globalization/locale-manifest.json'),'utf8'));
 const deliveredLocales=Object.keys(localeManifest.locales).filter(tag=>['supported','pseudo'].includes(localeManifest.locales[tag].status));
@@ -26,9 +26,9 @@ function element(tag) {
 function runtime(html, locale, resolver) {
   const byId={}; idsIn(html).forEach(id=>byId[id]=element('div'));
   const root=element('html');root.setAttribute('lang',locale);
-  const listeners={};const failures=[];
+  const listeners={};const failures=[];const timers=createTimerQueue();
   const box={performance:require('perf_hooks').performance,console:{warn(text){if(/Yuruna i18n/.test(text))failures.push(text);},error(){},log(){}},JSON,Math,Date,Number,Object,Array,RegExp,Promise,isNaN,parseInt,parseFloat,encodeURIComponent,decodeURIComponent,
-    setTimeout(fn){return setTimeout(fn,0);},clearTimeout,setInterval(){return 0;},clearInterval(){},addEventListener(){},removeEventListener(){},
+    setTimeout:timers.setTimeout,clearTimeout:timers.clearTimeout,setInterval(){return 0;},clearInterval(){},addEventListener(){},removeEventListener(){},
     navigator:{userAgent:'baseline'},location:{hostname:'fixture',origin:'https://fixture.test',pathname:'/',search:'?cycle=000001.2026-09-18.12-00-00.426d17ef0b88426b922180dad1a9e921',hash:'',href:''},
     history:{replaceState(){}},localStorage:{getItem(){return null;},setItem(){},removeItem(){}},confirm(){return true;},YurunaMeasureRenders:true,
     document:{readyState:'loading',title:'',hidden:false,activeElement:null,body:element('body'),documentElement:root,
@@ -45,7 +45,7 @@ function runtime(html, locale, resolver) {
       text:()=>Promise.resolve(body),json:()=>new Promise(resolve=>resolve(JSON.parse(body)))});
   };
   box.window=box;box.globalThis=box;vm.createContext(box);vm.runInContext('Intl=undefined;String.prototype.normalize=undefined;',box);
-  return {box,byId,failures,boot(){box.document.readyState='complete';(listeners.DOMContentLoaded||[]).forEach(fn=>fn());}};
+  return {box,byId,failures,settle:timers.settle,boot(){box.document.readyState='complete';(listeners.DOMContentLoaded||[]).forEach(fn=>fn());}};
 }
 function loadCatalog(box,domain,locale){vm.runInContext(fs.readFileSync(path.join(ROOT,'globalization/generated/browser',locale+'.'+domain+'.js'),'utf8'),box);}
 function statusResponse(page,state,url){
@@ -59,12 +59,11 @@ function statusResponse(page,state,url){
   if(url==='control/runner-status')return {body:{running:true}};
   return {body:''};
 }
-const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
 async function checkStatus(){let checked=0;
   for(const locale of deliveredLocales)for(const page of ['index','config','performance','diagnostics','share-cycle'])for(const state of ['data','empty','error']){
     const html=fs.readFileSync(path.join(__dirname,page+'.html'),'utf8');const env=runtime(html,locale,url=>statusResponse(page,state,url));
     vm.runInContext(status,env.box,{filename:'yuruna.common.js'});if(locale!=='en-US')loadCatalog(env.box,'status',locale);env.boot();
-    for(let i=0;i<25;i++)await settle();
+    await env.settle();
     assert.deepStrictEqual(env.failures,[],page+'/'+locale+'/'+state+' catalog fallback');
     assert.strictEqual(env.box.YurunaI18n.locale(),locale);assert.strictEqual(env.box.document.documentElement.getAttribute('dir'),localeManifest.locales[locale].direction);
     const marker=env.box.YurunaFirstUsable;
@@ -84,7 +83,7 @@ async function checkGenerated(){let checked=0;
    const env=runtime(html,locale,()=>({body:{}}));vm.runInContext(kernel,env.box);if(locale!=='en-US'){loadCatalog(env.box,'status',locale);loadCatalog(env.box,domain,locale);}env.box.YurunaI18n.init(env.box.document);
    const adapter=fs.readFileSync(path.join(ROOT,'test/extension',service,'requestadapter.go'),'utf8');vm.runInContext(/const requestAdapterScript = `([\s\S]*?)`/.exec(adapter)[1],env.box);
    env.box.yurunaRequest=()=>state==='error'?Promise.reject(new Error('Fixture refused')):Promise.resolve(domain==='parser'?(state==='empty'?[]:[{ts:1724284800,client_ip:'茶',method:'GET',status:'TCP_HIT/200',bytes:1024,url:'https://example.test/😀',hierarchy:'DIRECT',mime:'text/plain'}]):{ok:true,mode:'local',squid:{reachable:true},switches:{offline:false,noUpstream:false},registry:{reachable:true,repositories:3},pool:{}});
-   scripts.forEach(js=>vm.runInContext(js,env.box));env.boot();for(let i=0;i<15;i++)await settle();
+   scripts.forEach(js=>vm.runInContext(js,env.box));env.boot();await env.settle(15);
    assert.deepStrictEqual(env.failures,[],domain+'/'+locale+'/'+state+' catalog fallback');
    const marker=env.box.YurunaFirstUsable; const wanted=state==='error'?'error':(domain==='parser'&&state==='empty'?'empty':'data');
    assert.ok(marker && marker.page===domain+'/index' && marker.state===wanted,domain+'/'+locale+'/'+state+' wrong actual readiness marker: '+JSON.stringify(marker));

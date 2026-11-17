@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 423477ea-a0ec-419b-b7b3-939dd00dc84a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,6 +169,261 @@ AfterAll {
         Remove-Module -Name $m -Force -ErrorAction SilentlyContinue
     }
     Remove-YurunaTestTempDir $extRoot
+}
+
+Describe 'authentication provider read-only credential plans' {
+    BeforeAll {
+        $script:AuthSource = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'test/extension/authentication/default.psm1'
+        function Set-AuthFixtureData {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Writes only disposable authentication fixtures under TestDrive.')]
+            [CmdletBinding()]
+            param([string]$Users, [string]$Vault)
+            $null = [IO.Directory]::CreateDirectory($script:AuthState)
+            if ($PSBoundParameters.ContainsKey('Users')) { [IO.File]::WriteAllText((Join-Path $script:AuthState 'users.yml'), $Users) }
+            if ($PSBoundParameters.ContainsKey('Vault')) { [IO.File]::WriteAllText((Join-Path $script:AuthState 'vault.yml'), $Vault) }
+        }
+        function Get-AuthFixtureSnapshot {
+            @(Get-ChildItem -LiteralPath $script:AuthRoot -Recurse -Force | Sort-Object FullName | ForEach-Object {
+                [ordered]@{
+                    Path = [IO.Path]::GetRelativePath($script:AuthRoot, $_.FullName)
+                    Directory = $_.PSIsContainer
+                    Hash = if ($_.PSIsContainer) { '' } else { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+                    Modified = $_.LastWriteTimeUtc.Ticks
+                    Attributes = [string]$_.Attributes
+                    Mode = if ($IsWindows) { '' } else { [string]$_.UnixFileMode }
+                }
+            }) | ConvertTo-Json -Depth 5 -Compress
+        }
+        function Invoke-AuthPreview {
+            param([string]$Username = 'fixture-user', [string]$ProposedSecret)
+            $parameters = @{ Username = $Username; ReadOnly = $true }
+            if ($PSBoundParameters.ContainsKey('ProposedSecret')) { $parameters.ProposedSecret = $ProposedSecret }
+            & $script:AuthModule { param($Parameters) Get-Password @Parameters } $parameters
+        }
+        function Set-AuthDeniedFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Writes and redirects only disposable provider state under TestDrive.')]
+            [CmdletBinding()]
+            [OutputType([hashtable])]
+            param([ValidateSet('vault', 'mapping', 'template')][string]$Source)
+            Set-AuthFixtureData -Users 'users: {}' -Vault "users:`n  fixture-user:`n    password: fixture-raw-secret`n  operator-slot:`n    password: fixture-mapped-secret`n"
+            $directory = Join-Path $script:AuthRoot 'denied'
+            $null = [IO.Directory]::CreateDirectory($directory)
+            $path = Join-Path $directory "$Source.yml"
+            $content = if ($Source -eq 'vault') { "users:`n  fixture-user:`n    password: fixture-stored-secret`n" }
+                else { "users:`n  fixture-user:`n    vaultKey: operator-slot`n" }
+            [IO.File]::WriteAllText($path, $content)
+            & $script:AuthModule {
+                param($Source, $Path)
+                switch ($Source) {
+                    'vault' { $script:VaultPath = $Path }
+                    'mapping' { $script:UsersPath = $Path }
+                    'template' { $script:UsersPath = Join-Path $script:VaultDir 'missing-users.yml'; $script:UsersTemplate = $Path }
+                }
+            } $Source $path
+            return @{ Directory=$directory; Path=$path }
+        }
+        function Invoke-AuthDeniedProbe {
+            param([string]$Path)
+            & $script:AuthModule {
+                param($DeniedPath)
+                $script:DeniedProbePath = $DeniedPath
+                function script:Test-Path {
+                    [CmdletBinding()]
+                    param([Parameter(Position=0)][string]$Path, [string]$LiteralPath)
+                    $target = if ($PSBoundParameters.ContainsKey('LiteralPath')) { $LiteralPath } else { $Path }
+                    if ($target -eq $script:DeniedProbePath) {
+                        Write-Error -Message 'Fixture authentication path is inaccessible.' -Category PermissionDenied
+                        return $false
+                    }
+                    Microsoft.PowerShell.Management\Test-Path @PSBoundParameters
+                }
+            } $Path
+        }
+    }
+    BeforeEach {
+        $script:AuthRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $provider = Join-Path $script:AuthRoot 'test/extension/authentication'
+        $null = [IO.Directory]::CreateDirectory($provider)
+        $copy = Join-Path $provider 'AuthReadOnlyFixture.psm1'
+        Copy-Item -LiteralPath $script:AuthSource -Destination $copy
+        Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $script:AuthSource) 'users.yml.template') -Destination $provider
+        $script:AuthState = Join-Path $script:AuthRoot 'test/status/extension/authentication'
+        $script:AuthModule = Import-Module -Name $copy -Force -PassThru -DisableNameChecking
+    }
+    AfterEach { Remove-Module -ModuleInfo $script:AuthModule -Force }
+
+    It 'declares the optional safe read capability on the existing getter' {
+        $command = & $script:AuthModule { Get-Command Get-Password }
+        $command.Parameters.ContainsKey('ReadOnly') | Should -BeTrue
+        $command.Parameters.ContainsKey('ProposedSecret') | Should -BeTrue
+    }
+    It 'plans an absent automatic credential without creating runtime files or caching a mapping' {
+        $before = Get-AuthFixtureSnapshot
+        Invoke-AuthPreview | Should -BeNullOrEmpty
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+        (& $script:AuthModule { $script:UsersConfig }) | Should -BeNullOrEmpty
+    }
+    It 'uses the template mapping without bootstrapping users.yml' {
+        $template = Join-Path $script:AuthRoot 'test/extension/authentication/users.yml.template'
+        [IO.File]::WriteAllText($template, "users:`n  fixture-user:`n    vaultKey: operator-slot`n")
+        $before = Get-AuthFixtureSnapshot
+        { Invoke-AuthPreview } | Should -Throw '*operator-slot*'
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'does not merge new template users into an existing operator mapping' {
+        Set-AuthFixtureData -Users "users:`n  operator-user:`n    vaultKey: operator-slot`n"
+        $before = Get-AuthFixtureSnapshot
+        Invoke-AuthPreview -Username 'stash-admin' | Should -BeNullOrEmpty
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'returns the existing <Case> secret without touching files or the audit log' -ForEach @(
+        @{ Case='logical'; Mapping=''; Key='fixture-user' },
+        @{ Case='mapped'; Mapping='operator-slot'; Key='operator-slot' }
+    ) {
+        Set-AuthFixtureData -Users "users:`n  fixture-user:`n    vaultKey: '$Mapping'`n" `
+            -Vault "users:`n  ${Key}:`n    password: fixture-existing-secret`n    previousPassword: fixture-prior-secret`n"
+        [IO.File]::WriteAllText((Join-Path $script:AuthState 'events.log'), "fixture audit record`n")
+        $before = Get-AuthFixtureSnapshot
+        Invoke-AuthPreview | Should -BeExactly 'fixture-existing-secret'
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'refuses a missing explicitly mapped credential without logging or generating' {
+        Set-AuthFixtureData -Users "users:`n  fixture-user:`n    vaultKey: operator-slot`n" -Vault 'users: {}'
+        $before = Get-AuthFixtureSnapshot
+        { Invoke-AuthPreview } | Should -Throw '*operator-slot*'
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'refuses <Case> stored data without replacing or logging it' -ForEach @(
+        @{ Case='an empty secret'; Vault="users:`n  fixture-user:`n    password: ''`n" },
+        @{ Case='a non-string secret'; Vault="users:`n  fixture-user:`n    password: 12345`n" },
+        @{ Case='a scalar credential'; Vault="users:`n  fixture-user: invalid`n" },
+        @{ Case='a scalar users map'; Vault='users: invalid' },
+        @{ Case='a scalar vault'; Vault='invalid' },
+        @{ Case='malformed vault YAML'; Vault='users: [' }
+    ) {
+        Set-AuthFixtureData -Users 'users: {}' -Vault $Vault
+        $before = Get-AuthFixtureSnapshot
+        { Invoke-AuthPreview } | Should -Throw
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'refuses <Case> mapping data without bootstrapping or merging it' -ForEach @(
+        @{ Case='malformed'; Users='users: [' },
+        @{ Case='a scalar users map'; Users='users: invalid' },
+        @{ Case='a scalar user'; Users="users:`n  fixture-user: invalid`n" }
+    ) {
+        Set-AuthFixtureData -Users $Users -Vault 'users: {}'
+        $before = Get-AuthFixtureSnapshot
+        { Invoke-AuthPreview } | Should -Throw
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'never invokes generation, persistence, template merging or audit functions during a safe read' {
+        Set-AuthFixtureData -Users 'users: {}' -Vault "users:`n  fixture-user:`n    password: fixture-existing-secret`n"
+        & $script:AuthModule {
+            function script:New-RandomPassword { throw 'Preview attempted generation' }
+            function script:Write-VaultUnlocked { throw 'Preview attempted persistence' }
+            function script:Merge-UsersTemplateEntry { throw 'Preview attempted template merge' }
+            function script:Write-VaultEvent { throw 'Preview attempted auditing' }
+        }
+        Invoke-AuthPreview | Should -BeExactly 'fixture-existing-secret'
+    }
+    It 'refuses a directory in place of the <Name> file without changing it' -ForEach @(
+        @{ Name='users.yml' }, @{ Name='vault.yml' }
+    ) {
+        Set-AuthFixtureData
+        $null = [IO.Directory]::CreateDirectory((Join-Path $script:AuthState $Name))
+        $before = Get-AuthFixtureSnapshot
+        { Invoke-AuthPreview } | Should -Throw
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'reads existing files whose mode permits no writes without changing their modes' -Skip:$IsWindows {
+        Set-AuthFixtureData -Users 'users: {}' -Vault "users:`n  fixture-user:`n    password: fixture-existing-secret`n"
+        $files = @(Get-ChildItem -LiteralPath $script:AuthState -File)
+        try {
+            foreach ($file in $files) { [IO.File]::SetUnixFileMode($file.FullName, [IO.UnixFileMode]::UserRead) }
+            [IO.File]::SetUnixFileMode($script:AuthState, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserExecute)
+            $before = Get-AuthFixtureSnapshot
+            Invoke-AuthPreview | Should -BeExactly 'fixture-existing-secret'
+            Get-AuthFixtureSnapshot | Should -BeExactly $before
+        } finally {
+            [IO.File]::SetUnixFileMode($script:AuthState, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
+            foreach ($file in $files) { [IO.File]::SetUnixFileMode($file.FullName, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite) }
+        }
+    }
+    It 'refuses an inaccessible <Source> path under Continue with <Probe> probes' -ForEach @(
+        foreach ($source in 'vault', 'mapping', 'template') {
+            @{ Source=$source; Probe='native permission' },
+            @{ Source=$source; Probe='modeled permission' }
+        }
+    ) {
+        $fixture = Set-AuthDeniedFixture -Source $Source
+        $before = Get-AuthFixtureSnapshot
+        $native = -not $IsWindows -and [Environment]::UserName -ne 'root' -and $Probe -eq 'native permission'
+        $previousMode = if ($native) { [IO.File]::GetUnixFileMode($fixture.Directory) }
+        if (-not $native) { Invoke-AuthDeniedProbe -Path $fixture.Path }
+        $refused = $false
+        try {
+            if ($native) { [IO.File]::SetUnixFileMode($fixture.Directory, [IO.UnixFileMode]::None) }
+            try {
+                $null = & $script:AuthModule {
+                    $ErrorActionPreference = 'Continue'
+                    Get-Password -Username 'fixture-user' -ReadOnly -ErrorAction Continue
+                } 2>$null
+            } catch { $refused = $true }
+            if ($native) { [int][IO.File]::GetUnixFileMode($fixture.Directory) | Should -Be 0 }
+        } finally {
+            if ($native) { [IO.File]::SetUnixFileMode($fixture.Directory, $previousMode) }
+        }
+        $refused | Should -BeTrue -Because 'an inaccessible existing source cannot become an absent automatic credential'
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'simulates a proposed raw-logical write when <Case>' -ForEach @(
+        @{ Case='its automatic entry is missing'; Mapping=''; Vault='users: {}'; Expected='fixture-proposed-secret' },
+        @{ Case='its automatic entry exists'; Mapping=''; Vault="users:`n  fixture-user:`n    password: fixture-old-secret`n"; Expected='fixture-proposed-secret' },
+        @{ Case='its automatic entry will be replaced'; Mapping=''; Vault="users:`n  fixture-user:`n    password: ''`n"; Expected='fixture-proposed-secret' },
+        @{ Case='the getter reads another mapped slot'; Mapping='operator-slot'; Vault="users:`n  operator-slot:`n    password: fixture-mapped-secret`n"; Expected='fixture-mapped-secret' }
+    ) {
+        Set-AuthFixtureData -Users "users:`n  fixture-user:`n    vaultKey: '$Mapping'`n" -Vault $Vault
+        $before = Get-AuthFixtureSnapshot
+        Invoke-AuthPreview -ProposedSecret 'fixture-proposed-secret' | Should -BeExactly $Expected
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'does not treat a proposed logical write as supplying a missing explicit mapped slot' {
+        Set-AuthFixtureData -Users "users:`n  fixture-user:`n    vaultKey: operator-slot`n" -Vault 'users: {}'
+        $before = Get-AuthFixtureSnapshot
+        { Invoke-AuthPreview -ProposedSecret 'fixture-proposed-secret' } | Should -Throw '*operator-slot*'
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'refuses <Case> proposed writes without creating files' -ForEach @(
+        @{ Case='a non-preview'; ReadOnly=$false; Secret='fixture-proposed-secret' },
+        @{ Case='an empty'; ReadOnly=$true; Secret='' }
+    ) {
+        $before = Get-AuthFixtureSnapshot
+        { & $script:AuthModule { param($Preview, $Value) Get-Password -Username 'fixture-user' -ReadOnly:$Preview -ProposedSecret $Value } $ReadOnly $Secret } |
+            Should -Throw '*ProposedSecret requires*'
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'does not let preview reads reuse or replace the normal mapping cache' {
+        Set-AuthFixtureData -Users 'users: {}' -Vault "users:`n  operator-slot:`n    password: fixture-mapped-secret`n"
+        $null = & $script:AuthModule { Read-UsersConfig }
+        $cached = & $script:AuthModule { $script:UsersConfig | ConvertTo-Json -Depth 10 -Compress }
+        [IO.File]::WriteAllText((Join-Path $script:AuthState 'users.yml'), "users:`n  fixture-user:`n    vaultKey: operator-slot`n")
+        $before = Get-AuthFixtureSnapshot
+        Invoke-AuthPreview | Should -BeExactly 'fixture-mapped-secret'
+        (& $script:AuthModule { $script:UsersConfig | ConvertTo-Json -Depth 10 -Compress }) | Should -BeExactly $cached
+        Get-AuthFixtureSnapshot | Should -BeExactly $before
+    }
+    It 'preserves normal bootstrap, generation, audit and repeated lookup behavior' {
+        $first = & $script:AuthModule { Get-Password -Username 'fixture-user' }
+        $first | Should -Not -BeNullOrEmpty
+        $vault = Get-Content -Raw -LiteralPath (Join-Path $script:AuthState 'vault.yml') | ConvertFrom-Yaml
+        $vault.users.'fixture-user'.password | Should -BeExactly $first
+        $second = & $script:AuthModule { Get-Password -Username 'fixture-user' }
+        $second | Should -BeExactly $first
+        Test-Path -LiteralPath (Join-Path $script:AuthState 'users.yml') | Should -BeTrue
+        @(Get-Content -LiteralPath (Join-Path $script:AuthState 'events.log')).Count | Should -BeGreaterThan 1
+    }
 }
 
 

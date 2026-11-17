@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -697,12 +697,12 @@ function Start-YurunaStatusServiceIfEnabled {
         so they honor enabled, -NoStatusService, the port, and the restart policy
         identically.
     .DESCRIPTION
-        -Restart forces a kill+relaunch (Debug-TestSequence and the inner runner's
-        per-cycle refresh, which must pick up file/config changes). Omitting it
-        lets Start-StatusService.ps1 compare the running server's persisted
+        -Restart forces a kill+relaunch (Debug-TestSequence, which must pick up
+        file/config edits on every re-invocation). Omitting it lets
+        Start-StatusService.ps1 compare the running server's persisted
         server.sha against the current framework HEAD and skip the relaunch when
         the code in memory is still current -- zero downtime on the common
-        no-change cycle (the inner runner's startup path).
+        no-change cycle (the inner runner's startup and per-cycle calls).
     .OUTPUTS
         [hashtable] the Resolve-StatusServiceStart decision (ShouldStart, Port).
     #>

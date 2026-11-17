@@ -5323,6 +5323,48 @@ const DataqpsPlocautomation = `{
     },
     " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "automation.retry_already_applied": [
+    "[",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": áţţéɱƥţ ",
+    {
+      "arg": "attempt",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "/",
+    {
+      "arg": "maxAttempts",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ƒáíļéď (éẋíţ=",
+    {
+      "arg": "lastExit",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "), ƀúţ íţš óúţçóɱé ħáď áļřéáďý ƀééñ áƥƥļíéď ƀý áñ éářļíéř áţţéɱƥţ; ţħé çóɱɱáñď çóúñţš áš çóɱƥļéţé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "automation.retry_succeed_when_threw": [
+    "[!! ",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ŠúççééďŴħéñ ƥřéďíçáţé ţħřéŵ (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); ţħé áţţéɱƥţ šţáýš á ƒáíļúřé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "automation.runtime_ipc_remove_action": "[Řéɱóṽé ţħé ļéƒţóṽéř .ÑÉŢ řúñţíɱé éñţřý óƒ á ƥřóçéšš ţħáţ íš ğóñé ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "automation.seed_value_unsafe": [
     "[Ţħé šééď ṽáļúé ƒóř ",
@@ -5511,6 +5553,22 @@ const DataqpsPlocautomation = `{
   "automation.system_diagnostic_kernel_log_unavailable": "[(ñó ķéřñéļ ļóğ: ďɱéšğ íš ñóţ řéáďáƀļé ħéřé áñď ĵóúřñáļçţļ -ķ -ƀ 0 řéţúřñéď ñó éñţříéš; šéé Šýšţéɱ ĵóúřñáļ áççéšš úñďéř ŘÉÇÉÑŢ ŠÝŠŢÉⱮ ÉṼÉÑŢŠ) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "automation.system_diagnostic_lockup_settings": "[Ļóçķúƥ áñď çřášħ-éṽíďéñçé šéţţíñğš ~~~~~~~~~~~~~~]",
   "automation.system_diagnostic_networkmanager_dhcp_none": "[(ñó ÑéţŵóřķⱮáñáğéř ďħçƥ4 éñţříéš ţħíš ƀóóţ) ~~~~~~~~~~~~~~~~~~]",
+  "automation.system_diagnostic_previous_boot_middle_omitted": "[... (ɱíďďļé ļíñéš šķíƥƥéď ŵíţħóúţ çóúñţíñğ ţħéɱ, šó á ļóñğ ƥřéṽíóúš ƀóóţ çáññóţ ħóļď úƥ ţħíš řéƥóřţ) ... ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "automation.system_diagnostic_probe_stopped": [
+    "[  (",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " ďíď ñóţ ƒíñíšħ ŵíţħíñ ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "š áñď ŵáš šţóƥƥéď; áñýţħíñğ íţ ƥříñţéď ƀéƒóřé ţħéñ íš áƀóṽé) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "automation.system_diagnostic_registry_images_refused": [
     "[ŘÉĞÍŠŢŘÝ: ţħé çáçħé řéƒúšéď ",
     {
@@ -5652,6 +5710,16 @@ const DataqpsPlocautomation = `{
     },
     " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "automation.system_diagnostic_restart_not_pending": "[Řéšţářţ ƥéñďíñğ: ñó ~~~~~~~~]",
+  "automation.system_diagnostic_restart_pending": [
+    "[Řéšţářţ ƥéñďíñğ: ýéš (",
+    {
+      "arg": "sources",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ") ~~~~~~~~~~~~~]"
+  ],
   "automation.system_diagnostic_utmctl_list_incomplete": [
     "[  úţɱçţļ ļíšţ ďíď ñóţ řéţúřñ á çóɱƥļéţé áñšŵéř ŵíţħíñ ",
     {
@@ -5669,6 +5737,45 @@ const DataqpsPlocautomation = `{
       "trust": "internal"
     },
     ") ~~~~~~~~~~~~~~~~~]"
+  ],
+  "automation.tofu_init_fetch_failed": [
+    "[ţóƒú íñíţ ƒáíļéď ƒóř řéšóúřçé '",
+    {
+      "arg": "resourceName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' áƒţéř ",
+    {
+      "arg": "attempts",
+      "type": "detail",
+      "trust": "external"
+    },
+    " áţţéɱƥţš (ƒíñáļ éẋíţ ",
+    {
+      "arg": "lastExit",
+      "type": "detail",
+      "trust": "external"
+    },
+    "): ţħé ļášţ áţţéɱƥţ çóúļď ñóţ ƒéţçħ ",
+    {
+      "arg": "url",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Íñšƥéçţ ",
+    {
+      "arg": "tofuLogFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ƒóř ţħé ƒúļļ óúţƥúţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "automation.top_processes_private_bytes": "[Ţóƥ 10 ƀý ƥříṽáţé ƀýţéš (çóɱɱíţ çħářğé) ~~~~~~~~~~~~~~~~]"
 }

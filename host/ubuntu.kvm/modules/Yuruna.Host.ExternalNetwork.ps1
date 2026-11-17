@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 422408a8-20aa-41db-8fbb-13e90b2c0264
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,11 +17,11 @@
 #requires -version 7
 
 # --- REGION: External network helpers
+# --- REGION: Get-YurunaDefaultRouteIface
 # Internal. Returns the interface name carrying the default IPv4 route, or
 # $null if none. Filters out the NIC if it's already a bridge port whose
 # master is the one we're about to (re-)create; matches "what's the WAN-
 # facing physical NIC of this host" semantically.
-# --- REGION: Get-YurunaDefaultRouteIface
 function Get-YurunaDefaultRouteIface {
     [CmdletBinding()]
     [OutputType([string])]

@@ -40,6 +40,7 @@ stop and unregister the test VMs *and* sweep, use
 |---|---|
 | `Start-Syzygy.ps1` | start the caching proxy, stash, pool control, and download agent service VMs in that order, with pseudo locales enabled; the caching proxy uses MAC address `42:42:42:42:42:42` |
 | `Stop-Syzygy.ps1` | run the service VM stop scripts in reverse order: download agent, pool control, stash, caching proxy |
+| `Update-Syzygy.ps1` | wait for a new commit on the upstream of the current branch, pull it, then run `Start-Syzygy.ps1`; it asks for the optional GitHub token and the sudo password before the wait, so the start needs nobody at the keyboard |
 | `New-Lab.ps1` | create a lab: its storage layout, config and identity |
 | `New-LocalLabStorage.ps1` | publish this machine's own pool/stash SMB shares and the accounts scoped to them |
 | `Clear-LocalLabStorage.ps1` | withdraw those shares and accounts (leaves the data) |
@@ -58,9 +59,10 @@ is itself invoked by `install/setup.ps1`. `Clear-LocalLabStorage.ps1` is
 run for you by [`../pool/Convert-ToPoolWorker.ps1`](../pool/Convert-ToPoolWorker.ps1)
 when a standalone machine joins a lab.
 
-The Syzygy scripts resolve their sibling `../service` directory from their own
-location, so an absolute invocation works from any working directory. Common
-parameters such as `-WhatIf` and `-Confirm` are passed to each service script.
+`Start-Syzygy.ps1` and `Stop-Syzygy.ps1` resolve their sibling `../service`
+directory from their own location, so an absolute invocation works from any
+working directory. Common parameters such as `-WhatIf` and `-Confirm` are
+passed to each service script.
 
 A caching-proxy rebuild enrolls its verified signing key on discovered pool
 hosts through authenticated host control. To repair existing hosts through the
@@ -69,6 +71,17 @@ The proxy launcher enables recovery by default: it rebuilds the cache and
 reports pending hosts without blocking the remaining service starts. Invalid
 CA statements still stop startup. Existing CA pins remain in place until a
 signed rotation verifies.
+
+To restart the services when the next commit lands, run
+`pwsh test/lab/Update-Syzygy.ps1` and answer its questions; `-IntervalSeconds`
+sets how often it checks (default 5). Everything `Start-Syzygy.ps1` would ask
+at its start is asked first: the optional GitHub token, and the sudo password
+on macOS and Linux, which is then kept valid for the length of the wait. On
+Windows it needs an elevated session, as the start does. The start then runs in
+a new PowerShell process with `YURUNA_NONINTERACTIVE=1`, so it loads the pulled
+code and asks nothing. A fetch or pull that fails ends the script without
+starting anything; its exit code is otherwise the one `Start-Syzygy.ps1`
+returned.
 
 Walk-through: [Lab operator](../../docs/lab-operator.md).
 
@@ -85,6 +98,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../../README.md)

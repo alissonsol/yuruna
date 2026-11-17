@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4241a322-99ef-c7cf-96e0-a7d07ed683f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -9429,6 +9429,24 @@
             'trust' = 'internal'
         }
         ''' התקבלה: כל הקלטים שהבנייה צריכה קיימים, ושום דבר לא שונה.'
+    )
+    'host.service_build_plan_auth_readonly_unsupported' = @(
+        'ספק האימות '
+        @{
+            'arg' = 'provider'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' אינו תומך באימות סיסמה לקריאה בלבד. תוכנית יצירת המכונה אינה יכולה לקרוא לפעולת האחזור שמשנה נתונים.'
+    )
+    'host.service_build_plan_cache_state_invalid' = @(
+        'לא ניתן לאמת את מצב caching-proxy בנתיב '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ללא שינויו: הקובץ הראשי וקובץ הגיבוי מכילים נתונים שאינם שמישים.'
     )
     'host.service_seed_degraded' = @(
         'ה-seed של '''

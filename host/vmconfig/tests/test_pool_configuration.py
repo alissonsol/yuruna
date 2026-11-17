@@ -11,6 +11,7 @@ from pathlib import Path
 import socket
 import shlex
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -41,7 +42,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 
 class PoolConfiguration(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(prefix="pool fixture '")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.bin = self.root / 'bin'
@@ -63,11 +64,22 @@ class PoolConfiguration(unittest.TestCase):
         self.stub('runuser', 'shift 3; exec "$@"')
         self.stub('logger', 'exit 0')
         self.stub('getent', 'exit 1')
+        # These cases run one maintenance process, not competing lock holders.
+        self.stub('flock', 'exit 0')
+        self.stub('id', '[ "$*" = "-g www-data" ] || exit 99; printf "33\\n"')
 
     def stub(self, name, body):
         path = self.bin / name
-        path.write_text('#!/bin/sh\n' + body + '\n')
+        path.write_text('#!/bin/sh\n' + body + '\n', encoding='utf-8', newline='\n')
         path.chmod(0o755)
+
+    def shell(self, body, *args, env=None, timeout=90):
+        body = 'PATH=' + shlex.quote(self.bin.as_posix()) + ':"$PATH"\nexport PATH\n' + body
+        if os.name == 'nt':
+            # Native jq otherwise writes CRLF instead of the guest's LF values.
+            body = 'jq() { command jq --binary "$@"; }\n' + body
+        return subprocess.run(['sh', '-c', body, *args], env=env or self.env,
+                              capture_output=True, text=True, timeout=timeout)
 
     def git(self, *args):
         return subprocess.run(['git', *map(str, args)], env=self.env, check=True,
@@ -75,11 +87,11 @@ class PoolConfiguration(unittest.TestCase):
 
     def maintain(self):
         body = TOOL.seed_file_body(SEED, '/usr/local/bin/yuruna-pool-configuration.sh')
-        body = body.replace('/mnt/ypool-nas', str(self.mount))
-        body = body.replace('/var/www/html/pool-configuration-status', str(self.status))
-        body = body.replace('/run/yuruna-pool-configuration.lock', str(self.root / 'lock'))
+        body = body.replace('/mnt/ypool-nas', shlex.quote(self.mount.as_posix()))
+        body = body.replace('/var/www/html/pool-configuration-status', shlex.quote(self.status.as_posix()))
+        body = body.replace('/run/yuruna-pool-configuration.lock', shlex.quote((self.root / 'lock').as_posix()))
         body = body.replace('http://127.0.0.1', self.url)
-        return subprocess.run(['sh', '-c', body], env=self.env, capture_output=True, text=True, timeout=90)
+        return self.shell(body)
 
     def test_missing_mount_reports_failure_without_creating_a_local_store(self):
         self.stub('mountpoint', 'exit 1')
@@ -145,6 +157,7 @@ class PoolConfiguration(unittest.TestCase):
         self.assertIn('FAIL clone', self.status.read_text())
         self.assertIn('object-read-denied', result.stderr)
 
+    @unittest.skipUnless(sys.platform == 'linux', 'Apache fixture uses the Linux apache2 module layout')
     def test_apache_aliases_serve_a_packed_repository_without_allowing_pushes(self):
         self.assertEqual(self.maintain().returncode, 0)
         self.git('-C', self.store, 'gc')
@@ -153,7 +166,8 @@ class PoolConfiguration(unittest.TestCase):
             address.bind(('127.0.0.1', 0))
             port = address.getsockname()[1]
         alias = TOOL.seed_file_body(SEED, '/etc/apache2/conf-available/yuruna-pool-configuration.conf')
-        alias = alias.replace('/mnt/ypool-nas', str(self.mount))
+        # Apache needs the complete path quoted when the fixture root has spaces or an apostrophe.
+        alias = alias.replace('/mnt/ypool-nas/pool-configuration.git', '"' + str(self.store) + '"')
         config = self.root / 'apache.conf'
         modules = '\n'.join('LoadModule {0}_module /usr/lib/apache2/modules/mod_{0}.so'.format(name)
                             for name in ('mpm_event', 'authz_core', 'authz_host', 'alias'))
@@ -236,11 +250,14 @@ $pool.configuredState | ConvertTo-Json -Compress
         host.mkdir()
         for name in ('ca.crt', 'client.crt', 'client.key'):
             (host / name).write_text('fixture')
-        body = body.replace('/etc/yuruna/host-config', str(host))
-        body = body.replace('/etc/yuruna/ypool-nas.cifs.cred', str(self.root / 'credentials'))
-        body = body.replace('/etc/yuruna/host.env', str(self.root / 'host.env'))
-        body = body.replace('/mnt/ypool-nas', str(self.mount))
-        body = body.replace('/var/www/html/config-fetch-', str(self.root / 'config-fetch-'))
+        body = body.replace('CRED="/etc/yuruna/host-config/$NAME.cifs.cred"',
+                            'CRED=' + shlex.quote(host.as_posix()) + '"/$NAME.cifs.cred"')
+        body = body.replace('/etc/yuruna/host-config', shlex.quote(host.as_posix()))
+        body = body.replace('/etc/yuruna/ypool-nas.cifs.cred', shlex.quote((self.root / 'credentials').as_posix()))
+        body = body.replace('/etc/yuruna/host.env', shlex.quote((self.root / 'host.env').as_posix()))
+        body = body.replace('/mnt/ypool-nas', shlex.quote(self.mount.as_posix()))
+        body = body.replace('STATUS="/var/www/html/config-fetch-$NAME-status"',
+                            'STATUS=' + shlex.quote((self.root / 'config-fetch-').as_posix()) + '"$NAME-status"')
         payload = dict(networkPath="//nas/pool", networkIp=network_ip,
                        username="fixture", password="secret", version="1")
         if not complete:
@@ -249,15 +266,15 @@ $pool.configuredState | ConvertTo-Json -Compress
         if mounted:
             (self.root / 'mounted').touch()
             (host / 'pool.version').write_text('previous-version')
-        self.stub('mountpoint', 'test -e ' + shlex.quote(str(self.root / 'mounted')))
-        self.stub('umount', ('rm -f ' + shlex.quote(str(self.root / 'mounted'))) if unmount_exit == 0 else 'exit ' + str(unmount_exit))
+        self.stub('mountpoint', 'test -e ' + shlex.quote((self.root / 'mounted').as_posix()))
+        self.stub('umount', ('rm -f ' + shlex.quote((self.root / 'mounted').as_posix())) if unmount_exit == 0 else 'exit ' + str(unmount_exit))
         self.stub('getent', 'exit ' + ('0' if resolve else '1'))
-        self.stub('mount', 'printf "%s\\n" "$@" > "' + str(self.root / 'mount-args') + '"\n'
-                  + ('touch ' + shlex.quote(str(self.root / 'mounted')) if mount_exit == 0 else 'exit ' + str(mount_exit)))
-        result = subprocess.run(['sh', '-c', body, 'fetch', 'pool'], env=dict(self.env, YURUNA_STATUS_SERVICE_IP='192.0.2.1'),
-                                capture_output=True, text=True, timeout=10)
+        self.stub('mount', 'printf "%s\\n" "$@" > ' + shlex.quote((self.root / 'mount-args').as_posix()) + '\n'
+                  + ('touch ' + shlex.quote((self.root / 'mounted').as_posix()) if mount_exit == 0 else 'exit ' + str(mount_exit)))
+        result = self.shell(body, 'fetch', 'pool', env=dict(self.env, YURUNA_STATUS_SERVICE_IP='192.0.2.1'), timeout=10)
         return result
 
+    @unittest.skipUnless(os.name == 'posix', 'Credential and diagnostic mode assertions require POSIX file modes')
     def test_pool_mount_grants_apache_read_access_and_keeps_credentials_private(self):
         result = self.fetch_pool()
         self.assertEqual(result.returncode, 0, result.stderr)

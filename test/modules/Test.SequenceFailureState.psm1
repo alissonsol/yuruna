@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,6 +156,11 @@ Add-SequenceFailureSlot -Name 'StepProgressAdvisory' -Lifetime step -Default $nu
 # wrapper leaves its failed attempt's reading in place, and the record keeps
 # it only for the step it names.
 Add-SequenceFailureSlot -Name 'StepGuestKernelFault' -Lifetime step -Default $null
+# The user name the guest's login(1) refused with keystrokes missing while the
+# failed step's console wait ran: @{ stepInvocationId; expected; received;
+# source; lostLeadingCharacters } from Get-StepLoginEcho, else $null. Kept,
+# like the kernel reading above, only for the step it names.
+Add-SequenceFailureSlot -Name 'StepLoginEcho' -Lifetime step -Default $null
 # Set by the sequence-start / per-step pause gate when an operator hold is
 # released: @{ releasedAtUtc; heldSeconds; label; pauseScope }. The gate holds
 # the runner while the guest keeps running, so a hold is part of the cause of
@@ -211,6 +216,10 @@ Add-SequenceFailureSlot -Name 'StepLauncherRejection' -Lifetime step -Default $n
 # of the caching proxy's copy. The script did fail, but the fix is in the
 # cache or the origin, which script_error alone does not say.
 Add-SequenceFailureSlot -Name 'StepAptIndexMismatch' -Lifetime step -Default $null
+# Set by the fetch verbs when apt_retry's per-attempt bound killed apt-get
+# update, from Get-GuestAptUpdateStall: the matched failure sentinel says only
+# that the script exited, not that an index fetch never ended.
+Add-SequenceFailureSlot -Name 'StepAptUpdateStall' -Lifetime step -Default $null
 # Set by stopVm and startVm when the guest did not reach the stopped state
 # inside the step's deadline. A VM that ignores a shutdown request is not a
 # provisioning fault, and retrying the same wait cannot help it: the record
@@ -481,6 +490,126 @@ function Test-StepHostInputFaultDeterministic {
         [string]$fault.stepInvocationId -ceq [string]$fail.LastFailedStepInvocationId)
 }
 
+function Get-LoginEchoEvidence {
+    <#
+    .SYNOPSIS
+        The user name a guest's login(1) refused with keystrokes missing, read
+        from its serial console or its screen; $null when there is none.
+    .DESCRIPTION
+        The host reports a keystroke as sent whether or not the guest received
+        it, and a user name that lost its first character still changes the
+        console, which echoes the rest, so only the guest can say what arrived.
+        login(1) does, twice: on the serial console it logs the name it refused
+        (FAILED LOGIN <n> FROM <tty> FOR <name>, <reason>), and on the screen
+        the prompt echoes it (<host> login: <name>) before Login incorrect. Only
+        a refusal counts: a name login went on to accept is followed by a shell
+        rather than by Login incorrect, so an OCR misreading of an accepted name
+        is never reported. A refusal stops counting once login accepted a name
+        after it -- login's pam_unix(login:session) line on the serial console,
+        a shell prompt on the screen -- so a later attempt that sent the name
+        intact reports nothing, whether login accepted it or refused its
+        password.
+
+        The serial console's exact text decides whenever it holds a refusal of
+        the name, even one a later login dropped; the screen is read only when
+        it holds none. On the serial console the newest refusal decides. The
+        screen's text holds each OCR engine's reading of one frame, one after
+        another in engine order, which is not the order of the attempts, so the
+        screen decides only when every refusal it still shows names the same
+        name: which engine comes last must not pick between two readings, and a
+        screen that shows two different refused names reports nothing.
+
+        Only a name made of the expected name's characters, in order, counts.
+        Anything else typed at a login prompt -- a command, or a password sent
+        to the wrong prompt, which is why login(1) can withhold names it does
+        not know -- is ignored, so the result can hold nothing the expected
+        name does not already show. A refusal of the expected name itself is a
+        rejected password, not a lost keystroke, and reports nothing.
+    .PARAMETER ExpectedName
+        The user name the sequence logs in with.
+    .PARAMETER SerialText
+        What the guest's serial console printed since the failed step began.
+    .PARAMETER OcrText
+        The failed wait's last screen text.
+    .OUTPUTS
+        [ordered] expected, received, source ('serial' or 'ocr') and
+        lostLeadingCharacters (how many leading characters are missing when
+        received is a suffix of expected, else $null); $null when no such
+        refusal was found.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [AllowEmptyString()][AllowNull()][string]$ExpectedName,
+        [AllowEmptyString()][AllowNull()][string]$SerialText,
+        [AllowEmptyString()][AllowNull()][string]$OcrText
+    )
+    if (-not $ExpectedName) { return $null }
+    # The expected name with zero or more characters missing: every character
+    # of the candidate is one of the expected name's, in order.
+    $isExpectedLessKeys = {
+        param([string]$Name)
+        if (-not $Name -or $Name.Length -gt $ExpectedName.Length) { return $false }
+        $at = 0
+        foreach ($character in $Name.ToCharArray()) {
+            $at = $ExpectedName.IndexOf($character, $at)
+            if ($at -lt 0) { return $false }
+            $at++
+        }
+        return $true
+    }
+    foreach ($source in 'serial', 'ocr') {
+        # The refusals of a candidate name, oldest first, that no accepted
+        # login has followed.
+        $standing = [System.Collections.Generic.List[string]]::new()
+        $dropped = $false
+        if ($source -eq 'serial') {
+            if ($SerialText) {
+                # Only login's own session line marks a name it accepted: the
+                # systemd-user and sudo sessions that follow log the same words.
+                foreach ($match in [regex]::Matches($SerialText, 'FAILED LOGIN \d+ FROM \S+ FOR ([^,\r\n]*),|pam_unix\(login:session\): session opened for user ')) {
+                    # The refused name; login's session line leaves it unmatched.
+                    $refusal = $match.Groups[1]
+                    if (-not $refusal.Success) {
+                        if ($standing.Count) { $standing.Clear(); $dropped = $true }
+                    } elseif (& $isExpectedLessKeys $refusal.Value) { $standing.Add($refusal.Value) }
+                }
+            }
+        } elseif ($OcrText) {
+            # The name a prompt echoed, held until the screen says how login
+            # answered it; a new prompt starts over, and a shell prompt means
+            # login accepted the name.
+            $echoed = ''
+            foreach ($line in ($OcrText -split '\r?\n')) {
+                $prompt = [regex]::Match($line, '^\s*\S+\s+login:\s*(\S*)\s*$', 'IgnoreCase')
+                if ($prompt.Success) { $echoed = $prompt.Groups[1].Value; continue }
+                if ($echoed -and $line -match '(?i)\blog[il1]n\s+[il1]ncorrect\b') {
+                    if (& $isExpectedLessKeys $echoed) { $standing.Add($echoed) }
+                    $echoed = ''
+                } elseif ($line -match '^\s*\S+@\S+:') { $standing.Clear(); $echoed = '' }
+            }
+        }
+        if ($standing.Count -eq 0) {
+            # login accepted a name after the serial console's refusals, so
+            # they were recovered, whatever the screen still shows of them.
+            if ($dropped) { return $null }
+            continue
+        }
+        $received = $standing[$standing.Count - 1]
+        # The screen's text holds each OCR engine's reading one after another,
+        # in engine order rather than in the order of the attempts.
+        if ($source -eq 'ocr' -and @($standing | Where-Object { $_ -cne $received }).Count) { return $null }
+        if ($received -ceq $ExpectedName) { return $null }
+        return [ordered]@{
+            expected              = $ExpectedName
+            received              = $received
+            source                = $source
+            lostLeadingCharacters = if ($ExpectedName.EndsWith($received, [StringComparison]::Ordinal)) { $ExpectedName.Length - $received.Length } else { $null }
+        }
+    }
+    return $null
+}
+
 function Get-GuestKernelFaultKind {
     <#
     .SYNOPSIS
@@ -505,6 +634,35 @@ function Get-GuestKernelFaultKind {
     return [string[]]@($kinds)
 }
 
+function Get-GuestProcessorWindowSummary {
+    <#
+    .SYNOPSIS
+        Which processors a livelock reading's window found in the storm shape
+        and servicing no interrupt, and the longest such run.
+    .DESCRIPTION
+        A processor's NoInterruptsServicedSeconds counts only a run that reaches
+        the window's newest sample, so the longest one says how long some
+        processor has been silent as the reading was taken. Every field is $null
+        when the reading has no processor window: not measured, which is not the
+        same reading as measured and found servicing interrupts.
+    .OUTPUTS
+        [ordered] stormedProcessors, noInterruptsServicedProcessors (the window's
+        own list, runs of at least 120 seconds) and
+        longestNoInterruptsServicedSeconds.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([AllowNull()]$LivelockVerdict)
+    $summary = [ordered]@{ stormedProcessors = $null; noInterruptsServicedProcessors = $null; longestNoInterruptsServicedSeconds = $null }
+    $window = if ($LivelockVerdict) { $LivelockVerdict.ProcessorWindow } else { $null }
+    if (-not $window) { return $summary }
+    $summary.stormedProcessors = [string[]]@($window.StormedProcessors | Where-Object { $null -ne $_ -and "$_" -ne '' })
+    $summary.noInterruptsServicedProcessors = [string[]]@($window.NoInterruptsServicedProcessors | Where-Object { $null -ne $_ -and "$_" -ne '' })
+    $runs = @(@($window.Processors) | Where-Object { $_ -and $null -ne $_.NoInterruptsServicedSeconds } | ForEach-Object { [int]$_.NoInterruptsServicedSeconds })
+    if ($runs.Count) { $summary.longestNoInterruptsServicedSeconds = [int]($runs | Measure-Object -Maximum).Maximum }
+    return $summary
+}
+
 function Get-GuestProgressAdvisory {
     <# .SYNOPSIS
         Describe independent progress observations without authorizing recovery.
@@ -522,7 +680,15 @@ function Get-GuestProgressAdvisory {
         # Get-GuestKernelFaultKind). The guest's own word on a stall, listed
         # beside the others and not scored: a lockup report that reached the
         # console says the kernel saw one, not how long the guest stopped.
-        [AllowEmptyCollection()][string[]]$KernelFaultKinds = @()
+        [AllowEmptyCollection()][string[]]$KernelFaultKinds = @(),
+        # The longest run of any processor that serviced no interrupt, as the
+        # failed wait's processor window read it (see
+        # Get-GuestProcessorWindowSummary); $null when not measured. Healthy
+        # processors show such a run for a sample interval or two, so a minute
+        # of it names a processor the guest kernel stopped servicing well before
+        # the window's own two-minute list or the livelock verdict does. Listed
+        # only, and kept out of the verdict.
+        [Nullable[int]]$NoInterruptsServicedSeconds
     )
     $static = $null -ne $OutputStaticSeconds -and $OutputStaticSeconds -ge 120
     $stale = $null -ne $HeartbeatAgeSeconds -and $HeartbeatAgeSeconds -ge 120
@@ -539,11 +705,15 @@ function Get-GuestProgressAdvisory {
         elseif ($signals.Count) { 'insufficient-evidence' }
         elseif ($null -eq $OutputStaticSeconds -and $null -eq $HeartbeatAgeSeconds -and $SshResponsiveness -eq 'unavailable') { 'unavailable' }
         else { 'no-stall-evidence' }
+    # Added after the verdict is drawn, so naming a silent processor leaves the
+    # verdict a consumer already reads where it was.
+    if ($null -ne $NoInterruptsServicedSeconds -and $NoInterruptsServicedSeconds -ge 60) { $signals += 'no-interrupts-serviced' }
     [pscustomobject]@{
         verdict=$verdict; signals=$signals; outputStaticSeconds=$OutputStaticSeconds
         heartbeatAgeSeconds=$HeartbeatAgeSeconds; sshResponsiveness=$SshResponsiveness
         clockWarnings=$clockAnomaly
         kernelFaults=$kernelFaults
+        noInterruptsServicedSeconds=$NoInterruptsServicedSeconds
         automaticRecoveryAllowed=$false
     }
 }
@@ -660,6 +830,7 @@ function New-SequenceFailureRecord {
         proxyCopy          = [string]$fail.StepAptIndexMismatch.proxyCopy
         proxyPurgeStatus   = $fail.StepAptIndexMismatch.proxyPurgeStatus
     } } else { $null }
+    $aptUpdateStall = if ($fail.StepAptUpdateStall -is [System.Collections.IDictionary]) { $fail.StepAptUpdateStall } else { $null }
     $installerFailure = Get-InstallerFailureCause -LogDir $LogDir -SinceUtc $fail.LastFailedStepStartedUtc
     # The guest kernel's own reports, kept only for the step the reading names:
     # after a retry forwards its failed attempt, that is the originating step,
@@ -670,6 +841,20 @@ function New-SequenceFailureRecord {
         recorder = $fail.StepGuestKernelFault['recorder']
     } } else { $null }
     [string[]]$guestKernelFaultKinds = @(Get-GuestKernelFaultKind -Reading $guestKernelFault)
+    # The user name login(1) refused with keystrokes missing, kept only for the
+    # step the reading names, as the kernel reading above is.
+    $loginEcho = if ($fail.StepLoginEcho -is [System.Collections.IDictionary] -and
+        [string]$fail.StepLoginEcho['stepInvocationId'] -ceq $originatingStepInvocationId) { [ordered]@{
+        expected              = [string]$fail.StepLoginEcho['expected']
+        received              = [string]$fail.StepLoginEcho['received']
+        source                = [string]$fail.StepLoginEcho['source']
+        lostLeadingCharacters = $fail.StepLoginEcho['lostLeadingCharacters']
+    } } else { $null }
+    $loginEchoSummary = ''
+    if ($loginEcho) {
+        $leadingLost = if ($null -ne $loginEcho.lostLeadingCharacters) { ", $($loginEcho.lostLeadingCharacters) leading lost" } else { '' }
+        $loginEchoSummary = "$($loginEcho.received) for $($loginEcho.expected) ($($loginEcho.source)$leadingLost)"
+    }
     # The host's own address moving while the step ran is evidence the step
     # cannot report about itself: a guest that fetched from the host's old
     # address fails with a plain script error, and the SSH session the runner
@@ -788,6 +973,13 @@ function New-SequenceFailureRecord {
             ($fail.WaitForTextGuestLivelocked -and $guestLivelock -and [int]$guestLivelock.virtualProcessors -gt 0)) {
             $failureClass = 'guest_kernel_stalled'
             [string[]]$suggested = @('retry_with_backoff','pause_and_inspect')
+        }
+        # A serial-backed display-stall end identifies the display driver, not
+        # a wedged kernel or an OCR capture fault. A static frame alone never
+        # supplies this signal.
+        elseif ($fail.WaitForTextDisplayStallEnd) {
+            $failureClass = 'guest_display_stalled'
+            [string[]]$suggested = @('restart_from_snapshot','pause_and_inspect')
         }
         elseif ($fail.WaitForTextConsoleFlood) {
             $failureClass = 'console_flooded'
@@ -924,6 +1116,13 @@ function New-SequenceFailureRecord {
     } else {
         $LogDir
     }
+    # A run nested in another cycle writes under <cycle>/nested/<node>/, and the
+    # node names the stage that started it: lab stages share one VM name and
+    # one start sequence, so neither says which stage failed.
+    $nestedNode = ''
+    if ($global:__YurunaCycleFolder -and (Split-Path -Leaf (Split-Path -Parent ([string]$global:__YurunaCycleFolder))) -ceq 'nested') {
+        $nestedNode = Split-Path -Leaf ([string]$global:__YurunaCycleFolder)
+    }
 
     if ($Reason -eq 'crash') {
         $file = [ordered]@{
@@ -997,6 +1196,7 @@ function New-SequenceFailureRecord {
                 matchedFailurePattern = $matchedFailPattern
                 sequencePath          = $SequencePath
                 cycleFolder           = $cycleIdentity
+                nestedNode            = $nestedNode
                 failureScreenshotPath = $failScreenName
                 failureOcrPath        = $failOcrName
                 # Names an artifact dropped from the two pointers above, with
@@ -1071,9 +1271,16 @@ function New-SequenceFailureRecord {
                     # An apt index that disagreed with its InRelease, as apt and
                     # apt_retry reported it. $null when apt reported none.
                     aptIndexMismatch       = $aptIndexMismatch
+                    # apt-get update attempts the retry library's per-attempt
+                    # bound killed. $null when none was killed.
+                    aptUpdateStall         = $aptUpdateStall
                     # What an Ubuntu installer that failed during the step
                     # reported through its error hook. $null when none did.
                     installerFailure       = $installerFailure
+                    # The user name the guest's login refused with keystrokes
+                    # missing, and where that was read. $null when none was
+                    # seen, or the step was sensitive.
+                    loginEcho              = $loginEcho
                     # How the step's last key, text or click send failed, as the
                     # transport reported it. $null when no send failed.
                     hostInputFault         = $hostInputFault
@@ -1145,7 +1352,9 @@ function New-SequenceFailureRecord {
         firstGuestSilenceSource = $firstGuestSilenceSource
         causeLauncherRejection  = if ($launcherRejection) { $launcherRejection.code } else { '' }
         causeAptIndexMismatch   = if ($aptIndexMismatch) { $aptIndexMismatch.url } else { '' }
+        causeAptUpdateStall     = if ($aptUpdateStall) { [string]$aptUpdateStall.summary } else { '' }
         causeInstallerFailure   = if ($installerFailure) { "$($installerFailure.kind): $($installerFailure.summary)".TrimEnd(' ', ':') } else { '' }
+        causeLoginEcho          = $loginEchoSummary
         causeHostInputFault     = if ($hostInputFault) { $hostInputFault.reason } else { '' }
         causeGuestKernelFault   = $guestKernelFaultKinds -join ','
         causeHostAddressChange  = $hostAddressChangeSummary
@@ -1341,5 +1550,5 @@ function New-InfraFailureRecord {
     return @{ File = $file; Event = $eventRecord }
 }
 
-Export-ModuleMember -Function Get-SequenceFailureState, Get-GuestProgressAdvisory, Get-GuestKernelFaultKind, Get-InstallerFailureCause, New-SequenceFailureRecord, New-InfraFailureRecord, Test-StepHostInputFaultDeterministic, `
-    Get-SequenceFailureSlot, Reset-SequenceFailureSlot, Save-WaitFailureEvidence
+Export-ModuleMember -Function Get-SequenceFailureState, Get-GuestProgressAdvisory, Get-GuestKernelFaultKind, Get-InstallerFailureCause, Get-LoginEchoEvidence, New-SequenceFailureRecord, New-InfraFailureRecord, Test-StepHostInputFaultDeterministic, `
+    Get-SequenceFailureSlot, Reset-SequenceFailureSlot, Save-WaitFailureEvidence, Get-GuestProcessorWindowSummary

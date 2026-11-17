@@ -14,7 +14,10 @@ Besides incident triage, the runner runs it at the start of every
 cycle, orchestrated cycles included, and keeps the dump as
 `host.diagnostic.txt` (with its problem sidecar
 `host.diagnostic.txt.json`) at the root of the cycle folder; the perf
-log's `hostInfoHash` is computed from that file. A standalone
+log's `hostInfoHash` is computed from that file. A run stopped at the
+runner's 120-second bound never writes the sidecar, so the runner writes it
+with the one problem it knows, `DIAG.host-timeout`, and the cycle report's
+problem tally counts a diagnostic that never finishes. A standalone
 `Debug-TestSequence` run takes no cycle-start dump; when its guest chain
 fails, it still takes the failure-time one, `host.diagnostics.txt` in the
 guest's folder.
@@ -151,7 +154,7 @@ For the manifest reading itself the diagnostic prefers the cache's own published
 manifest request walks the upstream sync, which spends one pull from a
 per-egress-IP budget the whole lab shares and exhausts routinely. This capture
 runs several times per cycle per machine, so measuring directly every time would
-make the diagnostic a meaningful consumer of the very resource whose exhaustion
+make the diagnostic a meaningful consumer of the resource whose exhaustion
 it exists to detect. The cache probes itself on a cadence that budgets for it and
 publishes the result; reading that costs nothing. The reading's timestamp is
 printed alongside, because a reading minutes old is still evidence but not
@@ -244,6 +247,23 @@ eth0` loop on `host/windows.hyper-v/` -- the discriminating signal
 (RAs vs. apt mirror retries vs. `hv_netvsc` VF flap) only exists in
 `/var/log/installer/subiquity-server-debug.log` and the previous
 boot's journal, neither of which section 11 collects.
+
+The previous boot's warnings are read from both ends, never whole: the newest
+60 lines with `journalctl -b -1 -p warning -n 60`, and the oldest through
+`sed -u 121q`, with bash stopping journalctl once sed has its lines (this
+script's children inherit an ignored SIGPIPE, so a closed pipe alone does not
+stop journalctl; `-n +N` would, but only from systemd 255). Reading the whole
+boot to print 120 of its lines can take a host's entire 120-second cycle-start
+budget after a boot that ran for weeks, and the problem list and every later
+section are lost with it. A boot that fits in the two ends prints whole; otherwise a
+marker stands for the unread, uncounted middle. Each read has its own
+ten-second deadline; a read stopped there is named in the section and raises
+`DIAG.probe-timeout`, and the rest of the report still runs. The oldest lines
+read before that deadline still print: journalctl runs line-buffered under
+`stdbuf` when stdbuf can run, and `sed -u` passes each line on as it reads it.
+Writing into a pipe, journalctl holds its output in 4 KiB blocks and `head`
+holds what it read (uutils `head` all of it), and a read stopped at its
+deadline loses whatever is still held.
 
 Beside systemd-networkd's journal, the section prints the current boot's
 NetworkManager `dhcp4` lines, which carry the leases of a bridge
@@ -507,10 +527,14 @@ help distinguish CPU stalls from reclaim or OOM failures.
 
 Ubuntu Server 26 sequences on native ARM64 Hyper-V capture two clock samples
 before the one-to-two CPU restart and after the existing SSH readiness or
-console-login step. The ten-second SSH budget uses an already proven address
-and allows for authentication, the one-second interval between samples, and
-transport cleanup. Both samples precede optional boot metadata; a timeout
-retains any completed samples and remains advisory. Samples include boot ID,
+console-login step. The ten-second SSH budget uses a proven address and allows
+for authentication, the one-second interval between samples, and transport
+cleanup. After the restart the first login can outlast that budget while the
+SSH port already answers, so that sample first waits up to ten seconds for one
+login, which also proves its address (about 25 seconds in all when the wait
+gives up, with the readiness helper's closing handshake); the event then says
+what the wait saw and why a sample is incomplete. Both samples precede optional boot metadata; a
+timeout retains any completed samples and remains advisory. Samples include boot ID,
 UTC, BOOTTIME uptime, monotonic time when Python is available, tick rate, online
 CPUs, and raw per-CPU `/proc/stat`.
 Clock-only captures retain timestamped uptime, CPU accounting, interrupts,
@@ -531,13 +555,39 @@ archive `.yuruna-revision`, fixed helper and Dockerfile hashes, installed helper
 hashes, and separate downloaded/executed payload hashes. Missing, invalid,
 unsafe, or oversized sources have explicit states. No remote URLs or source
 contents are included. Stable boot metadata and provenance are collected once
-per execution and retained outside the rolling process samples.
+per execution and retained outside the rolling process samples. The installed
+pwsh release is recorded as `guestProvenance.installed.pwsh.version`, read from
+the `Microsoft.PowerShell.SDK` entry of `pwsh.deps.json` beside the resolved
+`pwsh` rather than by starting it, or `unknown` when that cannot be read: the
+update script installs whichever release is current, and a release change is
+otherwise visible only in the diagnostic files.
 
 The execution recorder also retains bounded TCP socket tables, socket usage,
 and TCP counters alongside addresses, routes, neighbor state, and interface
 counters before uploading evidence. These passive readings can retain a
 connection attempt or retransmissions that later connectivity probes miss.
 The existing sample deadline, byte cap, and ring size still bound collection.
+
+On a Linux guest the KUBERNETES section ends with etcd's own account of slow
+writes. etcd answers a write `request timed out` once the proposal has waited
+past its request timeout, and then applies it anyway, so the client's error
+cannot say which part of the write path was slow. The section prints the newest
+50 lines of the etcd static pod's container logs
+(`/var/log/pods/kube-system_etcd-*/etcd/*.log`, each read from its last 4 MiB
+through the privilege prefix) that match `took too long`, `slow fdatasync`,
+`request timed out`, `leader changed` or `apply request took too long`. The
+logs are read oldest-written first: the kubelet names a container's log after
+its restart count and keeps the previous container's log, and gives a static
+pod whose manifest changed a new directory named by its UID, so name order is
+not age order (`10.log` sorts before `9.log`). It then
+reads `http://127.0.0.1:2381/metrics`, where kubeadm has etcd serve its
+metrics, and summarizes the `etcd_disk_wal_fsync_duration_seconds` and
+`etcd_disk_backend_commit_duration_seconds` histograms (count, sum, mean and
+the cumulative count under each bucket bound) and
+`etcd_server_slow_apply_total`. Each read has a 5-second bound, which for the
+metrics covers the response body as well as the connection; a log or endpoint
+that is absent reads `absent` and is skipped. The section adds no problem
+class.
 
 A separate kernel collector starts with the execution recorder and uploads
 through the host's existing HTTP diagnostic endpoint without SSH. It keeps
@@ -591,6 +641,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

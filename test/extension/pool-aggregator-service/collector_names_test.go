@@ -79,6 +79,8 @@ var (
 	postToLoki               = feed.Post
 	pushHostAnnounce         = feed.PushHostAnnounce
 	eventNano                = feed.EventNano
+	eventStamps              = feed.EventStamps
+	observedEventPayload     = feed.ObservedEventPayload
 	normalizeHostID          = poolstate.NormalizeHostID
 	scanListingForHost       = routes.ScanListingForHost
 	pickFolderFromListing    = routes.PickFolderFromListing

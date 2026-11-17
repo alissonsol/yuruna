@@ -117,9 +117,10 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `stepFailurePhase` | Which part of a wait-then-type step failed: `wait` (the screen never showed what the step waited for), `input`, or empty. A step that failed in its wait is filed as `ocr_timeout` whatever class the verb registers, because the verb's class describes the part after the wait: a `passwdPrompt` whose prompt never appeared is not a rejected password. |
 | `sequencePath` | Path of the failing sequence YAML. |
 | `cycleFolder` | The cycle's stable identity (step failures only) -- the same value the NDJSON stream stamps, so this file joins to the event stream and resolves to the folder on disk. |
+| `nestedNode` | The nested run the record was written in (step failures only): the folder under the cycle's `nested/`, named for the host action's stage and the sequence it ran, as in `initialize-lab_workload.guest.ubuntu.server.24.amisad-core.deploy`. Lab stages share one VM name and one start sequence, so this is what says which stage failed. `''` for a run that is not nested. |
 | `failureScreenshotPath` / `failureOcrPath` | Cycle-dir-relative names of this failure's screen evidence (step failures only). **Absent** unless the artifact exists and was last written after the failing step began: both are sticky per-VM files that only the screen-reading verbs rewrite, so a failure in a verb that reads no text would otherwise point at an earlier step's screen. A reader follows these; nothing audits them, so a present name is a claim the record has to be able to keep. |
 | `staleEvidence` | Each artifact dropped from the two pointers above, named with how many seconds before the failing step it was last written; `[]` when none was. The file is still in the cycle folder under that name, so evidence belonging to an earlier step stays findable while the pointers stay trustworthy -- and an absent pointer is never read as "no screen evidence exists at all", which is a different fact with a different next step. |
-| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. `patternsSought` is recorded on every timed-out wait, including one whose console never showed readable text. Also carries `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `consoleSecondOpinion`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds`, `pauseReleasedAtUtc`, `vmState`, `vmStateWaitedSeconds`, `vmStateRequestedAtUtc`, `firstGuestSilenceUtc`, `firstGuestSilenceSource`, `launcherRejection`, `aptIndexMismatch`, `hostInputFault` and `guestKernelFault` (below). |
+| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. `patternsSought` is recorded on every timed-out wait, including one whose console never showed readable text. Also carries `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `blankScreenSeconds`, `guestLivelock`, `consoleSecondOpinion`, `installerStage`, `installerStageUnchangedSeconds`, `pauseBeforeStepSeconds`, `pauseReleasedAtUtc`, `vmState`, `vmStateWaitedSeconds`, `vmStateRequestedAtUtc`, `firstGuestSilenceUtc`, `firstGuestSilenceSource`, `launcherRejection`, `aptIndexMismatch`, `aptUpdateStall`, `hostInputFault`, `guestKernelFault` and `retryExhausted` (below). |
 | `crash` | Crash records only: `{ error, origin, stack }`. |
 | `dependencyFailures` | Optional infra evidence for unavailable lab services. Lab-health entries include area, attempted and last known addresses, last success, detail and pool discovery outcome. Stash preflight entries include area, address, endpoint, source, outcome, detail and retry attempt. Discovery HTTP responses remain available to distinguish missing registration from an unreachable service. Mirrored as `dependencyFailures` on the event. |
 | `hostMemory` | Infra records only, and only when the host driver could measure the machine: `{ availableMb, committedBytes, commitLimitBytes, commitAvailableBytes, source }`. A VM's startup memory is charged against the system commit limit -- physical memory plus the current page-file size -- and not against free physical memory, so a provisioning refusal is explained by the commit figures while free physical memory can be at its highest in the same instant. **Absent** when nothing measured, never zeroed: a zeroed block reads as a machine that was measured and found empty, which is a different fact with a different next step. Mirrored flat on the event as `hostAvailableMb` / `hostCommittedBytes` / `hostCommitLimitBytes` / `hostCommitAvailableBytes`. |
@@ -138,19 +139,22 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `blankScreenSeconds` | Seconds the console had read blank -- no OCR engine found any text -- when the wait ended; `0` when its last frame carried text. A blank console leaves `ocrTail` empty and `consoleStaticSeconds` unmeasured, since both read text, so this is the field that says the screen went black rather than that nothing was compared. Mirrored on the event as `causeBlankScreenSeconds`. On a step declared `expectBlankConsole: true` the no-text repair does not run, so a capture feed that stayed blank to the timeout is recorded here rather than repaired. |
 | `guestLivelock` | The hypervisor's view of the guest when the wait ended, from the host sampler's recording: `{ verdict, livelockedSeconds, minimumSeconds, virtualProcessors, guestRunPercent, hypervisorRunPercent, interceptsPerSecond, dominantIntercept, interceptBreakdown, sampleCount, newestSampleUtc, reason }`. `verdict` is `livelocked` when every virtual processor sat at least 80% busy with the hypervisor holding at least 88% of that time for `minimumSeconds` (300), `not-livelocked` otherwise, and `unavailable` when the recording had no recent readings for the VM. `interceptBreakdown` averages the per-cause intercept rates over the run, highest first, and `dominantIntercept` names the top one. `null` when the host keeps no recording (every host but Windows, or sampling turned off): not measured, which is not the same reading as measured and found running. On macOS UTM, a login wait inside a cold-restart retry can instead record a display verdict with the same fields: `livelocked` after 300 seconds of QEMU's `Display output is not active.` with a `guest-wedged` console probe, no processor readings, and a `reason` naming that evidence (see [retry](test-sequences.md#428e4df6-001c)). A `livelocked` verdict with processor readings files the step as `guest_kernel_stalled`; the display verdict, which has none, leaves the verb's class. Mirrored on the event as `causeGuestLivelocked` / `causeGuestLivelockedSeconds`. |
 | `guestKernelStallEnd` | Why a wait that ends on a livelock ended before its deadline on a wedged guest kernel, though `guestLivelock` was not `livelocked`: `{ basis, processors, noInterruptsServicedSeconds, noInterruptsServicedSinceUtc, kinds, outputStaticSeconds, recorderUploadAgeSeconds, waitedSeconds }`. Every such end needs a kernel fault report that reached the serial console after the wait began (`kinds`, read as `guestKernelFault.serial` reads it). `basis` names the rule that held with it: `no-interrupts-serviced` when a virtual processor has serviced no interrupt for at least 180 seconds (`processors` lists each, and the next two fields describe the longest run, from `guestLivelock.processorWindow`); otherwise `guest-silent` when the console's text has stayed unchanged (`outputStaticSeconds`) and the guest recorder's upload has not reached the host (`recorderUploadAgeSeconds`, by the host's clock) for at least 180 seconds each, in which case `processors` is empty and the two fields after it are `null`. Both silence readings are kept under either basis, `null` when not measured; a wait whose caller names no recorder upload never ends as `guest-silent`. `waitedSeconds` is how long the wait ran. Only the Windows Hyper-V driver offers the live serial reading both rules need, so no other host ends a wait this way. A wait that ended so files the step as `guest_kernel_stalled`. `null` when the wait did not end so. |
-| `guestDisplayStallEnd` | Why a login wait that a cold-restart `retry` runs ended before its deadline on a display that stopped presenting frames: `{ driver, reports, firstUptimeSeconds, lastUptimeSeconds, spanSeconds, newestRecordUptimeSeconds, consoleUnchangedSeconds, text, waitedSeconds }`. It needs at least six page-flip timeout reports from `hyperv_drm` that reached the serial console after the wait began (read as `guestKernelFault.serial.displayStall` reads them), spanning at least 20 seconds (`spanSeconds`), the newest within 30 seconds of the newest record of the same boot (`newestRecordUptimeSeconds`), and the console's text, or its blank run, unchanged for at least 30 seconds (`consoleUnchangedSeconds`). The DRM core waits ten seconds for a flip and a stalled commit prints two lines, so six are three commits in a row that never reached the screen. Only the login waits the retry hands down end this way, so the retry cold-restarts the guest as it does after a login timeout; every other wait keeps the stall as a diagnostic. It is no kernel fault and changes no class. `waitedSeconds` is how long the wait ran. `null` when the wait did not end so. |
+| `guestDisplayStallEnd` | Why a login or untyped first-login password wait that a cold-restart `retry` runs ended before its deadline on a display that stopped presenting frames: `{ driver, reports, firstUptimeSeconds, lastUptimeSeconds, spanSeconds, newestRecordUptimeSeconds, consoleUnchangedSeconds, text, waitedSeconds }`. It needs at least six page-flip timeout reports from `hyperv_drm` or `virtio_gpu` that reached the serial console after the wait began (read as `guestKernelFault.serial.displayStall` reads them), spanning at least 20 seconds (`spanSeconds`), the newest within 30 seconds of the newest record of the same boot (`newestRecordUptimeSeconds`), and the console's text, or its blank run, unchanged for at least 30 seconds (`consoleUnchangedSeconds`). The DRM core waits ten seconds for a flip and a stalled commit prints two lines, so six are three commits in a row that never reached the screen. Only the eligible waits the retry hands down end this way. The retry cold-restarts the guest and replays from login; a password prompt that has started typing never permits that restart. The confirming entry ends the retry block, so later failures cannot replay a committed password. Every other wait keeps the stall as a diagnostic. It is no kernel fault. A wait that ended this way files as `guest_display_stalled`, including after the bounded cold-restart attempts are exhausted. `waitedSeconds` is how long the wait ran. `null` when the wait did not end so. |
 | `consoleSecondOpinion` | The independent host-side console probe taken after capture repair was exhausted: verdict, explanation, and available measurements. On UTM these include the VM state, VM-specific QEMU PID and VNC port, two direct-frame hashes, CPU samples, interval, and observation time. Missing readings remain null. `guest-wedged` describes unchanged output with a busy emulator; it does not identify a kernel or hypervisor defect, and CPU activity without readable frames cannot clear the capture path. The object survives retry exhaustion and nested failures and is also retained with attempt evidence. It is not permission for an arbitrary workload restart. |
 | `installerStage` / `installerStageUnchangedSeconds` | The last `start:` or `finish:` marker for a substantive Subiquity Install or Mirror stage visible during this wait, and seconds since that marker changed. Network update chatter is excluded. This records the last observed marker, not proof that its command is still running. `''` / `0` when no stage was seen. Mirrored on the event as `causeInstallerStage` / `causeInstallerStageUnchangedSeconds`. |
-| `progressAdvisory` | Independent observations: `outputStaticSeconds`, `heartbeatAgeSeconds`, SSH responsiveness, `clockWarnings` and an advisory verdict. `sshResponsiveness` is `unresponsive` when the harness killed the evidence client or when the client itself reported a dead path (exit 255 with a connect timeout, no route, an unreachable network, a refusal or a name that did not resolve); it is `unavailable` only when no transport was measured. `clockWarnings` lists the codes the clock analysis of the step's recorder samples raised (for example `cpu-idle-exceeds-boot-uptime`), and a non-empty list adds the `guest-clock-anomaly` signal, which is evidence about the guest's time base and never a stall signal on its own. `kernelFaults` lists the kinds counted for the step, those in `causeGuestKernelFault`, and a non-empty list adds the `guest-kernel-fault` signal, likewise listed and never scored: a report that reached the console says the kernel saw a stall, not how long the guest stopped, and `clock-jump` says the guest's time base moved, not that the guest stopped. At least two sustained stall signals yield `progress-suspect`; absent measurements stay null/unavailable. Output is observed during tail-confined waits too, without enabling their disabled recovery signals. `automaticRecoveryAllowed` is always false. |
+| `progressAdvisory` | Independent observations: `outputStaticSeconds`, `heartbeatAgeSeconds`, SSH responsiveness, `clockWarnings` and an advisory verdict. `sshResponsiveness` is `unresponsive` when the harness killed the evidence client or when the client itself reported a dead path (exit 255 with a connect timeout, no route, an unreachable network, a refusal or a name that did not resolve); it is `unavailable` only when no transport was measured. `clockWarnings` lists the codes the clock analysis of the step's recorder samples raised (for example `cpu-idle-exceeds-boot-uptime`), and a non-empty list adds the `guest-clock-anomaly` signal, which is evidence about the guest's time base and never a stall signal on its own. `kernelFaults` lists the kinds counted for the step, those in `causeGuestKernelFault`, and a non-empty list adds the `guest-kernel-fault` signal, likewise listed and never scored: a report that reached the console says the kernel saw a stall, not how long the guest stopped, and `clock-jump` says the guest's time base moved, not that the guest stopped. `noInterruptsServicedSeconds` is the longest run of any processor that serviced no interrupt in the failed wait's `guestLivelock.processorWindow`, `null` when no host recording read the processors, and a run of at least 60 seconds adds the `no-interrupts-serviced` signal: healthy processors show such a run for a sample interval or two, so it names a processor the guest kernel stopped servicing before the window's own 120-second list or the livelock verdict does. It is listed only and left out of the verdict, which reads as it would without it. At least two sustained stall signals yield `progress-suspect`; absent measurements stay null/unavailable. Output is observed during tail-confined waits too, without enabling their disabled recovery signals. `automaticRecoveryAllowed` is always false. |
 | `pauseBeforeStepSeconds` | Seconds an operator hold ran, when one was released before the failing step. The pause gate holds the runner and not the guest, so a prompt the guest printed once during the hold is off the screen the resumed step then has to read -- which looks identical to a prompt that never printed. `0` when there was no hold. |
 | `pauseReleasedAtUtc` | When that hold ended, so it can be placed against the step's own start. `''` when there was no hold. |
 | `vmState` / `vmStateWaitedSeconds` / `vmStateRequestedAtUtc` | Set by `stopVm` and `startVm` when the guest never reached the stopped state: the state the host reported when the wait gave up, how long it waited, and when the shutdown was requested. The class is then `vm_not_stopped`, and the event carries `causeVmState` and `causeVmStateWaitedSeconds`. A `startVm` step with `installPowerOff` waits for an install's own power-off and requested no shutdown, so when the power-off never comes it keeps the verb's `provisioning_failure`. `''` and `0` otherwise. |
 | `firstGuestSilenceUtc` / `firstGuestSilenceSource` | The earliest moment in the current sequence at which the guest stopped answering, and the mechanism that saw it: an SSH transport dropped mid-command, typed input the console never acknowledged, a diagnostic no rung could reach, or a shutdown request the guest ignored. Set once per sequence by the first observer and never cleared by a later step, so a record names the first symptom rather than the step that finally gave up. `''` when nothing observed a silence. |
 | `launcherRejection` | Set by `fetchAndExecute` when the guest launcher (`yfe --gui`) refused the typed compact envelope, read from the record the launcher leaves under the envelope digest: `{ code, attempt, receivedChars, expectedChars, receivedSha256, expectedSha256, payloadState }`. Every refusal comes before the payload runs, so the class stays the matched failure pattern while this names what the keyboard delivered: one more received character than typed is a key that repeated. A `YFE_GUI_ENCODING` or `YFE_GUI_DIGEST` refusal with `payloadState` `NOT_PREPARED` is typed once more within the step, and a `retry_attempt` event with `stack` `gui-envelope` records it; `attempt` names the attempt this refusal ended. `null` when the launcher refused nothing or predates the record. Mirrored on the event as `causeLauncherRejection` (the code, `''` when none). |
+| `retryExhausted` | The last guest retry that gave up anywhere in the failing step's execution log, read when the runner's failure path finds the step's own log (`executionLog.state` `current`): `{ label, outcome, url, httpStatus, rc, attempts, maxAttempts, windowSeconds, elapsedSeconds, atSeconds, logEndSeconds }` from that retry's `YURUNA_RETRY` outcome record ([retry telemetry](#42820e91-0011)). `outcome` is `exhausted` when the retry's attempts or window ran out and `permanent` when its classifier stopped it, as on a `404`. `url` (scheme, host and path) and `httpStatus` (the re-probed status, `0` for no answer) come only from `curl_retry` and `wget_try`; a field the record lacks is `null`. The OCR tail shows the same URL and status as the camera read them, which a search for the host or the status misses; this field names them as the guest printed them. The retry it names did not necessarily end the step: a script can continue past a retry that gave up and fail later on something else, as `guest/shared/ubuntu.k8s.sh` falls back to apt when the mkcert release download fails. `atSeconds` and `logEndSeconds` tell the two apart: they are the wrapper's stamps, in seconds since it started, on the outcome record and on the log's last stamped line, and a retry that ended the step gave up within seconds of the log's end. A nested log holds each line twice, stamped by both wrappers, and `atSeconds` takes the later stamp, the outer wrapper's, whose clock also stamps the log's last line. Both are `null` in a log without stamps. Failures that one upstream outage ended read as one when a reader keeps the records whose `atSeconds` is within seconds of `logEndSeconds`. Absent when no retry gave up or the log is not the step's own. The `step_failure` event has been sent before the log is read, so the failure's `remediation_recommended` event carries it as `causeRetryExhausted`. |
 | `aptIndexMismatch` | Set by `sshFetchAndExecute` when apt reported an index that disagrees with its `InRelease` (`File has unexpected size` or `Hash Sum mismatch`): `{ kind, url, receivedBytes, expectedBytes, server, releaseFileCreated, occurrences, proxyCopy, proxyPurgeStatus }`, from the last such line, which is the attempt the step failed on. `server` is the address and port apt named, which is the caching proxy when the fetch went through it; `proxyCopy` and `proxyPurgeStatus` are what `apt_retry` reported of the proxy's stored copy and of the `PURGE` it sent (see [Healing an apt index](network.md#4220a755-005e)). The class stays `script_error`, because the script did fail; this field says the fix is in the cache or at the origin. `null` when apt reported no such line. Mirrored on the event as `causeAptIndexMismatch` (the URL, `''` when none). |
-| `installerFailure` | What an Ubuntu installer that failed during the step reported through the seed's [error-commands upload](vmconfig.md#429f3d06-002f), from the newest bucket written since the step started: `{ kind, summary, missingPackages, lines, artifacts }`. `kind` is `package-index-inconsistent` (the apt index requires packages it does not carry, named in `missingPackages`), `apt-unreachable` (apt could not connect; `summary` names the endpoint, which is the caching proxy when the install went through it), `apt-fetch-failed`, `apt-error`, or `unclassified` (apt stated nothing, as when storage failed first). `lines` holds apt's own words and `artifacts` the bucket's path under the status service. The event carries `causeInstallerFailure`, including on the `initialize-lab` infra event a lab stage sends. `$null` when no installer reported a failure. |
+| `aptUpdateStall` | Set by `fetchAndExecute` and `sshFetchAndExecute` when `apt-get update`, the one call the guest update scripts bound (see [Bounding apt-get update](network.md#4220a755-0006)), failed after `apt_retry`'s per-attempt bound killed at least one of its attempts: `{ stalledAttempts, maxAttempts, boundSeconds, rc, server, pendingSources, failedSources, summary }`. `stalledAttempts` lists the attempts the bound killed and `rc` is the last one's exit (`124`, or `137` when the kill backstop fired). From the guest's own output, `pendingSources` names each `InRelease` (host, path and suite) whose last line in the last killed attempt was `Ign` -- still being fetched when the bound fired -- and `failedSources` each one that ended `Err`; `server` is the address and port apt named for a failure, which is the caching proxy when the fetch went through it, so this field alone cannot tell a stalled origin from a stalled proxy. At the console the record is first built from the screen, which yields only the stall lines: a host name read through OCR can be damaged, so the sources and the server stay empty there until the guest's own log of the same invocation (`last-fetch-and-execute.log`, read after the event is sent) replaces the reading in this file. `summary` reads `attempt 1,2 of 2 killed at 300s (rc=124) via <server>; pending <sources>; failed <sources>`. The class stays the matched failure pattern. `null` when no attempt was killed or a later attempt succeeded: `apt_retry` prints nothing on success, so a kill counts only when it hit the call's last attempt or `apt_retry`'s closing line for the update follows it, and on the screen, which shows neither that line nor the attempt banners, only a kill of the last attempt counts. Mirrored on the event as `causeAptUpdateStall` (the summary the record was built with, `''` when none). |
+| `installerFailure` | What an Ubuntu installer that failed during the step reported through the seed's [error-commands upload](vmconfig.md#429f3d06-002f), from the newest bucket written since the step started: `{ kind, summary, missingPackages, lines, artifacts }`. `kind` is `package-index-inconsistent` (the apt index requires packages it does not carry, named in `missingPackages`), `apt-unreachable` (apt could not connect; `summary` names the endpoint, which is the caching proxy when the install went through it), `apt-fetch-failed`, `apt-error`, or `unclassified` (apt stated nothing, as when storage failed first). `lines` holds apt's own words and `artifacts` the bucket's path under the status service. The event carries `causeInstallerFailure`, including on the `initialize-lab` infra event a lab stage sends. `null` when no installer reported a failure. |
+| `loginEcho` | The user name the guest's `login` refused with keystrokes missing, read when a console wait failed (`waitForText`, `waitForTextWithNudge`, `waitForAndEnter`, or a `passwdPrompt` still waiting for its prompt, before it typed): `{ expected, received, source, lostLeadingCharacters }`. `expected` is the sequence's `username` variable, which step descriptions already show. `source` `serial` reads `login`'s own `FAILED LOGIN <n> FROM <tty> FOR <name>,` lines on the serial console after the step's mark (Hyper-V only), where the newest refusal decides; `ocr` reads, on the wait's last screen, each `<host> login: <name>` echo followed by `Login incorrect`, so an OCR misreading of a name `login` accepted is never reported. A refusal stops counting once `login` accepted a name after it: on the serial console, `login`'s `pam_unix(login:session)` line; on the screen, a shell prompt (`<user>@<host>:`). A later attempt that sent the name intact therefore records nothing, whether `login` accepted it or refused its password (a refusal of `expected` itself is a rejected password, never a lost keystroke). The serial console decides whenever it holds a refusal of the name, even one a later login dropped; the screen is read only when it holds none. The screen's text holds each OCR engine's reading, one after another, in engine order rather than in the order of the attempts, so the screen decides only when every refusal it still shows names the same name, and records nothing when they differ. `received` only ever holds characters of `expected`, in order: anything else typed at a login prompt, such as a command or a password sent to the wrong prompt, is never recorded. `lostLeadingCharacters` counts the missing leading characters when `received` is a suffix of `expected`, else `null`. Evidence only: the class, the advisory and the recovery are unchanged. `null` when the step is `sensitive`, when it is a `passwdPrompt` that failed while typing its always-sensitive text, when the sequence has no `username`, or when no such refusal was found. Mirrored on the event as `causeLoginEcho`: `<received> for <expected> (<source>, <n> leading lost)`, without the count when it is `null`, and `''` when none. |
 | `hostInputFault` | Set when the step's last key, text or click send failed, as the transport reported it: `{ action, kind, reason, transport, detail, delivered, total }`. `kind` `deterministic` is a send that fails the same way on every attempt -- `reason` `unmappable-character` for text the transport's key map cannot type, with `detail` naming each character by code point and position, never by value; `unknown-key` for a key name no map defines; `action-unavailable` for an action the host never registered -- and files the step as `plan_invalid` with `pause_and_inspect`, where the input verbs register the retryable `host_io_blocked`; a sequence `retry` around it stops after that attempt with `retrySuppressionReason` `deterministic-input-fault`. `kind` `transient` (`connection-unavailable`, `write-failed`, `send-failed`, `delivery-unknown`, `provider-error`, `unspecified`) keeps the verb's class. `delivered` counts the characters written before the failure, `-1` when that is unknown. Nothing is typed when a character has no key, so the guest never receives a different string than the step asked for. `null` when no send failed, or when a later send of the step succeeded. Mirrored on the event as `causeHostInputFault` (the reason, `''` when none). |
-| `guestKernelFault` | The guest kernel's own reports for the failing step: `{ serial, recorder }`. `serial` reads the VM's serial console from where it ended when the step started (Hyper-V only); `recorder` reads the first stall the guest recorder froze while the step's payload ran (the `--- first observed kernel stall ---` section of its upload). Each holds `{ source, boots, records, kernelRecords, faultRecords, kinds, firstFault, lastFault, lastNormalRecordUptimeSeconds, newestRecordUptimeSeconds, softLockups, rcuStalledCpus, largestStallJiffies, largestForwardLeap, uptimeLimitSeconds, clockJump }`. `serial` adds `bytesRead`, `truncated` and `replaced`: the capture was re-armed by a VM restart after the step's mark and holds only what followed, so a reading without a fault does not clear the whole step. `recorder` adds `firstStallSampleIndex` and `mayPredateStep`: each recorder sample is the newest 256 kernel records of the boot, so the recorder's first sample (index 0) can hold reports from before the step began, and a reading that may predate the step keeps its kinds out of `causeGuestKernelFault` and the advisory's `kernelFaults`. `kinds` names any of `soft-lockup`, `hard-lockup`, `rcu-stall`, `rcu-kthread-starved`, `rcu-timer-wakeup-missed`, `hung-task`, `oops` and `panic`, and in `serial` also `clock-jump`. Only kernel records count as faults: lines journald forwards to the console are skipped, so a script that quotes a kernel message is not a fault unless the quote carries a printk timestamp of its own. Times are guest uptime seconds as printed, and in serial text a timestamp that falls back to an early one, or any earlier timestamp after a `reboot: ` or panic record, starts a new boot, which every fault names; once each has a record in the boot, kernel records and forwarded journal lines fall back on their own clocks, because a clock jump can move one and leave the other, though kernel records printed by different processors can still carry different clocks. `softLockups[].longestStuckSeconds` is the largest stuck count any of that CPU's reports printed in the boot; `task`, `pid`, `lastUptimeSeconds` and `lastStuckSeconds` come from its newest report, which can belong to a later lockup on the same CPU. `largestStallJiffies` is the largest jiffies count an RCU report printed; one far beyond the guest's uptime is a clock jump (see [guest kernel wedges](host-hyperv.md#42dc5bb9-0014)). `largestForwardLeap` is the newest boot's largest step forward within one kind of record, from the largest timestamp of that kind before a record to that record's, `{ boot, recordKind, fromUptimeSeconds, toUptimeSeconds, seconds }` with `recordKind` `kernel` or `forwarded`, so a record the console flushed late starts none; the first record of its kind steps from the other kind's largest earlier timestamp not above it. `serial` judges the guest's clock against `uptimeLimitSeconds`, the seconds since Hyper-V created the VM, which no boot of it can have exceeded: a timestamp more than a minute past it names the kind `clock-jump` and sets `clockJump` `{ boot, uptimeSeconds, minimumJumpSeconds }`, that record and the least the clock jumped. Kernel records and forwarded journal lines both count there: journald stamps a forwarded line with the guest's `CLOCK_MONOTONIC` as it forwards it, a kernel record carries printk's clock, and a jump can move one and leave the other alone. When the jump happened inside the newest boot of the text, the leap that spans it is the most the clock jumped and its `fromUptimeSeconds` dates it; a leap shorter than `minimumJumpSeconds`, or in another boot than `clockJump.boot`, is not the jump. A clock that jumped by its partition's counter offset reads about the hypervisor's time, which restarts with the host, so no jump is named on a VM created before the host last started, nor on one created less than about a minute, plus the time the console was silent before the step failed, after the host started. `uptimeLimitSeconds` and `clockJump` are `null` when no clock was judged: the host named no creation time, or the reading is `recorder`'s. A kernel whose CPUs are wedged can hold console output and flush it after the step fails, so few reports do not bound the hang; `serial-console.kernel.json` beside the saved `serial-console.log` reads the newest 16 MiB of it again, every boot within them, once the capture closes, and its `truncated` says when older bytes were left out; it judges no clock, because a log an orphaned reader kept open can hold an earlier VM's boots, which this VM's creation time does not bound. A reading's `displayStall` names a display driver whose page flips timed out, `{ driver, reports, boot, firstUptimeSeconds, lastUptimeSeconds, text }`: the framebuffer a console wait reads stopped changing while the guest ran, which explains a text wait that timed out on a live guest. It is no fault, so it adds no kind and changes no class. A source that could not be read is `null`; a serial console that was read and held no fault is a reading with `faultRecords` `0`. The field is `null` when neither source could be read. Mirrored on the event as `guestKernelFault`, and flat as `causeGuestKernelFault` (the kinds counted for the step, comma-separated, `''` when none). |
+| `guestKernelFault` | The guest kernel's own reports for the failing step: `{ serial, recorder }`. `serial` reads the VM's serial console from where it ended when the step started (Hyper-V only); `recorder` reads the first stall the guest recorder froze while the step's payload ran (the `--- first observed kernel stall ---` section of its upload). Each holds `{ source, boots, records, kernelRecords, faultRecords, kinds, firstFault, lastFault, lastNormalRecordUptimeSeconds, newestRecordUptimeSeconds, softLockups, rcuStalledCpus, largestStallJiffies, largestForwardLeap, uptimeLimitSeconds, clockJump }`. `serial` adds `bytesRead`, `truncated` and `replaced`: the capture was re-armed by a VM restart after the step's mark and holds only what followed, so a reading without a fault does not clear the whole step. It also adds `totalBytes`, how much the capture held when it was read, and `lastByteUtc`, when the reader last wrote to it (`null` for an empty capture), so a reading with `bytesRead` `0` says the console has been silent since that moment, not that the reader stopped. `recorder` adds `firstStallSampleIndex` and `mayPredateStep`: each recorder sample is the newest 256 kernel records of the boot, so the recorder's first sample (index 0) can hold reports from before the step began, and a reading that may predate the step keeps its kinds out of `causeGuestKernelFault` and the advisory's `kernelFaults`. `kinds` names any of `soft-lockup`, `hard-lockup`, `rcu-stall`, `rcu-kthread-starved`, `rcu-timer-wakeup-missed`, `hung-task`, `oops` and `panic`, and in `serial` also `clock-jump`. Only kernel records count as faults: lines journald forwards to the console are skipped, so a script that quotes a kernel message is not a fault unless the quote carries a printk timestamp of its own. Times are guest uptime seconds as printed, and in serial text a timestamp that falls back to an early one, or any earlier timestamp after a `reboot: ` or panic record, starts a new boot, which every fault names; once each has a record in the boot, kernel records and forwarded journal lines fall back on their own clocks, because a clock jump can move one and leave the other, though kernel records printed by different processors can still carry different clocks. `softLockups[].longestStuckSeconds` is the largest stuck count any of that CPU's reports printed in the boot; `task`, `pid`, `lastUptimeSeconds` and `lastStuckSeconds` come from its newest report, which can belong to a later lockup on the same CPU. `largestStallJiffies` is the largest jiffies count an RCU report printed; one far beyond the guest's uptime is a clock jump (see [guest kernel wedges](host-hyperv.md#42dc5bb9-0014)). `largestForwardLeap` is the newest boot's largest step forward within one kind of record, from the largest timestamp of that kind before a record to that record's, `{ boot, recordKind, fromUptimeSeconds, toUptimeSeconds, seconds }` with `recordKind` `kernel` or `forwarded`, so a record the console flushed late starts none; the first record of its kind steps from the other kind's largest earlier timestamp not above it. `serial` judges the guest's clock against `uptimeLimitSeconds`, the seconds since Hyper-V created the VM, which no boot of it can have exceeded: a timestamp more than a minute past it names the kind `clock-jump` and sets `clockJump` `{ boot, uptimeSeconds, minimumJumpSeconds }`, that record and the least the clock jumped. Kernel records and forwarded journal lines both count there: journald stamps a forwarded line with the guest's `CLOCK_MONOTONIC` as it forwards it, a kernel record carries printk's clock, and a jump can move one and leave the other alone. When the jump happened inside the newest boot of the text, the leap that spans it is the most the clock jumped and its `fromUptimeSeconds` dates it; a leap shorter than `minimumJumpSeconds`, or in another boot than `clockJump.boot`, is not the jump. A clock that jumped by its partition's counter offset reads about the hypervisor's time, which restarts with the host, so no jump is named on a VM created before the host last started, nor on one created less than about a minute, plus the time the console was silent before the step failed, after the host started. `uptimeLimitSeconds` and `clockJump` are `null` when no clock was judged: the host named no creation time, or the reading is `recorder`'s. A kernel whose CPUs are wedged can hold console output and flush it after the step fails, so few reports do not bound the hang; `serial-console.kernel.json` beside the saved `serial-console.log` reads the newest 16 MiB of it again, every boot within them, once the capture closes, and its `truncated` says when older bytes were left out; it judges no clock, because a log an orphaned reader kept open can hold an earlier VM's boots, which this VM's creation time does not bound. A reading's `displayStall` names a display driver whose page flips timed out, `{ driver, reports, boot, firstUptimeSeconds, lastUptimeSeconds, text }`: the framebuffer a console wait reads stopped changing while the guest ran, which explains a text wait that timed out on a live guest. It is no fault, so it adds no kind and changes no class. A source that could not be read is `null`; a serial console that was read and held no fault is a reading with `faultRecords` `0`. The field is `null` when neither source could be read. Mirrored on the event as `guestKernelFault`, and flat as `causeGuestKernelFault` (the kinds counted for the step, comma-separated, `''` when none). |
 
 The write is atomic (temp-file + rename via `Write-YurunaStateFile`) so a
 remediator or the status service never observes a truncated record.
@@ -194,14 +198,52 @@ is true for the two dead states; a dead transport keeps its reason code
 (`profile-ssh-timeout` or `profile-ssh-unreachable`) over the log-identity
 verdict, because a path that never reached the guest says nothing about which
 log the guest holds. `recorder.clockAnalysis` runs the advisory clock analysis
-over the retained recorder samples, sorted into time order. Failure cleanup
+over the retained recorder samples, sorted into time order.
+`recorder.ioAnalysis` measures, between consecutive retained samples of the same
+boot, how long the guest stalled on I/O (`ioFullStallSeconds`, from the PSI io
+`full` total) and how long each device took per completed write and per flush
+(`writeMsPerOp` and `flushMsPerOp`, from `/proc/diskstats`). Partitions are left
+out because the kernel counts their I/O on the whole disk too. A device-mapper
+volume, such as the LVM volume that holds the guest's root filesystem and
+etcd's data, gets rows of its own with `wholeDisk` false: it counts each
+request as the filesystem submitted it, before the disk merges requests,
+including the time spent below the volume, and counts flushes among its
+writes, so its flush fields are null. `intervals` holds one row per interval
+and device that completed a write or flush, at most 64 (`rowsOmitted` counts
+any beyond). An interval with no whole-disk row keeps one row with a null
+`device`, so its stall is kept: its `writes` is 0 when both samples read the
+same whole disks and none completed a write or flush, and null when a disk's
+counts could not be compared across the interval, as after a counter went
+backwards (`counterResets` counts the deltas left out for that reason). A
+sample whose collection was cut short before its readings is left out, as is
+one without disk lines between samples of its boot that carry them, so the
+interval across it is measured whole. `worstInterval` is the interval with the
+longest full stall, or with the slowest write when no sample could read the
+pressure file, given as the row of its slowest-writing whole disk. `totals`
+reads whole disks only, since a volume's data reaches its disk again, and sums
+only the intervals whose whole-disk counts could be compared; its
+`ioFullStallSeconds` is null unless each of those intervals has a stall
+reading. Like the clock analysis, it is advisory and never changes the step's
+result.
+Failure cleanup
 emits a `failure_diagnostic` event carrying independent host/guest snapshot
 outcomes, including capture exceptions, plus `sshReadiness` (the cause, target,
 attempts and last client line the readiness wait recorded when no rung reached
 the guest) and `networkCrossCheck` (the verdict of the host's own reachability
-check, below). The after-restart clock snapshot adds `sshProbe`: one bounded
-TCP touch on the proven address with the banner sshd sent, so a daemon still
-starting and a guest off the network read differently without a wait. For an exhausted retry, its diagnostic manifest
+check, below). The after-restart clock snapshot first waits up to ten seconds
+for one SSH login (`Wait-SshReady`, which also proves the address the samples
+use; a wait that gives up adds at most about 25 seconds and leaves the
+helper's usual `ssh_handshake_failed` event). It keeps what that wait saw as
+`sshReadiness` `{ ready, cause, attempts, waitedSeconds }`, a smaller record
+than `failure_diagnostic`'s, with no target or client line; `cause` is
+`wait-error` when the wait itself failed. It adds `sshProbe`: one bounded TCP
+touch on the proven address with the banner sshd sent, so a daemon still
+starting and a guest off the network read differently without a further wait.
+A capture that is not complete names why in `reason`: `ssh-timeout`,
+`ssh-not-ready`, `ssh-failed`, `samples-incomplete` or
+`clock-evidence-capture-error`. The `guest_clock_accounting` event carries
+`reason` and `sshReadiness` too (see
+[saveGuestClockSnapshot](test-sequences.md#428e4df6-003a)). For an exhausted retry, its diagnostic manifest
 and event use the originating leaf IDs so they join the fetch recorder; the
 failure event retains the outer wrapper IDs and publishes both pairs. A
 distinct outer crash uses its own IDs. Failed retry wrappers retain the leaf's
@@ -339,7 +381,15 @@ A host action (a project's `host:` sequence such as `initialize-lab`) that
 exits non-zero is recorded under its own name with whatever class the action
 itself wrote to `last_failure.json` during its run, else `unknown`; the
 description is the action's last error line, else its last output line, so a cause
-the script named survives outside the transcript.
+the script named survives outside the transcript. A stage's own sequences run
+apart from the cycle's event stream, so the stage's event is all the pool
+receives of the failure: when the record the run kept is one the engine wrote
+during that stage, the event carries that record's `vmName` (when the stage
+named none), `sequenceName`, `action` (the failed step), `nestedNode` (from
+`context`) and `causeAptUpdateStall`, while `actionVerb` keeps the stage name.
+A record written before the stage began, such as one an earlier run left at the
+log root, names another failure, and an infra record names only the stage that
+wrote it, so the event takes none of these fields from either.
 
 A stage whose host driver can measure the machine also carries
 [`context.hostMemory`](#context) -- the physical memory available and the system
@@ -406,7 +456,9 @@ degraded-but-passing cycle is queryable instead of reading as a clean pass.
 Fields:
 `event` = `degradation`, `timestamp`, `dependency` (the subsystem, e.g.
 `keystroke-mechanism`), `primary` (preferred mechanism), `fallback`
-(alternative taken), `reason`, and `severity` (`soft` by nature). The emit is
+(alternative taken), `reason`, and `severity` (`soft` by nature). `vmName` is
+present only when the degradation concerns one guest: a `dhcp-capture`
+degradation names the guest whose DHCP evidence is missing. The emit is
 best-effort (`Send-CycleEventSafely`) and never fails the cycle. A stream
 consumer that counts only failures should skip this event type.
 
@@ -646,10 +698,22 @@ case, which is why `repro.command` still omits `-StartStep`.
 The three retry stacks emit a structured attempt record so a flaky retry is
 queryable in `cycle.events.ndjson`, not just buried in the human log:
 
-- **`Yuruna.Retry`** (host-side pwsh: tofu init/plan/apply, helm/kubectl fetches)
-  emits `retry_attempt` before each backoff and `retry_exhausted` on the final
-  failure -- best-effort (`Send-CycleEventSafely` is Get-Command-guarded, so a
-  standalone tofu run that never loaded `Test.Log` is unaffected).
+- **`Yuruna.Retry`** (pwsh: tofu init/plan/apply and the helm/kubectl
+  deployment tools, wherever `Set-Resource`, `Set-Component` and `Set-Workload`
+  run) emits `retry_attempt` before each backoff and `retry_exhausted` on the
+  final failure -- best-effort (`Send-CycleEventSafely` is Get-Command-guarded, so a
+  standalone tofu run that never loaded `Test.Log` is unaffected). It emits
+  `retry_recovered` in place of `retry_exhausted` when a retried attempt fails
+  in the way that completes an earlier attempt -- a `kubectl create` refused as
+  `AlreadyExists` after its first attempt timed out, because the API server
+  committed the request whose answer was lost
+  ([the retry policy](architecture.md#42e568c8-000c)); the event keeps the
+  attempt's own `exitCode` and carries `basis` (`already-applied`), the earlier
+  attempt's `retry_attempt` stays, and the call ends as a pass. In a guest
+  payload, which has no cycle stream, it prints each of these records as a
+  `YURUNA_RETRY` marker on stderr instead (below), but only under the guest's
+  `fetch-and-execute.sh`, which exports `FAE_INVOCATION_SCRIPT` to the payload;
+  anywhere else without `Test.Log` it stays silent.
 - **The sequence `retry` verb** emits `retry_attempt` per failed inner pass and
   `retry_exhausted` on exhaustion, the latter carrying the deepest inner
   `failureClass` (the outer class collapses to `retry_exhausted`). The ARM64
@@ -665,32 +729,92 @@ queryable in `cycle.events.ndjson`, not just buried in the human log:
   so restarts that verdict justified can be counted, and `guestDisplayStall`,
   the evidence when the attempt's login wait ended on a display that stopped
   presenting frames (`causeDetail.guestDisplayStallEnd` above), `null`
-  otherwise. Its `installerRunning`
+  otherwise. `guestKernelStallEnd` is the attempt's
+  `causeDetail.guestKernelStallEnd`, `null` when its wait did not end on a
+  wedged kernel, and `stormedProcessors`, `noInterruptsServicedProcessors` and
+  `longestNoInterruptsServicedSeconds` summarize the processor window the wait
+  last read (`causeDetail.guestLivelock.processorWindow` above; all three `null`
+  when no host recording read it), so boot-wedge shapes and early ends can be
+  counted from the event stream. Its `installerRunning`
   field records whether the failed wait's OCR tail still showed the live
   installer's `subiquity/` event lines; on that evidence an ARM64 Hyper-V
   login-wait restart boots the installer DVD instead of the target disk.
-- **The guest bash lib** (`automation/yuruna-retry.sh`) can't reach the host
-  stream, so it prints a `YURUNA_RETRY {stack,label,attempt,maxAttempts,rc,
-  permanent}` marker to stderr; on the SSH verbs (`sshExec` /
-  `sshFetchAndExecute`) the host parses those markers into `retry_attempt`
-  events via `Publish-GuestRetryMarker`. The console/OCR fetch path keeps its
-  log guest-local, so that path is not covered.
+  `installerStage` and `installerStageUnchangedSeconds` carry the attempt's
+  `causeDetail.installerStage` reading, `''` and `0` when its OCR showed no
+  stage, so a restart of an install that was still moving can be told from a
+  restart of a stuck one.
+- **The guest retry libraries** can't reach the host stream. The bash lib
+  (`automation/yuruna-retry.sh`), and `Yuruna.Retry` in a guest payload, print
+  `YURUNA_RETRY {json}` lines to stderr: attempt records (`"event":"attempt"`)
+  and one outcome record (`"event":"outcome"`, with `"outcome"` `exhausted`,
+  `permanent`, or from pwsh only `recovered`) when the retry ends without a
+  plain success. The bash lib prints an attempt record for every failed
+  attempt, the last one included. `Yuruna.Retry` prints one only before each
+  backoff, where it would send `retry_attempt`, so its last failed attempt, a
+  permanent stop and an attempt accepted as already applied appear only in
+  the outcome record. The outcome's `attempt` names the last attempt, so the
+  attempt count of a retry that ended without a plain success comes from the
+  outcome record, not from counting attempt records. A record carries
+  `stack`, `label`, `attempt`, `maxAttempts`, `rc` and `elapsedSeconds` (the
+  seconds since the call's first attempt), with `permanent`, `windowSeconds`
+  for a windowed retry, and for `curl_retry` / `wget_try` the `url` they fetch
+  (scheme, host and path only: a query, a fragment or the userinfo can carry a
+  credential) and `httpStatus`, the status the failure classifier's re-probe
+  got (`0` for no answer); a pwsh record adds `transient`, `sleepSeconds` and
+  `basis`. The host publishes them through `Publish-GuestRetryMarker`: an
+  attempt as `retry_attempt`, an exhausted or permanent outcome as
+  `retry_exhausted` (`permanent` says which), and a recovered outcome as
+  `retry_recovered`, each with `origin` `guest` and the `stepInvocationId` of
+  the step that ran them. The SSH verbs (`sshExec` / `sshFetchAndExecute`)
+  publish them from the command's output. The console `fetchAndExecute` verb's
+  output reaches the host only through the wrapper's execution log: a passing
+  step's records are published from the log its evidence capture read, which
+  happens for a step that ran at least 60 seconds and is not `sensitive`, and
+  a failed step's from the log the runner's failure path reads when that log
+  is the step's own. A console step that passed sooner, a passing `sensitive`
+  step, or an attempt that failed inside a sequence `retry` that later passed,
+  leaves its records in the guest's log. A generated entry point delegates to
+  its shared workflow through a nested wrapper and both wrappers write each
+  payload line to that log, so the host reads each record of such a log once.
 
 Fields (all additive; the schema is open): `event`, `timestamp`, `stack`
 (`pwsh` / `sequence` / `bash`), `attempt`, `maxAttempts`, `exitCode`,
 `description` (the label), and optionally `transient` / `permanent` /
-`sleepSeconds` / `failureClass` / `severity` / `guestKey` / `vmName` /
-`evidencePath`.
+`sleepSeconds` / `basis` / `failureClass` / `severity` / `guestKey` / `vmName` /
+`evidencePath`. A guest's records add `origin` / `stepInvocationId` / `url` /
+`httpStatus` / `windowSeconds` / `elapsedSeconds`, and a `pwsh` event carries
+`elapsedSeconds`, with `windowSeconds` for a windowed retry, wherever it runs.
 
 `evidencePath` (sequence stack) is the cycle-relative folder holding the screen
 frames and OCR text the failed attempt produced, copied aside before the next
 attempt recycles them. It is present only when the failed inner verb is
 `hard`-severity and there was something to capture. It is the only durable
 record of an attempt that a later retry recovers: such a cycle ends `pass`, and
-every other artifact-gathering path runs on cycle failure.
+every other artifact-gathering path runs on cycle failure. Its
+`failure_ocr.txt` is the log root's `failure_ocr_<vm>.txt` only when that file
+was written after the failed step began, with the two seconds of slack the
+record's own `staleEvidence` check allows. A wait that fails saves the last
+text it read, so a wait that read none leaves an earlier wait's file in place;
+the folder then holds a one-line note saying when that file was written, not a
+copy that would pass for this attempt's screen.
 
 Startup retries also save `vm-diagnostics.json` in that folder, even when no
 frame is available, and expose `consoleSecondOpinion` on the attempt event.
+On Windows Hyper-V, whose serial capture lives outside the cycle folder and is
+deleted by every VM start, they also keep `serial-console.log` there before the
+cold restart: what the guest wrote to COM1 since the VM's latest start, its
+file time the capture's last write, with `serial-console.kernel.json` read from
+it as the failure path reads a saved log. A capture the guest wrote nothing to
+is not copied, and the live installer writes nothing to COM1.
+`vm-diagnostics.json` records the outcome as `serialCapture`
+`{ written, reason, bytes, lastByteUtc }`: `reason` is `copied`, `empty`,
+`no-capture-file` (there was no capture file: no reader reached the COM1 pipe
+since the VM's latest start) or the error that stopped the copy, and `bytes`
+and `lastByteUtc` are the copy's size and the capture's last write.
+`serialCapture` is `null` when no copy was attempted: the retry does not
+cold-restart the VM, or the host names no live capture. UTM keeps its capture
+in the cycle folder across restarts, and its startup snapshot copies the newest
+part beside the attempt; KVM keeps none.
 The portable `coldPowerCycle` mode works across Hyper-V, KVM, and UTM.
 `retry_vm_restart.recovery` records `phase`, `reasonCode`, `outcome`,
 `requiredCommand`, `initialState`, `stoppedState`, and `runningState`, and
@@ -784,7 +908,7 @@ choosing a recovery. The canonical list comes from
 
 | Failure class | Meaning | First check |
 |---|---|---|
-| <a id="failure-class-ocr_timeout"></a>`ocr_timeout` | The expected console text did not appear before the OCR wait expired. | Compare the screenshot and OCR tail with the expected sequence state. |
+| <a id="failure-class-ocr_timeout"></a>`ocr_timeout` | The expected console text did not appear before the OCR wait expired. | Compare the screenshot and OCR tail with the expected sequence state. When `causeDetail.guestLivelock.processorWindow` lists a processor that serviced no interrupt for 120 seconds (`noInterruptsServicedProcessors`), the remediation names the wedged kernel instead of a diverged workload; the class and the recommended recovery stay. |
 | <a id="failure-class-console_flooded"></a>`console_flooded` | Repeated console output prevented the wait from reading the expected text. | Inspect `causeDetail.consoleFlood`, the repeated line, and whether the console was static or changing. |
 | <a id="failure-class-network_timeout"></a>`network_timeout` | A network operation did not become ready or finish within its deadline. | Check the recorded endpoint, DNS, routing, and service availability before retrying with backoff. |
 | <a id="failure-class-credential_expired"></a>`credential_expired` | The guest rejected the configured credential. | Verify that the vault value matches the guest's current credential. |
@@ -813,6 +937,7 @@ choosing a recovery. The canonical list comes from
 | <a id="failure-class-vm_not_stopped"></a>`vm_not_stopped` | The guest never reached the stopped state the step waited for: it ignored the shutdown request. Not a wait to repeat -- waiting again only waits for the shutdown it already ignored. | Power the VM off from the host (a `stopVm` step with `forceOnTimeout: true` does it in the sequence, or turn it off from the hypervisor), then inspect the console if it recurs. |
 | <a id="failure-class-guest_run_lost"></a>`guest_run_lost` | The guest's supervisor answered but could not account for the run, so the payload's process is gone. Not an instrumentation fault to re-run, and not a network fault to reconnect. | Restore the last good snapshot and read the guest's execution log for what ended the process. |
 | <a id="failure-class-guest_kernel_stalled"></a>`guest_kernel_stalled` | The step's wait ended on a wedged guest kernel: a kernel fault report on the serial console with a processor or the whole guest silent, or every virtual processor held in the hypervisor. Not a slow mirror or a payload fault, and the same boot does not recover. | Read `causeDetail.guestKernelStallEnd`, `causeDetail.guestLivelock` and the kernel's reports in the guest folder's `serial-console.log`; on the ARM64 Hyper-V host, date the wedge with [guest kernel wedges](host-hyperv.md#42dc5bb9-0014). |
+| <a id="failure-class-guest_display_stalled"></a>`guest_display_stalled` | The step's wait ended on serial-backed display-driver page-flip timeouts while the console stayed unchanged. The guest can still run behind the stalled display; this is distinct from a wedged kernel or an OCR capture failure. | Read `causeDetail.guestDisplayStallEnd`, the saved console evidence and `serial-console.log`; restore a clean snapshot or boot the guest again before rerunning. |
 | <a id="failure-class-unknown"></a>`unknown` | The failure has no usable classification. | Read `classificationSource` and the artifacts; check for missing verb registration before assigning a cause. |
 
 <a id="42820e91-0015"></a>
@@ -967,6 +1092,17 @@ the network gates all read. A class the table does not name is routed nowhere.
   and to `vm_not_stopped`. A wedge that leaves no such evidence still files
   under the waiting verb's class.
 
+- **`guest_display_stalled`** -- an eligible console wait ended on sustained
+  display-driver timeout reports in its own serial capture while the console
+  stayed unchanged. The guest kernel can still run, so the owner checks the
+  display driver and its kernel version rather than the OCR path or the
+  kernel-stall processor counters. A static frame alone cannot file this class.
+  It gives way to a proved kernel stall and to explicit guest failure statements.
+  The existing bounded login recovery remains the only automatic cold restart;
+  the class adds no unattended retry or warm resume. After recovery is exhausted,
+  remediation recommends a clean snapshot or new boot and inspection of
+  `causeDetail.guestDisplayStallEnd` and `serial-console.log`.
+
 <a id="42820e91-0016"></a>
 
 ### Public surface
@@ -1043,7 +1179,10 @@ tooling enumerates every routing surface through one API.
 Every dispatch emits a `remediation_recommended` NDJSON event
 carrying `(failureClass, recommendation, severity, handledBy)` so a
 streaming consumer follows what the dispatcher chose without parsing
-the recommendation object. Schema lives in
+the recommendation object. When the record's `causeDetail` names the last
+guest retry that gave up during the step, the event carries it as
+`causeRetryExhausted`: it is the failure's first event sent after the runner
+reads the step's execution log. Schema lives in
 [`Test.EventSchema`](../test/modules/Test.EventSchema.psm1) -- the same
 validator that gates the cycle event stream.
 
@@ -1170,6 +1309,20 @@ attempt started a cycle that is still running, the runner marks that cycle as
 failed and supplies a missing `lastFailure` and history row. Runner fault
 classes may also appear in a typed result's `failureClass`.
 
+A cycle whose runner was ended from outside -- a host restart, or a signal such
+as the SIGHUP of a closed terminal -- leaves no failure record: every process
+that would write one is gone. The next runner's boot sweep archives the cycle
+as `.aborted.<UTC>` and reports it as `host_restart` when the host has rebooted
+since the cycle's last write, and as `runner_ended_by_signal` when it has not
+rebooted by the time the sweep runs. A `host_restart` names in `endedBy` what
+ended the runner: `signal` when the boot came more than 15 minutes after the
+signal, `host-restart` when it came sooner. `runner_ended_by_signal` carries no
+`endedBy`, because a signal is always its cause. `signal` and `signalAtUtc` say
+which signal it was and when, and `silentSeconds`, present unless `endedBy` is
+`host-restart`, how long the host then ran without a runner: from the signal to
+the boot, or to the sweep (see the
+[event catalog](definition.md#42fa6f45-0030)).
+
 <a id="42820e91-0022"></a>
 
 ### The shared steps
@@ -1294,6 +1447,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

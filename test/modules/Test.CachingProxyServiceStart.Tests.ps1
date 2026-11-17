@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4264d5c7-e082-4c67-a5f9-915f2f84141e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -583,5 +583,125 @@ $row = @{Name=[IO.Path]::GetFileName($PSCommandPath);Mac=$MacAddress;Pseudo=[boo
         Set-Content -LiteralPath (Join-Path $root 'service/Start-CachingProxyServiceVM.ps1') -Value $Body
         { & (Join-Path $root 'lab/Start-Syzygy.ps1') -Confirm:$false } | Should -Throw
         Test-Path -LiteralPath (Join-Path $root 'calls.jsonl') | Should -BeFalse
+    }
+}
+
+Describe 'Update-Syzygy takes the start authorization before it waits' {
+    BeforeAll {
+        function Publish-FixtureCommit {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Changes only disposable test fixtures under TestDrive.')]
+            [CmdletBinding()]
+            [OutputType([string])]
+            param([Parameter(Mandatory)][string]$Root)
+            $peer = Join-Path $Root 'peer'
+            Set-Content -LiteralPath (Join-Path $peer 'change.txt') -Value ([guid]::NewGuid().ToString('N'))
+            $null = Invoke-YurunaTestGit -Path $peer -Argument 'add', 'change.txt'
+            $null = Invoke-YurunaTestGit -Path $peer -Argument 'commit', '--quiet', '-m', 'change'
+            $null = Invoke-YurunaTestGit -Path $peer -Argument 'push', '--quiet', 'origin', 'main'
+            return [string](Invoke-YurunaTestGit -Path $peer -Argument 'rev-parse', 'HEAD')
+        }
+        function New-UpdateSyzygyFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification='Creates only disposable test fixtures under TestDrive.')]
+            [CmdletBinding()]
+            [OutputType([string])]
+            param([string]$SudoGranted = '$true', [int]$StartExitCode = 0)
+            $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $origin = Join-Path $root 'origin.git'
+            $peer = Join-Path $root 'peer'
+            $work = Join-Path $root 'work'
+            $null = New-Item -ItemType Directory -Path $origin
+            $null = Invoke-YurunaTestGit -Path $origin -Argument 'init', '--quiet', '--bare', '--initial-branch=main'
+            $null = New-YurunaTestGitRepository -Path $peer -Remote $origin
+            $null = Publish-FixtureCommit -Root $root
+            $null = Invoke-YurunaTestGit -Path $root -Argument 'clone', '--quiet', $origin, $work
+            Set-YurunaTestGitIdentity -Path $work
+            $null = New-Item -ItemType Directory -Path (Join-Path $work 'test/lab'), (Join-Path $work 'test/modules')
+            Copy-Item (Join-Path $script:repoRoot 'test/lab/Update-Syzygy.ps1') (Join-Path $work 'test/lab/Update-Syzygy.ps1')
+            # Stands in for the prelude and the module set it loads, so each
+            # question the script asks is recorded instead of put to a person.
+            $prelude = @'
+function Add-FixtureCall { param([string]$Name) [IO.File]::AppendAllText((Join-Path $PSScriptRoot '../../../calls.jsonl'), (@{Name=$Name} | ConvertTo-Json -Compress) + "`n") }
+function Initialize-YurunaEntryPoint { param([string]$ScriptRoot, [switch]$InsideSubfolder) $testRoot = Split-Path -Parent $ScriptRoot; @{RepoRoot=(Split-Path -Parent $testRoot);ModulesDir=(Join-Path $testRoot 'modules')} }
+function Initialize-YurunaEntryPointModuleSet { param([string]$For, [string]$ModulesDir) }
+function Get-HostType { 'fixture' }
+function Assert-Elevation { param([string]$HostType) Add-FixtureCall 'elevation'; $true }
+function Initialize-CachingProxyGitMirrorToken { [CmdletBinding(SupportsShouldProcess)] param() if ($PSCmdlet.ShouldProcess('fixture')) { Add-FixtureCall 'token' }; $false }
+function Initialize-SudoCache { param([string[]]$Reasons) Add-FixtureCall 'sudo'; SUDO_GRANTED }
+'@
+            Set-Content -LiteralPath (Join-Path $work 'test/modules/Test.Prelude.psm1') -Value $prelude.Replace('SUDO_GRANTED', $SudoGranted)
+            $start = @'
+$row = @{Name='start';NonInteractive=$env:YURUNA_NONINTERACTIVE;Head=[string](& git -C (Join-Path $PSScriptRoot '../..') rev-parse HEAD)}
+[IO.File]::AppendAllText((Join-Path $PSScriptRoot '../../../calls.jsonl'), ($row | ConvertTo-Json -Compress) + "`n")
+exit START_EXIT_CODE
+'@
+            Set-Content -LiteralPath (Join-Path $work 'test/lab/Start-Syzygy.ps1') -Value $start.Replace('START_EXIT_CODE', "$StartExitCode")
+            return $root
+        }
+        function Get-FixtureCall {
+            [CmdletBinding()]
+            [OutputType([object[]])]
+            param([Parameter(Mandatory)][string]$Root)
+            $path = Join-Path $Root 'calls.jsonl'
+            if (-not (Test-Path -LiteralPath $path)) { return @() }
+            return @(Get-Content -LiteralPath $path | ConvertFrom-Json)
+        }
+    }
+    BeforeEach {
+        $script:savedUpdateEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_NONINTERACTIVE', 'GIT_TERMINAL_PROMPT'
+        Remove-Item -LiteralPath Env:YURUNA_NONINTERACTIVE, Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
+    }
+    AfterEach {
+        Restore-YurunaTestEnvironment -Saved $script:savedUpdateEnvironment
+    }
+    It 'asks every question first, then starts the pulled commit unattended' {
+        $root = New-UpdateSyzygyFixture
+        $published = Publish-FixtureCommit -Root $root
+        & (Join-Path $root 'work/test/lab/Update-Syzygy.ps1') -IntervalSeconds 1 6>$null
+        $LASTEXITCODE | Should -Be 0
+        $rows = @(Get-FixtureCall -Root $root)
+        @($rows.Name) -join ',' | Should -BeExactly 'elevation,token,sudo,start'
+        $rows[3].NonInteractive | Should -BeExactly '1'
+        $rows[3].Head | Should -BeExactly $published
+        Test-Path -LiteralPath Env:YURUNA_NONINTERACTIVE | Should -BeFalse
+        Test-Path -LiteralPath Env:GIT_TERMINAL_PROMPT | Should -BeFalse
+    }
+    It 'keeps waiting until the upstream branch gains a commit' {
+        $root = New-UpdateSyzygyFixture
+        $before = [string](Invoke-YurunaTestGit -Path (Join-Path $root 'work') -Argument 'rev-parse', 'HEAD')
+        $peer = Join-Path $root 'peer'
+        $job = Start-ThreadJob -ScriptBlock {
+            Start-Sleep -Seconds 3
+            Set-Content -LiteralPath (Join-Path $using:peer 'late.txt') -Value 'late'
+            & git -C $using:peer add late.txt
+            & git -C $using:peer commit --quiet -m late
+            & git -C $using:peer push --quiet origin main
+        }
+        try {
+            & (Join-Path $root 'work/test/lab/Update-Syzygy.ps1') -IntervalSeconds 1 6>$null
+        } finally {
+            $job | Wait-Job | Remove-Job
+        }
+        $starts = @(Get-FixtureCall -Root $root | Where-Object Name -eq 'start')
+        $starts.Count | Should -Be 1
+        $starts[0].Head | Should -Not -BeExactly $before
+        $starts[0].Head | Should -BeExactly ([string](Invoke-YurunaTestGit -Path $peer -Argument 'rev-parse', 'HEAD'))
+    }
+    It 'reports the exit code of the service start' {
+        $root = New-UpdateSyzygyFixture -StartExitCode 7
+        $null = Publish-FixtureCommit -Root $root
+        & (Join-Path $root 'work/test/lab/Update-Syzygy.ps1') -IntervalSeconds 1 6>$null
+        $LASTEXITCODE | Should -Be 7
+    }
+    It 'stops before watching when sudo authorization is refused' {
+        $root = New-UpdateSyzygyFixture -SudoGranted '$false'
+        $null = Publish-FixtureCommit -Root $root
+        { & (Join-Path $root 'work/test/lab/Update-Syzygy.ps1') -IntervalSeconds 1 6>$null } | Should -Throw '*sudo authorization was not granted*'
+        @(Get-FixtureCall -Root $root).Name -join ',' | Should -BeExactly 'elevation,token,sudo'
+    }
+    It 'starts nothing when the upstream cannot be fetched' {
+        $root = New-UpdateSyzygyFixture
+        Remove-Item -LiteralPath (Join-Path $root 'origin.git') -Recurse -Force
+        { & (Join-Path $root 'work/test/lab/Update-Syzygy.ps1') -IntervalSeconds 1 6>$null 2>$null } | Should -Throw '*Failed to fetch*'
+        @(Get-FixtureCall -Root $root | Where-Object Name -eq 'start').Count | Should -Be 0
     }
 }

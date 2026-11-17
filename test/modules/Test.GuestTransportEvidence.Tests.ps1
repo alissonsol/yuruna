@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42cba348-5965-4459-9ee1-5e87817e17e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,7 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Log.psm1') -Global -Force -DisableNameChecking
+    Import-Module (Join-Path $PSScriptRoot 'Test.EventSchema.psm1') -Global -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Ssh.psm1') -Global -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot 'Test.Diagnostic.psm1') -Force
     $script:diag = Get-Module Test.Diagnostic
@@ -143,6 +144,45 @@ Describe 'the readiness wait keeps its verdict for the diagnostic' {
         $first.cause = 'edited'
         (Test.Ssh\Get-LastSshReadiness).cause | Should -Be ready
     }
+    It 'keeps the guest identity on an ordinary readiness failure event' {
+        Mock Send-CycleEventSafely -ModuleName Test.Ssh { $script:readinessEvent = $EventRecord }
+        Test.Ssh\Wait-SshReady -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -TimeoutSeconds 0 | Should -BeFalse
+        $script:readinessEvent.event | Should -Be 'ssh_handshake_failed'
+        $script:readinessEvent.vmName | Should -Be 'fixture-vm'
+        $script:readinessEvent.guestKey | Should -Be 'guest.ubuntu.server.26'
+        $script:readinessEvent.advisoryOnly | Should -BeFalse
+        $script:readinessEvent.ContainsKey('phase') | Should -BeFalse
+        $script:readinessEvent.ContainsKey('stepInvocationId') | Should -BeFalse
+        $script:readinessEvent.ContainsKey('sequenceInvocationId') | Should -BeFalse
+    }
+    It 'marks the advisory readiness failure with its phase and invocation identities' {
+        Mock Send-CycleEventSafely -ModuleName Test.Ssh { $script:readinessEvent = $EventRecord }
+        Test.Ssh\Wait-SshReady -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -TimeoutSeconds 0 `
+            -AdvisoryOnly -Phase after-cpu-restart -StepInvocationId step-fixture -SequenceInvocationId sequence-fixture | Should -BeFalse
+        $script:readinessEvent.event | Should -Be 'ssh_handshake_failed'
+        $script:readinessEvent.vmName | Should -Be 'fixture-vm'
+        $script:readinessEvent.guestKey | Should -Be 'guest.ubuntu.server.26'
+        $script:readinessEvent.phase | Should -Be 'after-cpu-restart'
+        $script:readinessEvent.advisoryOnly | Should -BeTrue
+        $script:readinessEvent.severity | Should -Be 'soft'
+        $script:readinessEvent.stepInvocationId | Should -Be 'step-fixture'
+        $script:readinessEvent.sequenceInvocationId | Should -Be 'sequence-fixture'
+        @(Test-CycleEventSchema -Record $script:readinessEvent).Count | Should -Be 0
+    }
+    It 'preserves credential expiration classification for an advisory flag of <Advisory>' -TestCases @(
+        @{ Advisory=$false }, @{ Advisory=$true }
+    ) {
+        param($Advisory)
+        Mock Send-CycleEventSafely -ModuleName Test.Ssh { $script:readinessEvent = $EventRecord }
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.Ssh {
+            return @{ Started=$true; ExitCode=255; StdOut=''; StdErr='WARNING: Your password has expired.'
+                TimedOut=$false; DrainTimedOut=$false; OutputTruncated=$false; KillFailed=$false }
+        }
+        Test.Ssh\Wait-SshReady -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -TimeoutSeconds 1 -AdvisoryOnly:$Advisory | Should -BeFalse
+        $script:readinessEvent.failureClass | Should -Be 'credential_expired'
+        $script:readinessEvent.severity | Should -Be 'hard'
+        $script:readinessEvent.advisoryOnly | Should -Be $Advisory
+    }
     It 'names the readiness cause in the silence the diagnostic publishes' {
         Mock Send-YurunaDegradation -ModuleName Test.Diagnostic { $script:silenceReason = $Reason }
         & $script:diag { $script:LastDiagnosticSshReadiness = @{ cause='ip_unanswered'; target='192.0.2.10' } }
@@ -153,7 +193,11 @@ Describe 'the readiness wait keeps its verdict for the diagnostic' {
 }
 
 Describe 'the restart clock sample probes the SSH port' {
-    It 'records a bounded port probe beside the clock sample without waiting for sshd' {
+    It 'records a bounded port probe beside the clock sample, adding no wait after its login wait gives up' {
+        # The sample's own bounded login wait ends without a login here; the
+        # port probe after the sample adds no wait of its own.
+        Mock 'Test.Ssh\Wait-SshReady' -ModuleName Test.Diagnostic { return $false }
+        Mock 'Test.Ssh\Get-LastSshReadiness' -ModuleName Test.Diagnostic { return @{ cause = 'probe_timeout'; attempts = 1 } }
         Mock Invoke-GuestEvidenceSsh -ModuleName Test.Diagnostic {
             return @{ success=$false; exitCode=-1; output='Invoke-GuestSsh timed out after 3s: fixture-user@192.0.2.10' }
         }
@@ -175,9 +219,11 @@ Describe 'the restart clock sample probes the SSH port' {
         $probe.error | Should -Be 'no address'
         $probe.elapsedMs | Should -Be 0
     }
-    It 'reports a closed port quickly, with the error the stack gave' {
+    It 'bounds a closed-port probe and retains its error' {
         $port = Get-YurunaTestFreePort
-        $probe = Test.Diagnostic\Test-GuestSshPortProbe -Address 127.0.0.1 -Port $port -TimeoutMilliseconds 1500
+        # Some stacks defer refusal beyond the probe budget; leave time for
+        # socket cleanup inside the same overall elapsed assertion.
+        $probe = Test.Diagnostic\Test-GuestSshPortProbe -Address 127.0.0.1 -Port $port -TimeoutMilliseconds 200
         $probe.connected | Should -BeFalse
         $probe.error | Should -Not -BeNullOrEmpty
         $probe.elapsedMs | Should -BeLessThan 1500

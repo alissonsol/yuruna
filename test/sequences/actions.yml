@@ -25,7 +25,7 @@ actions:
     and continues) so CI / unattended runs do not deadlock. The marker
     filename embeds the step number (`.yuruna-break-<NNN>.lock`) so two
     breakpoints in the same sequence do not collide. The status UI
-    learns the break is parked by polling /track/break-active.json,
+    learns the break is parked by polling runtime/break-active.json,
     which the action writes on entry and clears on exit. Continue
     POSTs to /control/break-continue; the action sees the flag. When
     `restoreOnContinue: true` AND `id` names an existing snapshot it calls
@@ -106,10 +106,13 @@ actions:
 
   saveGuestClockSnapshot: >
     Capture two bounded guest clock and per-CPU accounting samples around an
-    ARM64 Hyper-V CPU restart using an already proven SSH address. Advisory:
+    ARM64 Hyper-V CPU restart using a proven SSH address. Advisory:
     unavailable evidence and accounting warnings do not fail the sequence.
-    Parameters: phase (before-cpu-restart or after-cpu-restart). The SSH wall
-    budget is five seconds; other host architectures skip this action.
+    Parameters: phase (before-cpu-restart or after-cpu-restart). The samples
+    have a ten-second SSH wall budget; after-cpu-restart first waits up to ten
+    seconds for one SSH login (about 25 seconds in all when the wait gives up),
+    and its event names why a sample is incomplete. Other host architectures
+    skip this action.
     See https://yuruna.link/428e4df6-003a.
 
   startVm: >
@@ -128,7 +131,7 @@ actions:
   inputText: >
     Type a text string. Parameters: text (string), sensitive
     (boolean, masks output), charDelayMs (number, delay between chars
-    in ms, default = vmCommunication.charDelayMs). Hyper-V: uses Msvm_Keyboard.TypeText.
+    in ms, default = vmCommunication.charDelayMs). Hyper-V: batched PS/2 scan codes via Msvm_Keyboard.TypeScancodes.
 
   inputTextAndEnter: >
     Type a text string, wait, then press Enter. Parameters: text
@@ -171,15 +174,15 @@ actions:
     overwritten. Backends: Hyper-V Checkpoint-VM on the offline guest;
     KVM `virsh snapshot-create-as --atomic`; UTM `qemu-img snapshot -c`
     against every *.qcow2 in the bundle's Data/ folder.
-    AFTER the snapshot succeeds, the VM is RENAMED to the snapshot Id
-    (and storage relocated where the host supports it) so the next
-    cycle's Remove-TestVMFiles.ps1 -- which sweeps every name matching
-    the test-* prefix -- leaves the persisted VM and its snapshot
-    alone. Rename support: Hyper-V (full: Rename-VM + Move-VMStorage);
-    KVM (full: `virsh domrename` + dir rename + XML disk-path rewrite);
-    UTM (best-effort: AppleScript `set name`, which is read-only in
-    some UTM builds; on failure the snapshot is preserved but the VM
-    will be wiped by the next cleanup). The sequence engine updates
+    The VM is RENAMED to the snapshot Id (and storage relocated where
+    the host supports it) and the snapshot is taken under that name, so
+    the next cycle's Remove-TestVMFiles.ps1 -- which sweeps every name
+    matching the test-* prefix -- leaves the persisted VM and its
+    snapshot alone. Rename: Hyper-V Rename-VM + Move-VMStorage; KVM
+    `virsh domrename` + dir rename + XML disk-path rewrite; UTM bundle
+    and UTM registry edits while UTM.app is quit. A failed rename or
+    snapshot renames the VMs back and fails the step, so an earlier
+    persisted VM keeps its name and snapshot. The sequence engine updates
     its internal $VMName to the new name on success, so subsequent
     steps target the persisted VM transparently.
     Parameters: id (string, REQUIRED -- snapshot name AND the new VM
@@ -258,8 +261,8 @@ actions:
     default = vmCommunication.timeoutSeconds), pollSeconds (number,
     default = vmCommunication.pollSeconds), offsetX (number,
     pixel offset from center, default 0), offsetY (number, default 0).
-    Hyper-V: uses vmconnect window + SendInput; vmconnect must be
-    open. UTM: not yet implemented.
+    Hyper-V: clicks the vmconnect window (SetCursorPos + mouse_event); vmconnect
+    must be open. UTM: CGEvent click in the UTM window; needs Accessibility permission.
 
   waitForAndEnter: >
     Wait for text pattern on screen via OCR, then type a string and

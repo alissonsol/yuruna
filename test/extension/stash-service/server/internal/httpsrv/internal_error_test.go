@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -51,9 +52,12 @@ func readFailure(t *testing.T, resp *http.Response, wantCode string, leaked ...s
 	}
 }
 
-// skipAsRoot skips a case whose fault is a permission the superuser ignores.
-func skipAsRoot(t *testing.T) {
+// skipWithoutUnixPermissions skips faults that chmod cannot induce on the host.
+func skipWithoutUnixPermissions(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows chmod only changes the read-only attribute, not Unix read or directory-write permissions")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("permission faults do not apply to the superuser")
 	}
@@ -92,7 +96,7 @@ func TestAResolveFailureNamesNoSharePath(t *testing.T) {
 }
 
 func TestAnArchiveOpenFailureNamesNoSharePath(t *testing.T) {
-	skipAsRoot(t)
+	skipWithoutUnixPermissions(t)
 	ts, _, stashRoot := newTestUI(t)
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
@@ -137,7 +141,7 @@ func TestAnArchiveOpenFailureNamesNoSharePath(t *testing.T) {
 }
 
 func TestACreateFailureNamesNoSharePath(t *testing.T) {
-	skipAsRoot(t)
+	skipWithoutUnixPermissions(t)
 	ts, ui, stashRoot := newTestUI(t)
 	files := ui.store().FilesRoot()
 	if err := os.Chmod(files, 0o500); err != nil {
@@ -152,7 +156,7 @@ func TestACreateFailureNamesNoSharePath(t *testing.T) {
 }
 
 func TestADeleteFailureNamesNoSharePath(t *testing.T) {
-	skipAsRoot(t)
+	skipWithoutUnixPermissions(t)
 	ts, ui, stashRoot := newTestUI(t)
 	remote := "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	now := time.Now().UTC()

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,8 +62,8 @@ param(
     [string]$MacAddress,
     # Force a full destroy+rebuild even when a healthy proxy already exists.
     # With -RepairPoolCaTrust:$false, adopt-if-healthy skips the rebuild
-    # when the current VM is running and its squid / ssl-bump / CA probe passes. Pass this after a
-    # base-image or config change to guarantee a fresh build.
+    # when the VM is running and its probe has no FAIL (squid, ssl-bump, Grafana;
+    # CA checks only warn). Pass this after a base-image or config change to rebuild.
     [switch]$ForceRebuild,
     # See https://yuruna.link/42e220c4-0008
     [switch]$Lab,
@@ -347,7 +347,7 @@ if (-not $ForceRebuild) {
     if ($cpAdopt.Adoptable) {
         Write-Verbose ""
         Write-Verbose "== Adopting the healthy '$VMName' at $($cpAdopt.Ip) (pass -ForceRebuild to rebuild from scratch) =="
-        Write-Verbose "  squid + ssl-bump + CA cert verified healthy -- skipping destroy/rebuild + ~15-min discovery;"
+        Write-Verbose "  squid, ssl-bump and Grafana answered (CA checks only warn) -- skipping destroy/rebuild + ~15-min discovery;"
         Write-Verbose "  re-asserting host-side services + port maps only."
         # Host services the running VM depends on -- best-effort (no hard-fail):
         # we are NOT minting a new client cert here, so a down config service just

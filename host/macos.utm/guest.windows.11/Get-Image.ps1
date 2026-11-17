@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42b84cc3-7873-4cc2-800e-3d90a4776081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,8 +46,8 @@ $spiceImageFile = Join-Path $downloadDir $spiceImageName
 $spiceDownloadUrl = "https://getutm.app/downloads/utm-guest-tools-latest.iso"
 
 # See https://yuruna.link/429f3d06-008c
-$fidoUrl = "https://raw.githubusercontent.com/pbatard/Fido/v1.71/Fido.ps1"
-$fidoSha256 = "6481e40d3cf100c79b281942d0d1c7f6d111397be296fec867a56cbe368ebdf9"
+$fidoUrl = "https://raw.githubusercontent.com/pbatard/Fido/v1.72/Fido.ps1"
+$fidoSha256 = "89a26b4a8be2721e610ba3f563ec44024e6cf7975938ee5b61d624d2bfbf4643"
 $languageFilter = "English"
 
 # Fido is external code on its own release cadence, never enlistment content: a

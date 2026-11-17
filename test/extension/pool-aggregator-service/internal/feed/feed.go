@@ -221,14 +221,27 @@ func RedactEventLine(ln string) string {
 // (idempotent across collector restarts). Within-second events share a Loki
 // timestamp (distinct lines, both retained) -- second resolution is fine for
 // drill-down, and the precise time stays in the line. Falls back to the ingest
-// clock for any line whose timestamp won't parse.
+// clock for any line whose timestamp won't parse: a pushed batch need not hold
+// the line before it. The event tail, which reads a file from its start, stamps
+// such a line from the file instead (EventStamps, PushEventsAt).
 func (s Sender) PushEvents(client *http.Client, lokiURL, pool, hostID string, lines []string, ingest time.Time) error {
+	stamps := make([]int64, len(lines))
+	for i, ln := range lines {
+		stamps[i] = EventNano(ln, ingest)
+	}
+	return s.PushEventsAt(client, lokiURL, pool, hostID, lines, stamps)
+}
+
+// PushEventsAt ships NDJSON event lines for one host to Loki under
+// {pool,hostId,src=event}, each at the Loki timestamp stamps holds for it, index
+// for index.
+func (s Sender) PushEventsAt(client *http.Client, lokiURL, pool, hostID string, lines []string, stamps []int64) error {
 	if len(lines) == 0 {
 		return nil
 	}
 	values := make([][]string, 0, len(lines))
-	for _, ln := range lines {
-		values = append(values, []string{strconv.FormatInt(EventNano(ln, ingest), 10), ln})
+	for i, ln := range lines {
+		values = append(values, []string{strconv.FormatInt(stamps[i], 10), ln})
 	}
 	payload := map[string]any{"streams": []map[string]any{{
 		"stream": map[string]string{"pool": pool, "hostId": hostID, "src": "event"},
@@ -240,15 +253,64 @@ func (s Sender) PushEvents(client *http.Client, lokiURL, pool, hostID string, li
 // EventNano returns the event's own timestamp in unix-nanoseconds, or the
 // fallback (ingest clock) when the line has no parseable RFC3339 `timestamp`.
 func EventNano(line string, fallback time.Time) int64 {
+	if t, ok := eventTime(line); ok {
+		return t.UnixNano()
+	}
+	return fallback.UnixNano()
+}
+
+// EventStamps returns the Loki timestamp of each line of one event file, in
+// file order: the event's own timestamp when it parses, else the one the line
+// before it took, and prev for a first line that carries none. A line without a
+// timestamp of its own must not take the clock of the moment it is shipped: Loki
+// refuses an entry more than about an hour older than the newest of its stream,
+// so in a catch-up of an old file such a line would cost every older line after
+// it. The same rule gives a file the same stamps on every read, which keeps a
+// re-shipped line an exact duplicate. See https://yuruna.link/42c29d04-0018.
+func EventStamps(lines []string, prev int64) []int64 {
+	stamps := make([]int64, len(lines))
+	for i, ln := range lines {
+		if t, ok := eventTime(ln); ok {
+			prev = t.UnixNano()
+		}
+		stamps[i] = prev
+	}
+	return stamps
+}
+
+// eventTime is the line's own RFC3339 `timestamp`, when it has one that parses.
+func eventTime(line string) (time.Time, bool) {
 	var e struct {
 		Timestamp string `json:"timestamp"`
 	}
-	if json.Unmarshal([]byte(line), &e) == nil && e.Timestamp != "" {
-		if t, perr := time.Parse(time.RFC3339, e.Timestamp); perr == nil {
-			return t.UnixNano()
-		}
+	if json.Unmarshal([]byte(line), &e) != nil || e.Timestamp == "" {
+		return time.Time{}, false
 	}
-	return fallback.UnixNano()
+	t, err := time.Parse(time.RFC3339, e.Timestamp)
+	return t, err == nil
+}
+
+// ObservedEmitter labels the event lines the collector writes from its own
+// observation of a host, beside the lines it forwards from the host's event file.
+const ObservedEmitter = "pool-aggregator-service"
+
+// ObservedEventPayload builds one event line the collector writes from what it
+// observed of a host itself -- runner_lost, host_unreachable, host_dropped --
+// stamped with the poll's clock: fields, plus event, timestamp, hostId and pool.
+// The stream is {pool,hostId,src=event,emitter}, which every query of the host's
+// event stream still selects; the extra label keeps the line out of the stream
+// the event tail writes, whose head it would otherwise move to now. Loki refuses
+// an entry more than about an hour older than the newest of its stream, so a line
+// stamped now there would cost the older lines of a cycle the tail has yet to
+// send. See https://yuruna.link/42c29d04-0025.
+func ObservedEventPayload(pool, hostID, event string, fields map[string]any, now time.Time) map[string]any {
+	rec := map[string]any{}
+	for k, v := range fields {
+		rec[k] = v
+	}
+	rec["event"], rec["timestamp"], rec["hostId"], rec["pool"] = event, now.UTC().Format(time.RFC3339), hostID, pool
+	line, _ := json.Marshal(rec)
+	return LinePayload(map[string]string{"pool": pool, "hostId": hostID, "src": "event", "emitter": ObservedEmitter}, line, now)
 }
 
 // PushIncident ships one incident lifecycle line to Loki under

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42914d9e-337f-4e2e-936a-1f6c1af240ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     assert the envelope lives in one Send-SoftCycleEvent helper, the four sites
     delegate to it, the raw Send-CycleEventSafely call appears exactly once (inside
     the helper), and the helper stays private. AST/source-only. Runs under Pester
-    4.10.1 (script-scoped throw helper).
+    6.x (Test.Assert.psm1 throw helpers).
 #>
 
 BeforeAll {

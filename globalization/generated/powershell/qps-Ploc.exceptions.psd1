@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42bb7615-cee4-a88b-8802-0ac4f598abc0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -569,7 +569,7 @@
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'exceptions.host_dd6d74db4a58cc9d' = @(
-        '[Fido.ps1 ħášħ ɱíšɱáţçħ (ƥíññéď v1.71): éẋƥéçţéď '
+        '[Fido.ps1 ħášħ ɱíšɱáţçħ (ƥíññéď v1.72): éẋƥéçţéď '
         @{
             'arg' = 'fidoSha256'
             'type' = 'detail'
@@ -1839,6 +1839,21 @@
             'trust' = 'internal'
         }
         ''' ţħáţ çáññóţ ƀé ƒóřŵářďéď ţħřóúğħ ţħé šğ řéļáúñçħ; ƥášš óñļý šţříñğš, ñúɱƀéřš, šŵíţçħéš, ƀóóļéáñš áñď šţříñğ ářřáýš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'exceptions.runner_ssh_key_read_only_invalid' = @(
+        '[Çáññóţ řéáď ţħé éẋíšţíñğ ŠŠĦ ķéý ƥáíř áţ '''
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ŵíţħóúţ řéƥáíř: '
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'exceptions.setup_service_vm_preserved' = @(
         '['

@@ -3,7 +3,7 @@
 # GUID: 429d91ea-b15d-42fc-ad8b-5ba41af4fe83
 terraform {
   # Match the portable OpenTofu host floor; standalone guests can use a newer patch.
-  required_version = ">= 1.13.1"
+  required_version = ">= 1.13.9"
 
   required_providers {
     aws = {

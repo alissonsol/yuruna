@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1441,12 +1441,12 @@ function Invoke-ServiceVMReset {
     follows fails on a VM it believes it already has. The Stop scripts
     unregister first, which is the whole difference.
 
-    The caching proxy is ADOPTED by its own Start whenever its health probe
-    passes -- the fast path that skips a ~15-minute rebuild, and the one outcome
-    a rebuild cannot use, because an adopted VM keeps the base image, the seed
-    and the baked configuration the rebuild exists to replace. Stopping it first
-    also clears an abandoned bring-up lock; a Start refuses to take that over on
-    its own and stops the run instead.
+    The caching proxy's own Start adopts a VM whose health probe passes only
+    when called with -RepairPoolCaTrust:$false, which setup never passes. Stopping
+    it first keeps the rebuild from depending on that default, because an adopted
+    VM keeps the base image, the seed and the baked configuration the rebuild
+    exists to replace. Stopping it first also clears an abandoned bring-up lock;
+    a Start refuses to take that over on its own and stops the run instead.
 
     Paired with its Start rather than swept up front, so a run only ever removes
     a service it is going to rebuild: a standalone re-run on a machine that was

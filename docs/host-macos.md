@@ -4,6 +4,44 @@
 
 **Warning:** Instructions are intentionally brief -- don't follow them unless you know what you are doing.
 
+<a id="42885ada-0015"></a>
+
+## Keep the runner in a tmux or screen session
+
+Start the runner from a multiplexer in the Mac's logged-in desktop session so
+closing a terminal window does not send SIGHUP to the runner and its children.
+Use the terminal application that has the host's Accessibility, Screen
+Recording and Automation grants. An SSH session cannot supply those grants.
+
+From the repository root, start a named session with either installed tool:
+
+```sh
+tmux new-session -s yuruna
+```
+
+or:
+
+```sh
+screen -S yuruna
+```
+
+Inside that session, run the usual command with your existing options:
+
+```sh
+pwsh test/Start-TestRunner.ps1
+```
+
+Detach with **Ctrl+B, then D** in tmux, or **Ctrl+A, then D** in screen, before
+closing the terminal. Reattach from the same desktop account with
+`tmux attach-session -t yuruna` or `screen -r yuruna`. Reattach to an existing
+runner instead of starting another one. To stop it, reattach and use Ctrl+C;
+use **Pause after cycle** first when the current cycle should finish.
+
+The session keeps the process alive when its terminal closes; it does not
+restart a crashed runner or survive logout or a host reboot. Keep the desktop
+account logged in and the host awake, and start the session again after a
+reboot.
+
 <a id="42885ada-0002"></a>
 
 ## Packages, PATH, and Homebrew issues
@@ -139,7 +177,7 @@ So the harness does everything short of that:
   `Get-MacOperatorGrant` (`test/modules/Test.HostCondition.Mac.psm1`). Both
   `Test-Config.ps1` and the per-cycle `Assert-HostConditionSet` render from it,
   so the gate and the runner cannot describe the same permission differently.
-  Adding a fourth grant is one entry in that registry and nothing else.
+  Adding another grant is one entry in that registry and nothing else.
 
 Automation -> UTM is the one exception to "the gate reports it": macOS offers no
 way to *read* that grant that does not itself raise the dialog, and a gate that
@@ -815,6 +853,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 425548c6-683c-4519-9712-2f32b36e15e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -204,8 +204,8 @@ function Write-LabStorageStep {
 # --- REGION: Test-IsElevated
 # Windows refuses rather than prompting, so checking first costs the operator
 # nothing: a session that cannot do the work should not be asked to confirm it
-# or to name a storage root. The sudo arm is further down, after the local-only
-# consent, because it spends a real password. -WhatIf skips both.
+# or to name a storage root. Sudo is primed further down, after the local-only
+# consent, because priming spends a real password. -WhatIf skips both.
 function Test-IsElevated {
     if ($IsWindows) {
         $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -251,7 +251,7 @@ if ($WhatIfPreference) {
     exit (Get-EntryPointExitCode -Outcome 'Ok')
 }
 
-# --- REGION: Elevation -- sudo arm
+# --- REGION: Prime sudo
 # The password is spent HERE: after the operator has consented to a local-only
 # change, but ahead of the storage-root prompt and every state change, so the
 # rest of the run needs no further attention. -WhatIf is a dry run and must not

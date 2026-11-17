@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,12 +84,17 @@ function Write-CycleStepEvent {
         'start' { 'step.start' }
         'end'   { 'step.end' }
     }
+    # Stamped like every other event. A line without a time of its own is
+    # placed when it is read, and a reader that re-reads the file later puts it
+    # after every older line of the cycle; a store that keeps each stream in
+    # time order then refuses those older lines as too far behind.
     $record = @{
-        event = $eventName
-        index = $Index
-        total = $Total
-        name  = $Name
-        kind  = $Kind
+        timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+        event     = $eventName
+        index     = $Index
+        total     = $Total
+        name      = $Name
+        kind      = $Kind
     }
     if ($Outcome) { $record['outcome'] = $Outcome.ToLowerInvariant() }
     try { Write-CycleNdjsonEvent -EventRecord $record } catch { Write-Verbose "step event not recorded: $($_.Exception.Message)" }
@@ -915,7 +920,7 @@ function Invoke-OrchestrationSequence {
                     # See https://yuruna.link/4213a0b3-00ba
                     Write-CycleInfraFailure -Stage $e.name -FailureClass $inheritedClass -Severity 'hard' `
                         -GuestKey '(orchestration)' -VMName $entryVmName -ErrorMessage $reason -HostType $HostType `
-                        -DependencyFailures $inheritedDependencies
+                        -DependencyFailures $inheritedDependencies -SinceUtc $entryStartUtc
                 } catch {
                     Write-Verbose "Invoke-OrchestrationSequence: no failure record written for '$($e.name)' -- $($_.Exception.Message)"
                 }

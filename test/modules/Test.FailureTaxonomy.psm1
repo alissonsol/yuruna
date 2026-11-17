@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a11720-948f-47cf-8739-5beedf5f7176
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,14 +32,16 @@ $script:FailureClassEnum = @(
     'host_network_degraded', 'ip_not_discovered', 'payload_unavailable',
     'pool_storage_full', 'dhcp_identity_unbounded', 'lab_dependency_down', 'input_lost',
     'hypervisor_unresponsive', 'source_integrity',
-    # Split out of wait_timeout and instrumentation_failure: a guest that ignored
+    # Distinct from wait_timeout and instrumentation_failure: a guest that ignored
     # a shutdown and a run its supervisor could not account for are fixed by a
     # power-off from the host and a restore, where those two classes are retried
     # as-is.
     'vm_not_stopped', 'guest_run_lost',
-    # Split out of wait_timeout so a wedged guest kernel's retries spend a budget
+    # Distinct from wait_timeout so a wedged guest kernel's retries spend a budget
     # of their own.
     'guest_kernel_stalled',
+    # The guest display driver stalled while the guest could still be running.
+    'guest_display_stalled',
     'unknown'
 )
 $script:SeverityEnum = @('hard', 'soft', 'unknown')

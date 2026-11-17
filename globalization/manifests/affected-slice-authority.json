@@ -540,6 +540,12 @@
       "reason": "Service VM Start outcome record; not a host-refresh state."
     },
     {
+      "wireCode": "host_refresh.host_unreachable",
+      "path": "test/extension/pool-aggregator-service/internal/poll/events.go",
+      "matchCount": 1,
+      "reason": "Event name of the aggregator's own host_unreachable Loki line; not a host-refresh reason."
+    },
+    {
       "wireCode": "host_refresh.idle",
       "path": "host/vmconfig/caching-proxy-service.base.user-data",
       "matchCount": 1,
@@ -1132,6 +1138,12 @@
       "path": "test/extension/pool-aggregator-service/backfill_loki.go",
       "matchCount": 1,
       "reason": "Runner overall status on a backfilled cycle's first transition line, as the collector writes it; not a host-refresh request state."
+    },
+    {
+      "wireCode": "host_refresh.running",
+      "path": "test/extension/pool-aggregator-service/internal/poll/events.go",
+      "matchCount": 1,
+      "reason": "Runner overall status read from status.json, so a runner_lost line names only a cycle in progress; not a host-refresh request state."
     },
     {
       "wireCode": "host_refresh.running",
@@ -1784,7 +1796,7 @@
     {
       "wireCode": "host_refresh.unknown",
       "path": "test/modules/Test.HostContract.psm1",
-      "matchCount": 5,
+      "matchCount": 9,
       "reason": "VM admission verdict and VM state when the host cannot say; not the host-refresh state."
     },
     {

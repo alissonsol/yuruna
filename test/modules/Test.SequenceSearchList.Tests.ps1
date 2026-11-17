@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a01488-6192-430c-bb0f-bb8548599156
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@
     is defined and exported in Test.SequenceResolve (imported -Global by the
     siblings), all three modules delegate to it, and the raw indent one-liner now
     appears exactly once (inside the helper). Source-text only. Runs under Pester
-    4.10.1 (script-scoped throw helper).
+    6.x (Test.Assert.psm1 throw helpers).
 #>
 
 BeforeAll {

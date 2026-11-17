@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,11 +49,13 @@ function Get-CachingProxyServiceStatePath {
         Resolves <runtime-dir>/yuruna-caching-proxy-service.yml. Runtime dir defaults
         to <repoRoot>/test/status/runtime and can be overridden via
         $env:YURUNA_RUNTIME_DIR. Creates the directory on demand so callers
-        don't have to Test-Path-and-mkdir.
+        don't have to Test-Path-and-mkdir, unless -ReadOnly is supplied.
+    .PARAMETER ReadOnly
+        Resolve the path without creating the runtime directory.
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param()
+    param([switch]$ReadOnly)
     if ($env:YURUNA_RUNTIME_DIR) {
         $runtimeDir = $env:YURUNA_RUNTIME_DIR
     } else {
@@ -61,7 +63,7 @@ function Get-CachingProxyServiceStatePath {
         $testRoot = Split-Path -Parent $PSScriptRoot
         $runtimeDir = Join-Path -Path $testRoot -ChildPath 'status' -AdditionalChildPath 'runtime'
     }
-    if (-not (Test-Path -LiteralPath $runtimeDir)) {
+    if (-not $ReadOnly -and -not (Test-Path -LiteralPath $runtimeDir)) {
         New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
     }
     return (Join-Path -Path $runtimeDir -ChildPath 'yuruna-caching-proxy-service.yml')
@@ -71,27 +73,34 @@ function Get-CachingProxyServiceStatePath {
 function Read-CachingProxyServiceState {
     <#
     .SYNOPSIS
-        Returns the persisted state as a hashtable. Empty hashtable when
-        the file is missing or unparseable; never $null.
+        Returns the persisted state as a hashtable, never $null. The default
+        read returns an empty state when files are missing or unparseable;
+        a read-only validation refuses existing unusable data.
     .OUTPUTS
         [hashtable] with keys 'password' and 'ipAddress' (each a string,
         possibly empty). Additional keys round-trip through Save unchanged.
+    .PARAMETER ReadOnly
+        Read existing state without creating directories or rotating corrupt
+        files. Unusable primary and backup state is refused.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param()
-    $path = Get-CachingProxyServiceStatePath
+    param([switch]$ReadOnly)
+    $path = if ($ReadOnly) { Get-CachingProxyServiceStatePath -ReadOnly } else { Get-CachingProxyServiceStatePath }
     $empty = @{ password = ''; ipAddress = ''; caCert = ''; caCertSourceHost = '' }
-    if (-not (Test-Path -LiteralPath $path)) { return $empty }
+    $pathProbe = @{ LiteralPath = $path }
+    if ($ReadOnly) { $pathProbe.ErrorAction = 'Stop' }
+    if (-not (Test-Path @pathProbe)) { return $empty }
     if (-not (Get-Module powershell-yaml)) {
         try {
             Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
         } catch {
+            if ($ReadOnly) { throw }
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_39e2bd9c183f2610' -Arguments @{ message = "$($_.Exception.Message)" })
             return $empty
         }
     }
-    $parsed = Read-CachingProxyServiceStateFile -Path $path
+    $parsed = Read-CachingProxyServiceStateFile -Path $path -Strict:$ReadOnly
     if ($null -ne $parsed) { return $parsed }
     # Primary file unparseable. Try a `.backup` rotated by Save-CachingProxyServiceState
     # so the cache VM's IP / vault password isn't silently lost on a torn
@@ -100,12 +109,16 @@ function Read-CachingProxyServiceState {
     # dict (caller re-discovers IP and rebuilds vault from yuruna-vault.yml),
     # but the warning + corrupt-file rotation below leaves a forensics trail.
     $backupPath = "$path.backup"
-    if (Test-Path -LiteralPath $backupPath) {
-        $fallback = Read-CachingProxyServiceStateFile -Path $backupPath
+    $pathProbe.LiteralPath = $backupPath
+    if (Test-Path @pathProbe) {
+        $fallback = Read-CachingProxyServiceStateFile -Path $backupPath -Strict:$ReadOnly
         if ($null -ne $fallback) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_a6d14fb704d40904' -Arguments @{ path = "$path"; backupPath = "$backupPath" })
             return $fallback
         }
+    }
+    if ($ReadOnly) {
+        throw [IO.InvalidDataException]::new((Format-YurunaOperatorMessage -Key 'host.service_build_plan_cache_state_invalid' -Arguments @{ path = "$path" }))
     }
     # Both main and backup unparseable (or backup absent). Rotate the
     # broken main aside with a timestamp suffix so it can be diff'd
@@ -130,12 +143,15 @@ function Read-CachingProxyServiceStateFile {
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$Path)
+    param([Parameter(Mandatory)][string]$Path, [switch]$Strict)
+    # An unreadable file is not malformed YAML and cannot validate a fallback.
+    if ($Strict) { $raw = Get-Content -Raw -LiteralPath $Path -ErrorAction Stop }
     try {
-        $raw = Get-Content -Raw -LiteralPath $Path
+        if (-not $Strict) { $raw = Get-Content -Raw -LiteralPath $Path }
         if (-not $raw -or -not $raw.Trim()) { return $null }
         $parsed = $raw | ConvertFrom-Yaml
         if ($parsed -isnot [System.Collections.IDictionary]) { return $null }
+        if ($Strict -and $parsed.Contains('password') -and $null -ne $parsed['password'] -and $parsed['password'] -isnot [string]) { return $null }
         $h = @{ password = ''; ipAddress = ''; caCert = ''; caCertSourceHost = '' }
         foreach ($k in $parsed.Keys) { $h[[string]$k] = [string]$parsed[$k] }
         return $h

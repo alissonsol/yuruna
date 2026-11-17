@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42bc659c-43c2-496e-bcea-01f39b34ee81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,9 @@ BeforeAll {
 }
 
 Describe 'Project payload fallback and invocation evidence' -Skip:(-not $script:ProjectFetchBash) {
-    It 'uses the mirror at the invocation commit without credentials or proxy configuration' {
+    # Mirror object downloads enforce a POSIX file-size limit. Git Bash cannot
+    # set that limit on Windows, so those guest-runtime paths require POSIX.
+    It 'uses the mirror at the invocation commit without credentials or proxy configuration' -Skip:$IsWindows {
         $run = $script:ProjectFetchRuns.mirror
         $run.ExitCode | Should -Be 0 -Because $run.Error
         $run.Output | Should -Match 'PAYLOAD_RAN'
@@ -71,7 +73,7 @@ Describe 'Project payload fallback and invocation evidence' -Skip:(-not $script:
         $run.Calls | Should -Not -Match 'AUTH_HEADER_MATCH|--config=|github'
         @([regex]::Matches($run.Calls, '/git-mirror/status.json')).Count | Should -Be 1
     }
-    It 'keeps project and retry-library repository pins separate on the mirror' {
+    It 'keeps project and retry-library repository pins separate on the mirror' -Skip:$IsWindows {
         $project = $script:ProjectFetchRuns.mirror_project
         $project.ExitCode | Should -Be 0
         $project.Calls | Should -Match '/git-raw/private/project/2222222222222222222222222222222222222222/example/workload.sh'
@@ -80,14 +82,14 @@ Describe 'Project payload fallback and invocation evidence' -Skip:(-not $script:
         $library.Calls | Should -Match '/git-raw/framework/repository/1111111111111111111111111111111111111111/automation/yuruna-retry.sh'
         $library.Output | Should -Match 'sha256 verified \(automation/yuruna-retry.sh\)'
     }
-    It 'retries a mirror digest mismatch once and never executes or changes sources' {
+    It 'retries a mirror digest mismatch once and never executes or changes sources' -Skip:$IsWindows {
         $run = $script:ProjectFetchRuns.mirror_mismatch
         $run.ExitCode | Should -Be 3
         $run.Output | Should -Not -Match 'PAYLOAD_RAN'
         $run.Calls | Should -Not -Match 'github'
         @([regex]::Matches($run.Calls, '/git-raw/')).Count | Should -Be 2
     }
-    It 'falls through a mirror 404 to the same pinned authenticated GitHub source' {
+    It 'falls through a mirror 404 to the same pinned authenticated GitHub source' -Skip:$IsWindows {
         $run = $script:ProjectFetchRuns.mirror_missing
         $run.ExitCode | Should -Be 0
         $run.Calls | Should -Match '/git-raw/'
@@ -111,7 +113,7 @@ Describe 'Project payload fallback and invocation evidence' -Skip:(-not $script:
         $run.Calls | Should -Match 'http://host.invalid:8080/yuruna-repo/guest/workload.sh'
         $run.Calls | Should -Not -Match '/git-mirror/|/git-raw/|github'
     }
-    It 'rejects a mirror blob larger than 16 MiB before execution' {
+    It 'rejects a mirror blob larger than 16 MiB before execution' -Skip:$IsWindows {
         $run = $script:ProjectFetchRuns.mirror_oversized
         $run.ExitCode | Should -Be 2
         $run.Output | Should -Not -Match 'PAYLOAD_RAN'

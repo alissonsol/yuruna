@@ -9,6 +9,29 @@ package catalog
 // DataqpsPlocmremediation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataqpsPlocmremediation = `{
+  "remediation.guest_display_stalled_action_evidence": "[!‮Řéáď causeDetail.guestDisplayStallEnd áñď serial-console.log íñ ţħé ğúéšţ ƒóļďéř; çóɱƥářé ţħé ďíšƥļáý-ďříṽéř ţíɱéóúţ řéƥóřţš ŵíţħ ţħé šáṽéď šçřééñšħóţ áñď ÓÇŘ ţéẋţ, áñď íñšƥéçţ ţħé ğúéšţ ķéřñéļ áñď ďíšƥļáý-ďříṽéř ṽéřšíóñš íƒ ţħé šţáļļ řéçúřš‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "remediation.guest_display_stalled_action_restore": "[!‮Řéšţóřé á çļéáñ šñáƥšħóţ óř ƀóóţ ţħé ğúéšţ áğáíñ ƀéƒóřé řéřúññíñğ ţħé šéʠúéñçé; řéƥļáýíñğ ţħé ŵáíţ óñ ţħé šáɱé šţáļļéď ďíšƥļáý çáññóţ řéçóṽéř íţš ƒřáɱéš. Ķééƥ ţħé éẋíšţíñğ ƀóúñďéď ļóğíñ řéçóṽéřý áñď íñšƥéçţ áñý ƥáššŵóřď çħáñğé ƀéƒóřé áţţéɱƥţíñğ řéçóṽéřý ƀý ħáñď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "remediation.guest_display_stalled_rationale": [
+    "[!‮ğúéšţ_ďíšƥļáý_šţáļļéď óñ ",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ţħé ğúéšţ'š ",
+    {
+      "arg": "driver",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ďíšƥļáý ďříṽéř řéƥóřţéď ",
+    {
+      "arg": "reports",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ƥáğé-ƒļíƥ ţíɱéóúţš ŵħíļé ţħé çóñšóļé šţóƥƥéď çħáñğíñğ. Ţħé ğúéšţ ɱáý šţíļļ ƀé řúññíñğ; áñ úñçħáñğéď ďíšƥļáý íš ñóţ éṽíďéñçé ţħáţ íţš ķéřñéļ šţóƥƥéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
   "remediation.guest_kernel_stalled_action_evidence": "[!‮Řéáď causeDetail.guestKernelStallEnd áñď causeDetail.guestLivelock íñ last_failure.json, áñď ţħé ķéřñéļ'š řéƥóřţš íñ ţħé ğúéšţ ƒóļďéř'š serial-console.log‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "remediation.guest_kernel_stalled_rationale": [
     "[!‮ğúéšţ_ķéřñéļ_šţáļļéď óñ ",
@@ -84,6 +107,27 @@ const DataqpsPlocmremediation = `{
       "trust": "external"
     },
     "), šó ţħé šçříƥţ çóúļď ñóţ ƒíñíšħ. Ţħíš íš ñóţ á šļóŵ ƥáçķáğé ɱířřóř, áñď řé-řúññíñğ ţħé šţéƥ óñ ţħé šáɱé ğúéšţ çáññóţ ħéļƥ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "remediation.ocr_timeout_kernel_stall_rationale": [
+    "[!‮óçř_ţíɱéóúţ óñ ",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ţħé ğúéšţ ķéřñéļ šţóƥƥéď ɱáķíñğ ƥřóğřéšš (ķéřñéļ řéƥóřţš: ",
+    {
+      "arg": "kinds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "; ṽířţúáļ ƥřóçéššóřš ţħáţ šéřṽíçéď ñó íñţéřřúƥţ: ",
+    {
+      "arg": "processors",
+      "type": "detail",
+      "trust": "external"
+    },
+    "), šó ţħé šçřééñ çóúļď ñóţ řéáçħ ţħé éẋƥéçţéď šţáţé. Ţħíš íš ñóţ á ŵóřķļóáď ţħáţ ļéƒţ ţħé řéçóřďéď ƥáţħ, áñď ţħé šáɱé ƀóóţ ďóéš ñóţ řéçóṽéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "remediation.operator_00fd2209b1a993b2": "[!‮íñšƥéçţ last_failure.json ɱáñúáļļý‬ ~~~~~~~~~~~~~~]",
   "remediation.operator_01b3c9512f168859": [

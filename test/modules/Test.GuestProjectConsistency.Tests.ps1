@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42bc0016-f193-426d-a72c-0c102ad1e5f2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,6 +69,7 @@ BeforeAll {
     function tar.exe { }
     function git { }
     function docker { }
+    function cleanmgr { }
 }
 Describe 'Windows guest archive failure handling' {
     BeforeEach {
@@ -186,6 +187,65 @@ Describe 'Windows guest archive failure handling' {
         Should -Invoke git -Times 1 -Exactly
         Should -Invoke git -Times 1 -ParameterFilter { $args -contains 'http.lowSpeedLimit=1024' -and $args -contains 'http.lowSpeedTime=60' }
         Test-Path (Join-Path $yurunaRoot 'project/partial.txt') | Should -BeFalse
+    }
+
+    It 'cleans only the private <Stage> archive after <Outcome>' -ForEach @(
+        foreach ($stage in 'early', 'materialize', 'project') {
+            foreach ($outcome in 'success', 'download-failure', 'extract-failure') {
+                @{ Stage=$stage; Outcome=$outcome }
+            }
+        }
+    ) {
+        $script:ArchiveOutcome = $Outcome
+        $script:ArchiveDownloads = [Collections.Generic.List[string]]::new()
+        foreach ($name in 'yuruna-archive.tar.gz', 'yuruna-project-archive.tar.gz') {
+            Set-Content -LiteralPath (Join-Path $script:FixtureProfile $name) -Value 'unrelated existing archive'
+        }
+        Mock New-TemporaryFile {
+            $path = Join-Path $script:FixtureProfile ([guid]::NewGuid().ToString('N') + '.tmp')
+            [IO.File]::WriteAllText($path, '')
+            Get-Item -LiteralPath $path
+        }
+        Mock Invoke-WebRequest {
+            if ($OutFile) {
+                $script:ArchiveDownloads.Add($OutFile)
+                [IO.File]::WriteAllText($OutFile, 'downloaded archive bytes')
+                if ($script:ArchiveOutcome -eq 'download-failure') { throw 'fixture archive download failed' }
+            }
+        }
+        Mock tar.exe {
+            $destination = $args[3]
+            Set-Content -LiteralPath (Join-Path $destination 'VERSION') -Value '1.0.0'
+            $global:LASTEXITCODE = if ($script:ArchiveOutcome -eq 'extract-failure') { 2 } else { 0 }
+        }
+        $block = switch ($Stage) {
+            early { Get-UpdateBlock '# --- REGION: Early yuruna framework extraction' '# --- REGION: Disable services that may suspend' }
+            materialize { Get-UpdateBlock '# --- REGION: Materialize the yuruna framework and project repos' '$yurunaProject =' }
+            project {
+                $null = New-Item -ItemType Directory -Path $yurunaRoot
+                Get-UpdateBlock '$yurunaProject =' '# --- REGION: Clean up temporary files'
+            }
+        }
+        & $block | Out-Null
+        $script:ArchiveDownloads.Count | Should -Be 1
+        foreach ($download in $script:ArchiveDownloads) { Test-Path -LiteralPath $download | Should -BeFalse }
+        foreach ($name in 'yuruna-archive.tar.gz', 'yuruna-project-archive.tar.gz') {
+            Get-Content -LiteralPath (Join-Path $script:FixtureProfile $name) | Should -BeExactly 'unrelated existing archive'
+        }
+    }
+
+    It 'preserves unrelated temporary files and directories during final cleanup' {
+        $unrelatedFile = Join-Path $script:FixtureProfile 'other-installer.tmp'
+        $unrelatedDirectory = Join-Path $script:FixtureProfile 'another application'
+        $null = New-Item -ItemType Directory -Path $unrelatedDirectory
+        Set-Content -LiteralPath $unrelatedFile -Value 'keep file'
+        Set-Content -LiteralPath (Join-Path $unrelatedDirectory 'keep.txt') -Value 'keep directory'
+        Mock cleanmgr { $global:LASTEXITCODE = 0 }
+        $block = Get-UpdateBlock '# --- REGION: Clean up temporary files' 'Write-Output "<<< Cleanup complete."'
+        & $block | Out-Null
+        Get-Content -LiteralPath $unrelatedFile | Should -BeExactly 'keep file'
+        Get-Content -LiteralPath (Join-Path $unrelatedDirectory 'keep.txt') | Should -BeExactly 'keep directory'
+        Should -Invoke cleanmgr -Times 1 -Exactly -ParameterFilter { $args -contains '/sagerun:1' }
     }
 }
 Describe 'Development container launch failure handling' -Skip:(-not $script:ProjectAvailable) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42bad34d-afe5-4516-b9c8-4c8fb18b5c09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,7 +29,7 @@
     on that helper's command/comparison nodes, plus that each top-level deploy CLI -- which
     cannot be unit-invoked -- delegates to the helper and keeps a Yuruna.*-scoped eviction.
     One semantic test demonstrates the wildcard-glob hazard the -LiteralPath switch closes.
-    Pester 5.x.
+    Pester 6.x.
 #>
 
 BeforeDiscovery {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,10 +62,11 @@ function Get-GitHubSourceFixture {
         and its variables are not in scope when the It bodies execute.
         -RemoteUrl '' leaves the checkout with no remote at all.
     #>
-    param([string]$RemoteUrl, [string]$FrameworkUrl)
+    param([string]$RemoteUrl, [string]$FrameworkUrl, [string]$ProjectUrl = '')
     $dir = New-YurunaTestTempDir -Prefix 'yuruna-ghsrc'
     New-Item -ItemType Directory -Force -Path (Join-Path $dir 'test') | Out-Null
-    Set-Content -LiteralPath (Join-Path $dir 'test/test.config.yml') -Value "repositories:`n  frameworkUrl: $FrameworkUrl`n  ghToken: `"`"`n"
+    $projectLine = if ($ProjectUrl) { "  projectUrl: $ProjectUrl`n" } else { '' }
+    Set-Content -LiteralPath (Join-Path $dir 'test/test.config.yml') -Value "repositories:`n  frameworkUrl: $FrameworkUrl`n$projectLine  ghToken: `"`"`n"
     Set-Content -LiteralPath (Join-Path $dir 'seed.txt') -Value 'seed'
     $null = New-YurunaTestGitRepository -Path $dir -Remote $RemoteUrl -AddExisting -CommitMessage 'seed'
     return $dir
@@ -678,6 +679,115 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
             Assert-StringEqual -Actual $s.Repo -Expected 'owner/configured-repo' -Because 'so the configured URL answers instead'
         } finally { Remove-YurunaTestTempDir $dir }
     }
+
+    # A pooled cycle tests the pair of repositories its pool assigned. A guest
+    # cut off from the host clones from these URLs, so they must name that pair,
+    # while the pin keeps naming the bytes this checkout serves.
+    It 'takes the clone URLs from the pair a pooled cycle publishes, and keeps the pin on the checkout' {
+        $dir = Get-GitHubSourceFixture -RemoteUrl 'https://github.com/owner/same-repo.git' `
+                                       -FrameworkUrl 'https://github.com/owner/same-repo' -ProjectUrl 'https://github.com/owner/host-project'
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_POOL_FRAMEWORK_URL', 'YURUNA_POOL_PROJECT_URL'
+        try {
+            $env:YURUNA_POOL_FRAMEWORK_URL = $null
+            $env:YURUNA_POOL_PROJECT_URL = $null
+            $own = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
+            Assert-StringEqual -Actual $own.ProjectUrl -Expected 'https://github.com/owner/host-project' -Because 'an unpooled run keeps this host''s own pair'
+            $env:YURUNA_POOL_FRAMEWORK_URL = 'https://github.com/pool/framework'
+            $env:YURUNA_POOL_PROJECT_URL = 'https://github.com/pool/project'
+            $pooled = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
+            Assert-StringEqual -Actual $pooled.FrameworkUrl -Expected 'https://github.com/pool/framework'
+            Assert-StringEqual -Actual $pooled.ProjectUrl -Expected 'https://github.com/pool/project'
+            Assert-StringEqual -Actual $pooled.Repo -Expected $own.Repo -Because 'the pinned repository is still the checkout''s'
+            Assert-StringEqual -Actual $pooled.Ref -Expected $own.Ref -Because 'the pinned commit is still the checkout''s HEAD'
+        } finally {
+            Restore-YurunaTestEnvironment -Saved $saved
+            Remove-YurunaTestTempDir $dir
+        }
+    }
+
+    It 'keeps this host''s pair when only half of a pooled pair is published' {
+        $dir = Get-GitHubSourceFixture -RemoteUrl 'https://github.com/owner/same-repo.git' `
+                                       -FrameworkUrl 'https://github.com/owner/same-repo' -ProjectUrl 'https://github.com/owner/host-project'
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_POOL_FRAMEWORK_URL', 'YURUNA_POOL_PROJECT_URL'
+        try {
+            $env:YURUNA_POOL_FRAMEWORK_URL = $null
+            $env:YURUNA_POOL_PROJECT_URL = 'https://github.com/pool/project'
+            $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
+            Assert-StringEqual -Actual $s.FrameworkUrl -Expected 'https://github.com/owner/same-repo'
+            Assert-StringEqual -Actual $s.ProjectUrl -Expected 'https://github.com/owner/host-project'
+        } finally {
+            Restore-YurunaTestEnvironment -Saved $saved
+            Remove-YurunaTestTempDir $dir
+        }
+    }
+}
+
+# A guest that cannot reach the host's status service clones from the URLs its
+# seed baked into host.env. In a pooled cycle those must name the pool's pair of
+# repositories, the ones the cycle tests, not the pair this host's own
+# configuration names; outside a pooled cycle they name this host's own pair.
+Describe 'host.env carries the clone URLs of the repositories the cycle tests' {
+    BeforeAll {
+        # The host.env lines exactly as the Ubuntu seed writes them.
+        $template = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/vmconfig/ubuntu.server.base.user-data')
+        $block = [regex]::Match($template, "(?ms)^[ \t]*cat > /target/etc/yuruna/host\.env << 'EOF'\r?\n(.*?)^[ \t]*EOF[ \t]*\r?$")
+        if (-not $block.Success) { throw 'The host.env block of the Ubuntu seed was not found.' }
+        $script:HostEnvBase = Join-Path $TestDrive 'host-env.base.user-data'
+        $script:HostEnvOverlay = Join-Path $TestDrive 'host-env.overlay.yml'
+        [IO.File]::WriteAllText($script:HostEnvBase, $block.Groups[1].Value, [Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($script:HostEnvOverlay, "# No host-agent additions are needed for this host.env rendering fixture.`n", [Text.UTF8Encoding]::new($false))
+        $script:HostEnvCheckout = Get-GitHubSourceFixture -RemoteUrl 'https://github.com/owner/same-repo.git' `
+            -FrameworkUrl 'https://github.com/owner/same-repo' -ProjectUrl 'https://github.com/owner/host-project'
+        function ConvertFrom-HostEnvFixture {
+            param([string]$Text)
+            $values = @{}
+            foreach ($line in ($Text -split "`n")) {
+                if ($line -match '^\s*(YURUNA_[A-Z0-9_]+)=(.*)$') { $values[$Matches[1]] = $Matches[2].TrimEnd("`r") }
+            }
+            return $values
+        }
+        function Get-HostEnvFixture {
+            # The seed's guest scripts are not what this fixture checks; the
+            # checkout supplies the GitHub coordinates through the real resolver.
+            Mock -ModuleName Yuruna.CloudInitTemplate Get-YurunaGuestScriptBase64 {
+                @{ RetryLib = ''; VersionsLib = ''; FetchAndExecute = ''; FetchContext = ''; NetworkLib = ''; HostLocate = ''; NasCredential = '' }
+            }
+            $rendered = New-CloudInitUserData -BasePath $script:HostEnvBase -OverlayPath $script:HostEnvOverlay -RepoRoot $script:HostEnvCheckout -Replacement @{
+                YURUNA_STATUS_SERVICE_IP_PLACEHOLDER = '192.0.2.1'
+                YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER = '8080'
+                YURUNA_HOST_ID_PLACEHOLDER = 'fixture-host'
+                YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER = '192.0.2.2'
+                YURUNA_CA_SHA256_PLACEHOLDER = ''
+            } -Confirm:$false -WarningAction SilentlyContinue
+            return (ConvertFrom-HostEnvFixture -Text $rendered)
+        }
+    }
+    AfterAll { Remove-YurunaTestTempDir $script:HostEnvCheckout }
+    BeforeEach { $script:SavedPoolEnvironment = Save-YurunaTestEnvironment -Name 'YURUNA_POOL_FRAMEWORK_URL', 'YURUNA_POOL_PROJECT_URL' }
+    AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedPoolEnvironment }
+
+    It 'bakes this host''s own pair when the cycle is not pooled' {
+        $env:YURUNA_POOL_FRAMEWORK_URL = $null
+        $env:YURUNA_POOL_PROJECT_URL = $null
+        $hostEnv = Get-HostEnvFixture
+        $hostEnv.YURUNA_FRAMEWORK_URL | Should -BeExactly 'https://github.com/owner/same-repo'
+        $hostEnv.YURUNA_PROJECT_URL | Should -BeExactly 'https://github.com/owner/host-project'
+        $hostEnv.YURUNA_GITHUB_REPO | Should -BeExactly 'owner/same-repo'
+    }
+
+    It 'bakes the pool''s pair in a pooled cycle and keeps the framework pin on the checkout' {
+        $env:YURUNA_POOL_FRAMEWORK_URL = $null
+        $env:YURUNA_POOL_PROJECT_URL = $null
+        $own = Get-HostEnvFixture
+        $env:YURUNA_POOL_FRAMEWORK_URL = 'https://github.com/pool/framework'
+        $env:YURUNA_POOL_PROJECT_URL = 'https://github.com/pool/project'
+        $pooled = Get-HostEnvFixture
+        $pooled.YURUNA_FRAMEWORK_URL | Should -BeExactly 'https://github.com/pool/framework'
+        $pooled.YURUNA_PROJECT_URL | Should -BeExactly 'https://github.com/pool/project'
+        $pooled.YURUNA_GITHUB_REPO | Should -BeExactly $own.YURUNA_GITHUB_REPO
+        $pooled.YURUNA_GITHUB_REF | Should -BeExactly $own.YURUNA_GITHUB_REF
+        $pooled.YURUNA_GITHUB_REF | Should -Match '^[0-9a-f]{40}$'
+    }
 }
 
 Describe 'verify_sha256 (guest-side gate)' {
@@ -1174,7 +1284,7 @@ Describe 'the Windows updater verifies host archives through the guest channel' 
             . ([scriptblock]::Create($script:DigestFn))
             $script:Repo = Join-Path $TestDrive 'framework'
             $null = New-Item -ItemType Directory -Path (Join-Path $script:Repo 'docs') -Force
-            Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '2026.11.08'
+            Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '2026.11.16'
             Set-Content -LiteralPath (Join-Path $script:Repo 'docs/x.md') -Value 'excluded'
             $null = New-YurunaTestGitRepository -Path $script:Repo -AddExisting -CommitMessage 'seed'
             $script:Commit = ([string](Invoke-YurunaTestGit -Path $script:Repo -Argument @('rev-parse', 'HEAD'))).Trim()

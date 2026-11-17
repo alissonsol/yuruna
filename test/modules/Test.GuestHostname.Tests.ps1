@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -345,10 +345,11 @@ Describe 'agetty periodic redraw -- Ubuntu cold installs keep one wait deadline'
             }
         }
         $retryActions = @($retry['steps'] | ForEach-Object { [string]$_['action'] })
-        Assert-Equal -Expected 'pressKey,waitForSeconds,waitForTextWithNudge' -Actual ($retryActions -join ',') `
-            -Because "$name may retry only pre-login, non-secret steps"
-        Assert-Equal -Expected 0 -Actual @($retry['steps'] | Where-Object { $_['action'] -eq 'passwdPrompt' }).Count `
-            -Because "$name must never replay password mutation after a restart"
+        Assert-Equal -Expected 'pressKey,waitForSeconds,waitForTextWithNudge,passwdPrompt,passwdPrompt,passwdPrompt,passwdPrompt,passwdPrompt' -Actual ($retryActions -join ',') `
+            -Because "$name may recover only the bounded first-login flow, ending at the confirming password entry"
+        Assert-Equal -Expected '${hostLabel} login:|Password:|Current password|urrent password:|New password|Retype new password|etype new password:' `
+            -Actual (@($retry['steps'] | Where-Object { $_['action'] -eq 'passwdPrompt' } | ForEach-Object { @($_.pattern) -join '|' }) -join '|') `
+            -Because "$name must replay from login and never include work after the password may have committed"
     }
 }
 
@@ -443,10 +444,21 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
             Assert-Equal -Expected 1 -Actual $loginRetries.Count -Because "$name must retain exactly one pre-login installer retry"
             Assert-Equal -Expected 1 -Actual $postProvisionRetries.Count `
                 -Because "$name must recover a post-provision ARM64 Hyper-V boot livelock"
-            Assert-Equal -Expected 0 -Actual @($passwordPrompts | Where-Object { $_.Depth -ne 0 }).Count `
-                -Because "$name must keep every password mutation outside retry"
+            Assert-Equal -Expected 1 -Actual $rotationRetries.Count `
+                -Because "$name must recover an untyped display stall through the bounded first-login retry"
+            Assert-Equal -Expected 5 -Actual @($passwordPrompts | Where-Object { $_.Depth -eq 1 -and $_.TopIndex -eq $loginRetries[0].TopIndex }).Count `
+                -Because "$name must replay the complete uncommitted prompt flow from login"
             Assert-Equal -Expected 2 -Actual $newPasswordPrompts.Count -Because "$name must retain its new/retype-password rotation"
-            Assert-True ($loginRetries[0].TopIndex -lt $newPasswordPrompts[0].TopIndex) "$name starts password mutation before the restartable wait ends"
+            $rotation = $rotationRetries[0].Step
+            Assert-Equal -Expected 'coldPowerCycle' -Actual ([string]$rotation.restartVmBeforeRetry) `
+                -Because "$name must use the evidence-first recovery that refuses an input-phase failure"
+            Assert-Equal -Expected 3 -Actual ([int]$rotation.maxAttempts) -Because "$name must keep first-login recovery bounded"
+            Assert-Equal -Expected 'pressKey,waitForSeconds,waitForTextWithNudge,passwdPrompt,passwdPrompt,passwdPrompt,passwdPrompt,passwdPrompt' `
+                -Actual (@($rotation.steps | ForEach-Object { $_.action }) -join ',') `
+                -Because "$name must end the restartable block at the confirming entry, before any post-commit work"
+            Assert-Equal -Expected 'Retype new password|etype new password:' -Actual (@($rotation.steps[-1].pattern) -join '|') `
+                -Because "$name must never replay a later step after PAM may have committed the new password"
+            Assert-True ($loginRetries[0].TopIndex -lt $tokenInputs[0].TopIndex) "$name must observe the shell token outside credential recovery"
             Assert-True ($commits[0].TopIndex -lt $postProvisionRetries[0].TopIndex) `
                 "$name must not make the post-provision VM restartable before password success is committed"
 
@@ -564,5 +576,43 @@ Describe 'console workload login confirmation' {
         Assert-True ($null -ne $install) 'the Desktop install command must exist'
         Assert-True ($install.Step['text'] -notlike '*DESKTOP_INSTALL_DONE*') 'typing the command cannot prove it succeeded'
         Assert-True ($install.Step['text'] -like '*&& echo*') 'only successful installation may emit its confirmation'
+    }
+}
+
+Describe 'Windows answer-file computer names' {
+    BeforeAll {
+        Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
+    }
+
+    It 'renders <Name> as <Expected> on <Platform>' -ForEach @(
+        foreach ($platform in @('ubuntu.kvm', 'macos.utm', 'windows.hyper-v')) {
+            foreach ($case in @(
+                @{ Name = 'guest-01'; Expected = 'guest-01' },
+                @{ Name = 'ABCDEFGHIJKLMNO'; Expected = 'ABCDEFGHIJKLMNO' },
+                @{ Name = 'test-guest.windows.11-01'; Expected = '*' },
+                @{ Name = 'guest.example'; Expected = '*' },
+                @{ Name = '123456'; Expected = '*' },
+                @{ Name = 'guest one'; Expected = '*' },
+                @{ Name = ("`u{6e2c}`u{8a66}" * 3); Expected = '*' }
+            )) { @{ Platform = $platform; Name = $case.Name; Expected = $case.Expected } }
+        }
+    ) {
+        $source = Join-Path $repoRoot "host/$Platform/guest.windows.11/New-VM.ps1"
+        $ast = [Management.Automation.Language.Parser]::ParseFile($source, [ref]$null, [ref]$null)
+        $assignment = $ast.Find({
+            param($node)
+            $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+                $node.Right.Extent.Text.Contains('COMPUTERNAME_PLACEHOLDER')
+        }, $true)
+        $assignment | Should -Not -BeNullOrEmpty
+        $template = Join-Path (Split-Path -Parent $source) 'vmconfig/autounattend.xml'
+        $bootstrap = @{ EncodedCommand = 'fixture-bootstrap' }
+        $variables = @{ VMName = $Name; autoTemplate = $template; AnswerFileTemplate = $template
+            _kvmBootstrap = $bootstrap; _utmBootstrap = $bootstrap; guestBootstrap = $bootstrap; answerArch = 'amd64' }
+        foreach ($variable in $variables.GetEnumerator()) { Set-Variable -Name $variable.Key -Value $variable.Value }
+        $rendered = [xml](& ([scriptblock]::Create($assignment.Right.Extent.Text)))
+        $computerNames = @($rendered.SelectNodes('//*[local-name()="ComputerName"]'))
+        $computerNames.Count | Should -Be 1
+        $computerNames[0].InnerText | Should -BeExactly $Expected
     }
 }

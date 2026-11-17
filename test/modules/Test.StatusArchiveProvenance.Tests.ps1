@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42ebb62d-e1a8-4c57-811c-f982498db617
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -361,6 +361,8 @@ Describe 'the committed-content tarball names the commit it was cut from' {
         $cloneDir = New-YurunaTestTempDir -Prefix 'archive-provenance-clone'
         try {
             & git clone --quiet $source.Path $cloneDir 2>&1 | Out-Null
+            # Archive conversion must use the same fixture policy in both repositories.
+            Set-YurunaTestGitIdentity -Path $cloneDir
             & git -C $cloneDir remote remove origin 2>&1 | Out-Null
             Assert-StringEqual -Expected $source.Head -Actual ((& git -C $cloneDir rev-parse HEAD 2>$null | Select-Object -First 1).Trim()) `
                 'the clone must hold the same commit or the comparison proves nothing'

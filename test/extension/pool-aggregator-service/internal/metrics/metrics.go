@@ -46,8 +46,8 @@ type Inputs struct {
 
 // OutboxState is what the exposition says about the Loki outbox.
 type OutboxState struct {
-	Pending int  // lines waiting for Loki
-	Durable bool // the lines survive a restart of the collector
+	Pending int  // pushes waiting for Loki, each one or more lines
+	Durable bool // the pushes survive a restart of the collector
 }
 
 // ExtensionRow is one resolved extension service as the exposition reads it.
@@ -369,14 +369,14 @@ func Render(view *poolstate.View, in Inputs) string {
 	// Lab connection token: the dashboard's "Lab token" tile reads the CURRENT
 	// code as a label (the info-metric pattern host_extension uses -- the only
 	// channel the provisioned Prometheus/Loki datasources offer for a string).
-	// How many lines wait for Loki: zero in a steady pool, climbing while Loki is
+	// How many pushes wait for Loki: zero in a steady pool, climbing while Loki is
 	// away. durable says whether they survive a restart of this daemon.
 	if in.Outbox != nil {
 		durable := 0
 		if in.Outbox.Durable {
 			durable = 1
 		}
-		fmt.Fprintf(&b, "# HELP yuruna_pool_loki_outbox_pending Lines the collector holds until Loki accepts them.\n# TYPE yuruna_pool_loki_outbox_pending gauge\nyuruna_pool_loki_outbox_pending{pool=%q,durable=\"%d\"} %d\n", in.Pool, durable, in.Outbox.Pending)
+		fmt.Fprintf(&b, "# HELP yuruna_pool_loki_outbox_pending Pushes the collector holds until Loki accepts them; the limit is DefaultMaxItems in internal/loki/outbox.go.\n# TYPE yuruna_pool_loki_outbox_pending gauge\nyuruna_pool_loki_outbox_pending{pool=%q,durable=\"%d\"} %d\n", in.Pool, durable, in.Outbox.Pending)
 	}
 	// Exported only while the exchange is live, so a disabled feature shows
 	// "No data" rather than a stale, unredeemable code. Label churn is one tiny

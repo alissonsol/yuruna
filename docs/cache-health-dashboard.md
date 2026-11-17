@@ -43,7 +43,8 @@ whether what it measured is survivable.
 
 ### Upstream pull budget left
 
-Anonymous pulls remaining in the current window for this egress IP, shared by every
+Pulls remaining in the current window: the configured account's when the probe
+authenticates, otherwise the anonymous allowance for this egress IP, shared by every
 guest in the lab. Green at 25 or more remaining, amber from 10 up, red below 10.
 Exhausting it does not reach a guest as a clean 429 -- the pull-through retries
 upstream first, and the guest only sees a cache that stopped answering in time.
@@ -129,6 +130,44 @@ pair until it is purged or the origin publishes again. 'Not run' until the first
 The `apt index pairs` line on `/cache-health` names each pair and the fix; see the
 [apt index pairs self-test](caching.md#42f6b05f-005b).
 
+<a id="4227a895-0017"></a>
+
+### Apt origins: index requests with no answer
+
+The share of each apt origin's `/dists/` requests that ended with no response at all,
+per origin host and 5-minute window, from squid's access log: squid logged
+`_ABORTED/000` because the client gave up before any response headers arrived. Near 0
+normally. apt gives up on an index after its `Acquire::http::Timeout` and tries again,
+so a share that stays up is what stretches `apt-get update` until the guest's
+per-attempt bound ends it. One origin climbing while the others stay flat is that
+origin degrading; every origin climbing together points at the cache or the lab's
+uplink. The panel beside it counts the requests that gave up waiting on another
+client's fetch instead of asking the origin.
+
+<a id="4227a895-0018"></a>
+
+### Requests that waited on another client's fetch
+
+Requests that joined another client's fetch of the same URL and gave up before it
+answered, per origin host and 5-minute window: squid logged `TCP_HIT_ABORTED/000`
+with `HIER_NONE`, so the request never reached the origin. Zero normally. Apt index
+metadata never joins another client's fetch (see
+[Apt metadata under offline_mode](caching.md#42f6b05f-0057)), so a line here names
+another kind of URL whose shared fetch stalled, or a cache built before that rule.
+
+<a id="4227a895-0019"></a>
+
+### GitHub releases/latest answered 5xx
+
+The share of `github.com/<owner>/<repo>/releases/latest` requests answered with a
+5xx, by GitHub or by squid when it could not reach GitHub, per 5-minute window. The
+cache cannot answer that lookup -- it moves with every release -- so a fresh Ubuntu
+guest's PowerShell install asks GitHub for it, and only the guest's retry window,
+half an hour per lookup, covers an outage (see
+[GitHub release downloads](caching.md#42f6b05f-005d)). A share near 100% that lasts
+longer than that window fails the update step of every host starting a guest. No data
+means no guest asked in that window, not that GitHub answered.
+
 <a id="4227a895-000e"></a>
 
 ## Caching-proxy dashboard (web path)
@@ -210,6 +249,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

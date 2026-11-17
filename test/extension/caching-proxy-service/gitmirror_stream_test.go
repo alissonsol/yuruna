@@ -126,8 +126,75 @@ func TestMirrorGitCancellationDoesNotWaitForSilentTransport(t *testing.T) {
 	if err == nil {
 		t.Fatal("silent upstream succeeded")
 	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("silent upstream did not return its context deadline: %v", err)
+	}
 	if time.Since(start) > time.Second {
 		t.Fatalf("cancellation exceeded bound: %s", time.Since(start))
+	}
+}
+
+func TestMirrorGitCancellationStopsConnectedTransport(t *testing.T) {
+	h := newMirrorHarness(t)
+	connected := make(chan struct{}, 1)
+	disconnected := make(chan struct{}, 1)
+	silent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case connected <- struct{}{}:
+		default:
+		}
+		<-r.Context().Done()
+		select {
+		case disconnected <- struct{}{}:
+		default:
+		}
+	}))
+	appendMirrorGitConfig(t, "url."+silent.URL+"/.insteadOf", "https://github.com/timeout/")
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, err := h.c.git.snapshot(ctx, "timeout/repo")
+		result <- err
+	}()
+	defer func() {
+		cancel()
+		silent.CloseClientConnections()
+		silent.Close()
+		select {
+		case <-done:
+		case <-time.After(h.c.options.Limits.Query):
+			t.Error("Git did not return after fixture transport cleanup")
+		}
+	}()
+	select {
+	case <-connected:
+	case err := <-result:
+		t.Fatalf("Git returned before reaching the silent transport: %v", err)
+	case <-time.After(h.c.options.Limits.Query):
+		t.Fatal("Git did not reach the silent transport")
+	}
+
+	start := time.Now()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("connected Git did not return its context cancellation: %v", err)
+		}
+	case <-deadline.C:
+		t.Fatal("connected Git cancellation exceeded bound")
+	}
+	select {
+	case <-disconnected:
+	case <-deadline.C:
+		t.Fatal("Git transport descendant remained connected after cancellation")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("connected transport cleanup exceeded bound: %s", time.Since(start))
 	}
 }
 

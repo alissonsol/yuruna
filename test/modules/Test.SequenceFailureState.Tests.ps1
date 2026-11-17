@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,6 +94,7 @@ function Reset-FailState {
     $f.StepHostInputFault = $null
     $f.StepLauncherRejection = $null
     $f.StepAptIndexMismatch = $null
+    $f.StepAptUpdateStall = $null
     # A proof left set would let every later record claim its step did nothing.
     $f.StepEffect = $null
     $f.StepDeployResult = $null
@@ -118,6 +119,8 @@ function Reset-FailState {
     # A kernel reading left set would be claimed by every later record whose
     # step it names.
     $f.StepGuestKernelFault = $null
+    # Same reasoning: a login echo left set would be claimed the same way.
+    $f.StepLoginEcho = $null
     # A step start left set would open a host-address window for every later
     # record in this file.
     $f.LastFailedStepStartedUtc = $null
@@ -181,6 +184,67 @@ Describe 'progress observations remain advisory' {
         $suspect = Get-GuestProgressAdvisory -OutputStaticSeconds 1604 -HeartbeatAgeSeconds 1648 -SshResponsiveness unresponsive -KernelFaultKinds @('soft-lockup')
         $suspect.Verdict | Should -Be 'progress-suspect'
         @((Get-GuestProgressAdvisory -HeartbeatAgeSeconds 10 -SshResponsiveness responsive).KernelFaults).Count | Should -Be 0
+    }
+    It 'lists a processor silent for a minute without moving the verdict (<Case>)' -ForEach @(
+        @{ Case = 'nothing else measured'; Measured = @{}; Verdict = 'unavailable' }
+        @{ Case = 'a short wait''s quiet console'; Measured = @{ OutputStaticSeconds = 87 }; Verdict = 'no-stall-evidence' }
+        @{ Case = 'a static console alone'; Measured = @{ OutputStaticSeconds = 400; HeartbeatAgeSeconds = 10; SshResponsiveness = 'responsive' }; Verdict = 'insufficient-evidence' }
+        @{ Case = 'static output and a dead transport'; Measured = @{ OutputStaticSeconds = 200; SshResponsiveness = 'unresponsive' }; Verdict = 'progress-suspect' }
+    ) {
+        $without = Get-GuestProgressAdvisory @Measured
+        $with = Get-GuestProgressAdvisory @Measured -NoInterruptsServicedSeconds 90
+        $without.Verdict | Should -Be $Verdict
+        $with.Verdict | Should -Be $without.Verdict -Because 'the signal is listed, never scored, and left out of the verdict'
+        $with.Signals | Should -Contain 'no-interrupts-serviced'
+        (@($with.Signals | Where-Object { $_ -ne 'no-interrupts-serviced' }) -join ',') | Should -BeExactly (@($without.Signals) -join ',')
+        $with.NoInterruptsServicedSeconds | Should -Be 90
+        $with.AutomaticRecoveryAllowed | Should -BeFalse
+    }
+    It 'lists no silent processor under a minute, and keeps an unmeasured run unmeasured' {
+        @((Get-GuestProgressAdvisory -NoInterruptsServicedSeconds 59).Signals) | Should -Not -Contain 'no-interrupts-serviced'
+        @((Get-GuestProgressAdvisory -NoInterruptsServicedSeconds 0).Signals) | Should -Not -Contain 'no-interrupts-serviced'
+        @((Get-GuestProgressAdvisory -NoInterruptsServicedSeconds 60).Signals) | Should -Contain 'no-interrupts-serviced'
+        (Get-GuestProgressAdvisory).NoInterruptsServicedSeconds | Should -BeNullOrEmpty
+        (Get-GuestProgressAdvisory -NoInterruptsServicedSeconds 0).NoInterruptsServicedSeconds | Should -Be 0 -Because 'a measured zero is a reading'
+    }
+}
+
+Describe 'A livelock reading''s processor window, summarized for a retry attempt and the advisory' {
+    It 'names the stormed and silent processors and the longest run reaching the newest sample' {
+        $verdict = [pscustomobject]@{ Verdict = 'not-livelocked'; ProcessorWindow = [pscustomobject]@{
+            StormedProcessors = @('0', '1'); NoInterruptsServicedProcessors = @('1')
+            Processors = @([pscustomobject]@{ Processor = '0'; Stormed = $true; NoInterruptsServicedSeconds = 0 }
+                [pscustomobject]@{ Processor = '1'; Stormed = $true; NoInterruptsServicedSeconds = 195 }) } }
+        $summary = Get-GuestProcessorWindowSummary -LivelockVerdict $verdict
+        @($summary.stormedProcessors) | Should -Be @('0', '1')
+        @($summary.noInterruptsServicedProcessors) | Should -Be @('1')
+        $summary.noInterruptsServicedProcessors -is [array] | Should -BeTrue -Because 'a one-processor list stays a list'
+        $summary.longestNoInterruptsServicedSeconds | Should -Be 195
+    }
+    It 'reads a one-processor guest silent for less than the window''s own two-minute list' {
+        $verdict = [pscustomobject]@{ Verdict = 'not-livelocked'; ProcessorWindow = [pscustomobject]@{
+            StormedProcessors = @('0'); NoInterruptsServicedProcessors = @()
+            Processors = @([pscustomobject]@{ Processor = '0'; Stormed = $true; NoInterruptsServicedSeconds = 90 }) } }
+        $summary = Get-GuestProcessorWindowSummary -LivelockVerdict $verdict
+        @($summary.noInterruptsServicedProcessors).Count | Should -Be 0
+        $summary.longestNoInterruptsServicedSeconds | Should -Be 90
+    }
+    It 'answers null, not empty, where nothing read the processors: <Case>' -ForEach @(
+        @{ Case = 'no reading'; Verdict = $null }
+        @{ Case = 'a display-only verdict'; Verdict = [pscustomobject]@{ Verdict = 'livelocked'; ProcessorWindow = $null } }
+    ) {
+        $summary = Get-GuestProcessorWindowSummary -LivelockVerdict $Verdict
+        $summary.Contains('stormedProcessors') | Should -BeTrue
+        $summary.stormedProcessors | Should -BeNullOrEmpty
+        $summary.noInterruptsServicedProcessors | Should -BeNullOrEmpty
+        $summary.longestNoInterruptsServicedSeconds | Should -BeNullOrEmpty
+    }
+    It 'answers no longest run when the recording held no raw interrupt counts' {
+        $verdict = [pscustomobject]@{ ProcessorWindow = [pscustomobject]@{ StormedProcessors = @(); NoInterruptsServicedProcessors = @()
+            Processors = @([pscustomobject]@{ Processor = '0'; Stormed = $false; NoInterruptsServicedSeconds = $null }) } }
+        $summary = Get-GuestProcessorWindowSummary -LivelockVerdict $verdict
+        $summary.longestNoInterruptsServicedSeconds | Should -BeNullOrEmpty
+        @($summary.stormedProcessors).Count | Should -Be 0
     }
 }
 
@@ -251,6 +315,234 @@ Describe 'the guest kernel''s own reports in the failure record' {
         $r.File.context.causeDetail.Contains('guestKernelFault') | Should -BeTrue
         $r.File.context.causeDetail.guestKernelFault | Should -BeNullOrEmpty
         $r.Event.causeGuestKernelFault | Should -Be ''
+    }
+}
+
+Describe 'the user name a guest''s login refused with keystrokes missing' {
+    BeforeAll {
+        # login(1)'s refusal of each name in turn, as the guest's journal
+        # forwards it to the serial console.
+        function New-LoginSerialText {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: builds an in-memory fixture; changes no state.')]
+            param([string[]]$Refused)
+            $count = 0
+            $lines = foreach ($name in $Refused) {
+                $count++
+                '[   21.129611] login[1401]: pam_unix(login:auth): check pass; user unknown'
+                "[   23.956775] login[1401]: FAILED LOGIN $count FROM tty1 FOR $name, Authentication failure"
+            }
+            return (@($lines) -join "`r`n") + "`r`n"
+        }
+        # The console after login refused a name, as two OCR engines read it:
+        # the second engine's text follows the first's, misreads the banner,
+        # and the first reads the cursor on the fresh prompt as a dash. The
+        # second engine can read the echoed name differently (SecondEchoed).
+        function New-LoginScreenText {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: builds an in-memory fixture; changes no state.')]
+            param([string]$Echoed, [string]$SecondEchoed = $Echoed)
+            @(
+                'Ubuntu 26.04.1 LTS labguest tty1'
+                'labguest login:'
+                "labguest login: $Echoed"
+                'Password:'
+                'Login incorrect'
+                'labguest login: -'
+                'Ubuntu 26.84.1 LTS labguest ttyt'
+                'labguest login:'
+                ''
+                "labguest login: $SecondEchoed"
+                'Password:'
+                ''
+                'Login incorrect'
+                ''
+                'labguest login:'
+            ) -join "`n"
+        }
+    }
+
+    It 'names a user name that lost its first keystroke, from the serial console' {
+        $echo = Get-LoginEchoEvidence -ExpectedName 'yuuser26' -SerialText (New-LoginSerialText -Refused 'uuser26') -OcrText (New-LoginScreenText -Echoed 'uuser26')
+        $echo.expected | Should -BeExactly 'yuuser26'
+        $echo.received | Should -BeExactly 'uuser26'
+        $echo.source | Should -Be 'serial' -Because 'the serial console holds login''s exact words'
+        $echo.lostLeadingCharacters | Should -Be 1
+    }
+    It 'reads the screen when the serial console holds no refusal of the name' {
+        # The shell probe typed at the login prompt after the failed login: login
+        # refuses it too, and it is no attempt at the user name.
+        $serial = New-LoginSerialText -Refused @(' echo yuruna_$(seq -s '''' 1 9)_ok')
+        $echo = Get-LoginEchoEvidence -ExpectedName 'yuuser26' -SerialText $serial -OcrText (New-LoginScreenText -Echoed 'uuser26')
+        $echo.received | Should -BeExactly 'uuser26'
+        $echo.source | Should -Be 'ocr'
+        $echo.lostLeadingCharacters | Should -Be 1
+    }
+    It 'names a user name that lost an inner keystroke, with no leading count' {
+        $echo = Get-LoginEchoEvidence -ExpectedName 'yuuser26' -SerialText (New-LoginSerialText -Refused 'yuser26')
+        $echo.received | Should -BeExactly 'yuser26'
+        $echo.lostLeadingCharacters | Should -BeNullOrEmpty -Because 'yuser26 is no suffix of yuuser26: a keystroke was lost inside the name'
+        $echo.Contains('lostLeadingCharacters') | Should -BeTrue
+    }
+    It 'reports nothing for <Case>' -ForEach @(
+        @{ Case = 'the user name sent intact, its password refused'; Expected = 'yuuser26'; Serial = @('yuuser26'); Echoed = 'yuuser26' }
+        @{ Case = 'a console with no login on it'; Expected = 'yuuser26'; Serial = @(); Echoed = '' }
+        @{ Case = 'a name unrelated to the user name'; Expected = 'yuuser26'; Serial = @('operator'); Echoed = 'operator' }
+        # A password typed at the wrong prompt is echoed and refused like a name.
+        @{ Case = 'a password typed at the login prompt'; Expected = 'yuuser26'; Serial = @('Kq7-pw!x2'); Echoed = 'Kq7-pw!x2' }
+        @{ Case = 'the user name with more typed after it'; Expected = 'yuuser26'; Serial = @('yuuser26pw'); Echoed = 'yuuser26pw' }
+        @{ Case = 'a name login withheld'; Expected = 'yuuser26'; Serial = @('(unknown)'); Echoed = '' }
+        @{ Case = 'a newer refusal of the user name sent intact'; Expected = 'yuuser26'; Serial = @('uuser26', 'yuuser26'); Echoed = '' }
+        @{ Case = 'a serial refusal of the intact name over a screen that shows a lost keystroke'; Expected = 'yuuser26'; Serial = @('yuuser26'); Echoed = 'uuser26' }
+        @{ Case = 'a sequence with no user name'; Expected = ''; Serial = @('uuser26'); Echoed = 'uuser26' }
+    ) {
+        $serial = if ($Serial.Count) { New-LoginSerialText -Refused $Serial } else { '' }
+        $ocr = if ($Echoed) { New-LoginScreenText -Echoed $Echoed } else { 'Ubuntu 26.04.1 LTS labguest tty1' }
+        Get-LoginEchoEvidence -ExpectedName $Expected -SerialText $serial -OcrText $ocr | Should -BeNullOrEmpty
+    }
+    It 'reports nothing for a screen echo that login never refused' {
+        # Pending at the password prompt, and accepted: neither is followed by
+        # Login incorrect, so a misread name there is never taken for a lost key.
+        Get-LoginEchoEvidence -ExpectedName 'yuuser26' -OcrText "labguest login: uuser26`nPassword:" | Should -BeNullOrEmpty
+        Get-LoginEchoEvidence -ExpectedName 'yuuser26' -OcrText "labguest login: yuser26`nPassword:`nWelcome to Ubuntu 26.04.1 LTS`nyuuser26@labguest:~`$" | Should -BeNullOrEmpty
+    }
+    It 'reports nothing when the two OCR engines read one refusal of the intact name differently, <Case>' -ForEach @(
+        @{ Case = 'the second engine dropping a letter'; First = 'yuuser26'; Second = 'yuser26' }
+        @{ Case = 'the first engine dropping a letter'; First = 'yuser26'; Second = 'yuuser26' }
+    ) {
+        Get-LoginEchoEvidence -ExpectedName 'yuuser26' -OcrText (New-LoginScreenText -Echoed $First -SecondEchoed $Second) |
+            Should -BeNullOrEmpty -Because 'a rejected password stays one, whichever engine''s reading comes last in the text'
+    }
+    It 'reports nothing when the two OCR engines read one lost-keystroke refusal differently, <Case>' -ForEach @(
+        @{ Case = 'the second engine dropping a letter'; First = 'uuser26'; Second = 'user26' }
+        @{ Case = 'the first engine dropping a letter'; First = 'user26'; Second = 'uuser26' }
+    ) {
+        Get-LoginEchoEvidence -ExpectedName 'yuuser26' -OcrText (New-LoginScreenText -Echoed $First -SecondEchoed $Second) |
+            Should -BeNullOrEmpty -Because 'which reading is right is unknown, and the engine order must not pick one'
+    }
+    It 'reports nothing for a screen that shows two different refused names' {
+        # One engine's text, two attempts: the screen alone cannot order them
+        # once a second engine's text follows.
+        $screen = "labguest login: yuuser26`nPassword:`nLogin incorrect`nlabguest login: uuser26`nPassword:`nLogin incorrect`nlabguest login:"
+        Get-LoginEchoEvidence -ExpectedName 'yuuser26' -OcrText $screen | Should -BeNullOrEmpty
+    }
+    It 'lets the newest refusal on the serial console decide' {
+        $echo = Get-LoginEchoEvidence -ExpectedName 'yuuser26' -SerialText (New-LoginSerialText -Refused @('yuuser26', 'uuser26'))
+        $echo.received | Should -BeExactly 'uuser26'
+    }
+    It 'reports nothing once login accepted the name after a lost-keystroke refusal, on the screen' {
+        # The next attempt sent the whole name and a shell answered.
+        $screen = @(
+            'labguest login: uuser26'
+            'Password:'
+            ''
+            'Login incorrect'
+            'labguest login: yuuser26'
+            'Password:'
+            'Welcome to Ubuntu 26.04.1 LTS'
+            'yuuser26@labguest:~$  echo yuruna_$(seq -s '''' 1 9)_ok'
+        ) -join "`n"
+        Get-LoginEchoEvidence -ExpectedName 'yuuser26' -OcrText $screen | Should -BeNullOrEmpty
+        Get-LoginEchoEvidence -ExpectedName 'yuuser26' -OcrText ($screen + "`n" + $screen) |
+            Should -BeNullOrEmpty -Because 'each OCR engine''s reading shows the shell after the refusal'
+        Get-LoginEchoEvidence -ExpectedName 'yuuser26' -OcrText ($screen + "`n" + $screen.Replace('login: yuuser26', 'login: yuser26')) |
+            Should -BeNullOrEmpty -Because 'the shell, not the echo of the accepted name, says login accepted it'
+    }
+    It 'reports nothing once login accepted a name after the refusal, from the serial console' {
+        # The recorded guest logs no LOGIN ON line; pam_unix's session line for
+        # the login service is what follows a console login it accepted.
+        $serial = (New-LoginSerialText -Refused 'uuser26') +
+            "[   35.086556] login[1401]: pam_unix(login:session): session opened for user yuuser26(uid=1000) by yuuser26(uid=0)`r`n"
+        Get-LoginEchoEvidence -ExpectedName 'yuuser26' -SerialText $serial -OcrText (New-LoginScreenText -Echoed 'uuser26') |
+            Should -BeNullOrEmpty -Because 'the serial console decides, and the screen can still show the recovered refusal'
+    }
+    It 'keeps the refusal when only systemd-user and sudo sessions open after it' {
+        $serial = (New-LoginSerialText -Refused 'uuser26') +
+            "[   35.105333] (systemd)[1557]: pam_unix(systemd-user:session): session opened for user yuuser26(uid=1000) by yuuser26(uid=0)`r`n" +
+            "[  107.020584] sudo[2132]: pam_unix(sudo:session): session opened for user root(uid=0) by yuuser26(uid=1000)`r`n"
+        $echo = Get-LoginEchoEvidence -ExpectedName 'yuuser26' -SerialText $serial
+        $echo.received | Should -BeExactly 'uuser26'
+        $echo.source | Should -Be 'serial'
+    }
+    It 'names a lost-keystroke refusal that follows an accepted login' {
+        $serial = "[   35.086556] login[1401]: pam_unix(login:session): session opened for user yuuser26(uid=1000) by yuuser26(uid=0)`r`n" +
+            (New-LoginSerialText -Refused 'uuser26')
+        $echo = Get-LoginEchoEvidence -ExpectedName 'yuuser26' -SerialText $serial
+        $echo.received | Should -BeExactly 'uuser26'
+        $echo.source | Should -Be 'serial'
+        $screen = @(
+            'labguest login: yuuser26'
+            'Password:'
+            'yuuser26@labguest:~$ exit'
+            'labguest login: uuser26'
+            'Password:'
+            ''
+            'Login incorrect'
+            'labguest login:'
+        ) -join "`n"
+        $echo = Get-LoginEchoEvidence -ExpectedName 'yuuser26' -OcrText $screen
+        $echo.received | Should -BeExactly 'uuser26'
+        $echo.source | Should -Be 'ocr'
+    }
+    It 'still names the lost keystroke when one OCR engine misreads Login incorrect' {
+        # A reading that does not show login's answer is no attempt of its own.
+        $first = "labguest login: uuser26`nPassword:`n`nLogin incorrect`nlabguest login:"
+        $second = "labguest login: uuser26`nPassword:`n`nLogm incorrect`nlabguest login:"
+        $echo = Get-LoginEchoEvidence -ExpectedName 'yuuser26' -OcrText ($first + "`n" + $second)
+        $echo.received | Should -BeExactly 'uuser26'
+        $echo.lostLeadingCharacters | Should -Be 1
+    }
+
+    It 'carries the reading into the record and onto the event without reclassifying' {
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'leaf'
+        $f.StepLoginEcho = [ordered]@{ stepInvocationId = 'leaf'; expected = 'yuuser26'; received = 'uuser26'; source = 'serial'; lostLeadingCharacters = 1 }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $echo = $r.File.context.causeDetail.loginEcho
+        $echo.expected | Should -BeExactly 'yuuser26'
+        $echo.received | Should -BeExactly 'uuser26'
+        $echo.source | Should -Be 'serial'
+        $echo.lostLeadingCharacters | Should -Be 1
+        $echo.Contains('stepInvocationId') | Should -BeFalse -Because 'the record names its step once, at its top level'
+        $r.Event.causeLoginEcho | Should -BeExactly 'uuser26 for yuuser26 (serial, 1 leading lost)'
+        $r.File.failureClass | Should -Be 'ocr_timeout' -Because 'the echo is evidence for the reader, not a reclassification'
+        $r.Event.failureClass | Should -Be 'ocr_timeout'
+        @($r.File.suggestedRecoveries) | Should -Be @('reconnect') -Because 'the recovery the verb registers is unchanged'
+        $violations = Test-CycleEventSchema -Record $r.Event
+        @($violations).Count | Should -Be 0 -Because "the event still validates; got: $($violations -join '; ')"
+    }
+    It 'leaves the leading count out of the summary when the name is no suffix' {
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'leaf'
+        $f.StepLoginEcho = [ordered]@{ stepInvocationId = 'leaf'; expected = 'yuuser26'; received = 'yuser26'; source = 'ocr'; lostLeadingCharacters = $null }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $r.Event.causeLoginEcho | Should -BeExactly 'yuser26 for yuuser26 (ocr)'
+        $null -eq $r.File.context.causeDetail.loginEcho.lostLeadingCharacters | Should -BeTrue
+    }
+    It 'keeps a retried attempt''s reading for the record its wrapper writes' {
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'wrapper'
+        $f.OriginatingStepInvocationId = 'leaf'
+        $f.OriginatingSequenceInvocationId = 'nested'
+        $f.StepLoginEcho = [ordered]@{ stepInvocationId = 'leaf'; expected = 'yuuser26'; received = 'uuser26'; source = 'ocr'; lostLeadingCharacters = 1 }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $r.File.context.causeDetail.loginEcho.received | Should -BeExactly 'uuser26'
+        $r.Event.causeLoginEcho | Should -BeExactly 'uuser26 for yuuser26 (ocr, 1 leading lost)'
+    }
+    It 'drops a reading another step left behind' {
+        $f = Reset-FailState
+        $f.LastFailedStepInvocationId = 'leaf'
+        $f.StepLoginEcho = [ordered]@{ stepInvocationId = 'earlier'; expected = 'yuuser26'; received = 'uuser26'; source = 'ocr'; lostLeadingCharacters = 1 }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $r.File.context.causeDetail.loginEcho | Should -BeNullOrEmpty
+        $r.Event.causeLoginEcho | Should -Be ''
+    }
+    It 'keeps the field present and null when nothing was read' {
+        [void](Reset-FailState)
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 13
+        $r.File.context.causeDetail.Contains('loginEcho') | Should -BeTrue
+        $r.File.context.causeDetail.loginEcho | Should -BeNullOrEmpty
+        $r.Event.causeLoginEcho | Should -Be ''
     }
 }
 
@@ -391,7 +683,7 @@ Describe 'New-SequenceFailureRecord actionability enrichment (step)' {
         $r.File.context.causeDetail.Contains('guestKernelStallEnd') | Should -BeTrue -Because 'the field is always present, so absence never reads as a missing producer'
         $r.File.context.causeDetail.guestKernelStallEnd | Should -BeNullOrEmpty
     }
-    It 'says why a wait ended on a display that stopped presenting frames, keeps the class of the failed wait, and says nothing for any other wait' {
+    It 'files a display-stall end under its own class and keeps the driver evidence' {
         $f = Reset-FailState
         $f.WaitForTextDisplayStallEnd = [ordered]@{ driver = 'hyperv_drm'; reports = 16; firstUptimeSeconds = 71.097; lastUptimeSeconds = 145.849
             spanSeconds = 74.752; newestRecordUptimeSeconds = 145.849; consoleUnchangedSeconds = 30; text = 'hyperv_drm x: [drm] *ERROR* flip_done timed out'; waitedSeconds = 95 }
@@ -403,11 +695,23 @@ Describe 'New-SequenceFailureRecord actionability enrichment (step)' {
         $end.spanSeconds | Should -Be 74.752
         $end.consoleUnchangedSeconds | Should -Be 30
         $end.waitedSeconds | Should -Be 95
-        $r.File.failureClass | Should -Be 'ocr_timeout' -Because 'a display stall is no kernel fault and keeps the class of the wait it ended'
+        $r.File.failureClass | Should -BeExactly 'guest_display_stalled'
+        $r.Event.failureClass | Should -BeExactly 'guest_display_stalled'
+        $r.File.docUrl | Should -BeLike '*#failure-class-guest_display_stalled'
+        @($r.File.suggestedRecoveries) | Should -Be @('restart_from_snapshot', 'pause_and_inspect')
+        @(Test-CycleEventSchema -Record $r.Event).Count | Should -Be 0
         [void](Reset-FailState)
         $r = New-SequenceFailureRecord -Reason step -VMName v -GuestKey g -HostType h -SequencePath $script:seqPath -LogDir d
         $r.File.context.causeDetail.Contains('guestDisplayStallEnd') | Should -BeTrue -Because 'the field is always present, so absence never reads as a missing producer'
         $r.File.context.causeDetail.guestDisplayStallEnd | Should -BeNullOrEmpty
+        $r.File.failureClass | Should -BeExactly 'ocr_timeout'
+    }
+    It 'keeps an explicit guest failure ahead of a display-stall end' {
+        $f = Reset-FailState
+        $f.WaitForTextDisplayStallEnd = @{ driver = 'hyperv_drm'; reports = 8 }
+        $f.WaitForTextMatchedFailurePattern = 'FAILED'
+        $r = New-SequenceFailureRecord -Reason step -VMName v -GuestKey g -HostType h -SequencePath $script:seqPath -LogDir d
+        $r.File.failureClass | Should -BeExactly 'pattern_matched_failure'
     }
     It 'carries sequenceName, reason, classificationSource and a repro block' {
         [void](Reset-FailState)
@@ -769,6 +1073,55 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
         Assert-True ($r.File.context.causeDetail.Contains('aptIndexMismatch')) 'the field must always be present'
         Assert-True ($null -eq $r.File.context.causeDetail.aptIndexMismatch) 'and null without a mismatch'
         Assert-Equal -Expected '' -Actual $r.Event.causeAptIndexMismatch
+    }
+
+    It 'records an apt-get update the per-attempt bound killed beside the matched sentinel, keeping the class' {
+        $f = Reset-FailState
+        $f.WaitForTextMatchedFailurePattern = 'NONZERO SCRIPT EXIT:'
+        $summary = 'attempt 1,2 of 2 killed at 300s (rc=124) via 192.0.2.10:3128; pending archive.ubuntu.com/ubuntu resolute-backports'
+        $f.StepAptUpdateStall = [ordered]@{ stalledAttempts = [int[]]@(1, 2); maxAttempts = 2; boundSeconds = 300; rc = 124
+            server = '192.0.2.10:3128'; pendingSources = [string[]]@('archive.ubuntu.com/ubuntu resolute-backports')
+            failedSources = [string[]]@(); summary = $summary }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass -Because 'the stall is a cause field, not a class'
+        Assert-Equal -Expected 'pause_and_inspect' -Actual (@($r.File.suggestedRecoveries) -join ',')
+        $stall = $r.File.context.causeDetail.aptUpdateStall
+        Assert-Equal -Expected 300 -Actual $stall.boundSeconds
+        Assert-Equal -Expected '192.0.2.10:3128' -Actual $stall.server
+        Assert-Equal -Expected 'archive.ubuntu.com/ubuntu resolute-backports' -Actual (@($stall.pendingSources) -join '|')
+        Assert-Equal -Expected $summary -Actual $r.Event.causeAptUpdateStall
+        $violations = Test-CycleEventSchema -Record $r.Event
+        Assert-Equal -Expected 0 -Actual (@($violations).Count) -Because "the event must validate; got: $($violations -join '; ')"
+    }
+
+    It 'types the apt-get update stall and the nested run in the cycle-event schema descriptor' {
+        $typed = (Get-CycleEventSchemaDescriptor).TypedField
+        Assert-Equal -Expected 'string' -Actual $typed['causeAptUpdateStall'] -Because 'the field must be typed by the validator, not merely tolerated as an unknown key'
+        Assert-Equal -Expected 'string' -Actual $typed['nestedNode'] -Because 'the field must be typed by the validator, not merely tolerated as an unknown key'
+    }
+
+    It 'leaves the apt-get update stall empty when no bound killed one' {
+        $null = Reset-FailState
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-True ($r.File.context.causeDetail.Contains('aptUpdateStall')) 'the field must always be present'
+        Assert-True ($null -eq $r.File.context.causeDetail.aptUpdateStall) 'and null without a stall'
+        Assert-Equal -Expected '' -Actual $r.Event.causeAptUpdateStall
+    }
+
+    It 'names the nested run a stage''s record was written in, and none for a top-level run' {
+        # Lab stages share one VM name and one start sequence; only the nested
+        # run's folder says which stage it was.
+        $null = Reset-FailState
+        $saved = Save-YurunaTestGlobal -Name '__YurunaCycleFolder', '__YurunaCycleIdentity'
+        try {
+            Set-YurunaTestGlobal -Remove '__YurunaCycleIdentity' -Value @{
+                __YurunaCycleFolder = (Join-Path $TestDrive 'cycle' -AdditionalChildPath 'nested', 'initialize-lab_workload.guest.ubuntu.server.24.lab-core.deploy') }
+            $nested = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+            Assert-Equal -Expected 'initialize-lab_workload.guest.ubuntu.server.24.lab-core.deploy' -Actual $nested.File.context.nestedNode
+            Set-YurunaTestGlobal -Value @{ __YurunaCycleFolder = (Join-Path $TestDrive 'cycle') }
+            $top = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+            Assert-Equal -Expected '' -Actual $top.File.context.nestedNode
+        } finally { Restore-YurunaTestGlobal -Saved $saved }
     }
 
     It 'leaves the flood field empty, not absent, on an ordinary failure' {
@@ -1263,6 +1616,25 @@ Describe 'A wait that ended on a wedged guest kernel' {
         $f = Reset-FailState
         $f.StepProgressAdvisory = Get-GuestProgressAdvisory -SshResponsiveness responsive -ClockWarningCodes @('cpu-idle-exceeds-boot-uptime')
         (New-StalledRecord).File.failureClass | Should -BeExactly 'ocr_timeout' -Because 'a clock that jumped is never a stall signal on its own'
+    }
+    It 'names a processor silent for less than the verdict needs without changing the class' {
+        # A short screen wait on a one-processor guest that stopped servicing
+        # interrupts 90 seconds before the wait gave up.
+        $f = Reset-FailState
+        $verdict = New-LivelockVerdict -VirtualProcessors 1
+        $verdict.Verdict = 'not-livelocked'
+        $verdict.LivelockedSeconds = 90
+        $verdict.ProcessorWindow = [pscustomobject]@{ StormedProcessors = @('0'); NoInterruptsServicedProcessors = @()
+            Processors = @([pscustomobject]@{ Processor = '0'; Stormed = $true; NoInterruptsServicedSeconds = 90 }) }
+        $f.WaitForTextGuestLivelock = $verdict
+        $summary = Get-GuestProcessorWindowSummary -LivelockVerdict $verdict
+        $f.StepProgressAdvisory = Get-GuestProgressAdvisory -OutputStaticSeconds 87 -NoInterruptsServicedSeconds $summary.longestNoInterruptsServicedSeconds
+        $r = New-StalledRecord
+        $r.File.failureClass | Should -BeExactly 'ocr_timeout' -Because 'naming the silent processor reclassifies nothing'
+        @($r.File.suggestedRecoveries) | Should -Be @('reconnect')
+        $r.File.context.causeDetail.progressAdvisory.verdict | Should -BeExactly 'no-stall-evidence'
+        $r.File.context.causeDetail.progressAdvisory.signals | Should -Contain 'no-interrupts-serviced'
+        $r.Event.progressAdvisory.noInterruptsServicedSeconds | Should -Be 90
     }
 }
 

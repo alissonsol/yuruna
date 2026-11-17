@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42697c34-7060-4995-8ce1-baeb7bd4bbd6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -435,7 +435,9 @@ Describe 'Get-PoolStorageSudoSpec (shared rule/file spec)' {
         $grants = @(($spec.Rule -replace '^ytest ALL=\(root\) NOPASSWD: ', '') -split '(?<!\\), ')
         $grants | Should -Contain '/usr/bin/mkdir -p /mnt/yuruna.pool'
         $grants | Should -Contain '/usr/bin/umount /mnt/yuruna.stash'
-        @($grants | Where-Object { $_ -like '/usr/bin/mount -t cifs //192.168.1.10/pool /mnt/yuruna.pool -o credentials\=/home/ytest/yuruna/test/status/runtime/poolstorage.*.cifs.cred\,vers\=3.0\,uid\=1000\,gid\=1001\,iocharset\=utf8\,nofail' }) | Should -HaveCount 1
+        $credentialFile = Join-Path $script:SudoArgs.RuntimeDirectory 'poolstorage.*.cifs.cred'
+        $credentialFile = $credentialFile -replace '([\\,:=])', '\$1'
+        @($grants | Where-Object { $_ -like "/usr/bin/mount -t cifs //192.168.1.10/pool /mnt/yuruna.pool -o credentials\=$credentialFile\,vers\=3.0\,uid\=1000\,gid\=1001\,iocharset\=utf8\,nofail" }) | Should -HaveCount 1
         foreach ($bare in @('/usr/bin/mkdir', '/usr/bin/mount', '/usr/bin/umount')) {
             $grants | Should -Not -Contain $bare -Because 'a bare binary grant lets the account mount anything anywhere'
         }

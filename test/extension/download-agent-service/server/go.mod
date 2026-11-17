@@ -5,7 +5,7 @@ module download-agent-service
 
 go 1.25.0
 
-toolchain go1.27.2
+toolchain go1.27.4
 
 require yuruna.com/test/extension/extension-sdk v0.0.0
 

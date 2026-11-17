@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42c1c329-52af-4255-9e3b-0caf47235605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,7 +138,7 @@ function Register-SequenceAction {
             'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
             'host_network_degraded','ip_not_discovered','payload_unavailable',
             'pool_storage_full','dhcp_identity_unbounded','lab_dependency_down','input_lost','hypervisor_unresponsive','source_integrity',
-            'vm_not_stopped','guest_run_lost','guest_kernel_stalled','unknown')]
+            'vm_not_stopped','guest_run_lost','guest_kernel_stalled','guest_display_stalled','unknown')]
         [string]$FailureClass = 'unknown',
         [ValidateSet('hard','soft','unknown')]
         [string]$Severity = 'unknown',

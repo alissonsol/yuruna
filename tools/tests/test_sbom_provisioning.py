@@ -420,6 +420,68 @@ Write-Warning 'Run: apt-get install warning-only'
         self.assertEqual((rows[0]["ecosystem"], rows[0]["group"]), ("apt", "yuruna:hosts:ubuntu-kvm"))
         self.assertEqual({item["path"] for item in rows[0]["evidence"]}, {path})
 
+    def test_multiline_powershell_argument_arrays_keep_packages_and_source_lines(self):
+        path = "host/ubuntu.kvm/modules/Yuruna.Host.Example.psm1"
+        result = self.collect(**{path: """Invoke-Native -ArgumentList @(
+    'apt-get',
+    'install', # The package list continues without a backtick.
+    '-y', 'samba',
+    'cifs-utils')
+Write-Warning @(
+    'apt-get', 'install', 'advice-only')
+$reason = @(
+    'apt-get install quoted-advice (only)')
+Invoke-Native -ArgumentList @(
+    'apt-get', $verb, 'dynamic-action')
+"""})
+        self.assertEqual(self.names(result, "hosts"), {"samba", "cifs-utils"})
+        self.assertTrue(all(row["ecosystem"] == "apt" for row in result["hosts"]))
+        self.assertTrue(all(row["evidence"][0]["line"] == 1 for row in result["hosts"]))
+        self.assertFalse(result["guests"])
+        self.assertFalse(result["coverage"])
+
+    def test_multiline_install_keeps_conditional_array_appends_and_dynamic_coverage(self):
+        result = self.collect(**{"install/storage.ps1": """$missing = @()
+foreach ($pkg in @('samba', 'cifs-utils')) {
+    if ($needsInstall) { $missing += $pkg }
+}
+Invoke-Native -ArgumentList (@(
+    'env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y') + $missing)
+Invoke-Native -ArgumentList @(
+    'apt-get', 'install') + $externalPackages
+"""})
+        self.assertEqual(self.names(result, "hosts"), {"samba", "cifs-utils"})
+        self.assertTrue(all(row["evidence"][0]["line"] == 5 for row in result["hosts"]))
+        self.assertTrue(any("unresolved package expression $externalPackages" in note["detail"]
+                            for note in result["coverage"]))
+        self.assertTrue(all(note["line"] == 7 for note in result["coverage"]))
+
+    def test_local_lab_storage_optional_packages_are_inventoried(self):
+        path = "test/modules/Test.LocalLabStorage.psm1"
+        source = (MODULE_PATH.parents[1] / path).read_bytes()
+        result = MODULE.collect_provisioning({path: source}, "yuruna")
+        rows = [row for row in result["hosts"] if row["ecosystem"] == "apt"]
+        self.assertEqual({row["name"] for row in rows}, {"samba", "cifs-utils"})
+        install_line = next(number for number, line in enumerate(source.decode().splitlines(), 1)
+                            if "-ArgumentList (@(" in line)
+        for row in rows:
+            self.assertEqual(row["group"], "yuruna:hosts:shared-or-configured")
+            self.assertEqual([(item["path"], item["line"]) for item in row["evidence"]], [(path, install_line)])
+            self.assertNotIn("version", row)
+        self.assertFalse(result["guests"])
+
+    def test_argument_array_appends_do_not_expand_member_or_index_expressions(self):
+        for suffix in (".Count", "[0]", ".ToArray()"):
+            with self.subTest(suffix=suffix):
+                result = self.collect(**{"install/storage.ps1":
+                    "$packages = @('samba', 'cifs-utils')\n"
+                    "Invoke-Native -ArgumentList @('apt-get', 'install') + $packages" + suffix + "\n"})
+                self.assertFalse(result["hosts"])
+                self.assertFalse(result["guests"])
+                self.assertTrue(result["coverage"])
+                self.assertTrue(all(note["status"] == "unresolved" and note["line"] == 2
+                                    for note in result["coverage"]))
+
 
 # --- REGION: SBOM
 class SbomHookTests(unittest.TestCase):

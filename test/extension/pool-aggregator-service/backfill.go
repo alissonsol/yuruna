@@ -44,7 +44,7 @@ const (
 	defaultBackfillHostConcurrency = 4
 	defaultBackfillCyclesPerMinute = 120
 	// A cycle that ended this recently may still be on its way to Loki through the
-	// collector, which polls every 15s; the backfill leaves it to the collector.
+	// collector, which polls every 30s by default; the backfill leaves it to the collector.
 	defaultBackfillSettle = 30 * time.Minute
 	// A cycle that fails this many attempts in a row is left alone until its
 	// host's state file is removed.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -305,8 +305,22 @@ function Invoke-WorkloadToolDeployment {
         $text = (@($info.Output) | ForEach-Object { [string]$_ }) -join "`n"
         return ($text -match $transientPattern)
     }.GetNewClosure()
+    # Only a retried create can complete through AlreadyExists. Every error
+    # must be a bare refusal; mixed errors and terminating objects still fail.
+    # See https://yuruna.link/42e568c8-000c
+    $succeedWhen = $null
+    if ($kind.Name -eq 'kubectl' -and $expression -match '^kubectl\s+create(\s|$)') {
+        $succeedWhen = {
+            param($info)
+            $text = (@($info.Output) | ForEach-Object { [string]$_ }) -join "`n"
+            $errorLine = '^(Error from server\b|error:|error when \w+ "|error (parsing|validating)\b|unable to (decode|recognize|connect to a server)\b|resource mapping not found\b)'
+            $errorLines = @($text -split "`r?`n" | Where-Object { $_ -match $errorLine })
+            $refusal = '\(AlreadyExists\): (error when creating "[^"]*": )?\S+ "[^"]*" already exists\s*$|^error: failed to create \S+( \S+)?:? \S+ "[^"]*" already exists\s*$'
+            return ($errorLines.Count -gt 0 -and @($errorLines | Where-Object { $_ -notmatch $refusal }).Count -eq 0)
+        }
+    }
     $toolSeconds = (Get-YurunaCommandTimeout -Call 'deployment' -Entry $deployment -GlobalVariables $GlobalVariables).Seconds
-    $retry = Invoke-WithYurunaRetry -Label $loggedExpression -ScriptBlock $execBlock -LogPath $toolLogFile -ShouldRetry $shouldRetryTransient -TimeoutSeconds $toolSeconds
+    $retry = Invoke-WithYurunaRetry -Label $loggedExpression -ScriptBlock $execBlock -LogPath $toolLogFile -ShouldRetry $shouldRetryTransient -SucceedWhen $succeedWhen -TimeoutSeconds $toolSeconds
     $output   = $retry.LastOutput
     $toolExit = $retry.LastExit
     Set-Content -LiteralPath $toolRcFile -Value $toolExit -NoNewline
@@ -424,16 +438,9 @@ function Invoke-WorkloadListPublish {
 
         $workFolder = Join-Path -Path $project_root -ChildPath ".yuruna/$config_subfolder/workloads/$contextName"
         $null = New-Item -ItemType Directory -Force -Path $workFolder -ErrorAction SilentlyContinue
-        # Save the operator's active context so the finally below can put the
-        # shell back on it. Capture kubectl's exit code: a broken kubeconfig
-        # makes the read fail, and blindly restoring an empty $originalContext
-        # in the finally would error or clobber the operator's active context,
-        # so gate the restore on a confirmed read.
-        # Every kubectl config call here takes the bound of the phase's kubectl
-        # deployments, so one configured commandTimeoutSeconds covers them too:
-        # a kubeconfig that stops answering (a locked file, an exec plugin
-        # waiting on a prompt) ends the phase as tool_timeout instead of
-        # holding it to the step watchdog.
+        # Restore only a successfully read original context; a failed read must
+        # never overwrite the operator's selection. All context calls are bounded.
+        # See https://yuruna.link/42e568c8-000f
         $contextSeconds = (Get-YurunaCommandTimeout -Call 'deployment' -GlobalVariables $workloadsYaml.globalVariables).Seconds
         $contextOutcome = @{}
         $originalContext = Invoke-YurunaToolWithDeadline -Label 'kubectl config current-context' -TimeoutSeconds $contextSeconds -Outcome $contextOutcome -ScriptBlock { kubectl config current-context 2>$null }

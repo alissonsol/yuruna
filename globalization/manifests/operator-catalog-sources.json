@@ -2905,15 +2905,6 @@
     },
     {
       "path": "automation/Get-SystemDiagnostic.ps1",
-      "line": 3537,
-      "sink": "Write-Output",
-      "key": "automation.operator_80b291736892294d",
-      "arguments": [
-        "count"
-      ]
-    },
-    {
-      "path": "automation/Get-SystemDiagnostic.ps1",
       "line": 3543,
       "sink": "Write-Output",
       "key": "automation.operator_ac55f29eb491874d",

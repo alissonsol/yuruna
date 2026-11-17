@@ -83,14 +83,17 @@ class Workspace:
         self.static = os.path.join(root, 'yuruna-store-id.static.rules')
         self.rules = os.path.join(root, 'yuruna-store-id.rules')
         self.calls = os.path.join(root, 'squid.calls')
-        self.squid = os.path.join(root, 'squid')
+        self.squid = os.path.join(root, 'squid.cmd' if os.name == 'nt' else 'squid')
         with open(self.static, 'w', encoding='utf-8') as handle:
             handle.write(STATIC)
         self.squid_exits(0)
 
     def squid_exits(self, code):
         with open(self.squid, 'w', encoding='utf-8') as handle:
-            handle.write('#!/bin/sh\necho "$@" >> "{0}"\nexit {1}\n'.format(self.calls, code))
+            if os.name == 'nt':
+                handle.write('@echo off\n>>"{0}" echo %*\nexit /b {1}\n'.format(self.calls.replace('%', '%%'), code))
+            else:
+                handle.write('#!/bin/sh\necho "$@" >> "{0}"\nexit {1}\n'.format(self.calls, code))
         os.chmod(self.squid, stat.S_IRWXU)
 
     def write_log(self, *lines, suffix=''):
@@ -232,6 +235,11 @@ class ReleaseAssetLearner(unittest.TestCase):
         self.ws.run()
         leftovers = [name for name in os.listdir(self.temp.name) if name.startswith('.')]
         self.assertEqual(leftovers, [])
+
+    @unittest.skipIf(os.name == 'nt', 'Windows stat does not expose POSIX file permissions')
+    def test_rules_file_has_the_expected_posix_permissions(self):
+        self.ws.write_log(log_line('1794126603.577', '302', RELEASE, CDN))
+        self.ws.run()
         self.assertEqual(stat.S_IMODE(os.stat(self.ws.rules).st_mode), 0o644)
 
 

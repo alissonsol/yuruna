@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -199,7 +199,7 @@ try {
     }
 
     $AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
-        -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
+        -replace 'COMPUTERNAME_PLACEHOLDER', (Resolve-YurunaWindowsComputerName -Name $VMName) `
         -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $_utmBootstrap.EncodedCommand
     Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
 

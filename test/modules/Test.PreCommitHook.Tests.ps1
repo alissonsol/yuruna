@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42cf4f7f-3c33-488c-8cc6-1cb70b8f8836
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,10 @@ $script:EmptyGitConfig = Join-Path $TestDrive 'empty-gitconfig'
 $env:GIT_CONFIG_GLOBAL = $script:EmptyGitConfig
 $env:GIT_CONFIG_NOSYSTEM = '1'
 $env:YURUNA_TRANSLATE = $null
+# Reuse the shared helper's initial settings without repeating its Git process
+# starts. Every case receives ordinary independent files, never shared objects.
+$script:FixtureTemplate = Join-Path $TestDrive 'unborn-git-template'
+$null = New-YurunaTestGitRepository -Path $script:FixtureTemplate
 # The drafter is private; its path is assembled so this public file never
 # names it as one string.
 $script:DrafterRelative = 'dev-only' + '/' + 'New-Translation.ps1'
@@ -59,6 +63,20 @@ function Write-FixtureFile {
 function Invoke-FixtureGit {
     param([Parameter(Mandatory)][string]$Repository, [Parameter(Mandatory)][string[]]$Argument)
     return @(Invoke-YurunaTestGit -Path $Repository -Argument $Argument)
+}
+
+function Initialize-FixtureRepository {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Copies only a pristine fixture repository into TestDrive.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path, [switch]$AddExisting)
+    [void][IO.Directory]::CreateDirectory($Path)
+    Copy-Item -LiteralPath (Join-Path $script:FixtureTemplate '.git') -Destination (Join-Path $Path '.git') -Recurse
+    $null = Invoke-FixtureGit -Repository $Path -Argument @('config', 'core.hooksPath', (Join-Path $Path '.git/yuruna-no-hooks'))
+    if ($AddExisting) {
+        $null = Invoke-FixtureGit -Repository $Path -Argument @('add', '-A')
+        $null = Invoke-FixtureGit -Repository $Path -Argument @('commit', '--quiet', '--allow-empty', '-m', 'seed')
+    }
 }
 
 # A stub records its name and arguments, then does what its behavior says. The
@@ -151,7 +169,7 @@ exit 0
     # The seed commits run with hooks pointed at the helper's empty directory;
     # only then does the root get the commit hook under test.
     foreach ($repository in $root, $project) {
-        $null = New-YurunaTestGitRepository -Path $repository -AddExisting -CommitMessage 'seed'
+        Initialize-FixtureRepository -Path $repository -AddExisting
     }
     $null = Invoke-FixtureGit -Repository $root -Argument @('config', 'core.hooksPath', 'tools/githooks')
     return @{ Base = $base; Root = $root; Project = $project; Log = (Join-Path $base 'tool-calls.jsonl') }
@@ -595,7 +613,7 @@ Describe 'encoding gate file discovery and bounded BOM reads' {
 function Get-EntryPointExitCode { param($Outcome) if ($Outcome -eq 'Ok') { 0 } else { 1 } }
 Export-ModuleMember -Function Get-EntryPointExitCode
 '@
-            $null = New-YurunaTestGitRepository -Path $root
+            Initialize-FixtureRepository -Path $root
             return $root
         }
         function Invoke-EncodingFixture {
@@ -694,5 +712,38 @@ Export-ModuleMember -Function Get-EntryPointExitCode
         $run.Code | Should -Be 0 -Because $run.Text
         $exclusive = [IO.File]::Open($file, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
         $exclusive.Dispose()
+    }
+}
+
+Describe 'independent copied repository fixtures' {
+    It 'isolates configuration, index, objects and history from another copy and the template' {
+        $templateConfig = [IO.File]::ReadAllText((Join-Path $script:FixtureTemplate '.git/config'))
+        $first = Join-Path $TestDrive 'isolated-first'
+        $second = Join-Path $TestDrive 'isolated-second'
+        foreach ($repository in $first, $second) {
+            Write-FixtureFile -Path (Join-Path $repository 'README.md') -Text "seed`n"
+            Initialize-FixtureRepository -Path $repository -AddExisting
+            (Invoke-FixtureGit -Repository $repository -Argument @('config', 'core.hooksPath')) | Should -Be (Join-Path $repository '.git/yuruna-no-hooks')
+            (Invoke-FixtureGit -Repository $repository -Argument @('var', 'GIT_AUTHOR_IDENT')) | Should -Match '^fixture <fixture@example\.invalid>'
+        }
+        $head = Invoke-FixtureGit -Repository $second -Argument @('rev-parse', 'HEAD')
+        $index = (Get-FileHash -LiteralPath (Join-Path $second '.git/index')).Hash
+        $secondConfig = [IO.File]::ReadAllText((Join-Path $second '.git/config'))
+        $null = Invoke-FixtureGit -Repository $first -Argument @('config', 'fixture.ownership', 'first')
+        Write-FixtureFile -Path (Join-Path $first 'README.md') -Text "only in the first fixture`n"
+        $null = Invoke-FixtureGit -Repository $first -Argument @('add', '-A')
+        (Invoke-FixtureGit -Repository $first -Argument @('diff', '--cached', '--name-only')) | Should -Be 'README.md'
+        (Invoke-FixtureGit -Repository $second -Argument @('diff', '--cached', '--name-only')) | Should -BeNullOrEmpty
+        (Get-FileHash -LiteralPath (Join-Path $second '.git/index')).Hash | Should -Be $index
+        $null = Invoke-FixtureGit -Repository $first -Argument @('commit', '--quiet', '-m', 'first only')
+        $changedHead = [string](Invoke-FixtureGit -Repository $first -Argument @('rev-parse', 'HEAD'))
+        $changedHead | Should -Not -Be $head
+        (Invoke-FixtureGit -Repository $second -Argument @('rev-parse', 'HEAD')) | Should -Be $head
+        (Join-Path $second ('.git/objects/' + $changedHead.Substring(0, 2) + '/' + $changedHead.Substring(2))) | Should -Not -Exist
+        [IO.File]::ReadAllText((Join-Path $second '.git/config')) | Should -BeExactly $secondConfig
+        [IO.File]::ReadAllText((Join-Path $script:FixtureTemplate '.git/config')) | Should -BeExactly $templateConfig
+        (Join-Path $script:FixtureTemplate '.git/index') | Should -Not -Exist
+        (Join-Path $script:FixtureTemplate '.git/refs/heads/main') | Should -Not -Exist
+        @(Get-ChildItem -LiteralPath (Join-Path $script:FixtureTemplate '.git/objects') -File -Recurse).Count | Should -Be 0
     }
 }

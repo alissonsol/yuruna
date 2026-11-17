@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42dc2c8b-375c-4869-8113-cd1b1b7a0e53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -791,7 +791,8 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
 '@
         $helpers = (Get-FunctionSource 'Get-GuiFetchExecutionInput') + "`n" + (Get-FunctionSource 'Resolve-SequenceCharDelay') + "`n" + (Get-FunctionSource 'Test-GuiFetchInputStalled') + "`n" + (Get-FunctionSource 'Get-GuiFetchPayloadState') +
             "`n" + (Get-FunctionSource 'Get-GuiFetchEnvelopeTransfer') + "`n" + (Get-FunctionSource 'Get-GuiFetchRejection') +
-            "`n" + (Get-FunctionSource 'Get-GuiFetchGuardAnswer') + "`n" + (Get-FunctionSource 'Confirm-GuiFetchSubmission')
+            "`n" + (Get-FunctionSource 'Get-GuiFetchGuardAnswer') + "`n" + (Get-FunctionSource 'Confirm-GuiFetchSubmission') +
+            "`n" + (Get-FunctionSource 'Get-GuestAptUpdateStall')
         $script:handlerModule = New-Module -ScriptBlock ([scriptblock]::Create(
             $fixture + "`n" + $helpers + "`nfunction Invoke-TestUtmProvider $provider`nfunction Invoke-TestHandler $handler"))
         # The handler presses keys through the engine by its module-qualified
@@ -995,6 +996,26 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
             $script:Fail.StepInputLost | Should -BeNullOrEmpty
             $script:sshCalls | Should -HaveCount 0
         }
+    }
+
+    It 'records the apt-get update stall the screen shows when the wait fails, and only then' {
+        # The screen's tail as a failed update.sh left it: OCR dropped the
+        # underscore, and an Err line with the proxy's address scrolled into view.
+        $tail = "Err:2 http://security.ubuntu.com/ubuntu resolute-security InRelease`n  Connection failed [IP: 192.0.2.10 3128]`n" +
+            "I aptretry: attempt 2/2 stalled; killed by the 300s per-attempt bound (rc=124): sudo env DEBIAN_FRONTEND=noninteractive apt-get unde`n" +
+            "NONZERO SCRIPT EXIT`nguest/shared/ubuntu.update.sh (exit 124"
+        & $script:handlerModule { param($t) $script:waitResult = $false; $script:matchedPattern = 'NONZERO SCRIPT EXIT:'; $script:Fail.WaitForTextOcrTail = $t } $tail
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeFalse
+        & $script:handlerModule {
+            $script:Fail.StepAptUpdateStall.summary | Should -BeExactly 'attempt 2 of 2 killed at 300s (rc=124)'
+            # A host name or address read off the screen can be damaged, so the
+            # sources wait for the guest's own log.
+            $script:Fail.StepAptUpdateStall.server | Should -BeExactly ''
+            $script:Fail.StepAptUpdateStall.failedSources | Should -HaveCount 0
+        }
+        & $script:handlerModule { param($t) $script:waitResult = $true; $script:Fail.WaitForTextOcrTail = $t } $tail
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeTrue
+        & $script:handlerModule { $script:Fail.StepAptUpdateStall | Should -BeNullOrEmpty -Because 'a step that completed leaves no stall reading behind' }
     }
 
     It 'types a compact envelope once more after the launcher refused it as damaged and nothing ran' {

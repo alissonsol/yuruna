@@ -68,9 +68,9 @@ func statusForOutcome(outcome, reason string) string {
 //
 // A file with no cycle_end belongs to a cycle whose process was killed: the
 // runner records such a cycle as failed, and its last event is the last moment
-// anything was known about it. Event lines without a timestamp of their own (the
-// orchestrator's step.start and step.end) take the previous event's, so a replay
-// of the same file always produces the same Loki entries.
+// anything was known about it. Event lines without a timestamp of their own
+// (step.start and step.end from an older runner) take the previous event's, so
+// a replay of the same file always produces the same Loki entries.
 func reconstructCycle(cf cycleFolder, data []byte) cycleRecord {
 	rec := cycleRecord{Start: cf.Start}
 	var cycleStart, endAt, outcome, reason, lastClass string

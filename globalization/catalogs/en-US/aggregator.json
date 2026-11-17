@@ -1029,11 +1029,11 @@
       }
     },
     "aggregator.log_loki_outbox_full": {
-      "message": "Loki outbox is full ({lines} lines); new lines are refused until Loki takes some",
+      "message": "Loki outbox is full ({pushes} queued pushes; the limits are DefaultMaxItems and DefaultMaxBytes in internal/loki/outbox.go); new lines are refused until Loki takes some",
       "description": "Aggregator operator diagnostic log. Machine tokens and argument formatting stay unchanged.",
       "lifecycle": "active",
       "placeholders": {
-        "lines": {
+        "pushes": {
           "type": "detail",
           "trust": "external",
           "example": "value"

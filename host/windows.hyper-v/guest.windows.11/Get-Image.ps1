@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a337f9-dcb7-4dfa-9c51-9ddba462035e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,8 +67,8 @@ $baseImageName      = "host.windows.hyper-v.guest.windows.11"
 $defaultDownloadDir = "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks"
 
 # See https://yuruna.link/429f3d06-008c
-$fidoUrl        = "https://raw.githubusercontent.com/pbatard/Fido/v1.71/Fido.ps1"
-$fidoSha256     = "6481e40d3cf100c79b281942d0d1c7f6d111397be296fec867a56cbe368ebdf9"
+$fidoUrl        = "https://raw.githubusercontent.com/pbatard/Fido/v1.72/Fido.ps1"
+$fidoSha256     = "89a26b4a8be2721e610ba3f563ec44024e6cf7975938ee5b61d624d2bfbf4643"
 $languageFilter = "English"
 
 # Fido is external code on its own release cadence, never enlistment content: a

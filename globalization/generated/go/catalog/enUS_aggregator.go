@@ -412,11 +412,11 @@ const DataenUSaggregator = `{
   "aggregator.log_loki_outbox_full": [
     "Loki outbox is full (",
     {
-      "arg": "lines",
+      "arg": "pushes",
       "type": "detail",
       "trust": "external"
     },
-    " lines); new lines are refused until Loki takes some"
+    " queued pushes; the limits are DefaultMaxItems and DefaultMaxBytes in internal/loki/outbox.go); new lines are refused until Loki takes some"
   ],
   "aggregator.log_loki_outbox_memory_only": [
     "Loki outbox: ",

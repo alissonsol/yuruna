@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 422b8d9d-ee36-4c20-b920-5d584af0ebff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,5 +175,25 @@ Describe 'cycle_start commit provenance' {
         $rec = @{ timestamp = '2026-01-02T03:04:05Z'; event = 'cycle_start'; gitCommits = 'aa11bb2' }
         $violations = @(Test-CycleEventSchema -Record $rec)
         Assert-True (($violations -join '; ') -match 'gitCommits') 'a scalar gitCommits must be reported'
+    }
+}
+
+Describe 'cycle_start PowerShell provenance' {
+
+    It 'carries the runner''s PowerShell version as $PSVersionTable prints it' {
+        $fx = New-CycleStartFixture
+        try {
+            $null = Start-LogFile -TestRoot $fx.Root -CycleStartUtc '2026-01-02T03:04:05Z' -Hostname 'fixture-host' -CycleNumber 7 -Confirm:$false
+            $rec = Get-EmittedCycleStart -Root $fx.Root
+            Assert-StringEqual -Expected ([string]$PSVersionTable.PSVersion) -Actual ([string]$rec.runnerPowerShellVersion) 'the release that ran the cycle'
+            Assert-True ($rec.runnerPowerShellVersion -is [string]) 'the version is text, as a reader compares it'
+        } finally { Restore-CycleStartFixture -Fixture $fx }
+    }
+
+    It 'types runnerPowerShellVersion as a string in the cycle-event schema' {
+        $descriptor = Get-CycleEventSchemaDescriptor
+        Assert-Equal -Expected 'string' -Actual $descriptor.TypedField['runnerPowerShellVersion'] -Because 'the field must be typed by the validator, not merely tolerated as an unknown key'
+        $violations = @(Test-CycleEventSchema -Record @{ timestamp = '2026-01-02T03:04:05Z'; event = 'cycle_start'; runnerPowerShellVersion = 7 })
+        Assert-True (($violations -join '; ') -match 'runnerPowerShellVersion') 'a version that is not text must be reported'
     }
 }

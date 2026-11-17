@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42430431-3a59-45e7-9caa-8e653f023904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,6 +133,39 @@ Describe 'Invoke-Remediation persists last_remediation.json' {
     }
 }
 
+Describe 'Invoke-Remediation carries the last guest retry that gave up during the failed step' {
+    It 'lifts causeDetail.retryExhausted onto the remediation_recommended event, and leaves it off a record without one' {
+        Import-Module (Join-Path $here 'Test.EventSchema.psm1') -Force -DisableNameChecking
+        # The module resolves the sink from the global command table; the
+        # collector closes over the list instead of a global variable.
+        $events = [System.Collections.Generic.List[object]]::new()
+        Set-Item -Path Function:global:Send-CycleEventSafely -Value ({ param($EventRecord) $events.Add($EventRecord) }.GetNewClosure())
+        try {
+            $retry = [ordered]@{ label = 'curl_retry'; outcome = 'exhausted'; url = 'https://github.com/example-org/example-tool/releases/download/v1.2.3/tool.tar.gz'
+                httpStatus = 504; rc = 22; attempts = 31; maxAttempts = 31; windowSeconds = 1800; elapsedSeconds = 1812
+                atSeconds = 900.389; logEndSeconds = 2400.289 }
+            $null = Invoke-Remediation -FailureRecord @{ failureClass = 'pattern_matched_failure'; severity = 'hard'; stepNumber = 12
+                actionVerb = 'fetchAndExecute'; context = @{ causeDetail = @{ ocrTail = 'giving up'; retryExhausted = $retry } } }
+            $null = Invoke-Remediation -FailureRecord @{ failureClass = 'pattern_matched_failure'; severity = 'hard'; stepNumber = 12
+                actionVerb = 'fetchAndExecute'; context = @{ causeDetail = @{ ocrTail = 'no retry gave up' } } }
+            $emitted = @($events | Where-Object { $_.event -eq 'remediation_recommended' })
+            Assert-Equal -Expected 2 -Actual $emitted.Count
+            Assert-Equal -Expected 504 -Actual $emitted[0].causeRetryExhausted.httpStatus -Because 'the event names the status the guest got'
+            Assert-StringEqual -Actual $emitted[0].causeRetryExhausted.url -Expected $retry.url
+            Assert-Equal -Expected 1812 -Actual $emitted[0].causeRetryExhausted.elapsedSeconds
+            Assert-Equal -Expected 900.389 -Actual $emitted[0].causeRetryExhausted.atSeconds
+            Assert-Equal -Expected 2400.289 -Actual $emitted[0].causeRetryExhausted.logEndSeconds -Because 'the stamps tell a retry the step continued past'
+            Assert-False ($emitted[1].Contains('causeRetryExhausted')) 'a record without a retry that gave up carries no such field'
+            foreach ($emit in $emitted) {
+                $violations = @(Test-CycleEventSchema -Record ([hashtable]$emit))
+                Assert-Equal -Expected 0 -Actual $violations.Count -Because "schema violations: $($violations -join '; ')"
+            }
+        } finally {
+            Remove-Item Function:\Send-CycleEventSafely -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Describe 'Invoke-Remediation quotes the fields the producers record' {
     It 'names the switch and its verdict for host_network_degraded' {
         $r = Invoke-Remediation -FailureRecord @{ failureClass = 'host_network_degraded'; severity = 'hard'; hostNetworkSwitch = 'LabBridge'; hostNetworkVerdict = 'no-uplink' }
@@ -189,6 +222,66 @@ Describe 'Invoke-Remediation tells a wedged guest kernel from a stalled mirror' 
     }
 }
 
+# A screen wait can time out on a wedged kernel before the livelock verdict or a
+# kernel-stall end names it; the advice names it, and nothing else changes.
+Describe 'Invoke-Remediation names a wedged kernel behind an ocr_timeout' {
+    BeforeAll {
+        function New-OcrTimeoutRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: returns an in-memory failure record.')]
+            [OutputType([hashtable])]
+            param([string[]]$KernelFaults = @(), [string[]]$SilentProcessors = @())
+            return @{
+                failureClass = 'ocr_timeout'; severity = 'hard'; actionVerb = 'waitForTextWithNudge'; vmName = 'test-guest-01'
+                suggestedRecoveries = @('restart_from_snapshot', 'pause_and_inspect')
+                context = @{ causeDetail = @{
+                    progressAdvisory = @{ verdict = 'no-stall-evidence'; kernelFaults = $KernelFaults }
+                    guestLivelock = @{ verdict = 'not-livelocked'; livelockedSeconds = 0; processorWindow = @{ NoInterruptsServicedProcessors = $SilentProcessors } }
+                } }
+            }
+        }
+    }
+
+    It 'names the processor that serviced no interrupt and keeps the recommendation' {
+        $r = Invoke-Remediation -FailureRecord (New-OcrTimeoutRecord -SilentProcessors @('0'))
+        $r.FailureClass | Should -BeExactly 'ocr_timeout' -Because 'naming the kernel reclassifies nothing'
+        $r.Recommendation | Should -BeExactly 'restart_from_snapshot'
+        $r.Rationale | Should -Match 'test-guest-01'
+        $r.Rationale | Should -Match 'kernel reports: -;'
+        $r.Rationale | Should -Match 'serviced no interrupt: 0\)'
+        $r.Rationale | Should -Not -Match 'diverged from the recorded path'
+        ($r.Actions -join ' ') | Should -Match 'serial-console\.log'
+        ($r.Actions -join ' ') | Should -Match 'docs/host-hyperv\.md'
+    }
+
+    It 'names the kernel''s own reports beside the silent processors' {
+        $r = Invoke-Remediation -FailureRecord (New-OcrTimeoutRecord -KernelFaults @('rcu-stall') -SilentProcessors @('0', '1'))
+        $r.Rationale | Should -Match 'kernel reports: rcu-stall;'
+        $r.Rationale | Should -Match 'serviced no interrupt: 0, 1\)'
+    }
+
+    It 'keeps the diverged-workload advice when no processor went silent, a kernel report alone included' {
+        foreach ($record in @((New-OcrTimeoutRecord), (New-OcrTimeoutRecord -KernelFaults @('rcu-stall')))) {
+            $r = Invoke-Remediation -FailureRecord $record
+            $r.Recommendation | Should -BeExactly 'restart_from_snapshot'
+            $r.Rationale | Should -Match 'diverged from the recorded path'
+            ($r.Actions -join ' ') | Should -Not -Match 'serial-console\.log'
+        }
+    }
+
+    It 'routes an exhausted retry around such a wait the same way' {
+        $record = New-OcrTimeoutRecord -SilentProcessors @('1')
+        $record.failureClass = 'retry_exhausted'
+        $record.innerFailureClass = 'ocr_timeout'
+        $record.innerSeverity = 'hard'
+        $r = Invoke-Remediation -FailureRecord $record
+        $r.FailureClass | Should -BeExactly 'ocr_timeout'
+        $r.RoutedFromFailureClass | Should -BeExactly 'retry_exhausted'
+        $r.Recommendation | Should -BeExactly 'restart_from_snapshot'
+        $r.Rationale | Should -Match 'serviced no interrupt: 1\)'
+    }
+}
+
 # A wedge is filed as guest_kernel_stalled whichever verb was waiting, so the
 # advice cannot depend on the verb the way wait_timeout's does.
 Describe 'Invoke-Remediation names the wedged kernel for guest_kernel_stalled' {
@@ -230,6 +323,26 @@ Describe 'Invoke-Remediation names the wedged kernel for guest_kernel_stalled' {
         $r = Invoke-Remediation -FailureRecord (New-KernelStalledRecord -ActionVerb 'fetchAndExecute' -LivelockedSeconds 345)
         $r.Rationale | Should -Match 'kernel reports: -;'
         $r.Rationale | Should -Match 'held in the hypervisor: 345\)'
+    }
+}
+
+Describe 'Invoke-Remediation names a stalled guest display' {
+    It 'keeps display-stall advice after an exhausted retry and preserves the pause policy' {
+        $r = Invoke-Remediation -FailureRecord @{
+            failureClass = 'retry_exhausted'; severity = 'hard'; actionVerb = 'retry'
+            innerFailureClass = 'guest_display_stalled'; innerSeverity = 'hard'; vmName = 'test-guest-01'
+            context = @{ causeDetail = @{ guestDisplayStallEnd = @{ driver = 'virtio_gpu'; reports = 8 } } }
+        }
+        $r.FailureClass | Should -BeExactly 'guest_display_stalled'
+        $r.RoutedFromFailureClass | Should -BeExactly 'retry_exhausted'
+        $r.Recommendation | Should -BeExactly 'restart_from_snapshot'
+        $r.Rationale | Should -Match 'test-guest-01'
+        $r.Rationale | Should -Match 'virtio_gpu'
+        $r.Rationale | Should -Match '8'
+        ($r.Actions -join ' ') | Should -Match 'guestDisplayStallEnd'
+        ($r.Actions -join ' ') | Should -Match 'serial-console.log'
+        (Get-AutoRemediationAllowList).Keys | Should -Not -Contain 'guest_display_stalled'
+        (Get-FailureClassRoute -FailureClass 'guest_display_stalled').WarmResume | Should -BeFalse
     }
 }
 
@@ -319,8 +432,8 @@ Describe 'Invoke-Remediation routes the infra-stage failure classes' {
         Test-AutoRemediationAllowed -FailureClass 'source_integrity' | Should -BeFalse
     }
     It 'advises a host power-off for vm_not_stopped, not a cold-power-cycle retry the engine refuses around stopVm' {
-        # Test-SequenceColdPowerCyclePolicy admits a cold restart only after a
-        # login-wait timeout, so advice naming that retry sends the operator to
+        # Test-SequenceColdPowerCyclePolicy admits only the first-login flow,
+        # so advice putting stopVm inside that retry sends the operator to
         # a sequence the engine rejects as cold-power-cycle-unsafe-step-shape.
         $r = Invoke-Remediation -FailureRecord @{ failureClass = 'vm_not_stopped'; severity = 'hard'; vmName = 'test-guest-01'; actionVerb = 'stopVm' }
         $r.Recommendation | Should -BeExactly 'retry_with_backoff'

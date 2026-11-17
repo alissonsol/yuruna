@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 426a341c-7627-4ced-878b-96844d5d7165
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -304,7 +304,15 @@ function Publish-ResourceListHelper {
                 # --- REGION: https://yuruna.link/4220a755-0003
                 $retryResult = Invoke-TofuInitWithRetry -ResourceName $resourceName -LogPath $tofuLogFile -RcFile $tofuRcFile -TimeoutSeconds $timeoutBound.Seconds
                 if (-not $retryResult.Success) {
-                    $failure = (Format-YurunaOperatorMessage -Key 'automation.operator_fa548dc8b72a02c6' -Arguments @{ resourceName = "$resourceName"; attempts = "$($retryResult.Attempts)"; lastExit = "$($retryResult.LastExit)"; tofuLogFile = "$tofuLogFile" }) + (Get-TofuStderrTail $tofuLogFile)
+                    # A download tofu named failing is the cause; the registry
+                    # hint is only a guess for an init that named none.
+                    $fetchFailure = $retryResult.FetchFailure
+                    $failure = if ($fetchFailure) {
+                        Format-YurunaOperatorMessage -Key 'automation.tofu_init_fetch_failed' -Arguments @{ resourceName = "$resourceName"; attempts = "$($retryResult.Attempts)"; lastExit = "$($retryResult.LastExit)"; url = "$($fetchFailure.Url)"; reason = "$($fetchFailure.Error)"; tofuLogFile = "$tofuLogFile" }
+                    } else {
+                        Format-YurunaOperatorMessage -Key 'automation.operator_fa548dc8b72a02c6' -Arguments @{ resourceName = "$resourceName"; attempts = "$($retryResult.Attempts)"; lastExit = "$($retryResult.LastExit)"; tofuLogFile = "$tofuLogFile" }
+                    }
+                    $failure += (Get-TofuStderrTail $tofuLogFile)
                     # A call stopped at its deadline throws TimeoutException,
                     # which the phase reports as tool_timeout.
                     if ($retryResult.TimedOut) { throw [System.TimeoutException]::new($failure) }

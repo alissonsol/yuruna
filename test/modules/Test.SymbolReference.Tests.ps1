@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 427504bf-8d60-4048-9647-daa181e19b63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,18 +29,53 @@
 #>
 
 BeforeAll {
+    Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -Global -DisableNameChecking
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $script:Tool = Join-Path $script:RepoRoot 'tools/Test-SymbolReference.ps1'
     $script:Pwsh = (Get-Process -Id $PID).Path
+    function Get-WorkspaceSymbolRoot {
+        param([Parameter(Mandatory)][string]$Repository)
+        $workspace = Split-Path -Parent $Repository
+        $roots = @($Repository)
+        foreach ($sibling in 'yuruna-project', 'amisad.dev', 'yuruna.link') {
+            $candidates = if ($sibling -ceq 'amisad.dev') {
+                @($env:YURUNA_AMISAD_ROOT, (Join-Path $workspace $sibling))
+            } else { @(Join-Path $workspace $sibling) }
+            $selected = $candidates | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ '.git')) } | Select-Object -First 1
+            if ($selected) { $roots += $selected }
+        }
+        return $roots
+    }
 }
 
 Describe 'the repositories name only commands that exist' {
     It 'resolves every command name in the docs and comments of each repository present' {
-        $workspace = Split-Path -Parent $script:RepoRoot
-        $roots = @($script:RepoRoot) + @('yuruna-project', 'amisad.dev', 'yuruna.link' | ForEach-Object { Join-Path $workspace $_ } |
-                Where-Object { Test-Path -LiteralPath (Join-Path $_ '.git') })
+        $roots = @(Get-WorkspaceSymbolRoot -Repository $script:RepoRoot)
         $output = (& $script:Pwsh -NoProfile -NonInteractive -Command "& '$($script:Tool.Replace("'", "''"))' -Root @($(($roots | ForEach-Object { "'" + $_.Replace("'", "''") + "'" }) -join ','))" 2>&1) -join "`n"
         $LASTEXITCODE | Should -Be 0 -Because $output
+    }
+}
+
+Describe 'workspace sibling discovery' {
+    It 'uses an explicit nonadjacent AmisAd checkout and keeps the adjacent fallback' {
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_AMISAD_ROOT'
+        try {
+            $workspace = Join-Path $TestDrive 'workspace'
+            $framework = Join-Path $workspace 'yuruna'
+            $adjacent = Join-Path $workspace 'amisad.dev'
+            $explicit = Join-Path $TestDrive 'outside/amisad.dev'
+            foreach ($path in $framework, $adjacent, $explicit) {
+                $null = New-Item -ItemType Directory -Path (Join-Path $path '.git') -Force
+            }
+            $env:YURUNA_AMISAD_ROOT = $explicit
+            @(Get-WorkspaceSymbolRoot -Repository $framework) | Should -Be @($framework, $explicit)
+            $env:YURUNA_AMISAD_ROOT = Join-Path $TestDrive 'missing'
+            @(Get-WorkspaceSymbolRoot -Repository $framework) | Should -Be @($framework, $adjacent)
+            Remove-Item -LiteralPath Env:YURUNA_AMISAD_ROOT
+            @(Get-WorkspaceSymbolRoot -Repository $framework) | Should -Be @($framework, $adjacent)
+        } finally {
+            Restore-YurunaTestEnvironment -Saved $saved
+        }
     }
 }
 

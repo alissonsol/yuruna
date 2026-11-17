@@ -3,24 +3,32 @@
   "domain": "remediation",
   "locale": "pt-BR",
   "messages": {
+    "remediation.guest_display_stalled_rationale": {
+      "sourceHash": "35b21ac2fcf4a7b00950851c02f4dc90cb7ae74956c8482c3b441365a7a8acd9",
+      "message": "guest_display_stalled em {vmName}: o driver de vídeo {driver} do convidado relatou {reports} tempos limite de troca de quadros enquanto o console parou de mudar. O convidado ainda pode estar em execução; uma tela inalterada não é evidência de que seu kernel parou."
+    },
+    "remediation.guest_display_stalled_action_evidence": {
+      "sourceHash": "497ccffedefbce81d637e5bf6c39fa06bb64ce5a01422f485189bb84ba16374d",
+      "message": "Leia causeDetail.guestDisplayStallEnd e serial-console.log na pasta do convidado; compare os relatos de tempo limite do driver de vídeo com a captura de tela e o texto de OCR salvos e examine as versões do kernel e do driver de vídeo do convidado se a paralisação voltar a ocorrer"
+    },
+    "remediation.guest_display_stalled_action_restore": {
+      "sourceHash": "7ec8e1a2bb039e9f521cd0e15d86601be1282a7f0d15a482c6966eea9c16e537",
+      "message": "Restaure um snapshot limpo ou inicialize o convidado novamente antes de executar a sequência outra vez; repetir a espera na mesma tela paralisada não recupera seus quadros. Mantenha a recuperação de login existente, com limites, e examine qualquer alteração de senha antes de tentar a recuperação manualmente"
+    },
     "remediation.hypervisor_unresponsive_action_evidence": {
       "sourceHash": "6d57a4653306a025d082176dc079f1a4c935941c4c3c0879b4cb2803c4f8e680",
-      "origin": "machine",
       "message": "Leia utm-control-snapshot.*.json e utm-log-show.*.txt na pasta do ciclo: um PID ou horário de início do UTM que mudou no meio do ciclo indica uma falha seguida de reinicialização, e o trecho do log unificado mostra o que a precedeu"
     },
     "remediation.hypervisor_unresponsive_action_restart": {
       "sourceHash": "97ca8bc51d0af80b1cfe79b20f6194b18a1660cef55ca9f16df928298c75be1f",
-      "origin": "machine",
       "message": "Reinicie o aplicativo de controle do hipervisor na máquina: no macOS, encerre o UTM.app na sessão da área de trabalho (ou execute test/lab/Invoke-HostRefresh.ps1) e confirme que `utmctl stop` em uma VM parada retorna imediatamente"
     },
     "remediation.hypervisor_unresponsive_action_resume": {
       "sourceHash": "a0b153ba81d5e39ad1edf6b83e5055b55997ea899c746373607b95405d75aa9e",
-      "origin": "machine",
       "message": "Retome o executor quando um verbo de ciclo de vida voltar a responder; o próximo ciclo sonda o canal de controle antes de construir qualquer coisa"
     },
     "remediation.hypervisor_unresponsive_rationale": {
       "sourceHash": "2f998c743ab3c1cec54505c1b17107f3f2f8991135fec6e6fb459449263bb58d",
-      "origin": "machine",
       "message": "hypervisor_unresponsive: o canal de controle do hipervisor parou de atender às solicitações de ciclo de vida, embora continue respondendo a consultas de estado; assim, cada início, parada e exclusão de VM espera até o fim do seu tempo limite, e nada que um ciclo faça consegue recuperá-lo. Repetir só reproduz os mesmos tempos limite; o aplicativo dono do canal precisa ser reiniciado na máquina, o que só uma sessão da área de trabalho ou uma atualização da máquina pode fazer.{detail}"
     },
     "remediation.operator_00fd2209b1a993b2": {
@@ -65,23 +73,23 @@
     },
     "remediation.kernel_stall_rationale": {
       "sourceHash": "e9aa8c942efc7b34d59aeb67acbdfd54bc6ae9645a970508b668db219d9174dc",
-      "origin": "machine",
       "message": "wait_timeout no {vmName}: o kernel do convidado parou de progredir (relatos do kernel: {kinds}; processadores virtuais que não atenderam nenhuma interrupção: {processors}), então o script não pôde terminar. Não é um espelho de pacote lento, e executar a etapa de novo no mesmo convidado não ajuda."
     },
     "remediation.kernel_stall_action_evidence": {
       "sourceHash": "5fa423c83aadf31eb0f23ca7017c22e9b04a0225bd96e29c182eb5ba32eb3d96",
-      "origin": "machine",
       "message": "Leia causeDetail.guestKernelFault e causeDetail.guestLivelock.processorWindow em last_failure.json, e os relatos do kernel em serial-console.log na pasta do convidado"
     },
     "remediation.kernel_stall_action_rerun": {
       "sourceHash": "e8d0fcfb6d2b3739e4a5083dd4fd46078ec67e9b8dd074aee86282589b74d5b9",
-      "origin": "machine",
       "message": "Execute a sequência em uma nova VM; um convidado cujo kernel travou não se recupera"
     },
     "remediation.kernel_stall_action_family": {
       "sourceHash": "e2a3feb409c0b4ce6e61bfefcf9400aa63b6d6d38cc23d4a8bf8b024f556e05b",
-      "origin": "machine",
       "message": "No host ARM64 Hyper-V, leia a seção sobre travamentos do kernel do convidado em docs/host-hyperv.md (https://yuruna.link/42dc5bb9-0014) para datar o travamento e identificar o seu formato"
+    },
+    "remediation.ocr_timeout_kernel_stall_rationale": {
+      "sourceHash": "bdb0d53e43b77354493ccdaa8963606d2899ab3f1087545e51feee30c2288427",
+      "message": "ocr_timeout em {vmName}: o kernel do convidado parou de progredir (relatos do kernel: {kinds}; processadores virtuais que não atenderam nenhuma interrupção: {processors}), então a tela não pôde chegar ao estado esperado. Não é uma carga de trabalho que saiu do caminho gravado, e a mesma inicialização não se recupera."
     },
     "remediation.operator_14bd8c7afa68b453": {
       "sourceHash": "05dcbb72a698ca93ef9250896aa6ccc3db179dfa9cf9eb897abbb7e8a5175191",
@@ -137,7 +145,6 @@
     },
     "remediation.operator_2b9a82d1d78b3138": {
       "sourceHash": "14253515024434d6c9968fe8ae406e5392d44a13af311764338633c8b3e60bfa",
-      "origin": "machine",
       "message": "project_access_denied em {vmName}: o grupo atribuiu a este hospedeiro um projectUrl que a credencial git dele não consegue ler (repositório privado ou token sem acesso). Nenhuma nova tentativa pode ter êxito -- a credencial é local do hospedeiro e a atribuição foi feita em outro lugar -- então isso nunca entra no backoff. Difere de bootstrap_sync, em que o projeto PRÓPRIO do hospedeiro falhou ao clonar: aqui a correção cabe a quem definiu a URL de projeto do grupo."
     },
     "remediation.operator_2be2a7b55fde9058": {
@@ -634,7 +641,6 @@
     },
     "remediation.operator_f279084b2eb96f2c": {
       "sourceHash": "422370599a20f72ec049265c8e05e90ad3d57e014a8771b0dfcd38229c8d9750",
-      "origin": "machine",
       "message": "Ou defina a URL de projeto do grupo como um repositório que todos os membros possam ler"
     },
     "remediation.operator_f4ded9a21116febc": {
@@ -703,62 +709,50 @@
     },
     "remediation.source_integrity_rationale": {
       "sourceHash": "45447a5b7c3491544e1cc8846e649d814321c90d08a3278c630ae2d7c9ded6e0",
-      "origin": "machine",
       "message": "source_integrity: a verificação da origem falhou. Preserve o checkout instalado e examine as evidências antes de tentar novamente. {detail}"
     },
     "remediation.source_integrity_action_identity": {
       "sourceHash": "a859a21e2a027affa037fa212acfca323bdeb51a40d91d59afbaad79fb816fc8",
-      "origin": "machine",
       "message": "Compare os identificadores das chaves cadastradas com a identidade exportada pelo responsável pelo proxy e examine o recibo assinado e o SHA selecionado."
     },
     "remediation.source_integrity_action_evidence": {
       "sourceHash": "1119e7416a9854e3111c91005788de244fc41633b6b681615c1f0ee0f61fb1cc",
-      "origin": "machine",
       "message": "Examine sourceSelections nos diagnósticos da validação da configuração e o estado do espelho; mantenha ativada a verificação de assinaturas e commits."
     },
     "remediation.vm_not_stopped_rationale": {
       "sourceHash": "67d9ba7057afe04c7599ed41f863a642e8fe1822b6d8009d05e6091eb5e4b495",
-      "origin": "machine",
       "message": "{vmName} nunca chegou ao estado parado que a etapa esperava: o convidado ignorou o pedido de desligamento, e esperar de novo não muda isso. Desligar a VM pelo hospedeiro muda."
     },
     "remediation.vm_not_stopped_action_power": {
       "sourceHash": "399b9963fefc5899d338efe0f266d9c5ea82915ff4f0464948ee714849948360",
-      "origin": "machine",
       "message": "Desligue a VM pelo hospedeiro -- uma etapa stopVm com forceOnTimeout: true faz isso na sequência, ou desligue-a pelo hipervisor -- e execute a etapa de novo."
     },
     "remediation.vm_not_stopped_action_inspect": {
       "sourceHash": "15879774c917340e974da8827f0752cbe47da1a3c47659d751689a71d933031b",
-      "origin": "machine",
       "message": "Se acontecer de novo, verifique no console do convidado o que está impedindo o desligamento."
     },
     "remediation.guest_run_lost_rationale": {
       "sourceHash": "4bd1594123a8566bdd8b7a3bf25ec8abe219c4701f942702a61e9a9741baa1dd",
-      "origin": "machine",
       "message": "A execução em {vmName} foi perdida: o supervisor do convidado respondeu, mas não soube dar conta dela; o processo deixou de existir, e reconectar não o traz de volta."
     },
     "remediation.guest_run_lost_action_restore": {
       "sourceHash": "1134d22bef2d923248fa744f8cf8ab854a679519c337c8a11710d53a930807ff",
-      "origin": "machine",
       "message": "Restaure o último snapshot bom e execute a sequência de novo."
     },
     "remediation.guest_run_lost_action_inspect": {
       "sourceHash": "28e9abf2f74ea280b26312eeac2fb6013582d2472223baf12eb8e542297f5001",
-      "origin": "machine",
       "message": "Leia o log de execução do convidado para saber o que encerrou o processo."
     },
     "remediation.guest_kernel_stalled_rationale": {
       "sourceHash": "bc0a003299513ecd19e24ff1959e3dd720e005c2b9a8bf890f0ab10883a409b0",
-      "origin": "machine",
       "message": "guest_kernel_stalled em {vmName}: o kernel do convidado parou de progredir, então a etapa não pôde terminar (relatos do kernel: {kinds}; processadores virtuais que não atenderam nenhuma interrupção: {processors}; segundos em que todos os processadores virtuais ficaram retidos no hipervisor: {heldSeconds}). Não é um espelho lento nem uma falha da carga útil, e a mesma inicialização não se recupera; a próxima tentativa inicializa o convidado de novo."
     },
     "remediation.guest_kernel_stalled_action_evidence": {
       "sourceHash": "faed7b16f8ed518f23a820df987b3398d39f77f3c91a2885e20ecffc37ef9bb2",
-      "origin": "machine",
       "message": "Leia causeDetail.guestKernelStallEnd e causeDetail.guestLivelock em last_failure.json, e os relatos do kernel em serial-console.log na pasta do convidado"
     },
     "remediation.guest_kernel_stalled_retry_reason": {
       "sourceHash": "1b906c06363703bde982a019ed4c54ab3c9246b202868ee4a6b500a212af7786",
-      "origin": "machine",
       "message": "um kernel de convidado que parou de progredir só se recupera em uma nova inicialização, que a próxima tentativa inicia; essas novas tentativas gastam um orçamento diário próprio"
     }
   }

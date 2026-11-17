@@ -7,7 +7,7 @@ Amazon Linux 2023 --
 
 ## 1) Get the image
 
-From an elevated PowerShell 7.5+:
+From an elevated PowerShell:
 
 ```
 .\Get-Image.ps1
@@ -63,6 +63,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../../../README.md)

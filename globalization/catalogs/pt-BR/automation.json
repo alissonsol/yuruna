@@ -5,13 +5,23 @@
   "messages": {
     "automation.deploy_phase_reused": {
       "sourceHash": "21524b0a7bc92d3bb53acf3dc81019c396a437ef4ee4d1344a03b6b400e29d79",
-      "origin": "machine",
       "message": "A fase {phase} foi ignorada: ela passou com estas entradas antes de a fase {failedPhase} falhar, e suas saídas continuam no lugar. Exclua {ledgerPath} para executar todas as fases novamente."
     },
     "automation.deploy_tool_deadline": {
       "sourceHash": "858e0954c9babd7dee62c7b11c87b94dfad8569fc38cc6cdbe5b9dc3a8d36113",
-      "origin": "machine",
       "message": "{label} não terminou em {seconds} segundos e foi interrompido. Isso conta como tempo esgotado, e o que ele fez antes de ser interrompido é desconhecido."
+    },
+    "automation.retry_already_applied": {
+      "sourceHash": "2d870488dd01507017181fc83bc2a393fda217b0d9283eb65dcf883cb9ebbd63",
+      "message": "{label}: a tentativa {attempt}/{maxAttempts} falhou (exit={lastExit}), mas seu resultado já havia sido aplicado por uma tentativa anterior; o comando conta como concluído."
+    },
+    "automation.retry_succeed_when_threw": {
+      "sourceHash": "6df0257c06221d75839937cdb0c13ac1edb9ef29126d45a1f331cf43fcd0daaf",
+      "message": "!! {label}: o predicado SucceedWhen lançou uma exceção ({message}); a tentativa continua sendo uma falha"
+    },
+    "automation.tofu_init_fetch_failed": {
+      "sourceHash": "f01019f4388a325463fc22758a95da998008062af56f8099a1768953932c4061",
+      "message": "tofu init falhou para o recurso '{resourceName}' após {attempts} tentativas (saída final {lastExit}): a última tentativa não conseguiu baixar {url} ({reason}). Inspecione {tofuLogFile} para ver a saída completa."
     },
     "automation.diagnostic_checkout_unavailable": {
       "sourceHash": "ed5c11965d58f8769fe9ac82189b07c39cd138aa9d63506b313cff90fb8deba9",
@@ -137,7 +147,6 @@
     },
     "automation.system_diagnostic_networkmanager_dhcp_none": {
       "sourceHash": "2489ade7e3501fa6862563e2be10a971d31c1924197af26cb9749220de1ee1c3",
-      "origin": "machine",
       "message": "(nenhuma entrada dhcp4 do NetworkManager nesta inicialização)"
     },
     "automation.operator_0708e3afbc3562b5": {
@@ -294,8 +303,7 @@
     },
     "automation.operator_159f23f7bbf09a33": {
       "sourceHash": "f7b3036deddd5e10d3932e1638dec92dc4a71476f2ab7fc729a485ed172a3e4f",
-      "message": "  1. adicione autoEnrollment: { enabled: true, targetPoolId: default } a pools.yml no repositório de configuração",
-      "origin": "machine"
+      "message": "  1. adicione autoEnrollment: { enabled: true, targetPoolId: default } a pools.yml no repositório de configuração"
     },
     "automation.operator_163577cbcc97e68e": {
       "sourceHash": "e2fc1464b8614fa7635a9d2f162faf3512204456f3e81808d71589487d2bc0f6",
@@ -455,7 +463,6 @@
     },
     "automation.operator_287506e0d1314af9": {
       "sourceHash": "0abce7b258e008b8e8609abcb3657e3f6544932dc71c6e14e09afea20dc7327f",
-      "origin": "machine",
       "message": "Até que (1) seja gravado, a proteção 'o grupo de destino não contém repositórios' não fica armada para"
     },
     "automation.operator_29759c8a58f5d70a": {
@@ -780,8 +787,7 @@
     },
     "automation.operator_47229a44b80ae93b": {
       "sourceHash": "a17299665406582c52cdb6f9995ced4c1fa6b9a080efe42fcb8c142b3c9e3758",
-      "message": "(nenhum nó Ready -- o cluster não está ativo; as verificações de implantação estão indisponíveis, veja a seção KUBE)",
-      "origin": "machine"
+      "message": "(nenhum nó Ready -- o cluster não está ativo; as verificações de implantação estão indisponíveis, veja a seção KUBE)"
     },
     "automation.operator_4788a5c9b68d9b0a": {
       "sourceHash": "a7f708f5006ef4376b96d4b63193f3d0f06f90bc375560dfdcc664f44ec1cfbe",
@@ -823,8 +829,7 @@
     },
     "automation.operator_4b5000e2da8b0a45": {
       "sourceHash": "6304174b1e0618354c38847113bb23cbdb61b5d701fa26ed2e0dc325f0012040",
-      "message": "Observação de diagnóstico: {count} imagem(ns) enviada(s) ao registro local, mas sem referência em nenhum pod -- {join}. A fase de cargas de trabalho pode não ter implantado um chart que usa essas imagens, ou o chart pode tê-las renderizado com outro prefixo de registro (verifique componentsRegistry.registryLocation em resources.output.yml). Uma imagem usada apenas como etapa de compilação é esperada aqui e, por si só, não comprova uma divergência de configuração.",
-      "origin": "machine"
+      "message": "Observação de diagnóstico: {count} imagem(ns) enviada(s) ao registro local, mas sem referência em nenhum pod -- {join}. A fase de cargas de trabalho pode não ter implantado um chart que usa essas imagens, ou o chart pode tê-las renderizado com outro prefixo de registro (verifique componentsRegistry.registryLocation em resources.output.yml). Uma imagem usada apenas como etapa de compilação é esperada aqui e, por si só, não comprova uma divergência de configuração."
     },
     "automation.operator_4ba3081aa0af2a76": {
       "sourceHash": "17ffe8102da968f5306dc6ac2bb5b225fab53e4de4edc4945e08b5ffee03e51c",
@@ -908,7 +913,6 @@
     },
     "automation.operator_5376c9efd7b38f35": {
       "sourceHash": "07754f6659a515065e28a10a4c469bb7b3f97371bcd9e4f3a137a311a0e10909",
-      "origin": "machine",
       "message": "REGISTRY: o cache mantém {held} de {total} imagens do conjunto {set} que um convidado baixa e ainda precisa copiar {cold} da origem. O convidado espera por cada cópia na própria requisição de manifesto, o que leva minutos por imagem e excede o limite de tempo de uma etapa de provisionamento -- enquanto todas as leituras de disponibilidade e de manifesto acima continuam verdes."
     },
     "automation.operator_538dbbedc6313351": {
@@ -1053,8 +1057,7 @@
     },
     "automation.operator_6026e7f1ae4f2ef0": {
       "sourceHash": "9f7d146564ebc324fe7800444bcd949d5abb232c0fa8e7a4010095424fc8299c",
-      "message": "Divergência de configuração: o namespace '{name}' está declarado em {file}, mas não existe no cluster. Verifique se a fase de cargas de trabalho o criou e se helm install / kubectl create namespace foi concluído com sucesso.",
-      "origin": "machine"
+      "message": "Divergência de configuração: o namespace '{name}' está declarado em {file}, mas não existe no cluster. Verifique se a fase de cargas de trabalho o criou e se helm install / kubectl create namespace foi concluído com sucesso."
     },
     "automation.operator_6036ef007d775983": {
       "sourceHash": "e543863bc05b6dcdc1e804dab34d2e2e7ab56cbaa66cb31c4d88322da108ce46",
@@ -1242,8 +1245,7 @@
     },
     "automation.operator_72c1075973a89231": {
       "sourceHash": "0f6afba8ebce257bc8c0e129d1d2259dade4e46c3a0761e81fe6a8694f923fe7",
-      "message": "Observação de diagnóstico: há {tfStateCount} arquivo(s) tofu.tfstate, mas o helm não tem releases em nenhum namespace. A fase de cargas de trabalho pode ter sido ignorada ou terminado com código 0 sem chamar Set-Workload. Verifique os arquivos helm.stderr.log acima e as últimas linhas do script que chama essa fase.",
-      "origin": "machine"
+      "message": "Observação de diagnóstico: há {tfStateCount} arquivo(s) tofu.tfstate, mas o helm não tem releases em nenhum namespace. A fase de cargas de trabalho pode ter sido ignorada ou terminado com código 0 sem chamar Set-Workload. Verifique os arquivos helm.stderr.log acima e as últimas linhas do script que chama essa fase."
     },
     "automation.operator_72e28a58e0301f9b": {
       "sourceHash": "44f111f969d608de098aee839233d1d7c6e7139e922be02b16472d8c52145574",
@@ -1355,8 +1357,7 @@
     },
     "automation.operator_7d384e5a632109dd": {
       "sourceHash": "02171fd077893066661853200ecc71aa9fb748eff2765de2b075f43d52d09b00",
-      "message": "(nenhum diretório de projeto em {candidate} -- as verificações de implantação serão ignoradas)",
-      "origin": "machine"
+      "message": "(nenhum diretório de projeto em {candidate} -- as verificações de implantação serão ignoradas)"
     },
     "automation.operator_7f64bfad9ab853d4": {
       "sourceHash": "e0c3e75600f2bd58072c51cf3c5392fb2a042a50f79074af89955edd290f9fd6",
@@ -1938,8 +1939,7 @@
     },
     "automation.operator_ad9c42ff8e5e7995": {
       "sourceHash": "bc245daabe76d5406669cdcd9bcb521bd9e758707e055d51c111d75fa4b6089a",
-      "message": "Resolve-CloudInitPlaceholder: template ainda contém placeholder(s) não resolvido(s) após a substituição: {join}. Adicione-os a -Replacement (com valor vazio se intencional) ou passe -AllowedUnresolved.",
-      "origin": "machine"
+      "message": "Resolve-CloudInitPlaceholder: template ainda contém placeholder(s) não resolvido(s) após a substituição: {join}. Adicione-os a -Replacement (com valor vazio se intencional) ou passe -AllowedUnresolved."
     },
     "automation.operator_add466496962fbf6": {
       "sourceHash": "a8a0b7908862921241d295278461e53f524395f13cddd9388f6d1ebd7ba4ec8d",
@@ -1987,8 +1987,7 @@
     },
     "automation.operator_b2e83136c96ad810": {
       "sourceHash": "67d3b44ccda474c209f346e432d232828457bb4f3744fe49cb6f14e18a31e3ce",
-      "message": "Observação de diagnóstico: o cluster tem {count} nó(s) Ready, mas nenhum pod fora dos namespaces do sistema. Verifique se a fase de cargas de trabalho/componentes implantou a aplicação esperada.",
-      "origin": "machine"
+      "message": "Observação de diagnóstico: o cluster tem {count} nó(s) Ready, mas nenhum pod fora dos namespaces do sistema. Verifique se a fase de cargas de trabalho/componentes implantou a aplicação esperada."
     },
     "automation.operator_b31e13c9f6666800": {
       "sourceHash": "395b3b92f34c7edc44a4d26a5f01e45c48d926f3b8f5a0e5e9ebc5a9904a70b4",
@@ -2164,12 +2163,10 @@
     },
     "automation.memory_commit_charge": {
       "sourceHash": "9cce29800c97f42aa662b9e56cbd5080174e740b27c17cebc4b55a821e5d4927",
-      "origin": "machine",
       "message": "Commit : {charged} de {limit} cobrados, {uncharged} livres (o início de uma VM é cobrado contra este limite, não contra a memória física livre)"
     },
     "automation.memory_commit_outside_processes": {
       "sourceHash": "a9010810421a77adb6c62ee1e48a3e15c8ed8c2a4089ab6af7f40a4ef909e788",
-      "origin": "machine",
       "message": "Commit fora de processos : {outside} dos {charged} cobrados não estão nos bytes privados de nenhum processo ({private} somados em {processes} processos). Seções de memória compartilhada, pool paginado e outras alocações do kernel são cobradas ali, e nenhuma linha da tabela de bytes privados em TOP PROCESSES as mostra."
     },
     "automation.operator_bf1c637eb978cee4": {
@@ -2464,7 +2461,6 @@
     },
     "automation.network_dhcp_lease": {
       "sourceHash": "e3fed3af94b40ff73b8ccd7040c5582e53e1273474880b09817dc5006b919b5f",
-      "origin": "machine",
       "message": "Concessão DHCP no dispositivo da rota padrão ({device})"
     },
     "automation.operator_d9c1fd0b30efa8fb": {
@@ -2721,7 +2717,6 @@
     },
     "automation.top_processes_private_bytes": {
       "sourceHash": "3eea0843e4d78da78987a8e5f27583dc48905e1d915de8e1a60d7f1f677975ea",
-      "origin": "machine",
       "message": "Top 10 por bytes privados (cobrança de commit)"
     },
     "automation.operator_f30d376c3b6737d6": {
@@ -2878,168 +2873,151 @@
     },
     "automation.host_setup_module_install_skipped": {
       "sourceHash": "99384db4ce4de9b1be2c0e3fc659bdf71eaf1323f8ec54740c74c9a384e5065c",
-      "origin": "machine",
       "message": "{module} não está instalado, e esta execução não pode instalar módulos. Instale-o com: Install-Module {module} -Scope CurrentUser"
     },
     "automation.seed_value_unsafe": {
       "sourceHash": "5bb725712c4b727a0a165554eaf4299e0ad53320027e2b1f65c4d768d89cb950",
-      "origin": "machine",
       "message": "O valor de seed para {placeholder} não pode ser colocado em seu contexto {context} (linha {line} do modelo): ele contém {reason}. Altere o valor; {count} ocorrência(s) de placeholder foram recusadas no total."
     },
     "automation.setup_service_vm_reason_intended_stopped": {
       "sourceHash": "0f4f4341aa4acaa76174d52f298cd050a8463677845b44eb47413b835f36502f",
-      "origin": "machine",
       "message": "foi parado de propósito; recriando porque o setup recebeu o pedido de iniciá-lo"
     },
     "automation.setup_service_vm_reason_lock_unavailable": {
       "sourceHash": "e04c950f25ef7ad67fcec643ecc0c459205670eb140076e97155a8dc6e90d943",
-      "origin": "machine",
       "message": "não foi possível obter o bloqueio de operação"
     },
     "automation.setup_service_vm_reason_operation_busy": {
       "sourceHash": "155b71c0d9cbc32cb05df9d9282d37646454b69847aef1356d8018fe9efce842",
-      "origin": "machine",
       "message": "outra inicialização ou parada deste serviço ainda está em execução"
     },
     "automation.setup_service_vm_reason_state_unknown": {
       "sourceHash": "60386655fdaedd33959a12c064b745cd8178280a913dd32cff66c5fbbe76cda5",
-      "origin": "machine",
       "message": "não foi possível confirmar o estado da VM ({reason})"
     },
     "automation.system_diagnostic_registry_zot_compat_repaired": {
       "sourceHash": "136d64e07420391672b287be8b9036b4317ad5f9e3619a0b15b934552e1c7205",
-      "origin": "machine",
       "message": "REGISTRY: o zot {version} do cache só sincroniza as imagens do laboratório porque o autoteste de sincronização adicionou http.compat {modes} a /etc/zot/config.json, que falta na configuração que esta versão do Yuruna entrega; cada reconstrução repete o reparo. Relate o problema para que uma versão inclua o modo. Detalhes: {healthUrl}"
     },
     "automation.system_diagnostic_registry_zot_incompatible": {
       "sourceHash": "664c9679228330e3dca6574de9bec26a6491acbd2a448c0a575eba2415c5a846",
-      "origin": "machine",
       "message": "REGISTRY: o zot {version} do cache recusa imagens que o laboratório baixa: o autoteste de sincronização recebeu HTTP {status} para {image}, que a origem disponibiliza, e o log do zot pede http.compat {modes} ({refused} imagem(ns) de teste recusada(s)). Executar de novo não resolve. Correções que não exigem alterar código: no cache, execute sudo /usr/local/bin/zot-sync-selftest.py --heal; ou defina vmStart.cachingProxyZotVersion e vmStart.cachingProxyZotSha256 em test/test.config.yml com uma versão do zot que funcione e reconstrua o cache; ou atualize o Yuruna e reconstrua o cache. Detalhes: {healthUrl}"
     },
     "automation.system_diagnostic_registry_zot_incompatible_unexplained": {
       "sourceHash": "4a680527e88e38d4be82343f6ec3684d1c3c34b3405456d2d5efcc1db7c254b7",
-      "origin": "machine",
       "message": "REGISTRY: o zot {version} do cache recusa imagens que o laboratório baixa: o autoteste de sincronização recebeu HTTP {status} para {image}, que a origem disponibiliza ({refused} imagem(ns) de teste recusada(s)). Executar de novo não resolve. Correções que não exigem alterar código: altere /etc/zot/config.json no cache conforme a linha do log do zot na página de saúde, reinicie o zot e execute sudo /usr/local/bin/zot-sync-selftest.py; ou defina vmStart.cachingProxyZotVersion e vmStart.cachingProxyZotSha256 em test/test.config.yml com uma versão do zot que funcione e reconstrua o cache; ou atualize o Yuruna e reconstrua o cache. Detalhes: {healthUrl}"
+    },
+    "automation.system_diagnostic_restart_pending": {
+      "sourceHash": "4e4e3d04b7a5c704f1f88e71d7f7ab47a6ebdc7d5da52577eb8c7a8c41ae186e",
+      "message": "Reinicialização pendente: sim ({sources})"
+    },
+    "automation.system_diagnostic_restart_not_pending": {
+      "sourceHash": "6e886c0bc981d0099e4ecd7afdb6f9dbf4ead00eefee847515b1f192d2908028",
+      "message": "Reinicialização pendente: não"
     },
     "automation.system_diagnostic_utmctl_list_incomplete": {
       "sourceHash": "410f6bf1667685d826d78c56f61a3ed885843fa3f3d7e6bc91e8393085f22c0d",
-      "origin": "machine",
       "message": "  utmctl list não retornou uma resposta completa em {seconds} segundos; a listagem acima pode estar incompleta (o UTM pode não estar respondendo a Apple Events)."
     },
     "automation.system_diagnostic_registry_images_refused": {
       "sourceHash": "e88f678654789eace45ac8d42b67667a8be121d0be4246bcab1116422ce93b6c",
-      "origin": "machine",
       "message": "REGISTRY: o cache recusou {refused} de {total} imagens do conjunto {set} que um convidado baixa (HTTP {statuses}). Uma recusa é uma resposta, não uma cópia em andamento: todo convidado que pedir essas imagens recebe a mesma resposta até que a causa seja corrigida. O log de sincronização do zot informa a causa no painel \"Sync / upstream lines\" do dashboard de saúde do cache."
     },
     "automation.system_diagnostic_registry_images_refused_status_unknown": {
       "sourceHash": "507f812c9edd94b8771a86180ef34d3e0cfd9ad95191b57724a260a081728ee9",
-      "origin": "machine",
       "message": "REGISTRY: o cache recusou {refused} de {total} imagens do conjunto {set} que um convidado baixa. Uma recusa é uma resposta, não uma cópia em andamento: todo convidado que pedir essas imagens recebe a mesma resposta até que a causa seja corrigida. O log de sincronização do zot informa a causa no painel \"Sync / upstream lines\" do dashboard de saúde do cache."
     },
     "automation.runtime_ipc_remove_action": {
       "sourceHash": "b9d07ee417d0de3137636d7e87e607f8c92421dbdd515a5d5a3c71691153b643",
-      "origin": "machine",
       "message": "Remover a entrada remanescente do runtime .NET de um processo que já não existe"
     },
     "automation.stale_temp_remove_action": {
       "sourceHash": "5021d832dd7c0b0e3371c426f543c23e9e64938b5ffacba06105c9ea5a68b7dd",
-      "origin": "machine",
       "message": "Remover a entrada temporária obsoleta do Yuruna"
     },
     "automation.system_diagnostic_journal_access": {
       "sourceHash": "2af20fbdc405e4a827768c3d83e15847853584b8739e614f592fd6b7423a2687",
-      "origin": "machine",
       "message": "Acesso ao diário do sistema"
     },
     "automation.system_diagnostic_journal_readable": {
       "sourceHash": "c84207e57df83907f613fc95f14d3b870d704195973cc96da69e0327022457a3",
-      "origin": "machine",
       "message": "O diário do sistema pode ser lido aqui: journalctl --system respondeu."
     },
     "automation.system_diagnostic_journal_unreadable": {
       "sourceHash": "caa63cf3d5125c1790f149c3a64c7ad9bb98e001ac89b9ae2b6f18ae79c62d9c",
-      "origin": "machine",
       "message": "O diário do sistema não pode ser lido por {user} (journalctl --system: {detail}). Em vez disso, o journalctl responde a partir do diário da própria conta, então o log do kernel, as inicializações anteriores e as entradas de outras unidades faltam em todas as seções de diário deste relatório."
     },
     "automation.system_diagnostic_journal_session_stale": {
       "sourceHash": "aa4b7ea9d4502ea534297db44a059376457f292eece76ef89f7c464e46273205",
-      "origin": "machine",
       "message": "{user} está no grupo 'systemd-journal' no banco de dados de grupos, mas este processo foi iniciado antes de essa associação entrar em vigor: inicie o executor de testes novamente a partir de uma nova sessão de login."
     },
     "automation.system_diagnostic_journal_grant": {
       "sourceHash": "974528f12a3d87173c1be787660f09bfb79d02d8d62ec20e2d8892459b4fe08a",
-      "origin": "machine",
       "message": "Para torná-lo legível, execute 'sudo usermod -aG systemd-journal {user}' e, depois, inicie o executor de testes novamente a partir de uma nova sessão de login. Em um hospedeiro Ubuntu KVM, host/ubuntu.kvm/Enable-TestAutomation.ps1 adiciona essa associação."
     },
     "automation.system_diagnostic_kernel_log_journal": {
       "sourceHash": "bae51871c217056155b00cbac65f85c3b5294fc729683d0f2f21a12b9c796797",
-      "origin": "machine",
       "message": "(não é possível ler o dmesg aqui, então o log do kernel vem do diário do sistema: journalctl -k -b 0, com as {count} entradas mais recentes da inicialização atual analisadas e as últimas 100 exibidas)"
     },
     "automation.system_diagnostic_kernel_log_unavailable": {
       "sourceHash": "e5b7dae3f0071b8ff4c197c7d9d72af2b1256caadf15bfe8d4d969fa2f57de18",
-      "origin": "machine",
       "message": "(sem log do kernel: não é possível ler o dmesg aqui e journalctl -k -b 0 não retornou entradas; veja Acesso ao diário do sistema em RECENT SYSTEM EVENTS)"
     },
     "automation.system_diagnostic_kernel_journal_oom": {
       "sourceHash": "82fae68d07b0518e458cee4e10158dec2388ee469040d00fb70bd3ceb4cb5e90",
-      "origin": "machine",
       "message": "LINUX: o diário do kernel da inicialização atual mostra {count} evento(s) do OOM-killer -- a pressão de memória encerrou um processo. Consulte journalctl -k -b 0 para ver os detalhes."
     },
     "automation.system_diagnostic_kernel_journal_hardware": {
       "sourceHash": "9a44b36bfa6b2e06b4505576212bd54bc89415a4287c90a462ecf75b7ee1d4d3",
-      "origin": "machine",
       "message": "LINUX: o diário do kernel da inicialização atual mostra {count} linha(s) de erro de hardware/driver (I/O error, MCE, EDAC, etc.)."
     },
     "automation.system_diagnostic_lockup_settings": {
       "sourceHash": "b73bff03996f8d47d5aae25fc58fe6f180c9a98540d69b6b2fdebae9c2858ba8",
-      "origin": "machine",
       "message": "Configurações de travamento e de evidências de falha"
     },
     "automation.system_diagnostic_watchdog_none": {
       "sourceHash": "f8337fe79cb07a161c3592d3945ba64f55f19efce4992d90f0e26b2b5b296805",
-      "origin": "machine",
       "message": "(nenhum dispositivo watchdog de hardware em {path})"
     },
     "automation.system_diagnostic_journal_persistent": {
       "sourceHash": "26288420c867aa017607c00dd49efbe30c7ab0dcf6d3ecd64666b1ad9f9c56e7",
-      "origin": "machine",
       "message": "{path} existe: o diário de uma inicialização que congelar sobrevive ao reinício."
     },
     "automation.system_diagnostic_journal_volatile": {
       "sourceHash": "847e31c3197248e689852e3ef86c4cb649a2feef5f2e510c70a9547e97b9c7e3",
-      "origin": "machine",
       "message": "{path} não existe: o diário fica apenas na memória, então um congelamento perde o diário da inicialização que congelou."
     },
     "automation.system_diagnostic_deep_mode": {
       "sourceHash": "b59546183c66ffa62e68d0f04d7104ac5955b7860592f808d4fb4e528ab34687",
-      "origin": "machine",
       "message": "Modo de diagnóstico aprofundado"
     },
     "automation.system_diagnostic_deep_mode_off": {
       "sourceHash": "009c146ee632a03048830739904db75c40dcf808df93613d1ece98982686a725",
-      "origin": "machine",
       "message": "O modo de diagnóstico aprofundado não está ativado ({path} não existe)."
     },
     "automation.system_diagnostic_deep_mode_on": {
       "sourceHash": "853f1fe8553db5e5189d6477f70050e1d7417d66fcb209688da8b89c87a04e10",
-      "origin": "machine",
       "message": "Modo de diagnóstico aprofundado ativado desde {enabledAtUtc}."
     },
     "automation.system_diagnostic_deep_mode_unreadable": {
       "sourceHash": "7a163d807f8dc70dfec9f41d8de67d0b10ab95b394a6943a0c26947002a8b2a4",
-      "origin": "machine",
       "message": "Modo de diagnóstico aprofundado: {path} não é um arquivo regular de no máximo 64 KiB, por isso não foi lido."
     },
     "automation.system_diagnostic_deep_mode_malformed": {
       "sourceHash": "19d8bd63da2f9ecaee28435b4dd39a84260fbefcc226e390276e02d557599601",
-      "origin": "machine",
       "message": "Modo de diagnóstico aprofundado: {path} não contém um objeto JSON ({message}); nada do conteúdo dele é exibido."
     },
     "automation.system_diagnostic_journal_not_on_disk": {
       "sourceHash": "2575ba4799431c3407c90c2367fe23bb0d7e3be33e04a2826f4c8788c9103fa3",
-      "origin": "machine",
       "message": "O journald está configurado com Storage={storage}, que não mantém nenhum diário em disco, exista ou não {path}; então um congelamento perde o diário da inicialização que congelou."
+    },
+    "automation.system_diagnostic_previous_boot_middle_omitted": {
+      "sourceHash": "964d463a23639f6b1d4ea40fa47fe437d150dd6375f6116d74e6c13754280575",
+      "message": "... (linhas intermediárias puladas sem contá-las, para que uma inicialização anterior longa não atrase este relatório) ..."
+    },
+    "automation.system_diagnostic_probe_stopped": {
+      "sourceHash": "151e442d54f958fb41fd1993da02d5506b5323aa600f8c7d98abd61051832ec6",
+      "message": "  ({label} não terminou em {seconds}s e foi interrompido; o que imprimiu até então está acima)"
     }
   }
 }

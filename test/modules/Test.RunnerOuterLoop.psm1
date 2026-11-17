@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1372,10 +1372,10 @@ function Test-OuterPoolStorageSpaceReady {
 .SYNOPSIS
 Runs the SYNCHRONOUS move at cycle end: archive every finished cycle folder, verify it, then delete the local copy. Returns the archiver's summary hashtable (or $null when it did not run). Never throws.
 .DESCRIPTION
-Bounded by the archiving module's move-phase cap: the loop is blocked while this
-runs, which is the price of a verdict that depends on the copy. Exceeding the cap
-leaves every not-yet-moved folder local and reports a warning -- a slow NAS is not a
-full NAS, and only the full-NAS verdict is allowed to fail a cycle.
+The loop is blocked while this runs, which is the price of a verdict that depends
+on the copy. Each copy is bounded by the archiving module's per-copy cap; the phase
+has no overall deadline. A failed copy is reported as a warning -- a slow NAS is not
+a full NAS, and only the full-NAS verdict is allowed to fail a cycle.
 #>
 function Invoke-OuterPoolStorageMove {
     [CmdletBinding()]
@@ -2800,8 +2800,8 @@ function Invoke-RunnerOuterCycle {
         # --- REGION: Pool-storage archiving, MOVE mode (SYNCHRONOUS, bounded)
         # Move mode copies, verifies, and then DELETES each finished cycle's local
         # folder, so its outcome is part of the cycle's verdict and it cannot be
-        # detached. It blocks the loop by necessity; the phase is wall-clock bounded
-        # and a slow NAS is reported as a warning rather than a failure.
+        # detached. It blocks the loop by necessity; each copy is bounded but the
+        # phase has no overall deadline, and a failed copy is a warning, not a failure.
         if ($psMoveMode) {
             $moveResult = Invoke-OuterPoolStorageMove -Cycle $cycle
             if ($moveResult -and $moveResult.spaceShort) {
@@ -4046,8 +4046,8 @@ function Invoke-RunnerOuterLoop {
             # A passing cycle re-arms every repair budget: the ledger counts attempts
             # since the last pass, so this is what ends a streak.
             # A host that never repaired anything has no ledger and gets none from a pass.
-            # A cycle that skipped a quarantined guest exits 0 without testing it,
-            # and proves no repair worked, so it re-arms nothing.
+            # A quarantine skip exits 75 and takes the degraded branch above. A
+            # skipped guest that still reaches here proves no repair, so re-arm nothing.
             if ($recoveryResult -and $recoveryResult['outcome'] -ceq 'passed' -and $env:YURUNA_RUNTIME_DIR -and
                 (Test-Path -LiteralPath (Get-RecoveryLedgerPath -RuntimeDir $env:YURUNA_RUNTIME_DIR) -PathType Leaf)) {
                 if (Test-OuterCycleSkippedGuest -RuntimeDir $env:YURUNA_RUNTIME_DIR) {

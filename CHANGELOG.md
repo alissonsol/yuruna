@@ -4,6 +4,18 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.11.16
+
+- **Idempotent kubectl create retries.** A `kubectl create` retried after an
+  API-server timeout accepts the AlreadyExists refusal as the earlier
+  attempt's completion, logging `completedBy=already-applied` and a
+  `retry_recovered` event.
+- **Also in this release.** The pool reports lost runners and silent hosts,
+  boot recovery records what ended a cycle, guest retries reach the event
+  stream, failures name the failing upstream or apt source, the caching proxy
+  stops queuing apt indexes behind stalled fetches, and diagnostics stay
+  within budget. Guests keep their own loopback registry insecure under Docker Engine 29.10, and dependencies move to their newest supported releases (PowerShell floor 7.7.0).
+
 ## 2026.11.08
 
 - **Riding out GitHub outages.** The caching proxy serves learned GitHub
@@ -693,6 +705,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](README.md)

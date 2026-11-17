@@ -31,9 +31,16 @@ Grafana, while `index.html` is **the status page**.
 
 ## Durations: two units, spelled out
 
-`<name>Ms` for sub-second values, `<name>Seconds` for everything else. There is
-no `Minutes`, `Hours`, `Sec`, `Millis`, or unsuffixed duration. Environment
-variables follow with `YURUNA_*_SECONDS` / `YURUNA_*_MS`.
+`<name>Ms` for sub-second values, `<name>Seconds` for everything else, and no
+unsuffixed duration. Environment variables follow with `YURUNA_*_SECONDS` /
+`YURUNA_*_MS`. A new name takes one of those two units.
+
+A few names carry another unit. They are configuration keys, wire fields and
+command-line flags that callers already depend on, so they keep their names:
+`testCycle.labHealth.armWindowHours` and the sequence baseline's `maxAgeHours`;
+the pool aggregator's `windowMinutes` and `atUtcMillis` fields; the Git mirror
+status's `pinRetentionDays`; and the stash daemon's `--pool-window-days` and
+`--pool-refresh-secs` flags.
 
 A value carried in a **type that already names its unit** -- .NET `TimeSpan`,
 Go `time.Duration` -- takes no suffix: `hostTtl`, `pushTimeout`,
@@ -65,8 +72,15 @@ The host-contract verbs are the exception, and deliberately so: `New-VM`,
 host driver sits directly beside the Hyper-V cmdlets of the same name, and one
 of the two spellings being different would be a worse trap than the
 inconsistency. The list lives in
-[`host/Yuruna.Host.Contract.psm1`](../../host/Yuruna.Host.Contract.psm1); a name
-outside it follows the rule.
+[`host/Yuruna.Host.Contract.psm1`](../../host/Yuruna.Host.Contract.psm1).
+
+Function names outside that list use both spellings. Driver helpers and
+harness functions named for a contract object keep `VM` beside the verbs they
+serve -- `Start-HyperVVM`, `Read-VMSerialCapture`, `Get-TestVMName`,
+`Remove-GuestVMQuietly` -- while service and session helpers use `Vm`:
+`Get-ServiceVmMemoryMb`, `Connect-VmSession`, `Get-VmAdmission`. Configuration
+keys and JSON fields always use `Vm` (`testVmNamePrefix`,
+`cleanupVmNamePrefixes`).
 
 ## PowerShell verbs and module namespaces
 
@@ -107,14 +121,14 @@ assume about it.
 ## Host ids: one key, two renderings
 
 The host id is `42` plus 30 hex, and the **undashed 32-hex** form is the only one
-that is ever a key -- `runtime/host.uuid`, `POOL.members`, every telemetry label.
+that is ever a key -- `runtime/host.uuid`, the `members` of `pools.yml`, every telemetry label.
 Two renderings exist and neither may be written back to a store:
 
 | Form | Where | Produced by |
 | --- | --- | --- |
 | `42a1b2c3d4e5...` (32 hex) | every store, join and label | `Get-YurunaHostId` |
-| `42a1b2c3-d4e5-...` (8-4-4-4-12) | any surface showing an operator a **full** id | `Format-YurunaHostId`, JS `guid` |
-| `42a1b2c3` (first 8) | dense surfaces -- dashboard columns, `<hostId8>` in a VM name | JS `Y.shortHost` |
+| `42a1b2c3-d4e5-...` (8-4-4-4-12) | any surface showing an operator a **full** id | `Format-YurunaHostId`, JS `Y.guid` |
+| `42a1b2c3` (first 8) | dense surfaces -- dashboard columns, `<hostId8>` in a VM name | JS `Y.shortHost`, the dashboard's value mapping, `Get-TestVMName` |
 
 The dashes are not decoration: a lab holds a dozen ids that share the `42`
 prefix, and 32 undifferentiated hex characters cannot be checked against another
@@ -160,6 +174,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 [Architecture](../architecture.md) | [Design overview](README.md)

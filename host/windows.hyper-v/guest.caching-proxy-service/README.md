@@ -12,7 +12,7 @@ Scripts and config in this folder:
   (the host's own architecture, amd64 or arm64; qcow2 -> VHDX, resized to
   512 GB dynamic).
 - [New-VM.ps1](New-VM.ps1) -- creates the Hyper-V VM (12 GB RAM /
-  core-count-policy vCPUs, min 4) and seeds via cloud-init. Dedicated cache box budgeted
+  core-count-policy vCPUs, min 4 on AMD64, capped at 2 on ARM64) and seeds via cloud-init. Dedicated cache box budgeted
   around Squid's 7 GB `cache_mem` (58 % of RAM).
 - [host/vmconfig/caching-proxy-service.base.user-data](../../vmconfig/caching-proxy-service.base.user-data) -- shared
   cloud-init base (+ per-host overlay): Squid, Prometheus + Grafana + squid-exporter,
@@ -26,6 +26,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../../../README.md)

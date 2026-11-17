@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42f463f6-e84a-4c17-b6df-5f7f46b59e05
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -242,8 +242,9 @@ function Invoke-GuestSsh { param($Command) $script:sent=$Command; $script:order+
 function Publish-GuestRetryMarker { return 0 }
 function Test-GuestPayloadUnavailable { return $false }
 function Get-GuestAptIndexMismatch { return $null }
+function Get-GuestAptUpdateStall { return $null }
 function Get-GuestDeployResult { return $null }
-function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds) $script:order+='capture'; $script:succeeded=$Succeeded }
+function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds) $script:order+='capture'; $script:succeeded=$Succeeded; $script:publishes=$args -contains '-PublishRetryMarker' }
 '@
             $charDelayHelper=Get-ObservationFunction $script:handlerAst 'Resolve-SequenceCharDelay'
             $module=New-Module -ScriptBlock ([scriptblock]::Create($charDelayHelper+"`n"+$fixture+"`nfunction Invoke-TestHandler $handler"))
@@ -257,6 +258,9 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
                 $script:sent | Should -Match '^yfe [0-9a-f]{11} '
                 $script:succeeded | Should -BeFalse
             }
+            # The SSH verb publishes its guest's retry records from its output;
+            # only the console verb has them read from the captured log.
+            (& $module {$script:publishes}) | Should -Be ($action -eq 'fetchAndExecute')
             if ($action -eq 'sshFetchAndExecute') {
                 $context.CheckpointSourceStepInvocationId | Should -Be 'original'
                 $context.CheckpointSourceSequenceInvocationId | Should -Be 'prior'
@@ -318,6 +322,48 @@ function Save-GuestExecutionProfile { param($VMName,$GuestKey,$OutputFolder,$Ste
             $script:calls[1].path | Should -Be 'guest/test.sh'
             $script:calls[0].sequence | Should -Be 'current-sequence'
             $script:calls[1].sequence | Should -Be 'original-sequence'
+        }
+    }
+
+    It 'publishes a passing console step''s guest retry records from the execution log its capture read' {
+        $record='YURUNA_RETRY {"stack":"bash","label":"curl_retry","event":"attempt","attempt":1,"maxAttempts":34,"rc":22,"permanent":false,"windowSeconds":1800,"url":"https://github.com/example-org/example-tool/releases/latest","httpStatus":504,"elapsedSeconds":16}'
+        # A nested wrapper wrote the record twice; the profile and recorder
+        # sections that follow the log are not the payload's output.
+        $capture=Join-Path $TestDrive 'fetch-and-execute.current.profile.log'
+        [IO.File]::WriteAllText($capture,(@('--- YURUNA EXECUTION LOG ---','# stepInvocationId: current','# sequenceInvocationId: current-sequence',
+            '# Log: last 100000 bytes','--- YURUNA EXECUTION HEADER ---','# Yuruna fetch-and-execute log',
+            '# script:    guest/ubuntu.server.26/ubuntu.server.26.update.sh','# payload-script: guest/shared/ubuntu.update.sh',
+            '# stepInvocationId: current','# sequenceInvocationId: current-sequence','# ---','--- YURUNA EXECUTION LOG BODY ---',
+            "[  16.100] $record","[  16.389] $record",'--- YURUNA COMMAND PROFILE (last 400000 bytes) ---',$record,
+            '--- YURUNA RECORDER EVIDENCE ---',$record) -join "`n"))
+        $markerFunctions=@('ConvertFrom-GuestRetryMarker','Publish-GuestRetryMarker' | ForEach-Object { Get-ObservationFunction $script:handlerAst $_ }) -join "`n"
+        $module=New-Module -ScriptBlock ([scriptblock]::Create(@'
+$script:events=@()
+function Get-CycleGuestDataFolder { param($VMName) $null=$VMName; return $script:folder }
+function Save-GuestExecutionProfile { param($VMName,$GuestKey,$OutputFolder,$StepInvocationId,$TimeoutSeconds,$Variables,$ScriptPath,$SequenceInvocationId) $null=$VMName,$GuestKey,$OutputFolder,$StepInvocationId,$TimeoutSeconds,$Variables,$ScriptPath,$SequenceInvocationId; return @{success=$true;diagnosticOutcome='complete';outPath=$script:capture} }
+function Send-CycleEventSafely { param($EventRecord) $script:events+=,$EventRecord }
+'@ + "`n"+$markerFunctions+"`n"+(Get-ObservationFunction $script:handlerAst 'Save-FetchExecutionEvidence')))
+        & $module {param($path,$folder) $script:capture=$path; $script:folder=$folder} $capture $TestDrive
+        $context=@{Step=@{};StepInvocationId='current';SequenceInvocationId='current-sequence';FetchExecutionPath='guest/ubuntu.server.26/ubuntu.server.26.update.sh';
+            VMName='vm';GuestKey='guest.ubuntu.server.26';Vars=@{}}
+        $published=@(& $module {param($c)
+            Save-FetchExecutionEvidence -Context $c -Succeeded $true -ElapsedSeconds 75 -PublishRetryMarker
+            $script:events} $context)
+        $published.Count | Should -Be 1
+        $published[0].event | Should -Be 'retry_attempt'
+        $published[0].origin | Should -Be 'guest'
+        $published[0].stepInvocationId | Should -Be 'current'
+        $published[0].url | Should -Be 'https://github.com/example-org/example-tool/releases/latest'
+        $published[0].httpStatus | Should -Be 504
+        foreach ($case in @(
+            @{Succeeded=$false;Elapsed=75;Publish=$true;Why='a failed step''s records are published by the runner''s failure path'}
+            @{Succeeded=$true;Elapsed=75;Publish=$false;Why='the SSH verb publishes from its own output'}
+            @{Succeeded=$true;Elapsed=59;Publish=$true;Why='a fast success is not captured'})) {
+            $events=& $module {param($c,$s,$e,$p)
+                $script:events=@()
+                Save-FetchExecutionEvidence -Context $c -Succeeded $s -ElapsedSeconds $e -PublishRetryMarker:$p
+                $script:events} $context $case.Succeeded $case.Elapsed $case.Publish
+            @($events).Count | Should -Be 0 -Because $case.Why
         }
     }
 
@@ -775,5 +821,345 @@ printf '%s' "$fae_recorder_folder"
             (Get-Item (Join-Path $folder 'sample.0')).Length | Should -Be 131072
             (Get-Content (Join-Path $folder 'status') -Raw) | Should -Match 'state=stopped samples=1 '
         } finally { Remove-Item -LiteralPath $folder -Recurse -Force }
+    }
+}
+
+Describe 'Recorder I/O stall analysis' {
+    BeforeAll {
+        # One sample in the shape fae_recorder_collect writes: the sampleUtc
+        # boundary and clock fields, then raw /proc readings, among them the
+        # cpu and memory pressure totals the analysis must not read as io.
+        # A $null IoFull is a guest whose kernel has no io pressure file.
+        # CutAfter keeps what a collector killed by its time bound printed:
+        # each read prints its header before it blocks, so 'clock' ends in
+        # the first read's header and 'pressure' in the read after io's.
+        function Get-IoSampleText {
+            param([string]$Utc, [double]$Uptime, [AllowNull()][Nullable[long]]$IoFull, [hashtable]$Disk = @{},
+                [string]$Boot = '22222222-2222-2222-2222-222222222222', [ValidateSet('', 'clock', 'pressure')][string]$CutAfter = '')
+            $pressure = if ($null -eq $IoFull) { 'state=absent' } else {
+                "some avg10=1.00 avg60=0.50 avg300=0.10 total=$($IoFull + 500000)`nfull avg10=1.00 avg60=0.50 avg300=0.10 total=$IoFull"
+            }
+            $stats = @('   7       0 loop0 225 0 5478 91 0 0 0 0 0 83 91 0 0 0 0 0 0')
+            foreach ($name in $Disk.Keys) { $stats += ('   8       0 {0} {1}' -f $name, ($Disk[$name] -join ' ')) }
+            $uptimeText = $Uptime.ToString('0.00', [Globalization.CultureInfo]::InvariantCulture)
+            $text = @"
+sampleUtc=$Utc
+stepInvocationId=io-step
+sequenceInvocationId=io-sequence
+guestEvidenceSchema=2
+guestClockUtc=$Utc
+guestClockUptimeSeconds=$uptimeText
+guestClockTicksPerSecond=100
+guestBootId=$Boot
+guestOnlineCpus=0-1
+
+--- /proc/sys/kernel/random/boot_id ---
+$Boot
+
+--- /proc/uptime ---
+$uptimeText 10.00
+
+--- /proc/pressure/cpu ---
+some avg10=0.00 avg60=0.00 avg300=0.00 total=1000
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+
+--- /proc/pressure/io ---
+$pressure
+
+--- /proc/pressure/memory ---
+some avg10=0.00 avg60=0.00 avg300=0.00 total=99999999
+full avg10=0.00 avg60=0.00 avg300=0.00 total=99999999
+
+--- /proc/diskstats ---
+$($stats -join "`n")
+
+--- journal clients (pid, age seconds, state, wait channel, name) ---
+    627      45 S    ep_poll                  systemd-journal
+
+sampleCompleteUtc=$Utc
+"@
+            if ($CutAfter) {
+                $marker = if ($CutAfter -eq 'clock') { "--- /proc/sys/kernel/random/boot_id ---`n" } else { "--- /proc/pressure/memory ---`n" }
+                $text = $text.Substring(0, $text.IndexOf($marker) + $marker.Length)
+            }
+            return $text
+        }
+        # /proc/diskstats counters after a disk's name: the 17 a kernel since
+        # 5.5 prints, or the 11 an older one prints, which has no flush pair.
+        function Get-IoDiskCounter {
+            param([long]$Writes, [long]$WriteMs, [long]$Flushes, [long]$FlushMs, [switch]$OldKernel)
+            $counters = @(4000, 10, 80000, 900, $Writes, 3, ($Writes * 8), $WriteMs, 0, 1500, 2600)
+            if (-not $OldKernel) { $counters += @(0, 0, 0, 0, $Flushes, $FlushMs) }
+            return $counters
+        }
+        # A whole disk with a partition and the LVM volume on it, as the
+        # guests install. The partition repeats the disk's counts and is never
+        # read. The volume counts each request before the disk merges requests,
+        # with the time spent below it, and leaves its flush columns at zero,
+        # so it gets rows of its own but never enters the totals.
+        function Get-IoGuestDisk {
+            param([long]$Writes, [long]$WriteMs, [long]$Flushes, [long]$FlushMs, [switch]$OldKernel)
+            return @{
+                sda = Get-IoDiskCounter -Writes $Writes -WriteMs $WriteMs -Flushes $Flushes -FlushMs $FlushMs -OldKernel:$OldKernel
+                sda3 = Get-IoDiskCounter -Writes $Writes -WriteMs $WriteMs -Flushes 0 -FlushMs 0 -OldKernel:$OldKernel
+                'dm-0' = Get-IoDiskCounter -Writes ($Writes * 3) -WriteMs ($WriteMs * 90) -Flushes 0 -FlushMs 0 -OldKernel:$OldKernel
+            }
+        }
+        function Save-IoUpload {
+            param([string]$Name, [string[]]$Sample)
+            $path = Join-Path $TestDrive $Name
+            $header = "recorderSchema=1`nrecorderState=stopped`nstepInvocationId=io-step`nheartbeatUtc=2026-01-01T00:02:00.000000000Z`n"
+            $trailer = "`nrecorderEndedUtc=2026-01-01T00:02:30.000000000Z`n`n--- independent kernel evidence ---`n[    0.538316] fixture kernel: ordinary`n"
+            [IO.File]::WriteAllText($path, $header + ($Sample -join "`n") + $trailer)
+            return $path
+        }
+        function Get-IoAnalysis { param([string]$Path) return & $script:diagModule { param($p) Get-GuestRecorderIoAnalysis -Path $p } $Path }
+        $script:IoStart = '2026-01-01T00:00:00.000000000Z'
+        $script:IoQuietEnd = '2026-01-01T00:00:30.000000000Z'
+        $script:IoStallEnd = '2026-01-01T00:01:00.000000000Z'
+    }
+
+    It 'measures each interval''s full stall and each disk''s time per write and flush, and names the longest stall' {
+        $first = Get-IoSampleText -Utc $script:IoStart -Uptime 100 -IoFull 1000000 -Disk (Get-IoGuestDisk -Writes 1000 -WriteMs 5000 -Flushes 100 -FlushMs 300)
+        $quiet = Get-IoSampleText -Utc $script:IoQuietEnd -Uptime 130 -IoFull 1200000 -Disk (Get-IoGuestDisk -Writes 2000 -WriteMs 6000 -Flushes 200 -FlushMs 400)
+        $stalled = Get-IoSampleText -Utc $script:IoStallEnd -Uptime 160 -IoFull 13700000 -Disk (Get-IoGuestDisk -Writes 2100 -WriteMs 31000 -Flushes 210 -FlushMs 4400)
+        # The ring's slots wrap, so the newest sample can come first.
+        $analysis = Get-IoAnalysis (Save-IoUpload 'stall.txt' @($stalled, $first, $quiet))
+        $analysis.schema | Should -Be 'yuruna.guest-io-analysis/v1'
+        $analysis.advisoryOnly | Should -BeTrue
+        $analysis.sampleCount | Should -Be 3
+        $analysis.intervalCount | Should -Be 2
+        $analysis.pressureAvailable | Should -BeTrue
+        $analysis.counterResets | Should -Be 0
+        @($analysis.intervals | ForEach-Object { $_.device }) | Should -Be @('dm-0', 'sda', 'dm-0', 'sda')
+        @($analysis.intervals | ForEach-Object { $_.wholeDisk }) | Should -Be @($false, $true, $false, $true)
+        $quietRow = @($analysis.intervals | Where-Object { $_.device -eq 'sda' })[0]
+        $quietRow.startUtc | Should -Be $script:IoStart
+        $quietRow.seconds | Should -Be 30
+        $quietRow.ioFullStallSeconds | Should -Be 0.2
+        $quietRow.writes | Should -Be 1000
+        $quietRow.writeMsPerOp | Should -Be 1
+        $quietRow.flushes | Should -Be 100
+        $quietRow.flushMsPerOp | Should -Be 1
+        $worst = $analysis.worstInterval
+        $worst.startUtc | Should -Be $script:IoQuietEnd
+        $worst.endUtc | Should -Be $script:IoStallEnd
+        $worst.ioFullStallSeconds | Should -Be 12.5
+        $worst.device | Should -Be 'sda'
+        $worst.writes | Should -Be 100
+        $worst.writeMsPerOp | Should -Be 250
+        $worst.flushes | Should -Be 10
+        $worst.flushMsPerOp | Should -Be 400
+        $analysis.totals.seconds | Should -Be 60
+        $analysis.totals.ioFullStallSeconds | Should -Be 12.7
+        $analysis.totals.writes | Should -Be 1100
+        $analysis.totals.writeMsPerOp | Should -Be 23.64
+        $analysis.totals.flushes | Should -Be 110
+        $analysis.totals.flushMsPerOp | Should -Be 37.27
+    }
+
+    It 'reads disk latency on a kernel with no io pressure file or flush counters, and names the slowest write' {
+        $samples = @(
+            (Get-IoSampleText -Utc $script:IoStart -Uptime 100 -IoFull $null -Disk (Get-IoGuestDisk -Writes 1000 -WriteMs 5000 -Flushes 0 -FlushMs 0 -OldKernel)),
+            (Get-IoSampleText -Utc $script:IoQuietEnd -Uptime 130 -IoFull $null -Disk (Get-IoGuestDisk -Writes 1500 -WriteMs 5500 -Flushes 0 -FlushMs 0 -OldKernel)),
+            (Get-IoSampleText -Utc $script:IoStallEnd -Uptime 160 -IoFull $null -Disk (Get-IoGuestDisk -Writes 1600 -WriteMs 15500 -Flushes 0 -FlushMs 0 -OldKernel))
+        )
+        $analysis = Get-IoAnalysis (Save-IoUpload 'no-pressure.txt' $samples)
+        $analysis.pressureAvailable | Should -BeFalse
+        $analysis.intervalCount | Should -Be 2
+        foreach ($row in $analysis.intervals) {
+            $row.ioFullStallSeconds | Should -BeNullOrEmpty
+            $row.flushes | Should -BeNullOrEmpty
+            $row.flushMsPerOp | Should -BeNullOrEmpty
+        }
+        @($analysis.intervals | Where-Object { $_.device -eq 'sda' })[0].writeMsPerOp | Should -Be 1
+        # The volume's slower writes stay in its rows: the worst interval and
+        # the totals read the disk alone.
+        @($analysis.intervals | Where-Object { $_.device -eq 'dm-0' })[1].writeMsPerOp | Should -Be 3000
+        $analysis.worstInterval.startUtc | Should -Be $script:IoQuietEnd
+        $analysis.worstInterval.device | Should -Be 'sda'
+        $analysis.worstInterval.writeMsPerOp | Should -Be 100
+        $analysis.totals.ioFullStallSeconds | Should -BeNullOrEmpty
+        $analysis.totals.flushes | Should -BeNullOrEmpty
+        $analysis.totals.writes | Should -Be 600
+    }
+
+    It 'leaves out a counter that went backwards, and never subtracts across a reboot' {
+        $samples = @(
+            (Get-IoSampleText -Utc $script:IoStart -Uptime 100 -IoFull 5000000 -Disk (Get-IoGuestDisk -Writes 5000 -WriteMs 9000 -Flushes 500 -FlushMs 900)),
+            # The disk was removed and added again: every counter restarted.
+            (Get-IoSampleText -Utc $script:IoQuietEnd -Uptime 130 -IoFull 1000000 -Disk (Get-IoGuestDisk -Writes 10 -WriteMs 20 -Flushes 1 -FlushMs 2)),
+            (Get-IoSampleText -Utc $script:IoStallEnd -Uptime 160 -IoFull 1500000 -Disk (Get-IoGuestDisk -Writes 110 -WriteMs 220 -Flushes 11 -FlushMs 22)),
+            (Get-IoSampleText -Utc '2025-12-31T23:59:00.000000000Z' -Uptime 5 -IoFull 0 -Disk (Get-IoGuestDisk -Writes 1 -WriteMs 1 -Flushes 1 -FlushMs 1) -Boot '33333333-3333-3333-3333-333333333333')
+        )
+        $analysis = Get-IoAnalysis (Save-IoUpload 'reset.txt' $samples)
+        $analysis.sampleCount | Should -Be 4
+        $analysis.intervalCount | Should -Be 2
+        # The pressure total, the disk and its volume each went backwards once.
+        $analysis.counterResets | Should -Be 3
+        foreach ($row in $analysis.intervals) {
+            ($null -ne $row.ioFullStallSeconds -and $row.ioFullStallSeconds -lt 0) | Should -BeFalse
+            ($null -ne $row.writes -and $row.writes -lt 0) | Should -BeFalse
+            ($null -ne $row.writeMsPerOp -and $row.writeMsPerOp -lt 0) | Should -BeFalse
+        }
+        $analysis.intervals[0].startUtc | Should -Be $script:IoStart
+        $analysis.intervals[0].device | Should -BeNullOrEmpty
+        $analysis.intervals[0].ioFullStallSeconds | Should -BeNullOrEmpty
+        # The interval's writes are unknown, not zero.
+        ($null -eq $analysis.intervals[0].writes) | Should -BeTrue
+        $sda = @($analysis.intervals | Where-Object { $_.device -eq 'sda' })
+        $sda.Count | Should -Be 1
+        $sda[0].startUtc | Should -Be $script:IoQuietEnd
+        $sda[0].ioFullStallSeconds | Should -Be 0.5
+        $sda[0].writeMsPerOp | Should -Be 2
+        $sda[0].flushMsPerOp | Should -Be 2
+        $analysis.worstInterval.startUtc | Should -Be $script:IoQuietEnd
+        # The totals cover only the interval whose disk counts compare.
+        $analysis.totals.seconds | Should -Be 30
+        $analysis.totals.ioFullStallSeconds | Should -Be 0.5
+        $analysis.totals.writes | Should -Be 100
+    }
+
+    It 'keeps the stall of an interval whose only disk restarted its counters, with its writes unknown' {
+        $samples = @(
+            (Get-IoSampleText -Utc $script:IoStart -Uptime 100 -IoFull 5000000 -Disk @{ sda = Get-IoDiskCounter -Writes 5000 -WriteMs 9000 -Flushes 500 -FlushMs 900 }),
+            (Get-IoSampleText -Utc $script:IoQuietEnd -Uptime 130 -IoFull 6000000 -Disk @{ sda = Get-IoDiskCounter -Writes 10 -WriteMs 20 -Flushes 1 -FlushMs 2 })
+        )
+        $analysis = Get-IoAnalysis (Save-IoUpload 'reset-stalled.txt' $samples)
+        $analysis.counterResets | Should -Be 1
+        $analysis.intervalCount | Should -Be 1
+        @($analysis.intervals).Count | Should -Be 1
+        $analysis.worstInterval.ioFullStallSeconds | Should -Be 1
+        $analysis.worstInterval.device | Should -BeNullOrEmpty
+        ($null -eq $analysis.worstInterval.writes) | Should -BeTrue
+        $analysis.totals | Should -BeNullOrEmpty
+    }
+
+    It 'keeps a stalled interval in which no disk completed a write or flush' {
+        $samples = @(
+            (Get-IoSampleText -Utc $script:IoStart -Uptime 100 -IoFull 0 -Disk (Get-IoGuestDisk -Writes 1000 -WriteMs 1000 -Flushes 100 -FlushMs 100)),
+            (Get-IoSampleText -Utc $script:IoQuietEnd -Uptime 130 -IoFull 20000000 -Disk (Get-IoGuestDisk -Writes 1000 -WriteMs 1000 -Flushes 100 -FlushMs 100))
+        )
+        $analysis = Get-IoAnalysis (Save-IoUpload 'held.txt' $samples)
+        @($analysis.intervals).Count | Should -Be 1
+        $analysis.worstInterval.ioFullStallSeconds | Should -Be 20
+        $analysis.worstInterval.device | Should -BeNullOrEmpty
+        $analysis.worstInterval.writes | Should -Be 0
+        $analysis.totals.writes | Should -Be 0
+        $analysis.totals.writeMsPerOp | Should -BeNullOrEmpty
+    }
+
+    It 'measures the window across a sample cut short <Case>' -ForEach @(
+        @{ Case = 'before its readings'; CutAfter = 'clock' }
+        @{ Case = 'between its pressure and disk readings'; CutAfter = 'pressure' }
+    ) {
+        $samples = @(
+            (Get-IoSampleText -Utc $script:IoStart -Uptime 100 -IoFull 1000000 -Disk (Get-IoGuestDisk -Writes 1000 -WriteMs 5000 -Flushes 100 -FlushMs 300)),
+            (Get-IoSampleText -Utc $script:IoQuietEnd -Uptime 130 -IoFull 1200000 -Disk (Get-IoGuestDisk -Writes 2000 -WriteMs 6000 -Flushes 200 -FlushMs 400) -CutAfter $CutAfter),
+            (Get-IoSampleText -Utc $script:IoStallEnd -Uptime 160 -IoFull 13700000 -Disk (Get-IoGuestDisk -Writes 2100 -WriteMs 31000 -Flushes 210 -FlushMs 4400))
+        )
+        $analysis = Get-IoAnalysis (Save-IoUpload "cut-$CutAfter.txt" $samples)
+        $analysis.sampleCount | Should -Be 3
+        $analysis.intervalCount | Should -Be 1
+        $analysis.pressureAvailable | Should -BeTrue
+        @($analysis.intervals | Where-Object { $_.writes -eq 0 }).Count | Should -Be 0
+        $sda = @($analysis.intervals | Where-Object { $_.device -eq 'sda' })
+        $sda.Count | Should -Be 1
+        $sda[0].startUtc | Should -Be $script:IoStart
+        $sda[0].endUtc | Should -Be $script:IoStallEnd
+        $sda[0].ioFullStallSeconds | Should -Be 12.7
+        $sda[0].writes | Should -Be 1100
+        $sda[0].writeMsPerOp | Should -Be 23.64
+        $sda[0].flushMsPerOp | Should -Be 37.27
+        $analysis.totals.seconds | Should -Be 60
+        $analysis.totals.ioFullStallSeconds | Should -Be 12.7
+        $analysis.totals.writes | Should -Be 1100
+    }
+
+    It 'keeps the stall of a last sample cut short before its disk readings, with its writes unknown and out of the totals' {
+        $samples = @(
+            (Get-IoSampleText -Utc $script:IoStart -Uptime 100 -IoFull 1000000 -Disk (Get-IoGuestDisk -Writes 1000 -WriteMs 5000 -Flushes 100 -FlushMs 300)),
+            (Get-IoSampleText -Utc $script:IoQuietEnd -Uptime 130 -IoFull 1200000 -Disk (Get-IoGuestDisk -Writes 2000 -WriteMs 6000 -Flushes 200 -FlushMs 400)),
+            (Get-IoSampleText -Utc $script:IoStallEnd -Uptime 160 -IoFull 21200000 -Disk (Get-IoGuestDisk -Writes 2100 -WriteMs 31000 -Flushes 210 -FlushMs 4400) -CutAfter 'pressure')
+        )
+        $analysis = Get-IoAnalysis (Save-IoUpload 'cut-last.txt' $samples)
+        $analysis.intervalCount | Should -Be 2
+        @($analysis.intervals | Where-Object { $_.writes -eq 0 }).Count | Should -Be 0
+        $worst = $analysis.worstInterval
+        $worst.startUtc | Should -Be $script:IoQuietEnd
+        $worst.ioFullStallSeconds | Should -Be 20
+        $worst.device | Should -BeNullOrEmpty
+        ($null -eq $worst.writes) | Should -BeTrue
+        $analysis.totals.seconds | Should -Be 30
+        $analysis.totals.ioFullStallSeconds | Should -Be 0.2
+        $analysis.totals.writes | Should -Be 1000
+    }
+
+    It 'reports a device-mapper volume beside its disk without adding it to the totals' {
+        $samples = @(
+            (Get-IoSampleText -Utc $script:IoStart -Uptime 100 -IoFull 1000000 -Disk (Get-IoGuestDisk -Writes 1000 -WriteMs 5000 -Flushes 100 -FlushMs 300)),
+            (Get-IoSampleText -Utc $script:IoQuietEnd -Uptime 130 -IoFull 1200000 -Disk (Get-IoGuestDisk -Writes 2000 -WriteMs 6000 -Flushes 200 -FlushMs 400))
+        )
+        $analysis = Get-IoAnalysis (Save-IoUpload 'lvm.txt' $samples)
+        @($analysis.intervals | ForEach-Object { $_.device }) | Should -Be @('dm-0', 'sda')
+        $volume = $analysis.intervals[0]
+        $volume.wholeDisk | Should -BeFalse
+        $volume.writes | Should -Be 3000
+        $volume.writeMsPerOp | Should -Be 30
+        $volume.flushes | Should -BeNullOrEmpty
+        $volume.flushMsPerOp | Should -BeNullOrEmpty
+        $disk = $analysis.intervals[1]
+        $disk.wholeDisk | Should -BeTrue
+        $disk.writeMsPerOp | Should -Be 1
+        $disk.flushMsPerOp | Should -Be 1
+        $analysis.worstInterval.device | Should -Be 'sda'
+        $analysis.totals.writes | Should -Be 1000
+        $analysis.totals.writeMsPerOp | Should -Be 1
+        $analysis.totals.flushes | Should -Be 100
+    }
+
+    It 'returns an empty advisory analysis for a missing upload or one with no samples' {
+        foreach ($path in @((Join-Path $TestDrive 'absent.txt'), (Save-IoUpload 'header-only.txt' @()))) {
+            $analysis = Get-IoAnalysis $path
+            $analysis.advisoryOnly | Should -BeTrue
+            $analysis.sampleCount | Should -Be 0
+            $analysis.intervalCount | Should -Be 0
+            $analysis.totals | Should -BeNullOrEmpty
+            $analysis.worstInterval | Should -BeNullOrEmpty
+            @($analysis.intervals).Count | Should -Be 0
+            $analysis.ContainsKey('reason') | Should -BeFalse
+        }
+    }
+
+    It 'is attached beside the clock analysis and kept whole in the evidence manifest' {
+        $fixture = Join-Path $TestDrive 'recorder-io'
+        [void][IO.Directory]::CreateDirectory($fixture)
+        $samples = @(
+            (Get-IoSampleText -Utc $script:IoStart -Uptime 100 -IoFull 1000000 -Disk (Get-IoGuestDisk -Writes 1000 -WriteMs 5000 -Flushes 100 -FlushMs 300)),
+            (Get-IoSampleText -Utc $script:IoQuietEnd -Uptime 130 -IoFull 1200000 -Disk (Get-IoGuestDisk -Writes 2000 -WriteMs 6000 -Flushes 200 -FlushMs 400)),
+            (Get-IoSampleText -Utc $script:IoStallEnd -Uptime 160 -IoFull 13700000 -Disk (Get-IoGuestDisk -Writes 2100 -WriteMs 31000 -Flushes 210 -FlushMs 4400))
+        )
+        Move-Item -LiteralPath (Save-IoUpload 'upload.txt' $samples) -Destination (Join-Path $fixture 'execution.system.diagnostic.io-step.txt')
+        $module = New-Module -ScriptBlock ([scriptblock]::Create(@'
+function Get-CycleGuestDataFolder { param($VMName) return $script:fixture }
+function Save-GuestExecutionProfile { param($VMName,$GuestKey,$OutputFolder,$StepInvocationId,$TimeoutSeconds) return @{success=$true;diagnosticOutcome='complete';reasonCode='complete';sshResponsive=$true;outPath=$null} }
+function Get-GuestRecorderIoAnalysis { param($Path) return & $script:diagnostic { param($p) Get-GuestRecorderIoAnalysis -Path $p } $Path }
+'@ + "`n" + (Get-ObservationFunction $script:handlerAst 'Save-FetchExecutionEvidence')))
+        & $module { param($f, $d) $script:fixture = $f; $script:diagnostic = $d } $fixture $script:diagModule
+        $context = @{ Step=@{}; StepInvocationId='io-step'; VMName='vm'; GuestKey='guest.ubuntu.server.26'; Vars=@{} }
+        # A row nested past the manifest's serialization depth would arrive
+        # as a type name, with a truncation warning.
+        $warnings = @(& $module { param($c) Save-FetchExecutionEvidence -Context $c -Succeeded $false -ElapsedSeconds 1 } $context 3>&1)
+        $warnings | Should -BeNullOrEmpty
+        $context.ExecutionProfile.recorder.reasonCode | Should -Be 'recorder-upload-retained'
+        $context.ExecutionProfile.recorder.ioAnalysis.worstInterval.ioFullStallSeconds | Should -Be 12.5
+        $text = Get-Content (Join-Path $fixture 'fetch-and-execute.io-step.evidence.json') -Raw
+        $text | Should -Not -Match 'System\.Collections'
+        $manifest = $text | ConvertFrom-Json
+        @($manifest.recorder.ioAnalysis.intervals).Count | Should -Be 4
+        @($manifest.recorder.ioAnalysis.intervals | ForEach-Object { $_.device }) | Should -Be @('dm-0', 'sda', 'dm-0', 'sda')
+        @($manifest.recorder.ioAnalysis.intervals | ForEach-Object { $_.wholeDisk }) | Should -Be @($false, $true, $false, $true)
+        $manifest.recorder.ioAnalysis.worstInterval.flushMsPerOp | Should -Be 400
+        $manifest.recorder.ioAnalysis.totals.writes | Should -Be 1100
     }
 }

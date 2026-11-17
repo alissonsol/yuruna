@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4257205b-1908-49c3-840b-b2b3559b3337
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -144,10 +144,14 @@ function Test-YurunaTransientFailure {
 }
 
 # Structured retry telemetry (best-effort). Emits a machine-readable
-# retry_attempt / retry_exhausted NDJSON record when this host-side retry runs
-# inside a process that also loaded Test.Log; a no-op otherwise (Send-Cycle-
-# EventSafely is Get-Command-guarded), so the standalone tofu-init / on-host
-# probe paths that don't import Test.Log are unaffected. Private (not exported).
+# retry_attempt / retry_recovered / retry_exhausted NDJSON record when this
+# retry runs inside a process that also loaded Test.Log (Send-CycleEventSafely
+# is Get-Command-guarded). A guest payload has no cycle stream: under the
+# guest's fetch-and-execute.sh, which exports FAE_INVOCATION_SCRIPT to the
+# payload, the record goes to stderr as a YURUNA_RETRY marker in the guest
+# bash library's shape, and the host publishes it from the step's output or
+# execution log. Anywhere else this is a no-op, so the standalone tofu-init /
+# on-host probe paths print nothing. Private (not exported).
 function Send-YurunaRetryEvent {
     param(
         [Parameter(Mandatory)][string]$EventName,
@@ -157,22 +161,53 @@ function Send-YurunaRetryEvent {
         [int]$ExitCode,
         [AllowNull()][Nullable[bool]]$Transient,
         [AllowNull()][Nullable[int]]$SleepSeconds,
-        [AllowNull()][Nullable[bool]]$Permanent
+        [AllowNull()][Nullable[bool]]$Permanent,
+        [string]$Basis,
+        [int]$WindowSeconds,
+        [double]$ElapsedSeconds
     )
-    if (-not (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) { return }
-    $rec = @{
-        timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-        event       = $EventName
-        stack       = 'pwsh'
-        description = [string]$Label
-        attempt     = [int]$Attempt
-        maxAttempts = [int]$MaxAttempts
-        exitCode    = [int]$ExitCode
+    if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+        $rec = @{
+            timestamp      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+            event          = $EventName
+            stack          = 'pwsh'
+            description    = [string]$Label
+            attempt        = [int]$Attempt
+            maxAttempts    = [int]$MaxAttempts
+            exitCode       = [int]$ExitCode
+            elapsedSeconds = [int][Math]::Floor($ElapsedSeconds)
+        }
+        if ($null -ne $Transient)    { $rec['transient']     = [bool]$Transient }
+        if ($null -ne $SleepSeconds) { $rec['sleepSeconds']  = [int]$SleepSeconds }
+        if ($null -ne $Permanent)    { $rec['permanent']     = [bool]$Permanent }
+        if ($Basis)                  { $rec['basis']         = $Basis }
+        if ($WindowSeconds -gt 0)    { $rec['windowSeconds'] = $WindowSeconds }
+        Send-CycleEventSafely -EventRecord $rec
+        return
     }
-    if ($null -ne $Transient)    { $rec['transient']    = [bool]$Transient }
-    if ($null -ne $SleepSeconds) { $rec['sleepSeconds'] = [int]$SleepSeconds }
-    if ($null -ne $Permanent)    { $rec['permanent']    = [bool]$Permanent }
-    Send-CycleEventSafely -EventRecord $rec
+    if (-not $env:FAE_INVOCATION_SCRIPT) { return }
+    # The bash library's vocabulary: attempt records, and one outcome record
+    # for a retry that ended without a plain success. An attempt record goes
+    # out only where retry_attempt is sent, before a backoff, so the attempt
+    # that ended the retry appears only in the outcome record.
+    $marker = [ordered]@{ stack = 'pwsh'; label = [string]$Label }
+    if ($EventName -ceq 'retry_attempt') {
+        $marker['event'] = 'attempt'
+    } else {
+        $marker['event'] = 'outcome'
+        $marker['outcome'] = if ($EventName -ceq 'retry_recovered') { 'recovered' } elseif ($Permanent) { 'permanent' } else { 'exhausted' }
+    }
+    $marker['attempt'] = [int]$Attempt
+    $marker['maxAttempts'] = [int]$MaxAttempts
+    $marker['rc'] = [int]$ExitCode
+    if ($null -ne $Permanent)    { $marker['permanent']     = [bool]$Permanent }
+    if ($null -ne $Transient)    { $marker['transient']     = [bool]$Transient }
+    if ($null -ne $SleepSeconds) { $marker['sleepSeconds']  = [int]$SleepSeconds }
+    if ($Basis)                  { $marker['basis']         = $Basis }
+    if ($WindowSeconds -gt 0)    { $marker['windowSeconds'] = $WindowSeconds }
+    $marker['elapsedSeconds'] = [int][Math]::Floor($ElapsedSeconds)
+    try { [Console]::Error.WriteLine('YURUNA_RETRY ' + ($marker | ConvertTo-Json -Compress)) }
+    catch { Write-Verbose "retry record not written to stderr: $($_.Exception.Message)" }
 }
 
 <#
@@ -481,6 +516,18 @@ function Get-YurunaCommandTimeout {
     closes, and an unset -MaxAttempts comes from Get-YurunaRetryWindowAttempt.
     A run the window ends reports the attempts it made as its allowance, so
     "all N attempts exhausted" stays true.
+
+    -SucceedWhen names the failures that are the completion of an earlier
+    attempt: an API server commits a create whose answer is lost to an etcd
+    timeout, and the retry is refused as AlreadyExists. It receives the same
+    hashtable -ShouldRetry does, and is asked only about a failed attempt that
+    was not stopped and is not the first, when an earlier attempt of the same
+    command can have acted. A true answer ends the retry as a success: the
+    result has Success $true, LastExit 0 and CompletedBy 'already-applied', the
+    attempt's log header says so, one operator line says the outcome had
+    already been applied, and a retry_recovered event carries the attempt's
+    own exit code. A predicate that throws counts as false and is reported;
+    the attempt stays the failure it was.
 #>
 function Invoke-WithYurunaRetry {
     [OutputType([pscustomobject])]
@@ -497,6 +544,7 @@ function Invoke-WithYurunaRetry {
         [scriptblock]$OnAttempt,
         [scriptblock]$OnRetry,
         [scriptblock]$ShouldRetry,
+        [scriptblock]$SucceedWhen,
         [ValidateRange(0, 86400)][int]$TimeoutSeconds = 0,
         [ValidateRange(0, 86400)][int]$WindowSeconds = 0
     )
@@ -523,6 +571,7 @@ function Invoke-WithYurunaRetry {
     $lastError  = $null
     $success    = $false
     $lastTimedOut = $false
+    $completedBy  = $null
 
     while ($attempt -le $MaxAttempts) {
         if ($OnAttempt) {
@@ -558,10 +607,35 @@ function Invoke-WithYurunaRetry {
             $lastOutput = @($lastOutput) + $stoppedLine
         }
 
+        if ($SucceedWhen -and -not $success -and -not $lastTimedOut -and $attempt -gt 1) {
+            # Asked only once an earlier attempt of the same command has failed
+            # and been retried: on the first attempt nothing earlier can have
+            # acted, and a stopped attempt's outcome is unknown. A predicate
+            # that throws is a bug in the caller's test, not evidence that the
+            # outcome was applied, so the attempt stays the failure it was.
+            $applied = $false
+            try {
+                $applied = [bool](& $SucceedWhen @{ Attempt = $attempt; MaxAttempts = $MaxAttempts; ExitCode = $lastExit; Output = $lastOutput; Error = $lastError; TimedOut = $lastTimedOut })
+            } catch {
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.retry_succeed_when_threw' -Arguments @{ label = "${Label}"; message = "$($_.Exception.Message)" })
+            }
+            if ($applied) {
+                $completedBy = 'already-applied'
+                $success = $true
+                Write-Information (Format-YurunaOperatorMessage -Key 'automation.retry_already_applied' -Arguments @{ label = "${Label}"; attempt = "${attempt}"; maxAttempts = "${MaxAttempts}"; lastExit = "${lastExit}" })
+                # The event and the log header keep the attempt's own exit
+                # code; the result and the sidecar report the command complete.
+                Send-YurunaRetryEvent -EventName 'retry_recovered' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Basis $completedBy `
+                    -WindowSeconds $WindowSeconds -ElapsedSeconds $windowClock.Elapsed.TotalSeconds
+            }
+        }
+
         if ($LogPath) {
             try {
                 $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
-                $header = "== ${stamp} ${Label} attempt ${attempt}/${MaxAttempts} (exit=${lastExit}) =="
+                $state = "exit=${lastExit}"
+                if ($completedBy) { $state += "; completedBy=${completedBy}" }
+                $header = "== ${stamp} ${Label} attempt ${attempt}/${MaxAttempts} (${state}) =="
                 # The attempt is one section: its output can run to thousands
                 # of lines, and each separate append would open the log again.
                 $lines = @(
@@ -572,6 +646,10 @@ function Invoke-WithYurunaRetry {
             } catch { $null = $_ }
         }
 
+        if ($completedBy) {
+            $lastExit = 0
+            $global:LASTEXITCODE = 0
+        }
         if ($success) { break }
 
         $windowRemaining = 0
@@ -602,7 +680,8 @@ function Invoke-WithYurunaRetry {
                 }
                 if (-not $retryThis) {
                     Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_34010bbd70837710' -Arguments @{ label = "${Label}"; lastExit = "${lastExit}" })
-                    Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Permanent $true
+                    Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Permanent $true `
+                        -WindowSeconds $WindowSeconds -ElapsedSeconds $windowClock.Elapsed.TotalSeconds
                     break
                 }
             }
@@ -610,7 +689,8 @@ function Invoke-WithYurunaRetry {
             # The last attempt starts as the window closes, not after it.
             if ($WindowSeconds -gt 0 -and $sleep -gt $windowRemaining) { $sleep = $windowRemaining }
             Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_b33c77878eaa7c77' -Arguments @{ label = "${Label}"; attempt = "${attempt}"; maxAttempts = "${MaxAttempts}"; lastExit = "${lastExit}"; sleep = "${sleep}" })
-            Send-YurunaRetryEvent -EventName 'retry_attempt' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Transient ([bool](Test-YurunaTransientFailure -Output $lastOutput)) -SleepSeconds $sleep
+            Send-YurunaRetryEvent -EventName 'retry_attempt' -Label $Label -Attempt $attempt -MaxAttempts $MaxAttempts -ExitCode $lastExit -Transient ([bool](Test-YurunaTransientFailure -Output $lastOutput)) -SleepSeconds $sleep `
+                -WindowSeconds $WindowSeconds -ElapsedSeconds $windowClock.Elapsed.TotalSeconds
             if ($OnRetry) {
                 try { & $OnRetry @{ Attempt = $attempt; MaxAttempts = $MaxAttempts; SleepSeconds = $sleep; ExitCode = $lastExit } } catch { $null = $_ }
             }
@@ -619,7 +699,8 @@ function Invoke-WithYurunaRetry {
         } else {
             if ($windowClosed) { $allowedAttempts = $attempt }
             Write-Information (Format-YurunaOperatorMessage -Key 'automation.operator_0006b705ae0abd93' -Arguments @{ label = "${Label}"; maxAttempts = "${allowedAttempts}"; lastExit = "${lastExit}" })
-            Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $allowedAttempts -ExitCode $lastExit -Permanent $false
+            Send-YurunaRetryEvent -EventName 'retry_exhausted' -Label $Label -Attempt $attempt -MaxAttempts $allowedAttempts -ExitCode $lastExit -Permanent $false `
+                -WindowSeconds $WindowSeconds -ElapsedSeconds $windowClock.Elapsed.TotalSeconds
             if ($windowClosed) { break }
         }
         $attempt++
@@ -641,6 +722,7 @@ function Invoke-WithYurunaRetry {
         LastError   = $lastError
         Label       = $Label
         TimedOut    = $lastTimedOut
+        CompletedBy = $completedBy
     }
 }
 
@@ -684,6 +766,10 @@ function Get-YurunaRetryBackoff {
     within seconds on OpenTofu's own client timeout, so five attempts spanned
     only about four minutes. GitHub's release endpoints have answered 504 for
     most of half an hour at a time, which outlasts that.
+
+    A result that did not succeed also carries FetchFailure, the download the
+    last attempt reported failing (Get-TofuFetchFailure), so the failure names
+    the host that refused it rather than guessing at the registry.
 #>
 function Invoke-TofuInitWithRetry {
     [OutputType([pscustomobject])]
@@ -698,9 +784,69 @@ function Invoke-TofuInitWithRetry {
     )
     if ($TimeoutSeconds -le 0) { $TimeoutSeconds = $script:ToolCallDefaultSeconds['tofu init'] }
     $label = "tofu init ($ResourceName)"
-    return Invoke-WithYurunaRetry -Label $label -ScriptBlock {
+    $result = Invoke-WithYurunaRetry -Label $label -ScriptBlock {
         & tofu init -input=false
     } -MaxAttempts $MaxAttempts -InitialDelaySeconds $InitialDelaySeconds -MaxDelaySeconds 120 -WindowSeconds 1800 -LogPath $LogPath -RcFile $RcFile -TimeoutSeconds $TimeoutSeconds
+    if (-not $result.Success) {
+        $result | Add-Member -NotePropertyName FetchFailure -NotePropertyValue (Get-TofuFetchFailure -Output $result.LastOutput)
+    }
+    return $result
+}
+
+<#
+.SYNOPSIS
+    The download an OpenTofu run reported failing: its URL and the status or
+    error tofu gave for it, or $null.
+.DESCRIPTION
+    tofu draws each error in a box, colors it and wraps its long lines inside
+    the box, so a URL and its error can sit on different lines; each paragraph
+    of a box is read as one line. A copy that passed through a log keeping
+    only printable characters has lost each color code's escape byte, so a
+    bare code is removed too. Three forms name the download: Go's client
+    error (Get "<url>": <error>), the retrying client's (GET <url> giving up
+    after N attempt(s)) and a status the registry client reports (<status>
+    returned from <url>, which can name only the host). The last one in the
+    output is returned. The URL keeps its scheme, host and path: a release
+    download is redirected to a signed URL whose query is a credential.
+.OUTPUTS
+    [pscustomobject] @{ Url; Error } or $null.
+#>
+function Get-TofuFetchFailure {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([AllowNull()][AllowEmptyCollection()][object[]]$Output)
+    $diagnostics = [System.Collections.Generic.List[string]]::new()
+    $paragraph = [System.Collections.Generic.List[string]]::new()
+    foreach ($text in @(@($Output) | ForEach-Object { [string]$_ -split '\r?\n' })) {
+        $line = ($text -replace '\x1b\[[0-9;]*[A-Za-z]|\[[0-9;]*m', '').Trim()
+        $boxed = $line -match '^\u2502'
+        $content = if ($boxed) { $line -replace '^\u2502\s*', '' } else { $line }
+        if ($boxed -and $content) { $paragraph.Add($content); continue }
+        if ($paragraph.Count -gt 0) { $diagnostics.Add($paragraph -join ' '); $paragraph.Clear() }
+        if (-not $boxed -and $content -notmatch '^[\u2575\u2577]?$') { $diagnostics.Add($content) }
+    }
+    if ($paragraph.Count -gt 0) { $diagnostics.Add($paragraph -join ' ') }
+    $found = $null
+    foreach ($diagnostic in $diagnostics) {
+        if ($diagnostic -match '\bGet "(?<url>https?://[^"\s]+)":\s*(?<reason>.+)$' -or
+            $diagnostic -match '\bGET (?<url>https?://\S+) (?<reason>giving up after \d+ attempt\(s\).*)$' -or
+            $diagnostic -match '(?<reason>\b\d{3}(?: [A-Za-z][A-Za-z -]*)?) returned from (?<url>\S+)') {
+            $found = @{ url = $Matches['url']; reason = $Matches['reason'] }
+        }
+    }
+    if (-not $found) { return $null }
+    $url = $found.url.TrimEnd('.', ',', ';', ':', ')')
+    $uri = $null
+    if ([Uri]::TryCreate($url, [UriKind]::Absolute, [ref]$uri) -and $uri.Scheme -in @('http', 'https')) {
+        $url = "$($uri.Scheme)://$($uri.Authority)$($uri.AbsolutePath)"
+    }
+    $reason = $found.reason.Trim()
+    if ($reason.Length -gt 200) { $reason = $reason.Substring(0, 200) }
+    $secretValues = Get-YurunaSecretValue
+    return [pscustomobject]@{
+        Url   = Protect-YurunaSecretText -Text $url -SecretValue $secretValues
+        Error = Protect-YurunaSecretText -Text $reason -SecretValue $secretValues
+    }
 }
 
 Export-ModuleMember -Function 'Invoke-WithYurunaRetry','Invoke-TofuInitWithRetry','Invoke-YurunaToolWithDeadline','Get-YurunaCommandTimeout','Get-YurunaRetryBackoff','Get-YurunaRetryDefault','Get-YurunaTransientPattern','Test-YurunaTransientFailure','Write-YurunaToolLogSection','Get-YurunaSecretValue','Protect-YurunaSecretText','Get-YurunaOutputTail'

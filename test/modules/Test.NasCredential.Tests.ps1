@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 426f60c6-12ae-47e8-bf91-92c9c1eadd18
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,8 @@ BeforeAll {
 
     function Invoke-NasCredentialHelper {
         param([string]$Root, [string]$Name = 'pool', [string]$Json = '', [int]$CurlExit = 0, [switch]$NoMaterial,
-            [string]$Mount = '', [switch]$Mounted, [int]$MountExit = 0, [string]$Existing, [switch]$Unanswering)
+            [string]$Mount = '', [switch]$Mounted, [int]$MountExit = 0, [string]$Existing, [switch]$Unanswering,
+            [switch]$MountpointFails, [switch]$FindmntUnavailable, [int]$PrimaryMountExit = 0)
         $bin = Join-Path $Root 'bin'
         $cdir = Join-Path $Root 'host-config'
         $null = New-Item -ItemType Directory -Force -Path $bin, $cdir
@@ -47,13 +48,19 @@ BeforeAll {
         & chmod +x $curl
         # Stand-ins for the refresh path: whether the share is mounted, and a
         # mount that records how it was asked to remount.
-        $mountedExit = if ($Mounted) { 0 } else { 1 }
+        $mountedExit = if ($Mounted -and -not $MountpointFails) { 0 } else { 1 }
+        $findmntExit = if ($FindmntUnavailable) { 127 } elseif ($Mounted) { 0 } else { 1 }
         [IO.File]::WriteAllText((Join-Path $bin 'mountpoint'), "#!/bin/sh`nexit $mountedExit`n")
-        [IO.File]::WriteAllText((Join-Path $bin 'mount'), "#!/bin/sh`nprintf '%s\n' `"`$*`" >> '$Root/mount.args'`nexit $MountExit`n")
+        [IO.File]::WriteAllText((Join-Path $bin 'findmnt'), "#!/bin/sh`nprintf '%s\n' `"`$*`" > '$Root/findmnt.args'`n" +
+            "case `"`$*`" in *--json*) printf '%s' '{`"filesystems`":[{`"source`":`"//nas/pool`",`"options`":`"rw,vers=3.1.1,cache=none,username=ypool,credentials=/old/cred,password=old-secret,pass=old-alias,password2=old-alt,pass2=old-alt-alias`"}]}' ;; esac`nexit $findmntExit`n")
+        $primaryExit = if ($PrimaryMountExit) { $PrimaryMountExit } else { $MountExit }
+        [IO.File]::WriteAllText((Join-Path $bin 'mount'), "#!/bin/sh`nprintf '%s\n' `"`$*`" >> '$Root/mount.args'`n" +
+            "if [ `"`$1`" = '-o' ]; then exit $primaryExit; fi`n" +
+            "for option in `"`$@`"; do case `"`$option`" in *credentials=*) file=`${option##*credentials=}; cp -p `"`$file`" '$Root/alternate.cred' ;; esac; done`nexit $MountExit`n")
         [IO.File]::WriteAllText((Join-Path $bin 'timeout'), "#!/bin/sh`nshift`nexec `"`$@`"`n")
         $statExit = if ($Unanswering) { 1 } else { 0 }
         [IO.File]::WriteAllText((Join-Path $bin 'stat'), "#!/bin/sh`nexit $statExit`n")
-        & chmod +x (Join-Path $bin 'mountpoint') (Join-Path $bin 'mount') (Join-Path $bin 'timeout') (Join-Path $bin 'stat')
+        & chmod +x (Join-Path $bin 'mountpoint') (Join-Path $bin 'findmnt') (Join-Path $bin 'mount') (Join-Path $bin 'timeout') (Join-Path $bin 'stat')
         $cred = Join-Path $Root 'nas.cifs.cred'
         if ($PSBoundParameters.ContainsKey('Existing')) { [IO.File]::WriteAllText($cred, $Existing) }
         $saved = Save-YurunaTestEnvironment -Name 'PATH', 'YURUNA_HOST_CONFIG_DIR', 'YURUNA_HOST_ENV_FILE', 'YURUNA_NAS_CREDENTIAL_ATTEMPTS', 'YURUNA_NAS_CREDENTIAL_PAUSE_SECONDS'
@@ -134,6 +141,26 @@ Describe 'yuruna-nas-credential.sh as the periodic refresh' -Skip:$IsWindows {
         $r.Output | Should -Match 'does not answer; remounting it'
         (Get-Content -Raw -LiteralPath $r.MountArgs).Trim() | Should -BeExactly '-o remount /mnt/yuruna-pool'
     }
+    It 'remounts a disconnected share still in the mount table when <Case>' -ForEach @(
+        @{ Case='the credential changed'; Previous='old'; Unanswering=$false },
+        @{ Case='the credential is current but the share does not answer'; Previous='rotated'; Unanswering=$true }
+    ) {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $r = Invoke-NasCredentialHelper -Root $root -Json $script:Rotated -Mount '/mnt/yuruna-pool' `
+            -Mounted -MountpointFails -Unanswering:$Unanswering -Existing "username=ypool`npassword=$Previous`n"
+        $r.Code | Should -Be 0 -Because $r.Output
+        Get-Content -Raw -LiteralPath $r.Cred | Should -Be "username=ypool`npassword=rotated`n"
+        (Get-Content -Raw -LiteralPath $r.MountArgs).Trim() | Should -BeExactly '-o remount /mnt/yuruna-pool'
+        (Get-Content -Raw -LiteralPath (Join-Path $root 'findmnt.args')).Trim() |
+            Should -BeExactly '--nocanonicalize --mountpoint /mnt/yuruna-pool --noheadings --output TARGET'
+    }
+    It 'keeps the mountpoint fallback when the mount-table lookup is unavailable' {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $r = Invoke-NasCredentialHelper -Root $root -Json $script:Rotated -Mount '/mnt/yuruna-pool' `
+            -Mounted -FindmntUnavailable -Existing "username=ypool`npassword=old`n"
+        $r.Code | Should -Be 0 -Because $r.Output
+        (Get-Content -Raw -LiteralPath $r.MountArgs).Trim() | Should -BeExactly '-o remount /mnt/yuruna-pool'
+    }
     It 'replaces a stale credential but never mounts a share that is not mounted' {
         $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Force -Path $root
@@ -142,13 +169,35 @@ Describe 'yuruna-nas-credential.sh as the periodic refresh' -Skip:$IsWindows {
         Get-Content -Raw -LiteralPath $r.Cred | Should -Be "username=ypool`npassword=rotated`n"
         Test-Path -LiteralPath $r.MountArgs | Should -BeFalse
     }
-    It 'reports a remount that fails and keeps the new credential on disk' {
+    It 'reports failure and keeps the new credential when <Case>' -ForEach @(
+        @{ Case='both primary and alternate remounts fail'; PrimaryExit=32; AlternateExit=32; FindmntUnavailable=$false },
+        @{ Case='the alternate-password lookup is unavailable'; PrimaryExit=22; AlternateExit=0; FindmntUnavailable=$true }
+    ) {
         $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Force -Path $root
-        $r = Invoke-NasCredentialHelper -Root $root -Json $script:Rotated -Mount '/mnt/yuruna-pool' -Mounted -MountExit 32 -Existing "username=ypool`npassword=old`n"
+        $r = Invoke-NasCredentialHelper -Root $root -Json $script:Rotated -Mount '/mnt/yuruna-pool' -Mounted `
+            -PrimaryMountExit $PrimaryExit -MountExit $AlternateExit -FindmntUnavailable:$FindmntUnavailable -Existing "username=ypool`npassword=old`n"
         $r.Code | Should -Be 1
         $r.Output | Should -Match 'could not be remounted'
         Get-Content -Raw -LiteralPath $r.Cred | Should -Be "username=ypool`npassword=rotated`n"
+        @(Get-ChildItem -LiteralPath $root -Filter '.nas-remount-*').Count | Should -Be 0
+    }
+    It 'uses only the alternate password for successive active-session rotations' {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        foreach ($password in @('rotated', 'rotated-again')) {
+            $json = @{ username='ypool'; password=$password } | ConvertTo-Json -Compress
+            $r = Invoke-NasCredentialHelper -Root $root -Json $json -Mount '/mnt/yuruna-pool' -Mounted -PrimaryMountExit 22
+            $r.Code | Should -Be 0 -Because $r.Output
+            Get-Content -Raw -LiteralPath $r.Cred | Should -Be "username=ypool`npassword=$password`n"
+            $alternate = Join-Path $root 'alternate.cred'
+            Get-Content -Raw -LiteralPath $alternate | Should -Be "username=ypool`npassword2=$password`n"
+            ((Get-Item -LiteralPath $alternate).UnixFileMode.value__ -band 0x3F) | Should -Be 0
+            $calls = Get-Content -LiteralPath $r.MountArgs
+            $calls[-1] | Should -Match '^-t cifs -o remount,rw,vers=3.1.1,cache=none,credentials=.* //nas/pool /mnt/yuruna-pool$'
+            ($calls -join ' ') | Should -Not -Match 'password=|password2=|old-secret|old-alias|old-alt'
+            @(Get-ChildItem -LiteralPath $root -Filter '.nas-remount-*').Count | Should -Be 0
+        }
+        @(Get-Content -LiteralPath $r.MountArgs).Count | Should -Be 4
     }
     It 'keeps the first-boot call writing the file even when it is current' {
         $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))

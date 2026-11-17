@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,7 +111,11 @@ $script:TypedField = @{
     causeVmStateWaitedSeconds = 'int'
     causeLauncherRejection = 'string'
     causeAptIndexMismatch = 'string'
+    causeAptUpdateStall = 'string'
+    # The nested run a host action's stage failed in, on that stage's infra event.
+    nestedNode          = 'string'
     causeInstallerFailure = 'string'
+    causeLoginEcho      = 'string'
     causeHostInputFault = 'string'
     causeGuestKernelFault = 'string'
     causeHostAddressChange = 'string'
@@ -124,20 +128,61 @@ $script:TypedField = @{
     hostname            = 'string'
     handler             = 'string'
     snapshotId          = 'string'
+    # The cycle-start VM sweep's record of what it is about to delete
+    # (leftover_vms_found): one {name, state, uptimeSeconds, createdUtc,
+    # stoppedByAdmission} per VM.
+    leftoverVms         = 'array'
+    leftoverVmCount     = 'int'
     runnerState         = 'string'
     fromState           = 'string'
     toState             = 'string'
-    # Retry telemetry (the retry_attempt / retry_exhausted events from the three
-    # retry stacks: the bash lib via the SSH-marker path, Yuruna.Retry, and the
-    # sequence retry verb).
+    # The boot sweep's account of a cycle whose runner was ended from outside
+    # (host_restart, runner_ended_by_signal): what ended it (signal or
+    # host-restart), the signal the runner's exit record named and when, how
+    # long the host then ran without a runner, how the runner was
+    # started, and the Windows build on each side of a restart; and why
+    # boot_recovery_completed carries no previousRunner.
+    endedBy             = 'string'
+    signal              = 'string'
+    signalAtUtc         = 'string'
+    silentSeconds       = 'int'
+    terminalProgram     = 'string'
+    sshSession          = 'bool'
+    osBuildBefore       = 'string'
+    osBuildAfter        = 'string'
+    previousRunnerAbsent = 'string'
+    # Retry telemetry (the retry_attempt / retry_recovered / retry_exhausted
+    # events from the three retry stacks: the bash lib via the SSH-marker path,
+    # Yuruna.Retry, and the sequence retry verb). basis says why a failed
+    # attempt ended a retry as a success (already-applied).
     stack               = 'string'
     attempt             = 'int'
     maxAttempts         = 'int'
+    basis               = 'string'
+    # A guest retry's record, published by the host with origin 'guest': the
+    # URL a curl or wget wrapper fetched (scheme, host and path), the status
+    # its re-probe got (0 for no answer), and the seconds since the call's
+    # first attempt against its window. causeRetryExhausted lifts the last
+    # guest retry that gave up during a failed step onto
+    # remediation_recommended.
+    origin              = 'string'
+    url                 = 'string'
+    httpStatus          = 'int'
+    elapsedSeconds      = 'int'
+    windowSeconds       = 'int'
+    causeRetryExhausted = 'hashtable'
     configuredMaxAttempts = 'int'
     permittedMaxAttempts = 'int'
     retrySuppressionReason = 'string'
     guestLivelocked     = 'bool'
     guestLivelockedSeconds = 'int'
+    # A sequence retry attempt's processors as its wait last read them, null
+    # when no host recording read them, and the installer stage its OCR showed.
+    stormedProcessors   = 'array'
+    noInterruptsServicedProcessors = 'array'
+    longestNoInterruptsServicedSeconds = 'int-or-null'
+    installerStage      = 'string'
+    installerStageUnchangedSeconds = 'int'
     # Warm resume. resumeFromStep is the step actually restarted; checkpointStep
     # and rewoundSteps appear only when that differs from the recorded
     # checkpoint, i.e. when the resume was pulled back to a restore boundary and
@@ -169,6 +214,12 @@ $script:TypedField = @{
     # Provenance carried on the cycle-boundary opening event: the same
     # {sha, repoUrl} array status.json publishes, framework entry first.
     gitCommits          = 'array'
+    # The runner's PowerShell release on the same event, as $PSVersionTable
+    # prints it.
+    runnerPowerShellVersion = 'string'
+    # boot_recovery_completed: one { name, recordedAtUtc, fileWrittenAtUtc }
+    # record per pause or lab-hold flag the sweep cleared.
+    clearedPauseFlags   = 'array'
     # A host stage that could measure the machine it failed on states what that
     # machine held: physical memory available, and the system commit charge
     # against its limit. Byte counts are Int64 and enroll under 'int', which

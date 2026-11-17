@@ -9,6 +9,28 @@ package catalog
 // DatazhCNremediation is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DatazhCNremediation = `{
+  "remediation.guest_display_stalled_action_evidence": "阅读客户机文件夹中的causeDetail.guestDisplayStallEnd和serial-console.log；将显示驱动程序的超时报告与保存的截图和OCR文本进行比较，如果停滞再次发生，请检查客户机内核和显示驱动程序的版本",
+  "remediation.guest_display_stalled_action_restore": "重新运行序列之前，请恢复干净的快照或再次启动客户机；在同一个停滞的显示画面上重复等待无法恢复其帧。保留现有的有界登录恢复机制，并在尝试手动恢复之前检查所有密码更改",
+  "remediation.guest_display_stalled_rationale": [
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "发生guest_display_stalled：客户机的",
+    {
+      "arg": "driver",
+      "type": "detail",
+      "trust": "external"
+    },
+    "显示驱动程序报告了",
+    {
+      "arg": "reports",
+      "type": "detail",
+      "trust": "external"
+    },
+    "次页面翻转超时，同时控制台画面停止变化。客户机可能仍在运行；画面不变并不能证明其内核已经停止。"
+  ],
   "remediation.guest_kernel_stalled_action_evidence": "阅读last_failure.json中的causeDetail.guestKernelStallEnd和causeDetail.guestLivelock，以及客户机文件夹中serial-console.log里的内核报告",
   "remediation.guest_kernel_stalled_rationale": [
     {
@@ -80,6 +102,26 @@ const DatazhCNremediation = `{
       "trust": "external"
     },
     "），因此脚本无法完成。这不是软件包镜像源缓慢所致，在同一客户机上重新运行该步骤也无济于事。"
+  ],
+  "remediation.ocr_timeout_kernel_stall_rationale": [
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "发生ocr_timeout：客户机内核已停止推进（内核报告：",
+    {
+      "arg": "kinds",
+      "type": "detail",
+      "trust": "external"
+    },
+    "；未处理任何中断的虚拟处理器：",
+    {
+      "arg": "processors",
+      "type": "detail",
+      "trust": "external"
+    },
+    "），因此屏幕无法达到预期状态。这不是工作负载偏离了记录的路径，同一次启动也无法恢复。"
   ],
   "remediation.operator_00fd2209b1a993b2": "手动检查last_failure.json",
   "remediation.operator_01b3c9512f168859": [

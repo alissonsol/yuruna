@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42dbfc19-bf21-4ef5-ad59-a132755a721d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,6 +82,52 @@ export PATH="$YURUNA_PROBE_BIN:$PATH"
                 YURUNA_PROBE_MODE = $Mode
                 YURUNA_PROBE_HEARTBEAT = (Join-Path $fixture 'heartbeat.txt')
             }
+        }
+    }
+}
+
+Describe 'Kubernetes installation supplies runtime CNI plugins' -Skip:(-not $script:CanRunBootstrap) {
+    It 'Ubuntu <Version> provisions CNI without a transitive kubelet dependency (<Mode>)' -ForEach @(
+        @{ Version='24'; Mode='available' }, @{ Version='26'; Mode='available' },
+        @{ Version='24'; Mode='install-failed' }, @{ Version='26'; Mode='install-failed' }
+    ) {
+        $fixture = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $fixture
+        $source = $script:K8sSources[$Version]
+        $begin = $source.IndexOf('# --- REGION: Install Kubernetes')
+        $end = $source.IndexOf('# --- REGION: https://yuruna.link/42fa6f45-0011', $begin)
+        $block = $source.Substring($begin, $end - $begin)
+        $prefix = @'
+set -euo pipefail
+apt_retry() { "$@"; }
+sudo() { "$@"; }
+apt-mark() { return 0; }
+assert_tool_runnable() { return 0; }
+apt-get() {
+    # An alternate package feed can ship kubelet without any CNI dependency.
+    for package in "$@"; do
+        if [ "$package" = kubernetes-cni ]; then
+            [ "$YURUNA_CNI_MODE" != install-failed ] || return 17
+            printf '#!/bin/bash\nprintf "loopback plugin runnable\\n"\n' > "$YURUNA_CNI_BIN/loopback"
+            chmod +x "$YURUNA_CNI_BIN/loopback"
+        fi
+    done
+}
+'@
+        $entryPoint = Join-Path $fixture 'install.sh'
+        Set-Content $entryPoint ($prefix + "`n" + $block + @'
+
+"$YURUNA_CNI_BIN/loopback"
+printf 'pod-network-setup\n'
+'@)
+        $result = Invoke-BoundedNativeCommand -FilePath bash -ArgumentList @($entryPoint) -TimeoutSeconds 8 `
+            -Environment @{ YURUNA_CNI_BIN=$fixture; YURUNA_CNI_MODE=$Mode }
+        if ($Mode -eq 'available') {
+            $result.ExitCode | Should -Be 0 -Because $result.StdErr
+            $result.StdOut | Should -Match 'loopback plugin runnable[\r\n]+pod-network-setup'
+        } else {
+            $result.ExitCode | Should -Be 17
+            $result.StdOut | Should -Not -Match 'pod-network-setup'
         }
     }
 }
@@ -310,7 +356,7 @@ wait_for_containerd() {
 Describe 'Kubernetes bootstrap supplies its readiness probe' {
     It 'Ubuntu <Version> installs and validates cri-tools before either readiness gate' -ForEach @(@{ Version='24' }, @{ Version='26' }) {
         $source = $script:K8sSources[$Version]
-        $source | Should -Match '(?m)^apt_retry sudo apt-get install -y kubelet kubeadm kubectl cri-tools$'
+        $source | Should -Match '(?m)^apt_retry sudo apt-get install -y kubelet kubeadm kubectl cri-tools kubernetes-cni$'
         $source | Should -Match '(?m)^assert_tool_runnable crictl --version$'
         $source.IndexOf('assert_tool_runnable crictl --version') | Should -BeLessThan $source.IndexOf("`nwait_for_containerd 30`n")
         @([regex]::Matches($source, '(?m)^\s*wait_for_containerd 30$')).Count | Should -Be 2

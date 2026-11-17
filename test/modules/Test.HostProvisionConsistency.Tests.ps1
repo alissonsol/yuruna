@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 427dc7e5-42e7-4d34-bef6-83be459c7402
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -265,9 +265,19 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 '@
+        $serviceLogCall = @'
+$loadedLogLevel = Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue
+if ($loadedLogLevel) {
+    if (-not $PlanOnly) { Use-LogLevelFromEnv }
+    elseif ($loadedLogLevel.Parameters.ContainsKey('NoTranscript')) { Use-LogLevelFromEnv -NoTranscript }
+}
+'@
         foreach ($builder in $script:GuestBuilders) {
             $text = (Get-EffectiveGuestBuilderSource -Path $builder.FullName) -replace "`r`n", "`n"
-            Assert-True ($text.Replace('$GuestScriptRoot', '$PSScriptRoot').Contains($canonicalBlock)) "$($builder.FullName) must reuse the loaded log module without -Force"
+            $expectedBlock = if ($builder.Directory.Name -like 'guest.*-service') {
+                $canonicalBlock.Replace('if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }', $serviceLogCall)
+            } else { $canonicalBlock }
+            Assert-True ($text.Replace('$GuestScriptRoot', '$PSScriptRoot').Contains($expectedBlock)) "$($builder.FullName) must reuse the loaded log module without -Force"
         }
     }
 }

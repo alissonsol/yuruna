@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42797929-4086-43ea-846a-16a46da5c267
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,7 +77,7 @@ Describe 'KVM storage is deleted only when no defined domain uses it' {
         Set-Content -LiteralPath (Join-Path $script:Vms 'test-01/test-01.qcow2') -Value 'baseline disk'
         InModuleScope Yuruna.Host -Parameters @{ Vms = $script:Vms } { param($Vms) $script:VmRootDir = $Vms }
         # The promoted domain was renamed, and the storage move never ran.
-        $script:Domain = @{ 'snap-base' = "<domain><name>snap-base</name><devices><disk><source file='$($script:Vms)/test-01/test-01.qcow2'/></disk></devices></domain>" }
+        $script:Domain = @{ 'snap-base' = "<domain><name>snap-base</name><devices><disk><source file='$(Join-Path $script:Vms 'test-01/test-01.qcow2')'/></disk></devices></domain>" }
         $script:Defined = [System.Collections.Generic.List[string]]::new()
         $script:BlockListFails = $false
         Mock -ModuleName Yuruna.Host Get-VMName { @($script:Domain.Keys) }
@@ -113,7 +113,18 @@ Describe 'KVM storage is deleted only when no defined domain uses it' {
         Test-Path -LiteralPath (Join-Path $script:Vms 'snap-base/snap-base.qcow2') | Should -BeTrue -Because 'the baseline moved under its own name'
         Get-Content -Raw -LiteralPath (Join-Path $script:Vms 'snap-base/snap-base.qcow2') | Should -Match 'baseline disk'
         $script:Defined.Count | Should -Be 1
-        $script:Defined[0] | Should -Match ([regex]::Escape("$($script:Vms)/snap-base/snap-base.qcow2"))
+        $script:Defined[0] | Should -Match ([regex]::Escape((Join-Path $script:Vms 'snap-base/snap-base.qcow2')))
+    }
+    It 'recognizes native disk paths only under the complete directory boundary' {
+        $disk = Join-Path $script:Vms 'test-01-other/shared.qcow2'
+        $script:Domain['other'] = "<domain><name>other</name><devices><disk><source file='$disk'/></disk></devices></domain>"
+        $owners = @(InModuleScope Yuruna.Host -Parameters @{ Directory = (Join-Path $script:Vms 'test-01') } {
+            param($Directory)
+            Get-KvmDirectoryDiskOwner -Directory $Directory
+        })
+        $owners.Count | Should -Be 1
+        $owners[0].VMName | Should -BeExactly 'snap-base'
+        $owners[0].Path | Should -BeExactly (Join-Path $script:Vms 'test-01/test-01.qcow2')
     }
     It 'keeps the directory when the domains'' disks cannot be read' {
         $script:BlockListFails = $true
@@ -135,7 +146,7 @@ Describe 'KVM storage is deleted only when no defined domain uses it' {
         Should -Invoke -ModuleName Yuruna.Host Invoke-Virsh -Times 0 -ParameterFilter { $VirshArgs[0] -eq 'domrename' }
     }
     It 'completes a rename the same way when it runs twice, including a name that extends the old one' {
-        $script:Domain = @{ 'test-01.snap' = "<domain><name>test-01.snap</name><devices><disk><source file='$($script:Vms)/test-01/test-01.qcow2'/></disk></devices></domain>" }
+        $script:Domain = @{ 'test-01.snap' = "<domain><name>test-01.snap</name><devices><disk><source file='$(Join-Path $script:Vms 'test-01/test-01.qcow2')'/></disk></devices></domain>" }
         Mock -ModuleName Yuruna.Host Invoke-Virsh {
             $global:LASTEXITCODE = 0
             if ($VirshArgs[0] -eq 'dumpxml') { return @($script:Domain[$VirshArgs[1]]) }
@@ -157,7 +168,7 @@ Describe 'KVM storage is deleted only when no defined domain uses it' {
         $unrepaired.Count | Should -Be 0
         Get-Content -Raw -LiteralPath (Join-Path $script:Vms 'snap-base/snap-base.qcow2') | Should -Match 'baseline disk'
         Test-Path -LiteralPath (Join-Path $script:Vms 'test-01') | Should -BeFalse -Because 'the directory moved with the rename it belonged to'
-        $script:Defined[0] | Should -Match ([regex]::Escape("$($script:Vms)/snap-base/snap-base.qcow2"))
+        $script:Defined[0] | Should -Match ([regex]::Escape((Join-Path $script:Vms 'snap-base/snap-base.qcow2')))
     }
     It 'names a domain it cannot repair now and leaves its storage where it is' {
         Mock -ModuleName Yuruna.Host Get-KvmDomainState { [pscustomobject]@{ State = 'running'; Raw = 'running'; Reason = '' } }
@@ -190,7 +201,7 @@ Describe 'KVM storage is deleted only when no defined domain uses it' {
         Test-Path -LiteralPath (Join-Path $script:Vms 'test-01') | Should -BeFalse
     }
     It 'refuses a rebuild into a directory another domain still uses, before any file in it changes' {
-        $script:Domain['other'] = "<domain><name>other</name><devices><disk><source file='$($script:Vms)/test-01/shared.qcow2'/></disk></devices></domain>"
+        $script:Domain['other'] = "<domain><name>other</name><devices><disk><source file='$(Join-Path $script:Vms 'test-01/shared.qcow2')'/></disk></devices></domain>"
         Set-Content -LiteralPath (Join-Path $script:Vms 'test-01/shared.qcow2') -Value 'shared disk'
         { InModuleScope Yuruna.Host { Remove-KvmDomainDefinition -VMName 'test-01' -Confirm:$false } } |
             Should -Throw -ExpectedMessage '*test-01*'
@@ -223,7 +234,7 @@ Describe 'KVM rename back to the name a domain had restores its address' {
         if ($ledger) { $ledger.Clear() }
         $script:Identity = (Get-YurunaGuestMacAddress -VMName 'amisad-build').ToLowerInvariant()
         # domrename already ran: the definition answers to the promoted name.
-        $script:Domain = @{ 'amisad-build' = "<domain><name>amisad-build</name><devices><disk><source file='$($script:Vms)/$($script:Slot)/$($script:Slot).qcow2'/></disk><interface type='network'><mac address='$($script:Identity)'/></interface></devices></domain>" }
+        $script:Domain = @{ 'amisad-build' = "<domain><name>amisad-build</name><devices><disk><source file='$(Join-Path $script:Vms "$($script:Slot)/$($script:Slot).qcow2")'/></disk><interface type='network'><mac address='$($script:Identity)'/></interface></devices></domain>" }
         Mock -ModuleName Yuruna.Host Invoke-Virsh {
             $global:LASTEXITCODE = 0
             if ($VirshArgs[0] -eq 'dumpxml') { return @($script:Domain[$VirshArgs[1]]) }
@@ -246,7 +257,7 @@ Describe 'KVM rename back to the name a domain had restores its address' {
         $script:Domain[$script:Slot] = $back
         InModuleScope Yuruna.Host -Parameters @{ Slot = $script:Slot } { param($Slot) Complete-KvmDomainRename -VMName 'amisad-build' -NewName $Slot -Confirm:$false } | Should -BeTrue
         $script:Domain[$script:Slot] | Should -Match "<mac address='$($script:Identity)'/>"
-        $script:Domain[$script:Slot] | Should -Match ([regex]::Escape("$($script:Vms)/$($script:Slot)/$($script:Slot).qcow2"))
+        $script:Domain[$script:Slot] | Should -Match ([regex]::Escape((Join-Path $script:Vms "$($script:Slot)/$($script:Slot).qcow2")))
     }
 }
 
@@ -417,7 +428,7 @@ function virsh {
     if ($args -contains 'domblklist') {
         if ($Fail -eq 'True') { $global:LASTEXITCODE = 1; return 'error: failed to connect' }
         $global:LASTEXITCODE = 0
-        return @(' Type   Device   Target   Source', '----', " file   disk     vda      $Root/test-01/test-01.qcow2")
+        return @(' Type   Device   Target   Source', '----', " file   disk     vda      $(Join-Path $Root 'test-01/test-01.qcow2')")
     }
     $global:LASTEXITCODE = 1
     return 'error: failed to get domain'

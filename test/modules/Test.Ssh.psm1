@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -274,12 +274,77 @@ Returns the yuruna test-harness SSH public key as a single-line string.
 .DESCRIPTION
 Used by per-host New-VM.ps1 scripts to substitute SSH_AUTHORIZED_KEY_PLACEHOLDER
 in cloud-init user-data. Generates the key pair on first call.
+.PARAMETER ReadOnly
+Validate and return an existing matching key pair without changing files or
+permissions. Return no key when both files are absent and creation can be planned.
+Refuse incomplete or unusable existing material rather than repairing it.
 .OUTPUTS
-System.String. The public key (ssh-ed25519 ...) with any trailing newline trimmed.
+System.String. The public key with any trailing newline trimmed, or no value
+when ReadOnly finds no existing pair.
 #>
     [CmdletBinding()]
     [OutputType([string])]
-    param()
+    param([switch]$ReadOnly)
+    if ($ReadOnly) {
+        $sshKeygen = (Get-Command ssh-keygen -ErrorAction SilentlyContinue)?.Source
+        if (-not $sshKeygen) {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_92362a2623a29d74')
+        }
+        # An absent key can be generated later, but an existing file anywhere
+        # in its directory path is a blocked destination rather than a plan.
+        $directory = $script:SshKeyDir
+        while (-not (Test-Path -LiteralPath $directory)) {
+            $parent = Split-Path -Parent $directory
+            if (-not $parent -or $parent -eq $directory) { break }
+            $directory = $parent
+        }
+        $reason = ''
+        if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
+            $reason = 'invalid-key-directory'
+        }
+        $privateExists = $false
+        $publicExists = $false
+        if (-not $reason) {
+            try {
+                $privateExists = Test-Path -LiteralPath $script:SshKeyPath -ErrorAction Stop
+                $publicExists = Test-Path -LiteralPath $script:SshPubPath -ErrorAction Stop
+            } catch { $reason = 'invalid-key-file' }
+        }
+        if (-not $reason -and ($privateExists -ne $publicExists)) {
+            $reason = 'incomplete-key-pair'
+        } elseif (-not $reason -and $privateExists -and
+            (-not (Test-Path -LiteralPath $script:SshKeyPath -PathType Leaf) -or
+                -not (Test-Path -LiteralPath $script:SshPubPath -PathType Leaf))) {
+            $reason = 'invalid-key-file'
+        }
+        if (-not $reason -and $privateExists) {
+            # Probe with an explicit empty passphrase so encrypted keys cannot
+            # prompt. Reading must never call the initializer's repair or ACL path.
+            $PSNativeCommandUseErrorActionPreference = $false
+            $derived = @(& $sshKeygen -y -P '' -f $script:SshKeyPath 2>$null)
+            if ($LASTEXITCODE -ne 0 -or $derived.Count -ne 1) {
+                $reason = 'private-key-unusable'
+            } else {
+                $public = ''
+                try { $public = (Get-Content -LiteralPath $script:SshPubPath -Raw -ErrorAction Stop).Trim() }
+                catch { $reason = 'public-key-invalid-or-mismatched' }
+                $declaredParts = @($public -split '\s+', 3)
+                $derivedParts = @(([string]$derived[0]).Trim() -split '\s+', 3)
+                if ($public.Contains("`n") -or $public.Contains("`r") -or
+                    $declaredParts.Count -lt 2 -or $derivedParts.Count -lt 2 -or
+                    $declaredParts[0] -cne $derivedParts[0] -or $declaredParts[1] -cne $derivedParts[1]) {
+                    $reason = 'public-key-invalid-or-mismatched'
+                }
+            }
+        }
+        if ($reason) {
+            throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_ssh_key_read_only_invalid' -Arguments @{
+                path = $script:SshKeyPath; reason = $reason
+            })
+        }
+        if ($privateExists) { return $public }
+        return $null
+    }
     Initialize-YurunaSshKey | Out-Null
     return (Get-Content -Raw $script:SshPubPath).Trim()
 }
@@ -738,10 +803,12 @@ name_unresolved, network_unreachable, handshake_failed.
     if ($e -match 'Permission denied|publickey|Too many authentication')     { return 'auth_denied' }
     if ($e -match 'Connection refused')                                      { return 'connection_refused' }
     if ($e -match 'Host key verification failed|REMOTE HOST IDENTIFICATION') { return 'host_key_changed' }
-    # A probe timeout is a genuine post-TCP hang (probe_timeout) only when a real
-    # IP was discovered. With no discovered IP the ssh probe stalled on the
-    # unresolved bare-VMName fallback, so the true cause is the discovery-lateness
-    # class below, not a generic probe timeout.
+    # TCP connected, but the SSH banner did not arrive before the client's
+    # deadline. The name may have resolved without host-side IP discovery.
+    if ($e -match 'timed out during banner exchange')                       { return 'probe_timeout' }
+    # A killed probe supplies no target verdict. With no discovered IP or
+    # explicit SSH exchange evidence, retain the discovery-lateness cause
+    # rather than attributing the wait to an established connection.
     if ($IpDiscovered -and $e -match 'probe timed out')                      { return 'probe_timeout' }
     # 2. Never reached sshd. No discovered IP => the host-side discovery layer
     #    (KVP integration services / DHCP lease / utmctl ip-address) never
@@ -947,6 +1014,15 @@ Maximum total seconds to keep retrying. Default 300.
 Seconds between connection attempts. Default 5. The first 3 attempts use a
 1-second backoff regardless of this value, so a sshd that comes up in its
 typical 1-2 s window is caught without waiting the full poll interval.
+.PARAMETER AdvisoryOnly
+Marks a failed diagnostic wait as advisory evidence. The failure class,
+severity, boolean result, and all probe deadlines remain the same.
+.PARAMETER Phase
+Optional diagnostic phase carried on a failure event.
+.PARAMETER StepInvocationId
+Optional caller step identity carried on a failure event.
+.PARAMETER SequenceInvocationId
+Optional caller sequence identity carried on a failure event.
 .OUTPUTS
 System.Boolean. $true if SSH became ready, $false on timeout.
 #>
@@ -956,7 +1032,11 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         [string]$VMName,
         [string]$GuestKey,
         [int]$TimeoutSeconds = 300,
-        [int]$PollSeconds = 5
+        [int]$PollSeconds = 5,
+        [switch]$AdvisoryOnly,
+        [string]$Phase,
+        [string]$StepInvocationId,
+        [string]$SequenceInvocationId
     )
     $user = Get-GuestSshUser -GuestKey $GuestKey
     $key  = Get-YurunaSshPrivateKeyPath
@@ -1157,9 +1237,12 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # unguarded call throws there and aborts the whole diagnostic ladder, so the
     # event is best-effort and the $false return stays the real signal.
     if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
-        Send-CycleEventSafely -EventRecord @{
+        $eventRecord = @{
             timestamp        = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event            = 'ssh_handshake_failed'
+            vmName           = [string]$VMName
+            guestKey         = [string]$GuestKey
+            advisoryOnly     = [bool]$AdvisoryOnly
             target           = [string]$lastTarget
             user             = [string]$user
             privateKey       = [string]$key
@@ -1188,6 +1271,10 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             failureClass     = [string]$failureClass
             severity         = [string]$severity
         }
+        if ($Phase) { $eventRecord.phase = $Phase }
+        if ($StepInvocationId) { $eventRecord.stepInvocationId = $StepInvocationId }
+        if ($SequenceInvocationId) { $eventRecord.sequenceInvocationId = $SequenceInvocationId }
+        Send-CycleEventSafely -EventRecord $eventRecord
     }
     return $false
 }
@@ -1796,11 +1883,9 @@ with a different owner, that is likewise invisible in the exit status.
             }
         }
     }
-    # Non-detached only: every attempt ended with the session dropping. Say so in
-    # the body as well as the flag -- the output ends wherever the pipe broke,
-    # which reads like a guest that stopped mid-task rather than a host that
-    # stopped watching one.
-    $lostPreface = "The SSH transport to '$VMName' dropped $maxAttempt time(s) while the command was running; the guest never reported a status, so the output below stops where the connection broke and says nothing about whether the command succeeded."
+    # A transport failure can precede login or interrupt a running command;
+    # neither outcome supplies an authoritative command status.
+    $lostPreface = "The SSH transport to '$VMName' failed $maxAttempt time(s); no command status was received, so this result cannot determine whether the command started or completed."
     return @{
         success         = $false
         exitCode        = $exit

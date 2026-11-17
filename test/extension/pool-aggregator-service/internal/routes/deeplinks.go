@@ -310,7 +310,7 @@ func (s *Server) HandleGoStash(w http.ResponseWriter, r *http.Request) {
 	// an operator who arrived through the (to-be-authenticated) dashboard act on the
 	// service's gated routes without retyping the rotating lab code -- the service
 	// revalidates it, here if it holds no token of its own. No token configured -> no
-	// fragment -> the UI prompts for the lab token exactly as before.
+	// fragment -> the UI prompts for the lab token.
 	dest := strings.TrimRight(target, "/")
 	if proof := MintControlProof(s.authToken, "svc-"+area, controlProofTTL); proof != "" {
 		dest += "#yctl=" + proof
@@ -774,8 +774,11 @@ func (s *Server) fetchListing(u string) string {
 // cycle active at that moment, "" when the listing holds none that old) and the
 // earliest leaf present. Separating them lets a caller tell a real hit from the
 // oldest-retained consolation prize, which reads identically once returned.
+// A folder the boot sweep kept as <identity>.aborted.<UTC> matches too: the host's
+// index lists only that folder for such a cycle, folding any archive copy, which is
+// named by the bare identity, into the local entry.
 func ScanListingForHost(body, hostID string, t time.Time) (best, earliest string) {
-	re := regexp.MustCompile(`\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.` + regexp.QuoteMeta(hostID) + `(?:\.incomplete)?/`)
+	re := regexp.MustCompile(`\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.` + regexp.QuoteMeta(hostID) + `(?:\.incomplete|\.aborted\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z)?/`)
 	var bestStart, earliestStart time.Time
 	for _, m := range re.FindAllStringSubmatch(body, -1) {
 		st, perr := time.Parse("2006-01-02 15-04-05", m[1]+" "+m[2])
@@ -814,9 +817,10 @@ func CycleStartFromFolder(name string) (time.Time, bool) {
 var cycleStartRe = regexp.MustCompile(`^\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.`)
 
 // PickFolderFromListing scans a /log/ index page for this host's cycle folders
-// (`<6-digit cycle number>.<YYYY-MM-DD>.<HH-mm-ss>.<hostId>[.incomplete]/`, the
-// Format-CycleFolderBaseName shape) and returns the one whose encoded start is the
-// latest at or before t, else the earliest; "" when nothing matches. Pure: no I/O.
+// (`<6-digit cycle number>.<YYYY-MM-DD>.<HH-mm-ss>.<hostId>`, the
+// Format-CycleFolderBaseName shape, then `[.incomplete|.aborted.<UTC>]/`) and
+// returns the one whose encoded start is the latest at or before t, else the
+// earliest; "" when nothing matches. Pure: no I/O.
 // See https://yuruna.link/42c29d04-0008.
 func PickFolderFromListing(body, hostID string, t time.Time) string {
 	best, earliest := ScanListingForHost(body, hostID, t)

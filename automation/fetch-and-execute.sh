@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.08
+# Version: 2026.11.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 4293fe9e-c743-4e9d-b6c1-586585bfa3d1
@@ -500,6 +500,8 @@ if [[ ! "$FAE_INVOCATION_SCRIPT" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] \
     fae_identity_error=1
     FAE_INVOCATION_SCRIPT='invalid-invocation'
 fi
+# The payload inherits it as well: Yuruna.Retry prints its retry records as
+# YURUNA_RETRY markers for the host only where this is set.
 export FAE_INVOCATION_SCRIPT
 
 # Replace the previous invocation before any source probe or download can fail.
@@ -1104,7 +1106,17 @@ guest_evidence_revision() {
 # --- REGION: guest_evidence_provenance
 # Fixed source paths identify guest materialization independently of host status SHAs.
 guest_evidence_provenance() {
-    local user_home=${HOME:-} root path passwd
+    local user_home=${HOME:-} root path passwd pwsh_path deps pwsh_version=unknown
+    local sdk_re='"Microsoft\.PowerShell\.SDK/([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?)"'
+    # The pwsh release comes from the installed tree's dependency manifest, not
+    # from starting pwsh, which costs seconds on a slow guest. The update script
+    # installs whichever release is current, so it can change between cycles.
+    pwsh_path=$(command -v pwsh 2>/dev/null) && pwsh_path=$(readlink -f -- "$pwsh_path" 2>/dev/null) || pwsh_path=''
+    if [ -n "$pwsh_path" ] && [ -f "${pwsh_path%/*}/pwsh.deps.json" ]; then
+        deps=$(head -c 1048576 -- "${pwsh_path%/*}/pwsh.deps.json" 2>/dev/null) || deps=''
+        if [[ $deps =~ $sdk_re ]]; then pwsh_version=${BASH_REMATCH[1]}; fi
+    fi
+    printf 'guestProvenance.installed.pwsh.version=%s\n' "$pwsh_version"
     if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] && command -v getent >/dev/null 2>&1; then
         passwd=$(getent passwd "$SUDO_USER" 2>/dev/null) || passwd=''
         IFS=: read -r _ _ _ _ _ user_home _ <<< "$passwd"

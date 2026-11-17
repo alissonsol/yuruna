@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42f9ba9c-c42d-40ac-831a-41f654880e31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -367,18 +367,23 @@ Describe 'foreground scheduling' {
     }
 
     It 'launches nothing in the background while a foreground run is active' {
-        $root = New-ImpactFixture -Suite @{ Alpha = $script:Passing }
+        $launchProbe = @'
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot '../../launched.txt'), 'launched')
+'@
+        $root = New-ImpactFixture -Suite @{ Alpha = "$launchProbe`n$script:Passing" }
         $directory = Join-Path $root '.git/yuruna/test-impact/foreground'
         $null = New-Item -ItemType Directory -Force -Path $directory
         $lock = [IO.File]::Open((Join-Path $directory 'held.lock'), [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
         try {
             $run = Invoke-ImpactRunner -Root $root -Argument '-Background'
         } finally { $lock.Dispose() }
-        if (-not $script:CanRecord) { $run.ExitCode | Should -Be 0 -Because $run.Output; Confirm-NothingReused $run; return }
-        $run.ExitCode | Should -Be 1
+        $run.ExitCode | Should -Be 1 -Because $run.Output
         (Get-Row $run Alpha).rc | Should -Be 125
         (Get-Row $run Alpha).impact | Should -BeExactly 'not launched: a foreground run is active on this clone'
+        (Get-Row $run Alpha).haveXml | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $root 'launched.txt') | Should -BeFalse
         $run.Result.impact.recorded | Should -Be 0
+        if (-not $script:CanRecord) { Confirm-NothingReused $run }
     }
 
     It 'removes a foreground lock left by a run that ended without releasing it' {

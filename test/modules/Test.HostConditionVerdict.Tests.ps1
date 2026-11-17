@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42d64c35-2931-4e2a-aa8a-75a10025ea5a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -163,7 +163,7 @@ Describe 'Windows host conditions read powercfg bounded and name each refusal' {
 
     It 'the setup run writes powercfg only through the bounded writer' {
         # The setup run is reached from an operator session, where a power
-        # service that stops answering held it as it once held the gate.
+        # service that stops answering would hold it, as it would the gate.
         $body = (Get-Command Set-WindowsHostConditionSet).ScriptBlock.Ast.Body
         $raw = @($body.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and "$($n.CommandElements[0].Extent.Text)".Trim("'", '"') -eq 'powercfg' }, $true))
         Assert-Equal -Expected 0 -Actual $raw.Count "no direct powercfg call remains: $(($raw | ForEach-Object { "line $($_.Extent.StartLineNumber)" }) -join ', ')"
@@ -341,7 +341,7 @@ Describe 'macOS screen-lock probes refuse when a tool does not answer' {
     It 'the setup run reads pmset, defaults, sysadminctl and profiles only through the bounded tool' {
         # The setup run is reached from an operator session, where a
         # preference, power, directory or management service that stops
-        # answering held it as it once held the gate.
+        # answering would hold it, as it would the gate.
         $body = (Get-Command Set-MacHostConditionSet).ScriptBlock.Ast.Body
         $raw = @($body.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and "$($n.CommandElements[0].Extent.Text)".Trim("'", '"') -in @('pmset', 'defaults', 'sysadminctl', 'profiles') }, $true))
         Assert-Equal -Expected 0 -Actual $raw.Count "no direct pmset, defaults, sysadminctl or profiles call remains: $(($raw | ForEach-Object { "line $($_.Extent.StartLineNumber)" }) -join ', ')"

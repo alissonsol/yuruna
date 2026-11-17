@@ -66,8 +66,15 @@ the operator frame shows the separate-machine case. Six boxes include all three
 host processes/families and the two other network nodes.
 [Start-McpServer](../../test/service/Start-McpServer.ps1) serves the framework's
 MCP tools over the standard input and output of a client-started process, so it
-adds no network endpoint; the Go service daemons mount `POST /mcp` on their own
-HTTP ports.
+adds no network endpoint. The caching-proxy, pool-aggregator, pool-control,
+download-agent, and stash daemons mount `POST /mcp` on their existing HTTP
+ports; the caching-proxy-parser daemon serves its HTTP API without MCP.
+Sources: [cache routes](../../test/extension/caching-proxy-service/main.go),
+[aggregator routes](../../test/extension/pool-aggregator-service/main.go),
+[pool-control routes](../../test/extension/pool-control-service/server/internal/httpsrv/handlers.go),
+[download-agent routes](../../test/extension/download-agent-service/server/internal/httpsrv/handlers.go),
+[stash routes](../../test/extension/stash-service/server/internal/httpsrv/handlers.go),
+and [parser routes](../../test/extension/caching-proxy-parser-service/parse.go).
 
 ## Cache, image, and stash endpoints
 
@@ -141,8 +148,9 @@ frees port 22 from the ordinary SSH daemon before starting the stash daemon.
 
 [setup.ps1](../../install/setup.ps1) prepares storage before these guests. It
 always brings up the cache, and the stash when storage is configured. The
-download agent defaults off in standalone mode and on in lab mode, unless
-`downloadAgentService.enabled` says otherwise; lab mode also adds pool-control
+download agent also needs storage; it defaults off in standalone mode and on in
+lab mode, unless `downloadAgentService.enabled` says otherwise; lab mode also
+adds pool-control
 and a default pool. [Start-CachingProxyServiceVM.ps1](../../test/service/Start-CachingProxyServiceVM.ps1)
 defaults to a full rebuild and authenticated enrollment of the builder's public
 signing key on discovered pool hosts, preserving their CA pins. Pending host
@@ -157,7 +165,8 @@ status service on port 8080; [Git mirror source endpoints](#git-mirror-source-en
 shows the fallbacks.
 
 The KVM and Hyper-V cache builders wait for the Zot sync self-test verdict on
-`/cache-health` and exit 1 for an incompatible release; the UTM builder prints
+`/cache-health` and exit 1 for an incompatible release or a Zot that does not
+answer; the UTM builder prints
 that check as a manual step. The runner's cycle-start registry gate reads Zot
 `/v2/` and `/zot-meta` and stops at once on an incompatible verdict.
 `vmStart.cachingProxyZotVersion` and `vmStart.cachingProxyZotSha256` replace the
@@ -335,6 +344,15 @@ aggregator lists as scrape targets: `windows_exporter` on port 9182 for Windows
 hosts, and memory gauges at `/metrics` on the status listener for Ubuntu and
 macOS hosts; see [Test.HostMetricsExporter](../../test/modules/Test.HostMetricsExporter.psm1)
 and [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1).
+
+The [dashboard queries](../../test/extension/pool-aggregator-service/grafana-pool-dashboard.json)
+keep the host inventory even when memory readings are absent; `n/a` is not a
+zero-memory reading. Windows commit headroom uses
+`windows_memory_commit_limit_bytes`, falling back to the older
+`windows_memory_commit_limit`, before subtracting
+`windows_memory_committed_bytes`. Ubuntu uses its native commit gauges, while
+macOS has no equivalent commit counter. Scrape availability and guest liveness
+are separate observations; an answering exporter does not prove a guest healthy.
 
 Each poll, every 30 seconds by default, reads a host's `/runtime/status.json`,
 `/runtime/host.registration.json`, `/yuruna-repo/VERSION`,
@@ -614,7 +632,8 @@ flowchart LR
     ubuntu-server-26-k8s-sh -->|pull localhost:5000| localhost-registry
 ```
 
-Sources: [Ubuntu Kubernetes setup](../../guest/ubuntu.server.26/ubuntu.server.26.k8s.sh),
+Sources: [Ubuntu 26 Kubernetes entry point](../../guest/ubuntu.server.26/ubuntu.server.26.k8s.sh),
+[shared Kubernetes setup](../../guest/shared/ubuntu.k8s.sh),
 [local context-copy](../../global/resources/localhost/context-copy/context-copy.tf),
 [local registry check](../../global/resources/localhost/registry/localhost-registry.tf),
 the companion [example helper](https://github.com/alissonsol/yuruna-project/blob/main/tools/example-workload.sh),
@@ -629,7 +648,12 @@ Desktop machine.
 After Set-Resource, the website test renames that context to
 `localhost-<clusterDnsPrefix>`. The project helper starts the registry before
 Set-Resource and, when a cache is configured, pulls `registry:2.8.3` and base images
-through the cache's Zot on port 5000. The localhost
+through the cache's Zot on port 5000. With a cache, the shared Kubernetes setup
+writes Docker's `daemon.json` before installing Docker: the cache is the registry
+mirror, and `insecure-registries` names the cache, `localhost:5000` and
+`127.0.0.1:5000`, because Docker Engine 29.10 and later stop trusting a loopback
+registry implicitly once that key is set. Without a cache the file is not written
+and Docker keeps its loopback default. The localhost
 resource templates verify this existing registry and copy the existing context;
 they do not create another cluster or registry VM. Other callers can select an
 existing local context from their own deployment host.
@@ -740,6 +764,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 [Architecture](../architecture.md) | [Design overview](README.md)

@@ -218,8 +218,23 @@ Trust boundary:
 | Layer | Mechanism | Why plaintext is acceptable |
 |-------|-----------|----------------------------|
 | Filesystem | The file is gitignored (`.gitignore` rule `test/status/*/`); never committed, never synced. | An attacker with filesystem read access is already on the operator's machine, with equivalent or greater capability. |
-| Process | Read+write serialized by a SHA-1-of-path named mutex; atomic temp+rename. | Concurrent cycles cannot corrupt the file; not a confidentiality control. |
-| Audit | Every read / write / rotate is appended to `events.log` as one JSON line. Passwords never appear in the log. | Tampering detection, not encryption. |
+| Process | Normal read+write serialized by a SHA-1-of-path named mutex; atomic temp+rename. Read-only previews read the current atomic snapshot. | Concurrent cycles cannot corrupt the file; not a confidentiality control. |
+| Audit | Normal reads / writes / rotations append one JSON line to `events.log`. Read-only previews write no audit event. Passwords never appear in the log. | Tampering detection, not encryption. |
+
+Service-builder previews use the selected provider's optional
+`Get-Password -ReadOnly` capability. The default provider reads existing
+mapping and vault data without bootstrapping files, merging template users,
+generating a password or logging a read. It returns a stored nonempty string,
+or null when the ordinary build may generate an absent automatic credential.
+An absent explicitly mapped credential or unusable stored value still refuses
+the plan. A custom provider must declare the safe-read switch for a preview;
+ordinary builds retain their existing getter contract.
+
+`-ProposedSecret` is accepted only with `-ReadOnly`. It simulates a planned
+`Set-Password` write to the raw logical user slot, without changing that slot.
+When `users.yml` maps the getter to another vault key, the getter still reads
+that mapped key; supplying a proposed logical value does not create or replace
+the mapped credential.
 
 If you extend the harness to drive a production system, do NOT
 add production credentials to this vault. Wire a separate
@@ -237,7 +252,7 @@ Implementation:
 
 ## MCP adds no credential kind
 
-Every Yuruna Go daemon and the core framework serve the Model Context Protocol
+The core framework and every Yuruna Go daemon except `caching-proxy-parser-service` serve the Model Context Protocol
 (see [Extensions API -- MCP endpoints](extensions-api.md#mcp-endpoints)), and
 none of them introduces a new secret, session or trust boundary to do it.
 
@@ -264,6 +279,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

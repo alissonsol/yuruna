@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42f48182-9ec5-4e1c-bd71-e3bf9945ef6e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
 .DESCRIPTION
     Behavioral tests for the pure lookup helpers; AST guards for the git deadline and
     the warning wiring in Sync-YurunaPoolConfiguration (which does git + file I/O and is not
-    unit-invoked here). The throw-free Should assertions run under Pester 5.x.
+    unit-invoked here). The throw-free Should assertions run under Pester 6.x.
 #>
 
 BeforeAll {

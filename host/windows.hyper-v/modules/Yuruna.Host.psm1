@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1756,7 +1756,7 @@ Export-ModuleMember -Function Remove-HyperVGuestDefinition, Repair-VMStorageLoca
     Remove-SinglePortMap, `
     Get-HyperVScreenshot, Get-HyperVWindowScreenshot, Get-VMConsoleSecondOpinion, `
     Start-VMDhcpCapture, Save-VMDhcpCapture, Stop-VMDhcpCapture, `
-    Start-VMSerialCapture, Save-VMSerialCapture, Stop-VMSerialCapture, Read-VMSerialCapture, Get-VMCreationTime, Save-VMNetworkState, Save-VMStorageState, `
+    Start-VMSerialCapture, Save-VMSerialCapture, Stop-VMSerialCapture, Read-VMSerialCapture, Get-VMSerialCaptureLogPath, Get-VMCreationTime, Save-VMNetworkState, Save-VMStorageState, `
     Remove-OrphanedVMFileAccess, Disable-HyperVHeartbeatForLinuxGuest, Limit-HyperVLinuxGuestCoreCount, Set-HyperVArm64LinuxGuestProcessorCount, `
     Invoke-HyperVGuestBuildCmdlet
 

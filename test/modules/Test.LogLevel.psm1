@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42d2ed87-fda6-40a4-8e87-7605f8be0616
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -211,11 +211,15 @@ function Use-LogLevelFromEnv {
         point already makes, so hanging the transcript here reaches all of them
         (including the per-guest builders a service bring-up spawns) without a
         second line in each.
+    .PARAMETER NoTranscript
+        Apply the inherited preferences without opening a transcript or
+        creating its directory. Read-only callers retain console output.
     #>
+    param([switch]$NoTranscript)
     if ($env:YURUNA_LOG_LEVEL -and $script:LogLevelRank.Contains($env:YURUNA_LOG_LEVEL)) {
         Set-LogLevelPreference -Level $env:YURUNA_LOG_LEVEL
     }
-    [void](Start-YurunaChildTranscript)
+    if (-not $NoTranscript) { [void](Start-YurunaChildTranscript) }
 }
 
 Export-ModuleMember -Function Get-LogLevelRank, Set-LogLevelPreference, Resolve-LogLevel, `

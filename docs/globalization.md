@@ -117,6 +117,19 @@ layouts, Unicode input, and the supported browser floor. Measured browser and
 runtime budgets need real samples; unit fixtures do not replace native browser
 or independent language review.
 
+`Test.BrowserCatalogKernel.Tests.ps1` compares the kernel embedded in both
+browser runtimes with `globalization/kernel/yuruna.i18n.js`. Embedding avoids
+a separate page request; comparing the copies prevents an edit to a runtime
+from silently diverging from the source. Shared formatting fixtures declare
+the expected values rather than accepting whichever representation a runtime
+produces, so a count in a PowerShell transcript agrees with the page.
+
+The browser cases remove `Intl` and `String.prototype.normalize` and make
+`toLocaleString` locale-blind. This proves that the kernel uses the pinned
+formatting rules. Browser ICU data differs between engines and releases;
+delegating to it would break agreement with PowerShell and Go even when every
+runtime received the same value.
+
 See [contributing](../CONTRIBUTING.md), [operator configuration](operator.md),
 and [project display text](https://github.com/alissonsol/yuruna-project/blob/main/docs/globalization.md).
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1247,7 +1247,7 @@ if (Test-Path $UsersPath) {
         # vaultKey resolution: a populated vaultKey MUST exist in
         # vault.yml (the vault NEVER auto-generates for an operator-
         # supplied key -- the password is the operator's, not ours).
-        # localOsPasswordRef can auto-gen, so we only warn there.
+        # localOsPasswordRef is not checked: Get-LocalOsPassword auto-generates it.
         $vaultDoc = $null
         if (Test-Path $VaultPath) {
             try { $vaultDoc = Read-TestConfig -Path $VaultPath } catch { Write-Verbose "vault.yml parse for users.yml cross-check failed: $_" }

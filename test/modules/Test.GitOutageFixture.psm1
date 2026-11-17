@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42310dac-f28d-47ee-8578-a5ebec4e7d52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,26 @@ function New-GitOutageFixture {
                     $client.Dispose()
                 } elseif ($Mode -eq 'Unauthorized') {
                     $response = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 401 Unauthorized`r`nWWW-Authenticate: Basic realm=`"fixture`"`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
-                    try { $client.GetStream().Write($response, 0, $response.Length) } finally { $client.Dispose() }
+                    try {
+                        # Closing with unread request bytes can reset TCP and
+                        # hide the authentication response from the Git client.
+                        $stream = $client.GetStream()
+                        $buffer = [byte[]]::new(8192)
+                        $received = 0
+                        $complete = $false
+                        $clock = [Diagnostics.Stopwatch]::StartNew()
+                        while (-not $complete -and $received -lt $buffer.Length) {
+                            $remaining = 2000 - $clock.ElapsedMilliseconds
+                            if ($remaining -le 0) { throw 'HTTP fixture request headers timed out.' }
+                            $stream.ReadTimeout = [int]$remaining
+                            $count = $stream.Read($buffer, $received, $buffer.Length - $received)
+                            if ($count -eq 0) { throw 'HTTP fixture request headers were incomplete.' }
+                            $received += $count
+                            $complete = [Text.Encoding]::ASCII.GetString($buffer, 0, $received).Contains("`r`n`r`n")
+                        }
+                        if (-not $complete) { throw 'HTTP fixture request headers exceeded their limit.' }
+                        $stream.Write($response, 0, $response.Length)
+                    } finally { $client.Dispose() }
                 }
             }
         }).AddArgument($fixture.Listener).AddArgument($fixture.Clients).AddArgument($Mode)

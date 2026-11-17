@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42d2490f-e2d9-4303-a287-fa13182fb811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -273,6 +273,24 @@ Describe 'memory readings alongside the complete host inventory' {
         Assert-True ($commit.description -match 'macOS.*n/a') 'macOS has no equivalent commit reading'
     }
 
+    It 'uses the current Windows commit-limit name with its legacy fallback in query <Ref>' -ForEach @(
+        @{ Ref = 'B' }, @{ Ref = 'C' }
+    ) {
+        $commit = Get-Panel -Id 24
+        $query = @($commit.targets | Where-Object { $_.refId -eq $Ref })[0].expr
+        $selector = '{job="pool-host",pool=~"$pool"}'
+        $current = 'windows_memory_commit_limit_bytes' + $selector
+        $legacy = 'windows_memory_commit_limit' + $selector
+        $committed = 'windows_memory_committed_bytes' + $selector
+        # Select one limit before subtraction, including when both names exist.
+        Assert-True ($query.Contains("($current or $legacy) - $committed")) `
+            'both exporter versions must produce headroom, preferring the current name without subtracting the charge twice'
+        foreach ($metric in @($current, $legacy, $committed)) {
+            Assert-Equal 1 ([regex]::Matches($query, [regex]::Escape($metric)).Count) `
+                'the exact metric name and pool filters must appear once in each query'
+        }
+    }
+
     It 'keeps hosts without exporter samples and does not invent zero memory' {
         foreach ($id in $script:MemoryPanels) {
             $panel = Get-Panel -Id $id
@@ -322,7 +340,7 @@ Describe 'failure class documentation links' {
 }
 
 Describe 'host restarts and runner faults on the pool dashboard' {
-    It 'lists host_restart and runner_fault events from the pool event stream, and no other event' {
+    It 'lists the restart, fault, lost-runner and silent-host events from the pool event stream, and no other event' {
         $panel = Get-Panel -Id 33
         Assert-Equal 1 @((Get-Panel -Id 8).panels | Where-Object { $_.id -eq 33 }).Count 'the panel belongs to the incidents & cycle events drill-down'
         Assert-Equal 'logs' $panel.type
@@ -334,7 +352,7 @@ Describe 'host restarts and runner faults on the pool dashboard' {
         # Run the selector as Loki does: a regex label filter matches the whole
         # value, case-sensitively.
         $names = [regex]::new('^(?:' + $query.Groups['names'].Value + ')$')
-        foreach ($eventName in 'host_restart', 'runner_fault') {
+        foreach ($eventName in 'host_restart', 'runner_fault', 'runner_ended_by_signal', 'runner_lost', 'host_unreachable', 'host_dropped') {
             Assert-True $names.IsMatch($eventName) "the panel must show $eventName"
         }
         foreach ($eventName in 'step_failure', 'step_end', 'cycle_start', 'cycle_end', 'boot_recovery_completed', 'runner_state_transition', 'pending_cycle_events_dropped') {

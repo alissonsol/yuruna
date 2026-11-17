@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4231033c-3449-4a83-a666-6bdfc1b63f62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     '\$\{([^}]+)\}' with the identical resolve-or-leave-verbatim closure. These
     AST guards assert it is now in one helper, both sites delegate, the raw
     plain-${var} regex literal appears exactly once, and the helper stays private.
-    AST/source-only. Runs under Pester 5.x (script-scoped throw helper).
+    AST/source-only. Runs under Pester 6.x (Test.Assert.psm1 throw helpers).
 #>
 
 BeforeAll {

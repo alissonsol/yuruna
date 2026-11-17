@@ -11,8 +11,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "מארח",
-        "origin": "machine"
+        "targetTerm": "מארח"
       }
     },
     {
@@ -23,8 +22,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "אורח",
-        "origin": "machine"
+        "targetTerm": "אורח"
       }
     },
     {
@@ -36,8 +34,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "מאגר",
-        "origin": "machine"
+        "targetTerm": "מאגר"
       }
     },
     {
@@ -49,8 +46,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "מחזור",
-        "origin": "machine"
+        "targetTerm": "מחזור"
       }
     },
     {
@@ -61,8 +57,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "עומס עבודה",
-        "origin": "machine"
+        "targetTerm": "עומס עבודה"
       }
     },
     {
@@ -73,8 +68,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "רכיב",
-        "origin": "machine"
+        "targetTerm": "רכיב"
       }
     },
     {
@@ -85,8 +79,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "משאב",
-        "origin": "machine"
+        "targetTerm": "משאב"
       }
     },
     {
@@ -97,8 +90,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "מאגר אחסון",
-        "origin": "machine"
+        "targetTerm": "מאגר אחסון"
       }
     },
     {
@@ -110,8 +102,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "השהיה",
-        "origin": "machine"
+        "targetTerm": "השהיה"
       }
     },
     {
@@ -122,8 +113,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "לצרוך עד תום",
-        "origin": "machine"
+        "targetTerm": "לצרוך עד תום"
       }
     },
     {
@@ -134,8 +124,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "מטמון",
-        "origin": "machine"
+        "targetTerm": "מטמון"
       }
     },
     {
@@ -146,8 +135,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "פעולה",
-        "origin": "machine"
+        "targetTerm": "פעולה"
       }
     },
     {
@@ -158,8 +146,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "מעביר",
-        "origin": "machine"
+        "targetTerm": "מעביר"
       }
     },
     {
@@ -170,8 +157,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "אסימון מעבדה",
-        "origin": "machine"
+        "targetTerm": "אסימון מעבדה"
       }
     },
     {
@@ -182,8 +168,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "מפתח אימות פנימי",
-        "origin": "machine"
+        "targetTerm": "מפתח אימות פנימי"
       }
     },
     {
@@ -194,8 +179,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "קו בסיס",
-        "origin": "machine"
+        "targetTerm": "קו בסיס"
       }
     },
     {
@@ -206,8 +190,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "תצורה",
-        "origin": "machine"
+        "targetTerm": "תצורה"
       }
     },
     {
@@ -219,8 +202,7 @@
       "decision": {
         "status": "explained",
         "targetTerm": "מצב בפועל",
-        "rationale": "Use a phrase meaning actual state to distinguish this view from source-code implementation.",
-        "origin": "machine"
+        "rationale": "Use a phrase meaning actual state to distinguish this view from source-code implementation."
       }
     },
     {
@@ -231,8 +213,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "טלמטריה",
-        "origin": "machine"
+        "targetTerm": "טלמטריה"
       }
     },
     {
@@ -243,8 +224,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "מצב מוגדר",
-        "origin": "machine"
+        "targetTerm": "מצב מוגדר"
       }
     },
     {
@@ -255,8 +235,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "גישה מורשית",
-        "origin": "machine"
+        "targetTerm": "גישה מורשית"
       }
     },
     {
@@ -268,8 +247,7 @@
       "decision": {
         "status": "explained",
         "targetTerm": "חסר בתצורה",
-        "rationale": "Use a configuration-specific phrase for configured outcomes beyond the Baseline, rather than a generic shortage.",
-        "origin": "machine"
+        "rationale": "Use a configuration-specific phrase for configured outcomes beyond the Baseline, rather than a generic shortage."
       }
     },
     {
@@ -281,8 +259,7 @@
       "decision": {
         "status": "explained",
         "targetTerm": "תיקון ישיר",
-        "rationale": "This assessment term denotes a directly corrected configured Shortfall, not every software package update.",
-        "origin": "machine"
+        "rationale": "This assessment term denotes a directly corrected configured Shortfall, not every software package update."
       }
     },
     {
@@ -293,8 +270,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "סטייה",
-        "origin": "machine"
+        "targetTerm": "סטייה"
       }
     },
     {
@@ -305,8 +281,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "ממצא",
-        "origin": "machine"
+        "targetTerm": "ממצא"
       }
     },
     {
@@ -317,8 +292,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "לא מנוטר",
-        "origin": "machine"
+        "targetTerm": "לא מנוטר"
       }
     },
     {
@@ -329,8 +303,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "אי־התאמה",
-        "origin": "machine"
+        "targetTerm": "אי־התאמה"
       }
     },
     {
@@ -341,8 +314,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "חשיפה",
-        "origin": "machine"
+        "targetTerm": "חשיפה"
       }
     },
     {
@@ -353,8 +325,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "אי־זמינות",
-        "origin": "machine"
+        "targetTerm": "אי־זמינות"
       }
     }
   ],

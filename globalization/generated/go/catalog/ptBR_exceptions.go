@@ -537,7 +537,7 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.host_dd6d74db4a58cc9d": [
-    "Hash de Fido.ps1 diferente do esperado (versão fixa v1.71): esperado ",
+    "Hash de Fido.ps1 diferente do esperado (versão fixa v1.72): esperado ",
     {
       "arg": "fidoSha256",
       "type": "detail",
@@ -1766,6 +1766,20 @@ const DataptBRexceptions = `{
       "trust": "internal"
     },
     "' que não pode ser repassado pela reexecução via sg; passe apenas strings, números, switches, booleanos e arrays de strings."
+  ],
+  "exceptions.runner_ssh_key_read_only_invalid": [
+    "Não é possível ler o par de chaves SSH existente em '",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' sem reparo: ",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    }
   ],
   "exceptions.setup_service_vm_preserved": [
     {

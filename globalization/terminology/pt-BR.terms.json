@@ -177,8 +177,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "Linha de base",
-        "origin": "machine"
+        "targetTerm": "Linha de base"
       }
     },
     {
@@ -189,8 +188,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "Configuração",
-        "origin": "machine"
+        "targetTerm": "Configuração"
       }
     },
     {
@@ -202,8 +200,7 @@
       "decision": {
         "status": "explained",
         "targetTerm": "Implementação",
-        "rationale": "Use implementação em execução when needed to distinguish actual running behavior from source-code implementation.",
-        "origin": "machine"
+        "rationale": "Use implementação em execução when needed to distinguish actual running behavior from source-code implementation."
       }
     },
     {
@@ -214,8 +211,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "Telemetria",
-        "origin": "machine"
+        "targetTerm": "Telemetria"
       }
     },
     {
@@ -226,8 +222,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "estado configurado",
-        "origin": "machine"
+        "targetTerm": "estado configurado"
       }
     },
     {
@@ -238,8 +233,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "Acesso autorizado",
-        "origin": "machine"
+        "targetTerm": "Acesso autorizado"
       }
     },
     {
@@ -251,8 +245,7 @@
       "decision": {
         "status": "explained",
         "targetTerm": "Insuficiência de configuração",
-        "rationale": "Use a configuration-specific phrase for configured outcomes beyond the Baseline, rather than a generic shortage.",
-        "origin": "machine"
+        "rationale": "Use a configuration-specific phrase for configured outcomes beyond the Baseline, rather than a generic shortage."
       }
     },
     {
@@ -264,8 +257,7 @@
       "decision": {
         "status": "explained",
         "targetTerm": "Correção direta",
-        "rationale": "This assessment term denotes a directly corrected configured Shortfall, not every software package update.",
-        "origin": "machine"
+        "rationale": "This assessment term denotes a directly corrected configured Shortfall, not every software package update."
       }
     },
     {
@@ -276,8 +268,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "Desvio",
-        "origin": "machine"
+        "targetTerm": "Desvio"
       }
     },
     {
@@ -288,8 +279,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "Constatação",
-        "origin": "machine"
+        "targetTerm": "Constatação"
       }
     },
     {
@@ -300,8 +290,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "Não monitorado",
-        "origin": "machine"
+        "targetTerm": "Não monitorado"
       }
     },
     {
@@ -312,8 +301,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "Não conformidade",
-        "origin": "machine"
+        "targetTerm": "Não conformidade"
       }
     },
     {
@@ -324,8 +312,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "Exposição",
-        "origin": "machine"
+        "targetTerm": "Exposição"
       }
     },
     {
@@ -336,8 +323,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "Indisponibilidade",
-        "origin": "machine"
+        "targetTerm": "Indisponibilidade"
       }
     }
   ],

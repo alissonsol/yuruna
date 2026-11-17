@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4202eb15-d68a-475f-9f7f-9e84da9b500a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -125,13 +125,16 @@ if (-not $yamlOk) {
 }
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
-# --- REGION: Verified host archive
+# --- REGION: Get-GuestHostArchive
 # See https://yuruna.link/42185271-000d
-# With the guest-channel key, keep the archive only when its bytes match the
-# digest /archive-digest proved; a failure throws into the caller's fallback
-# (the pinned framework commit or a git clone). Without the key -- a guest built
-# before it existed -- the archive is fetched as served.
 function Get-GuestHostArchive {
+    <#
+    .SYNOPSIS
+        Fetch an archive and verify its digest with the guest-channel key.
+    .DESCRIPTION
+        A failed proof throws into the caller's pinned-commit or Git fallback.
+        Guests without a channel key take the archive as served.
+    #>
     param(
         [Parameter(Mandatory)][ValidateSet('framework', 'project')][string]$Archive,
         [Parameter(Mandatory)][string]$BaseUrl,
@@ -179,12 +182,15 @@ function Get-GuestHostArchive {
     Write-Output "yuruna: $Archive archive $commit verified (sha256 $sha256)"
 }
 
-# --- REGION: Verified clone URLs
-# With the guest-channel key, take the clone URLs from /control/test-config only
-# when the answer proves the key over them for this guest's host; any other
-# answer throws, and the caller keeps the URLs seeded in host.env. Without the
-# key -- a guest built before it existed -- the answer is read as served.
+# --- REGION: Get-GuestRepositoryUrl
 function Get-GuestRepositoryUrl {
+    <#
+    .SYNOPSIS
+        Read clone URLs authenticated for this guest's host when it has a key.
+    .DESCRIPTION
+        A failed proof throws so the caller keeps the URLs seeded in host.env.
+        Guests without a channel key take the answer as served.
+    #>
     param(
         [Parameter(Mandatory)][string]$BaseUrl,
         [string]$KeyPath = 'C:\ProgramData\yuruna\guest-channel.key',
@@ -243,11 +249,12 @@ if (Test-Path -LiteralPath $hostEnv -PathType Leaf) {
 }
 if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT -and -not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
     $livecheckUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/livecheck"
+    $tarPath = $null
     try {
         # Probe liveness without downloading a response body.
         $null = Invoke-WebRequest -Uri $livecheckUrl -Method Head -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
         New-Item -ItemType Directory -Path $yurunaRoot -Force | Out-Null
-        $tarPath = Join-Path $env:TEMP 'yuruna-archive.tar.gz'
+        $tarPath = (New-TemporaryFile -ErrorAction Stop).FullName
         Get-GuestHostArchive -Archive framework -BaseUrl "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)" -OutFile $tarPath -HostId ([string]$env:YURUNA_HOST_ID)
         # tar.exe (bsdtar) ships in-box since Windows 10 1803 and reads .tar.gz directly.
         tar.exe -xzf $tarPath -C $yurunaRoot
@@ -255,11 +262,12 @@ if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT -and -not
         if (-not (Test-Path -LiteralPath $frameworkVersion -PathType Leaf) -or (Get-Item -LiteralPath $frameworkVersion).Length -eq 0) {
             throw 'Framework archive lacks a nonempty VERSION file.'
         }
-        Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue
         Write-Output "<<< Yuruna framework available at $yurunaRoot (early extract)."
     } catch {
         if (Test-Path -LiteralPath $yurunaRoot) { Remove-Item -LiteralPath $yurunaRoot -Recurse -Force -ErrorAction SilentlyContinue }
         Write-Output "yuruna: early tarball fetch failed -- $($_.Exception.Message)"
+    } finally {
+        if ($tarPath) { Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue }
     }
 } else {
     Write-Output "yuruna: host.env not present or yuruna already extracted -- skipping early extract."
@@ -479,22 +487,24 @@ if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
     if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
         $livecheckUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/livecheck"
         $tarballUrl   = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/yuruna-archive.tar.gz"
+        $tarPath = $null
         try {
             $null = Invoke-WebRequest -Uri $livecheckUrl -Method Head -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
             Write-Output "yuruna: fetching committed tarball from $tarballUrl"
             New-Item -ItemType Directory -Path $yurunaRoot -Force | Out-Null
-            $tarPath = Join-Path $env:TEMP 'yuruna-archive.tar.gz'
+            $tarPath = (New-TemporaryFile -ErrorAction Stop).FullName
             Get-GuestHostArchive -Archive framework -BaseUrl "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)" -OutFile $tarPath -HostId ([string]$env:YURUNA_HOST_ID)
             tar.exe -xzf $tarPath -C $yurunaRoot
             if ($LASTEXITCODE -ne 0) { throw "Framework archive extraction failed (tar exit code $LASTEXITCODE)." }
             if (-not (Test-Path -LiteralPath $frameworkVersion -PathType Leaf) -or (Get-Item -LiteralPath $frameworkVersion).Length -eq 0) {
                 throw 'Framework archive lacks a nonempty VERSION file.'
             }
-            Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue
             $hostOk = $true
         } catch {
             Write-Output "yuruna: tarball fetch/extract failed - falling back to git clone"
             if (Test-Path -LiteralPath $yurunaRoot) { Remove-Item -LiteralPath $yurunaRoot -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally {
+            if ($tarPath) { Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue }
         }
     }
     $pinnedRepository = if ($env:E_FB_REPO) { $env:E_FB_REPO } else { $env:YURUNA_GITHUB_REPO }
@@ -529,13 +539,13 @@ if (-not (Test-Path -LiteralPath $yurunaProject -PathType Container)) {
     if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
         $projectTarballUrl = "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)/yuruna-project-archive.tar.gz"
         Write-Output "yuruna: trying project tarball at $projectTarballUrl"
+        $tarPath = $null
         try {
             New-Item -ItemType Directory -Path $yurunaProject -Force | Out-Null
-            $tarPath = Join-Path $env:TEMP 'yuruna-project-archive.tar.gz'
+            $tarPath = (New-TemporaryFile -ErrorAction Stop).FullName
             Get-GuestHostArchive -Archive project -BaseUrl "http://$($env:YURUNA_STATUS_SERVICE_IP):$($env:YURUNA_STATUS_SERVICE_PORT)" -OutFile $tarPath -HostId ([string]$env:YURUNA_HOST_ID)
             tar.exe -xzf $tarPath -C $yurunaProject
             if ($LASTEXITCODE -ne 0) { throw "Project archive extraction failed (tar exit code $LASTEXITCODE)." }
-            Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue
             if (Get-ChildItem -LiteralPath $yurunaProject -Force -ErrorAction SilentlyContinue) {
                 $projectHostOk = $true
             } else {
@@ -544,6 +554,8 @@ if (-not (Test-Path -LiteralPath $yurunaProject -PathType Container)) {
         } catch {
             Write-Output "yuruna: project tarball not served (or empty) - falling back to git clone"
             if (Test-Path -LiteralPath $yurunaProject) { Remove-Item -LiteralPath $yurunaProject -Recurse -Force -ErrorAction SilentlyContinue }
+        } finally {
+            if ($tarPath) { Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue }
         }
     }
     if (-not $projectHostOk -and $projectUrl) {
@@ -565,6 +577,6 @@ if (-not (Test-Path -LiteralPath $yurunaProject -PathType Container)) {
 # --- REGION: Clean up temporary files
 Write-Output ""
 Write-Output ">>> Cleaning up temporary files..."
-Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
+# Download scopes remove their private archives; other applications also own TEMP files.
 cleanmgr /sagerun:1 2>$null
 Write-Output "<<< Cleanup complete."

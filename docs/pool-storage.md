@@ -244,7 +244,7 @@ With `networkStorage.moveLogsToPoolStorage: true`, each finished cycle is copied
 
 **It runs synchronously.** Copy mode fires a detached child and the loop moves on;
 move mode cannot, because whether the copy succeeded is part of the cycle's verdict.
-The phase is wall-clock bounded (30 minutes overall, 10 minutes per copy) and a slow
+Each copy is bounded to 10 minutes, but the phase has no overall deadline. A slow
 NAS produces a warning, not a failure -- a slow share is not a full one.
 
 **The commit order is load-bearing.** Verify -> sentinel -> ledger -> delete. Every
@@ -871,6 +871,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

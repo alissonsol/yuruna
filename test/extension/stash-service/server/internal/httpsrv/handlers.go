@@ -767,7 +767,7 @@ func (s *Server) respondCreate(w http.ResponseWriter, r *http.Request, res *sshs
 	})
 }
 
-// --- REGION: Static assets
+// --- REGION: Page and asset serving
 func (s *Server) servePage(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Restrict the UI pages to same-origin scripts/styles/connections so

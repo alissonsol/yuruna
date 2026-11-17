@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,11 +45,10 @@ $script:PoolStorageCopyHeadroom            = 1.10
 $script:PoolStorageProjectionSample        = 5
 $script:PoolStorageProjectionFloorBytes    = 1GB
 
-# Wall-clock cap for the whole synchronous move phase at cycle end, and the bound
-# on waiting for the detached push forwarder to finish reading the cycle folder
-# before it is deleted. The move phase blocks the loop by necessity (the cycle's
-# verdict depends on it), so it needs an outer bound that a slow NAS cannot exceed.
-$script:PoolStorageMovePhaseTimeoutSeconds = 1800
+# The bound on waiting for the detached push forwarder to finish reading the
+# cycle folder before move mode deletes it (Get-OuterPoolStoragePushWait reads
+# it). The move phase itself has no overall deadline; each copy is bounded by
+# PoolStorageCopyTimeoutSeconds above.
 $script:PoolStoragePushDrainWaitSeconds    = 120
 
 # Verbatim reason the last Connect-YurunaPoolStorage attempt failed, so the

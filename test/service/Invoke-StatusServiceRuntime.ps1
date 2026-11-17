@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42e0b38b-31d7-437e-bc6b-f7a324adb32c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,8 @@
 .PARAMETER ServerHostType
     The host type the parent detected; may be empty.
 .PARAMETER ServerConfigPath
-    The test.config.yml the watchdog bounds are read from.
+    The caller-selected test.config.yml used by configuration views, saves,
+    performance history limits and watchdog bounds.
 .PARAMETER WorkerRoot
     Where the detached workers' entry points resolve from; the repository in
     production.
@@ -65,6 +66,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Every configuration view and save follows the file selected by the runner.
+# The checkout default applies only when no configuration path was supplied.
+if ([string]::IsNullOrWhiteSpace($serverConfigPath)) { $serverConfigPath = Join-Path $repoRoot 'test/test.config.yml' }
+$testConfigFile = $serverConfigPath
 $listener = [System.Net.HttpListener]::new()
 $listener.Prefixes.Add("http://*:$Port/")
 # Test-IpAddress and Get-CachingProxyServicePort are used to validate
@@ -786,7 +791,6 @@ function Invoke-TestConfigWrite {
     param([Parameter(Mandatory)]$RequestContext, [byte[]]$BodyBytes)
     $req = $RequestContext.Request
     $res = $RequestContext.Response
-    $testConfigFile = Join-Path $repoRoot 'test/test.config.yml'
     $encoding = if ($req.ContentEncoding) { $req.ContentEncoding } else { [System.Text.Encoding]::UTF8 }
     $payload = $encoding.GetString($(if ($BodyBytes) { $BodyBytes } else { [byte[]]@() }))
     $parsedDoc = $null
@@ -908,7 +912,7 @@ function Invoke-LockedTestConfigWrite {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Read inside the block handed to Use-TestConfigLock, which the rule does not follow.')]
     param([Parameter(Mandatory)]$RequestContext, [byte[]]$BodyBytes)
     try {
-        Use-TestConfigLock -Path (Join-Path $repoRoot 'test/test.config.yml') -Action {
+        Use-TestConfigLock -Path $testConfigFile -Action {
             Invoke-TestConfigWrite -RequestContext $RequestContext -BodyBytes $BodyBytes
         }
     } catch {
@@ -1535,6 +1539,17 @@ try {
     if (Get-Command -Name 'Initialize-YurunaCriticalRecordIo' -ErrorAction SilentlyContinue) {
         try { $null = Initialize-YurunaCriticalRecordIo } catch { Write-ServerErr "critical-record I/O pre-warm failed: $($_.Exception.Message)" }
     }
+    # Prepare private worker directories and their existing action message
+    # before processing requests; every route still validates its private path.
+    try {
+        if (Import-RouteModule -ModuleRelativePath 'automation/Yuruna.Common.psm1' -RequiredCommand 'Get-YurunaPrivateStatePath') {
+            foreach ($directory in 'work', 'start-cycle', 'host-diagnostic') {
+                $prepared = Get-YurunaPrivateStatePath -Name 'stdin.empty' -Subdirectory $directory -ServedRoot $servedRootSet
+                if (-not $prepared.Resolved) { Write-ServerErr "private worker directory $directory preparation failed: $($prepared.Reason)" }
+            }
+            & (Get-Module Test.StatusControlRoute) { $null = Format-YurunaOperatorMessage -Key 'runner.status_worker_directory_prepare_action' }
+        }
+    } catch { Write-ServerErr "private worker preparation failed: $($_.Exception.Message)" }
     # Bodies being read for control/host-refresh, the pending accept, and the
     # last host-diagnostic launch (which throttles a caller that polls faster
     # than a worker starts).
@@ -1701,7 +1716,6 @@ try {
             # --- REGION: /control/test-config: read/write test.config.yml from UI
             # See https://yuruna.link/42e5cdfd-0045
             if ($path -eq 'control/test-config') {
-                $testConfigFile = Join-Path $repoRoot 'test/test.config.yml'
                 $res.ContentType = 'application/json; charset=utf-8'
                 $res.Headers.Add('Cache-Control', 'no-store')
                 if ($req.HttpMethod -eq 'GET' -or $req.HttpMethod -eq 'HEAD') {
@@ -1922,7 +1936,6 @@ try {
                     # path for its Complete-Run -MaxHistoryRuns.
                     $recentLimit = 30
                     try {
-                        $testConfigFile = Join-Path $repoRoot 'test/test.config.yml'
                         $doc = Read-TestConfig -Path $testConfigFile
                         if ($doc -and ($doc.testCycle -is [System.Collections.IDictionary]) -and $doc.testCycle.Contains('recentDisplayCount')) {
                             $v = [int]$doc.testCycle.recentDisplayCount
@@ -3276,7 +3289,14 @@ try {
                     # listing must not occupy this listener checking NAS sentinels.
                     $archiveEntries = if ($req.QueryString['localOnly'] -eq 'true') { @() } else { @(Get-ArchivedCycleEntry) }
                     $localNames = @{}
-                    foreach ($e in $entries) { $localNames[$e.Name] = $true }
+                    foreach ($e in $entries) {
+                        $localNames[$e.Name] = $true
+                        # The archive names a cycle by its stable identity, so a
+                        # local '<base>.aborted.<UTC>' or '<base>.incomplete' folder
+                        # is the same cycle as an archived '<base>'.
+                        $identity = ConvertTo-ArchiveRelativePath -Rel $e.Name
+                        if ($identity) { $localNames[$identity] = $true }
+                    }
                     $extra = [System.Collections.Generic.List[object]]::new()
                     foreach ($archived in $archiveEntries) {
                         if (-not $localNames.ContainsKey($archived.Name)) { $extra.Add($archived) }

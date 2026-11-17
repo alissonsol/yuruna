@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42f88b85-1359-4e89-a7fb-e0e5795a448b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,6 +111,12 @@ Describe 'The Windows bootstrap keeps the token in the user''s own file' {
         $bodyStart = $script:Bootstrap.IndexOf("`n", $start) + 1
         $bodyEnd = $script:Bootstrap.IndexOf("`n'@", $bodyStart, [StringComparison]::Ordinal)
         $script:WindowsHelper = $script:Bootstrap.Substring($bodyStart, $bodyEnd - $bodyStart) + "`n"
+        # Windows resolves this special folder from the account, ignoring HOME.
+        # Redirect only the disposable helper's lookup so it never reads an
+        # operator token while these cases exercise the credential protocol.
+        $profileLookup = "[Environment]::GetFolderPath('UserProfile')"
+        $script:WindowsHelper.Contains($profileLookup) | Should -BeTrue
+        $script:WindowsHelper = $script:WindowsHelper.Replace($profileLookup, '$env:HOME')
     }
     It 'answers <Case> with <Expected>' -TestCases @(
         @{ Case = 'a github.com get with the token in the file'; Verb = 'get'; Request = "protocol=https`nhost=github.com`n`n"; Token = ''; File = 'file-token'; Expected = "username=x-access-token`npassword=file-token`n" }
@@ -158,6 +164,7 @@ findstr /i /c:"//github.com'" /c:"@github.com'" >nul
 
 Describe 'The Hyper-V Windows answer file matches the host architecture' {
     BeforeAll {
+        Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
         $builderPath = Join-Path $script:RepoRoot 'host/windows.hyper-v/guest.windows.11/New-VM.ps1'
         $ast = [Management.Automation.Language.Parser]::ParseFile($builderPath, [ref]$null, [ref]$null)
         $assignments = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] }, $true))

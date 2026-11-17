@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4236c7a4-0e24-4a2c-beef-a19ebb5235fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,10 +118,14 @@ function Invoke-WithVaultLock {
 # the lock. Throws on malformed YAML so the cycle fails loudly rather
 # than silently overwriting a half-written file.
 function Read-VaultUnlocked {
-    if (-not (Test-Path $script:VaultPath)) {
+    param([switch]$ReadOnly)
+    $exists = if ($ReadOnly) { Test-Path -LiteralPath $script:VaultPath -ErrorAction Stop }
+        else { Test-Path $script:VaultPath }
+    if (-not $exists) {
         return [ordered]@{ users = [ordered]@{} }
     }
-    $raw = Get-Content -Raw $script:VaultPath
+    $raw = if ($ReadOnly) { Get-Content -Raw -LiteralPath $script:VaultPath -ErrorAction Stop }
+        else { Get-Content -Raw $script:VaultPath }
     if (-not $raw -or -not $raw.Trim()) {
         return [ordered]@{ users = [ordered]@{} }
     }
@@ -224,6 +228,7 @@ function Merge-UsersTemplateEntry {
     }
 }
 
+function Read-UsersConfig {
 <#
 .SYNOPSIS
     Returns the parsed users.yml content (cached). On first call,
@@ -248,16 +253,18 @@ function Merge-UsersTemplateEntry {
     A missing or malformed file degrades to @{ strict = $true; users = @{} }
     so callers don't have to null-guard; Test-Config.ps1 surfaces the
     parse error separately.
+.PARAMETER ReadOnly
+    Read the current runtime mapping, or its template when absent, without
+    bootstrapping, merging or changing the normal cache. Invalid data throws.
 .OUTPUTS
     [hashtable]
 #>
-function Read-UsersConfig {
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param()
-    if ($script:UsersConfig) { return $script:UsersConfig }
+    param([switch]$ReadOnly)
+    if ($script:UsersConfig -and -not $ReadOnly) { return $script:UsersConfig }
     # Bootstrap from the committed template on first call.
-    if (-not (Test-Path -LiteralPath $script:UsersPath)) {
+    if (-not $ReadOnly -and -not (Test-Path -LiteralPath $script:UsersPath)) {
         if (Test-Path -LiteralPath $script:UsersTemplate) {
             try {
                 if (-not (Test-Path -LiteralPath $script:VaultDir)) {
@@ -270,13 +277,22 @@ function Read-UsersConfig {
             }
         }
     }
-    Merge-UsersTemplateEntry
+    if (-not $ReadOnly) { Merge-UsersTemplateEntry }
+    $path = $script:UsersPath
+    if ($ReadOnly -and -not (Test-Path -LiteralPath $path -ErrorAction Stop)) { $path = $script:UsersTemplate }
     $cfg = [ordered]@{ strict = $true; users = [ordered]@{} }
-    if (Test-Path -LiteralPath $script:UsersPath) {
+    $exists = if ($ReadOnly) { Test-Path -LiteralPath $path -ErrorAction Stop }
+        else { Test-Path -LiteralPath $path }
+    if ($exists) {
         try {
-            $raw = Get-Content -Raw -LiteralPath $script:UsersPath
+            $raw = if ($ReadOnly) { Get-Content -Raw -LiteralPath $path -ErrorAction Stop }
+                else { Get-Content -Raw -LiteralPath $path }
             if ($raw -and $raw.Trim()) {
                 $parsed = $raw | ConvertFrom-Yaml -Ordered
+                if ($ReadOnly -and ($parsed -isnot [System.Collections.IDictionary] -or
+                        ($parsed.Contains('users') -and $parsed['users'] -isnot [System.Collections.IDictionary]))) {
+                    throw 'The user mapping is not an object with a users map.'
+                }
                 if ($parsed -is [System.Collections.IDictionary]) {
                     if ($parsed.Contains('strict')) { $cfg.strict = [bool]$parsed['strict'] }
                     if ($parsed.Contains('users') -and $parsed['users'] -is [System.Collections.IDictionary]) {
@@ -285,10 +301,11 @@ function Read-UsersConfig {
                 }
             }
         } catch {
+            if ($ReadOnly) { throw "Authentication user mapping '$path' could not be read as a valid users map." }
             Write-Warning "users.yml parse failed ($($_.Exception.Message)); proceeding with empty mapping."
         }
     }
-    $script:UsersConfig = $cfg
+    if (-not $ReadOnly) { $script:UsersConfig = $cfg }
     return $cfg
 }
 
@@ -312,11 +329,14 @@ function Reset-UsersConfigCache {
 function Resolve-UserMapping {
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$LogicalUser)
-    $cfg = Read-UsersConfig
+    param([Parameter(Mandatory)][string]$LogicalUser, [switch]$ReadOnly)
+    $cfg = Read-UsersConfig -ReadOnly:$ReadOnly
     $entry = $null
     if ($cfg.users -and $cfg.users.Contains($LogicalUser)) {
         $entry = $cfg.users[$LogicalUser]
+        if ($ReadOnly -and $entry -isnot [System.Collections.IDictionary]) {
+            throw "Authentication user mapping for '$LogicalUser' is not a valid object."
+        }
     }
     $localOsUser = $LogicalUser
     $corpDomain  = ''
@@ -498,6 +518,7 @@ function Get-PasswordByVaultKey {
     })
 }
 
+function Get-Password {
 <#
 .SYNOPSIS
     Returns the password used at the sequence-login prompt for the
@@ -515,14 +536,55 @@ function Get-PasswordByVaultKey {
     one set on the local OS account at provisioning time, independent
     of any corporate identity). Those call Get-LocalOsPassword which
     routes through `localOsPasswordRef` instead.
+.PARAMETER Username
+    Logical user whose vaultKey mapping selects the credential.
+.PARAMETER ReadOnly
+    Read without file initialization, password generation or audit writes.
+    A missing automatic credential returns null as a planned creation; an
+    explicitly mapped missing credential or unusable stored value throws.
+.PARAMETER ProposedSecret
+    With ReadOnly, simulate Set-Password writing this nonempty value to the
+    raw logical slot. A getter mapped to another slot still reads that slot.
 #>
-function Get-Password {
     [CmdletBinding()]
     [OutputType([string])]
-    param([Parameter(Mandatory)][string]$Username)
-    $m = Resolve-UserMapping -LogicalUser $Username
+    param(
+        [Parameter(Mandatory)][string]$Username,
+        [switch]$ReadOnly,
+        [string]$ProposedSecret
+    )
+    $proposed = $PSBoundParameters.ContainsKey('ProposedSecret')
+    if ($proposed -and (-not $ReadOnly -or [string]::IsNullOrEmpty($ProposedSecret))) {
+        throw 'ProposedSecret requires ReadOnly and a nonempty proposed value.'
+    }
+    $m = Resolve-UserMapping -LogicalUser $Username -ReadOnly:$ReadOnly
     $key = if ($m.vaultKey) { $m.vaultKey } else { $Username }
     $autoGen = -not $m.vaultKey   # empty vaultKey == legacy auto-gen path
+    if ($ReadOnly) {
+        # Writers replace the vault atomically. A preview reads its snapshot
+        # without creating mutex state, mapping files or audit records.
+        try { $vault = Read-VaultUnlocked -ReadOnly }
+        catch { throw 'Authentication vault could not be read as valid YAML.' }
+        if ($vault -isnot [System.Collections.IDictionary] -or
+            ($vault.Contains('users') -and $vault.users -isnot [System.Collections.IDictionary])) {
+            throw 'Authentication vault does not contain a valid users map.'
+        }
+        # Set-Password writes the raw logical slot; a mapped getter can still
+        # read another slot after that proposed write.
+        if ($proposed -and $key -eq $Username) { return $ProposedSecret }
+        if ($vault.Contains('users') -and $vault.users.Contains($key)) {
+            $entry = $vault.users[$key]
+            if ($entry -isnot [System.Collections.IDictionary] -or $entry['password'] -isnot [string] -or
+                [string]::IsNullOrEmpty($entry['password'])) {
+                throw "Authentication vault contains an unusable credential for key '$key'."
+            }
+            return $entry['password']
+        }
+        if (-not $autoGen) {
+            throw "Authentication vault has no entry for key '$key' (resolved from logical user '$Username' via users.yml vaultKey)."
+        }
+        return $null
+    }
     return (Get-PasswordByVaultKey -VaultKey $key -LogicalUser $Username -AutoGenerate $autoGen)
 }
 

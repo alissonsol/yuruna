@@ -11,10 +11,20 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT.parent / 'yuruna-project'
-AMISAD = ROOT.parent / 'amisad.dev'
+
+
+def amisad_root(workspace):
+    configured = os.environ.get('YURUNA_AMISAD_ROOT')
+    if configured and Path(configured).is_dir():
+        return Path(configured)
+    return workspace / 'amisad.dev'
+
+
+AMISAD = amisad_root(ROOT.parent)
 
 
 def bash(source, env=None):
@@ -22,6 +32,20 @@ def bash(source, env=None):
 
 
 class ShellContracts(unittest.TestCase):
+    def test_amisad_checkout_override_and_adjacent_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / 'workspace'
+            adjacent = workspace / 'amisad.dev'
+            explicit = Path(tmp) / 'outside/amisad.dev'
+            adjacent.mkdir(parents=True)
+            explicit.mkdir(parents=True)
+            with mock.patch.dict(os.environ, {'YURUNA_AMISAD_ROOT': str(explicit)}):
+                self.assertEqual(amisad_root(workspace), explicit)
+                os.environ['YURUNA_AMISAD_ROOT'] = str(Path(tmp) / 'missing')
+                self.assertEqual(amisad_root(workspace), adjacent)
+                os.environ.pop('YURUNA_AMISAD_ROOT')
+                self.assertEqual(amisad_root(workspace), adjacent)
+
     def test_postgresql_preserves_existing_clusters_and_starts_the_instance(self):
         source = (ROOT / 'guest/shared/ubuntu.postgresql.sh').read_text()
         block = source.split('# --- REGION: Ensure PostgreSQL cluster\n', 1)[1]
@@ -200,10 +224,10 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             (root / 'VERSION').write_text('2026.09.30\n')
             subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py')], check=True)
 
-            (root / 'VERSION').write_text('2026.11.08\n')
+            (root / 'VERSION').write_text('2026.11.16\n')
             for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                 shared = root / f'guest/shared/ubuntu.{name}.sh'
-                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.11.08\nexit 17\n')
+                shared.write_bytes(b'#!/bin/bash\n# Version: 2026.11.16\nexit 17\n')
             stale = subprocess.run([sys.executable, str(root / 'tools/Sync-GuestWorkflows.py'), '--check'], capture_output=True, text=True)
             self.assertNotEqual(stale.returncode, 0)
             self.assertEqual(len(stale.stderr.splitlines()) - 1, 12)
@@ -213,7 +237,7 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
                 for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                     wrapper = (root / f'guest/ubuntu.server.{release}/ubuntu.server.{release}.{name}.sh').read_text()
                     digest = hashlib.sha256((root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
-                    self.assertIn('# Version: 2026.11.08\n', wrapper)
+                    self.assertIn('# Version: 2026.11.16\n', wrapper)
                     self.assertIn(f'expected="{digest}"', wrapper)
 
     def test_guest_workflow_pre_commit_stages_pins(self):
@@ -256,10 +280,10 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
             git('-c', 'core.hooksPath=', 'commit', '-q', '-m', 'seed')
             git('config', 'core.hooksPath', 'tools/githooks')
 
-            (root / 'VERSION').write_text('2026.11.08\n')
+            (root / 'VERSION').write_text('2026.11.16\n')
             for name in ('update', 'code', 'k8s', 'n8n', 'openclaw', 'postgresql'):
                 (root / f'guest/shared/ubuntu.{name}.sh').write_bytes(
-                    b'#!/bin/bash\n# Version: 2026.11.08\nexit 0\n')
+                    b'#!/bin/bash\n# Version: 2026.11.16\nexit 0\n')
             git('add', 'VERSION', 'guest/shared')
             committed = git('commit', '-q', '-m', 'version stamp')
             self.assertIn('regenerated and staged Ubuntu workflow checksum pins', committed.stderr)
@@ -272,7 +296,7 @@ sleep() { [ "$1" = 1 ]; sleeps=$((sleeps+1)); }
                     digest = hashlib.sha256(
                         (root / f'guest/shared/ubuntu.{name}.sh').read_bytes()).hexdigest()
                     self.assertIn(f'expected="{digest}"', wrapper)
-                    self.assertIn('# Version: 2026.11.08', wrapper)
+                    self.assertIn('# Version: 2026.11.16', wrapper)
 
             # A staged version with an unstaged workflow edit must not pin
             # bytes that the proposed commit does not contain.

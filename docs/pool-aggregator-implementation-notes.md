@@ -85,7 +85,7 @@ deferred). It drives alerting -- the host-side notifier reads
 break.
 
 A member is healthy when it is reachable, not in an open incident, and its
-status is running, pass, idle or stopped, or either pending pause. An armed pause
+status is running, pass, idle, stopped or lost, or either pending pause. An armed pause
 flag does not stop a host until its boundary, so the host is still executing
 normally and must not drag the pool's fraction down; a stopped runner is not
 running cycles at all and is not counted against the pool either, the reading
@@ -129,12 +129,15 @@ to see:
   the false green the runner-status route exists to remove. It resolves above
   everything: the last result and any pause flag still armed describe a runner no
   longer there to honor them.
-- Runner lost mid-cycle. A runner that died inside a cycle -- a closed terminal
-  window, a dropped SSH session, a kill, a host restart -- reads the same to
-  `status.json` as one an operator stopped: the cycle it was running still says
-  `running`, and nothing restarts the runner. `lost` keeps it apart from
-  `stopped`, which is the reading an operator's own stop produces. It resolves
-  where `stopped` does.
+- Runner lost mid-cycle. A runner that died inside a cycle while its host and
+  status service stayed up -- a closed terminal window, a dropped SSH session, a
+  kill -- reads the same to `status.json` as one an operator stopped: the cycle
+  it was running still says `running`, and nothing restarts the runner. `lost`
+  keeps it apart from `stopped`, which is the reading an operator's own stop
+  produces. It resolves where `stopped` does. A host restart never reads `lost`:
+  the runner starts the status service, so a restart takes both down and the
+  host reads `unreachable` until its runner is started again (*Events the
+  collector observes* covers how both stretches are recorded).
 
 <a id="42c29d04-0006"></a>
 
@@ -281,6 +284,11 @@ sources in order of cost and of how much they survive:
 
 A folder name encodes its start time and `hostId`, so the first three work for
 any retained cycle and supply the cycle-number prefix a transition line cannot.
+The listing step accepts every name a cycle folder takes on the host: the bare
+identity, `.incomplete` while the cycle runs, and `.aborted.<UTC>` once the boot
+sweep has kept a cycle whose runner died. The host lists only that kept folder
+for such a cycle, folding any archive copy into it, so skipping the suffix would
+resolve a click inside the cycle to the one before it.
 
 A host's `/log/` index does not inline every retained cycle. A cycle older than
 the retention window moves into a `history.<YYYY-MM-DD>/` bucket that the index
@@ -761,7 +769,8 @@ outside its range keeps the default.
 ## The event tail
 
 Applies to: `Poller.TailEvents` in `internal/poll/events.go`, and
-`Sender.PushEvents` and `RedactEventLine` in `internal/feed/feed.go`
+`Sender.PushEvents`, `Sender.PushEventsAt`, `EventStamps` and `RedactEventLine`
+in `internal/feed/feed.go`
 
 The poll forwards each host's current-cycle event file -- `cycle.events.ndjson`
 in the cycle's results folder -- to Loki under `{pool,hostId,src=event}`. It is
@@ -781,11 +790,101 @@ complete lines are shipped; a trailing partial line waits for the next poll.
 Each line is scrubbed of its hostname-bearing fields before it leaves
 (`RedactEventLine`).
 
+A line without a `timestamp` of its own -- an older runner writes `step.start`
+and `step.end` without one -- takes the timestamp of the line before it in the
+file, or the cycle's start when nothing precedes it (`EventStamps`), and the
+cursor carries the last stamp across polls. Stamping it with the clock of the
+poll that ships it is harmless while the tail keeps up, but a catch-up -- a
+collector restart, a rebuilt proxy whose Loki starts empty, a long Loki outage --
+ships a cycle's file hours late, and the first such line then moves the stream's
+newest entry to now. Loki refuses an entry more than about an hour older than the
+newest of its stream, so every older line after it in the file is refused, and
+the outbox drops a payload Loki refuses. The rule is the backfill's
+(`reconstructCycle`), so a file is stamped the same way on every read and a
+restart's second copy of a line stays an exact duplicate. A line pushed to
+`/ingest` without one keeps the ingest clock, because a pushed batch need not
+hold the line before it.
+
 The tail is best-effort and bounded. One read takes at most `MaxEventFetch`
 bytes and `MaxEventPush` lines; a host that ignores the range request has the
 part already shipped discarded rather than held, so a bounded read still
 reaches the events past it; and a failed read or push is left for the next
 poll. It never blocks the poll.
+
+<a id="42c29d04-0025"></a>
+
+## Events the collector observes
+
+Applies to: `runnerLostEvent`, `hostUnreachableEvent`, `hostDroppedEvent` and
+`Poller.queueObserved` in `internal/poll/events.go`, `ObservedEventPayload` in
+`internal/feed/feed.go`, `FetchRunnerStopped` in
+`internal/hostpoll/hostpoll.go`, and `lokiEventCycles` in `backfill_loki.go`
+
+The events a host writes cannot report the two ways a host most often goes
+quiet. A runner killed with its terminal or its SSH session writes nothing after
+the signal, and a restarted host writes its `host_restart` only when someone
+starts the runner again, which can be days later. The collector reads every
+host on every poll, so it writes three events of its own into the host's event
+stream: `runner_lost` when a poll first reads a host as lost mid-cycle,
+`host_unreachable` when a host it reached has not answered for
+`UnreachableGrace` (5 minutes, longer than a status service takes to restart),
+and `host_dropped` when the host TTL removes it. They are diagnostics: they
+change no status, health count, incident or alert.
+
+Each line goes to `{pool,hostId,src=event}` with one more label,
+`emitter="pool-aggregator-service"`. A query of the host's event stream selects
+it like any other event, but Loki keeps it in a stream of its own. Loki refuses
+an entry more than about an hour older than the newest entry of its stream, so a
+line stamped with the poll's clock in the stream the tail writes would move that
+stream's head to now, and a tail catching up on an old cycle after a restart
+would then lose that cycle's older lines (*The event tail*). The backfill's test
+for whether a cycle's events are in Loki skips the label for a related reason:
+a `runner_lost` line can name a cycle, but it is not one of that cycle's events,
+and counting it would leave events that never reached Loki unwritten.
+
+One episode writes one line. What was sent is kept on the host's record in the
+view (`LostEpisode`, `UnreachableReported`), in memory only, and leaves with the
+record. `runner_lost` is keyed by the runner: its pid and its start time from
+the host's exit report, or its pid and the cycle start in the host's status
+when the host reports none, as for a runner started before the session record
+existed. A poll that misses the route, or that reads a plain stop for a moment,
+therefore does not write the episode twice. `host_unreachable` is written once
+per stretch without an answer and re-armed by the next answer. A line that
+cannot be queued is taken back and built again by the next poll; `host_dropped`
+is not, because the record leaves with the drop.
+
+A collector restart forgets what it sent, so it writes `runner_lost` once more
+for each runner still lost, under the same `episodeKey`, and readers count
+episodes by distinct key. `host_unreachable` is not repeated: a host the restart
+seeded from Loki has no status until it answers, and nothing the collector holds
+says when it was last seen, so it writes none. `host_dropped` can be. The
+startup reads seed every host whose transition or presence line falls inside
+`-rehydrate-window` (*Seeding a host from Loki*), including one an earlier run
+already dropped, and stamp it as seen at the restart. A host that still does not
+answer is therefore dropped again one host TTL after the restart, and again
+after each later restart while that line stays inside the window. Such a drop
+carries a null `lastSeenUtc`. So does the only drop of a host that went silent
+before a restart and was never reached after it, so a null value alone does not
+mark a repeat. Readers count the `host_dropped` lines of one host with no
+transition, presence line or forwarded event from that host between them as one
+outage.
+
+`runner_lost` carries the runner's exit report as `/control/runner-status`
+serves it in `lastExit`: the signal and when it came, whether the host booted
+since, the terminal program and whether the runner ran under SSH.
+`FetchRunnerStopped` decodes the report on its own, after the stopped and lost
+verdicts, so a report this collector cannot read costs only its fields.
+
+`runner_lost` names the cycle the runner died in, `cycleStartUtc` and
+`cycleFolderUrl` from status.json, only while status.json shows a cycle in
+progress: `overallStatus` `running` with its folder recorded. The runner state
+reads `in-cycle` from before the next cycle rewrites status.json -- the pull,
+the project refresh and the gates -- until after the teardown and the wait
+between cycles. A runner that dies in those stretches leaves status.json holding
+a finished cycle, or the interim document that names no folder yet, and naming
+either would point the reader at a cycle the runner was not running, so both
+fields are null then. The fallback `episodeKey` still uses the cycle start in
+the host's status, which nothing rewrites while the runner stays dead.
 
 <a id="42c29d04-0019"></a>
 
@@ -1156,7 +1255,7 @@ TLS for the clients that carry a credential -- the ingest forwarder's bearer,
 browser-facing `/go/*` deep links. The deep-link hop only redirects the
 operator's browser to a host's plain-HTTP status page, so TLS there would add a
 proxy-CA interstitial -- operator browsers do not trust the proxy's CA -- while
-protecting nothing the very next hop does not already carry in clear: the
+protecting nothing the next hop does not already carry in clear: the
 minted control proof travels on to the host in a cleartext header either way.
 TLS starts only when both the certificate and the key name readable, non-empty
 files; otherwise the service serves plain HTTP alone, so a proxy provisioned

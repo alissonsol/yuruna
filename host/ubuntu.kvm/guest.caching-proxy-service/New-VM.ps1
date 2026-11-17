@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,7 +83,11 @@ $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
 }
-if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+$loadedLogLevel = Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue
+if ($loadedLogLevel) {
+    if (-not $PlanOnly) { Use-LogLevelFromEnv }
+    elseif ($loadedLogLevel.Parameters.ContainsKey('NoTranscript')) { Use-LogLevelFromEnv -NoTranscript }
+}
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_8be0c49190d15cd0' -Arguments @{ vMName = "$VMName" })
@@ -111,7 +115,7 @@ if ($MacAddress) {
 # --- REGION: libvirt-qemu search ACL on $HOME
 # See https://yuruna.link/42e220c4-0004
 # Grant libvirt-qemu traverse-only access to the VM storage below this home directory.
-if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
+if (-not $PlanOnly -and (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue)) {
     & getent passwd libvirt-qemu *>$null
     if ($LASTEXITCODE -eq 0) {
         & setfacl -m 'u:libvirt-qemu:--x' $HOME 2>$null
@@ -129,24 +133,34 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDi
 # Seed the shared harness key so guest provisioning and failure diagnostics agree.
 $TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
 Import-Module $TestSshModule -Force -DisableNameChecking
-$SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
+$SshAuthorizedKey = Get-YurunaSshPublicKey -ReadOnly:$PlanOnly
+if (-not $SshAuthorizedKey -and -not $PlanOnly) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
 # --- REGION: Vault admin password
 # See https://yuruna.link/42f6b05f-0041
 # The runtime state file <track>/yuruna-caching-proxy-service.yml is the source of
-# truth; Set-Password rehydrates the vault from it before Get-Password.
+# truth; a real build rehydrates the vault before Get-Password, while the
+# read-only plan validates the same proposed value without persisting it.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
 Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$persisted = (Read-CachingProxyServiceState).password
-if ($persisted) { Set-Password -Username 'caching-proxy-service-admin' -NewPassword $persisted }
-$AdminPassword = Get-Password -Username 'caching-proxy-service-admin'
-if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_47959938846e1bd4'); exit 1 }
+$persisted = (Read-CachingProxyServiceState -ReadOnly:$PlanOnly).password
+$passwordArguments = @{ Username = 'caching-proxy-service-admin' }
+if ($PlanOnly) {
+    $passwordCommand = Get-Command -Name 'Get-Password' -ErrorAction Stop
+    if (-not $passwordCommand.Parameters.ContainsKey('ReadOnly') -or
+        ($persisted -and -not $passwordCommand.Parameters.ContainsKey('ProposedSecret'))) {
+        throw (Format-YurunaOperatorMessage -Key 'host.service_build_plan_auth_readonly_unsupported' -Arguments @{ provider = "$_authActiveName" })
+    }
+    $passwordArguments.ReadOnly = $true
+    if ($persisted) { $passwordArguments.ProposedSecret = $persisted }
+} elseif ($persisted) { Set-Password -Username 'caching-proxy-service-admin' -NewPassword $persisted }
+$AdminPassword = Get-Password @passwordArguments
+if (-not $AdminPassword -and -not $PlanOnly) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_47959938846e1bd4'); exit 1 }
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
-[void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false)
-$PasswordFile = Get-CachingProxyServiceStatePath
+if (-not $PlanOnly) { [void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false) }
+$PasswordFile = Get-CachingProxyServiceStatePath -ReadOnly:$PlanOnly
 
 # Check the shared seed templates before the guest network is resolved.
 $baseUserData     = Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.base.user-data'
@@ -166,29 +180,6 @@ Import-Module (Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -
 $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
 
-# --- REGION: Yuruna host coordinates
-# See https://yuruna.link/4220a755-001b
-# Bake the status-service address reachable through the selected guest network.
-$YurunaHostIp = $guestBinding.HostIp
-Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
-Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
-$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
-$YurunaHostPort = $_statusSeed.Port
-$tc = $_statusSeed.Config
-$serviceLanguage = Resolve-SeedLanguageTag -Config $tc
-# A zot release this host's test.config.yml names in place of the seed's pin,
-# for when the pinned release cannot sync the lab's images.
-try { $zotOverride = Resolve-CachingProxyZotOverride -Config $tc }
-catch { Write-Error $_.Exception.Message; exit 1 }
-# The names the VM answers to besides its addresses, from the same file. Read in
-# the plan, while the working proxy is still in place, because a malformed
-# vmStart.serviceHostNames entry refuses the build.
-Import-Module (Join-Path $repoRoot 'test/modules/Test.ExtensionService.psm1') -DisableNameChecking -Verbose:$false
-try { $serviceHostNames = Get-ExtensionServiceHostNameSeed -Config $tc }
-catch { Write-Error $_.Exception.Message; exit 1 }
-$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
-
-$virshUri = 'qemu:///system'
 # --- REGION: Validate the resolved libvirt network
 # See https://yuruna.link/42f52e37-001d
 # $networkName was resolved above via Resolve-GuestHostBinding; see the
@@ -241,6 +232,30 @@ if ($networkName -eq 'default') {
         }
     }
 }
+
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/4220a755-001b
+# Bake the status-service address reachable through the selected guest network.
+$YurunaHostIp = $guestBinding.HostIp
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1') -Global -Force
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
+$YurunaHostPort = $_statusSeed.Port
+$tc = $_statusSeed.Config
+$serviceLanguage = Resolve-SeedLanguageTag -Config $tc
+# A zot release this host's test.config.yml names in place of the seed's pin,
+# for when the pinned release cannot sync the lab's images.
+try { $zotOverride = Resolve-CachingProxyZotOverride -Config $tc }
+catch { Write-Error $_.Exception.Message; exit 1 }
+# The names the VM answers to besides its addresses, from the same file. Read in
+# the plan, while the working proxy is still in place, because a malformed
+# vmStart.serviceHostNames entry refuses the build.
+Import-Module (Join-Path $repoRoot 'test/modules/Test.ExtensionService.psm1') -DisableNameChecking -Verbose:$false
+try { $serviceHostNames = Get-ExtensionServiceHostNameSeed -Config $tc }
+catch { Write-Error $_.Exception.Message; exit 1 }
+$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
+
+$virshUri = 'qemu:///system'
 
 # --- REGION: Report seed values baked empty
 # The build goes on without them, because the guest can still serve, but it
@@ -549,11 +564,10 @@ Import-Module (Join-Path $PSScriptRoot '../../modules/Yuruna.SeedMedia.psm1') -F
 $seedWorkspace = $null
 try {
     $seedWorkspace = New-SeedMediaWorkspace -ParentPath $vmDir
-    $SeedDir = $seedWorkspace.Source
+    $seedDir = $seedWorkspace.Source
 
     Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
     Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
-
     # --- REGION: https://yuruna.link/4220a755-000b
     Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/guest-dhcp.network-config') `
         -Destination (Join-Path $seedDir 'network-config')
@@ -569,27 +583,27 @@ try {
 
     Publish-SeedMediaImage -Workspace $seedWorkspace -Path $seedImg -Confirm:$false
 
+    # Surface credentials BEFORE the long VM-create/boot/cloud-init wait.
+    # If anything in those 20-35 minutes fails (cloud-init stall, apt rate-
+    # limit, yuruna.conf parse error), the operator needs to console-login
+    # via virt-viewer -- without the password they'd have to dig seed.iso
+    # off disk. The final "ready" banner reprints the same credentials.
+    Write-Output ""
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_988e727e609d9616')
+    Write-Output "  user:     caching-proxy-service-admin"
+    Write-Output "  password: $PasswordFile"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fa07a6efcd13635f')
+    Write-Output "    virt-viewer --connect $virshUri $VMName"
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_095582e0ec3b9dc8')
+    Write-Output ""
+
+    # --- REGION: Create and configure the libvirt domain
+    if (-not (New-KvmServiceDomain -VMName $VMName -DiskPath $diskImg -SeedPath $seedImg -NetworkName $networkName -MemoryMb $MemoryMb -MacAddress $MacAddress -Confirm:$false)) { exit 1 }
+
 } finally {
     # --- REGION: Clean up temporary files
     Remove-SeedMediaWorkspace -Workspace $seedWorkspace -Confirm:$false
 }
-
-# Surface credentials BEFORE the long VM-create/boot/cloud-init wait.
-# If anything in those 20-35 minutes fails (cloud-init stall, apt rate-
-# limit, yuruna.conf parse error), the operator needs to console-login
-# via virt-viewer -- without the password they'd have to dig seed.iso
-# off disk. The final "ready" banner reprints the same credentials.
-Write-Output ""
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_988e727e609d9616')
-Write-Output "  user:     caching-proxy-service-admin"
-Write-Output "  password: $PasswordFile"
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_fa07a6efcd13635f')
-Write-Output "    virt-viewer --connect $virshUri $VMName"
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_095582e0ec3b9dc8')
-Write-Output ""
-
-# --- REGION: Create and configure the libvirt domain
-if (-not (New-KvmServiceDomain -VMName $VMName -DiskPath $diskImg -SeedPath $seedImg -NetworkName $networkName -MemoryMb $MemoryMb -MacAddress $MacAddress -Confirm:$false)) { exit 1 }
 
 # --- REGION: Wait for VM IP
 # See https://yuruna.link/42e220c4-0004

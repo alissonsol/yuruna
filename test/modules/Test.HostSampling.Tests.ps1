@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42d3bc19-cf65-4604-a69f-39ddfab7231d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,6 +53,21 @@ Describe 'host counter capability and cooked samples' {
             $row.Status | Should -Be 'not-applicable'
         }
         @($rows | Where-Object { $_.Object -eq 'Hyper-V Virtual Network Adapter' -and $_.Counter -eq 'Dropped Packets Incoming/sec' }).Count | Should -Be 1
+    }
+    It 'samples each virtual disk''s latency, queue, writes and flushes as guest counters' {
+        # Paths as a Hyper-V host lists the set, with the neighbors whose
+        # names end in the same words but measure the layer underneath.
+        $listed = @('Lower Latency','Latency','Lower Queue Length','Queue Length','Write Operations/Sec','Read Operations/Sec','Write Bytes/sec','Read Bytes/sec','Error Count','Flush Count','Write Count')
+        $sets = @([pscustomobject]@{ CounterSetName='Hyper-V Virtual Storage Device'; Paths=@($listed | ForEach-Object { "\Hyper-V Virtual Storage Device(*)\$_" }) })
+        $rows = @(Resolve-YurunaHostCounterCapability -CounterSets $sets -RunningVmCount 1 | Where-Object Object -EQ 'Hyper-V Virtual Storage Device')
+        $rows.Counter | Should -Be @('Latency','Queue Length','Write Operations/Sec','Write Bytes/sec','Flush Count')
+        foreach ($row in $rows) {
+            $row.Guest | Should -BeTrue
+            $row.Status | Should -Be 'present'
+            $row.Paths | Should -Be "\Hyper-V Virtual Storage Device(*)\$($row.Counter)"
+        }
+        $idle = @(Resolve-YurunaHostCounterCapability -CounterSets $sets -RunningVmCount 0 | Where-Object Object -EQ 'Hyper-V Virtual Storage Device')
+        @($idle | Where-Object Status -NE 'not-applicable').Count | Should -Be 0
     }
     It 'distinguishes an idle host from unknown VM enumeration' {
         (@(Resolve-YurunaHostCounterCapability -CounterSets @() -RunningVmCount 0) | Where-Object Guest | Select-Object -First 1).Status | Should -Be 'not-applicable'

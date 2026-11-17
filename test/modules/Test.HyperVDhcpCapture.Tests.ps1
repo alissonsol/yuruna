@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4211664b-fb87-4dab-a225-c1006746d404
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -328,7 +328,7 @@ Describe 'hyper-v serial console capture: the live log is read without disturbin
         Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
         $ast = [Management.Automation.Language.Parser]::ParseInput($script:DriverText, [ref]$null, [ref]$null)
         foreach ($name in 'Read-VMSerialCapture', 'Save-VMSerialCapture', 'Stop-VMSerialCapture', 'Get-VMSerialPipeName',
-            'Get-VMSerialCaptureJob', 'Get-VMSerialCaptureRecord', 'Stop-VMSerialCaptureJob') {
+            'Get-VMSerialCaptureJob', 'Get-VMSerialCaptureRecord', 'Stop-VMSerialCaptureJob', 'Get-VMSerialCaptureLogPath') {
             $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
             . ([scriptblock]::Create($definition.Extent.Text))
         }
@@ -379,6 +379,22 @@ Describe 'hyper-v serial console capture: the live log is read without disturbin
         $mark = Read-VMSerialCapture -VMName 'vm-not-yet' -MaxBytes 0
         $mark.Length | Should -Be 0 -Because 'everything the file will hold is written after the mark'
         Read-VMSerialCapture -VMName 'vm-not-yet' -FromOffset 0 | Should -BeNullOrEmpty
+    }
+    It 'says when the reader last wrote to the capture, on a read and on a mark' {
+        $path = Join-Path $env:TEMP 'yuruna-serial-vm-dated.log'
+        Set-Content -LiteralPath $path -Value "[   59.952000] systemd-logind[1]: New session.`n" -NoNewline
+        $lastWrite = [datetime]::new(2026, 1, 2, 9, 55, 22, [DateTimeKind]::Utc)
+        [IO.File]::SetLastWriteTimeUtc($path, $lastWrite)
+        (Read-VMSerialCapture -VMName 'vm-dated' -FromOffset 0).LastWriteUtc | Should -Be $lastWrite
+        (Read-VMSerialCapture -VMName 'vm-dated' -MaxBytes 0).LastWriteUtc | Should -Be $lastWrite
+        (Read-VMSerialCapture -VMName 'vm-undated' -MaxBytes 0).LastWriteUtc | Should -BeNullOrEmpty -Because 'a reader that has not created the file has written nothing'
+    }
+    It 'names the live capture file for a caller that keeps it before a restart, and nothing before the reader made one' {
+        $path = Join-Path $env:TEMP 'yuruna-serial-vm-keep.log'
+        Set-Content -LiteralPath $path -Value 'login:' -NoNewline
+        Get-VMSerialCaptureLogPath -VMName 'vm-keep' | Should -Be $path
+        Get-VMSerialCaptureLogPath -VMName 'vm-never' | Should -BeNullOrEmpty
+        $script:DriverText | Should -Match 'Export-ModuleMember[\s\S]*Get-VMSerialCaptureLogPath' -Because 'the evidence writer finds it by feature detection'
     }
     It 'says when an earlier reader wrote the bytes this reader never read' {
         $log = Join-Path $env:TEMP 'yuruna-serial-vm-orphan.log'
@@ -433,7 +449,7 @@ Describe 'hyper-v serial console capture: the live log is read without disturbin
                 $out = Join-Path $TestDrive "$name-out"
                 Save-VMSerialCapture -VMName $name -OutputDirectory $out | Should -BeTrue -Because 'the reader is found by its job name when the record is gone'
                 Get-Content -Raw -LiteralPath (Join-Path $out 'serial-console.log') | Should -Be ('z' * 300)
-                Get-Content -Raw -LiteralPath (Join-Path $out 'serial-console.info.txt') | Should -Match '(?m)^connects: 1$'
+                Get-Content -LiteralPath (Join-Path $out 'serial-console.info.txt') | Should -Contain 'connects: 1'
             } else {
                 Stop-VMSerialCapture -VMName $name | Should -BeTrue
             }
@@ -579,7 +595,7 @@ Describe 'hyper-v serial console capture: a stop never waits on a silent guest' 
             Test-ReaderProcessRunning -Id $reader[0] | Should -BeFalse -Because 'a reader that cannot see the stop request is killed'
             if ($Path -eq 'save') {
                 [IO.File]::ReadAllText((Join-Path $out 'serial-console.log')) | Should -Be "login:`n" -Because 'what the reader read before the kill is kept'
-                Get-Content -Raw -LiteralPath (Join-Path $out 'serial-console.info.txt') | Should -Match '(?m)^connects: 1$'
+                Get-Content -LiteralPath (Join-Path $out 'serial-console.info.txt') | Should -Contain 'connects: 1'
             }
             if ($Path -eq 'rearm') {
                 @(Get-Job | Where-Object { $_.Name -eq $jobName -and $_.InstanceId -ne $first[0].InstanceId }).Count |

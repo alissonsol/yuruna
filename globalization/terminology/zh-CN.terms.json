@@ -11,8 +11,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "宿主机",
-        "origin": "machine"
+        "targetTerm": "宿主机"
       }
     },
     {
@@ -23,8 +22,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "客户机",
-        "origin": "machine"
+        "targetTerm": "客户机"
       }
     },
     {
@@ -36,8 +34,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "池",
-        "origin": "machine"
+        "targetTerm": "池"
       }
     },
     {
@@ -49,8 +46,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "周期",
-        "origin": "machine"
+        "targetTerm": "周期"
       }
     },
     {
@@ -61,8 +57,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "工作负载",
-        "origin": "machine"
+        "targetTerm": "工作负载"
       }
     },
     {
@@ -73,8 +68,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "组件",
-        "origin": "machine"
+        "targetTerm": "组件"
       }
     },
     {
@@ -85,8 +79,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "资源",
-        "origin": "machine"
+        "targetTerm": "资源"
       }
     },
     {
@@ -97,8 +90,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "存储服务",
-        "origin": "machine"
+        "targetTerm": "存储服务"
       }
     },
     {
@@ -110,8 +102,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "暂停",
-        "origin": "machine"
+        "targetTerm": "暂停"
       }
     },
     {
@@ -122,8 +113,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "读取完毕",
-        "origin": "machine"
+        "targetTerm": "读取完毕"
       }
     },
     {
@@ -134,8 +124,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "缓存",
-        "origin": "machine"
+        "targetTerm": "缓存"
       }
     },
     {
@@ -146,8 +135,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "操作",
-        "origin": "machine"
+        "targetTerm": "操作"
       }
     },
     {
@@ -158,8 +146,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "转发器",
-        "origin": "machine"
+        "targetTerm": "转发器"
       }
     },
     {
@@ -170,8 +157,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "实验室令牌",
-        "origin": "machine"
+        "targetTerm": "实验室令牌"
       }
     },
     {
@@ -182,8 +168,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "内部身份验证密钥",
-        "origin": "machine"
+        "targetTerm": "内部身份验证密钥"
       }
     },
     {
@@ -194,8 +179,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "基线",
-        "origin": "machine"
+        "targetTerm": "基线"
       }
     },
     {
@@ -206,8 +190,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "配置",
-        "origin": "machine"
+        "targetTerm": "配置"
       }
     },
     {
@@ -219,8 +202,7 @@
       "decision": {
         "status": "explained",
         "targetTerm": "实际运行状态",
-        "rationale": "Use a phrase meaning actual running state to distinguish this view from source-code implementation.",
-        "origin": "machine"
+        "rationale": "Use a phrase meaning actual running state to distinguish this view from source-code implementation."
       }
     },
     {
@@ -231,8 +213,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "遥测",
-        "origin": "machine"
+        "targetTerm": "遥测"
       }
     },
     {
@@ -243,8 +224,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "配置状态",
-        "origin": "machine"
+        "targetTerm": "配置状态"
       }
     },
     {
@@ -255,8 +235,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "授权访问",
-        "origin": "machine"
+        "targetTerm": "授权访问"
       }
     },
     {
@@ -268,8 +247,7 @@
       "decision": {
         "status": "explained",
         "targetTerm": "配置不足",
-        "rationale": "Use a configuration-specific phrase for configured outcomes beyond the Baseline, rather than a generic shortage.",
-        "origin": "machine"
+        "rationale": "Use a configuration-specific phrase for configured outcomes beyond the Baseline, rather than a generic shortage."
       }
     },
     {
@@ -281,8 +259,7 @@
       "decision": {
         "status": "explained",
         "targetTerm": "直接修正",
-        "rationale": "This assessment term denotes a directly corrected configured Shortfall, not every software package update.",
-        "origin": "machine"
+        "rationale": "This assessment term denotes a directly corrected configured Shortfall, not every software package update."
       }
     },
     {
@@ -293,8 +270,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "漂移",
-        "origin": "machine"
+        "targetTerm": "漂移"
       }
     },
     {
@@ -305,8 +281,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "发现项",
-        "origin": "machine"
+        "targetTerm": "发现项"
       }
     },
     {
@@ -317,8 +292,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "未监测",
-        "origin": "machine"
+        "targetTerm": "未监测"
       }
     },
     {
@@ -329,8 +303,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "不符合项",
-        "origin": "machine"
+        "targetTerm": "不符合项"
       }
     },
     {
@@ -341,8 +314,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "暴露",
-        "origin": "machine"
+        "targetTerm": "暴露"
       }
     },
     {
@@ -353,8 +325,7 @@
       ],
       "decision": {
         "status": "translated",
-        "targetTerm": "不可用",
-        "origin": "machine"
+        "targetTerm": "不可用"
       }
     }
   ],

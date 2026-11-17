@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a296aa-3108-4ad0-928d-3bf246b2d537
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@
     dispatcher's declare-or-drop forwarding: the real Invoke-PerGuestNewVm runs
     against a throwaway guest script that only echoes what it was handed.
     Everything else is source-text only. No host driver is imported and no VM
-    is touched. Throw-based assertions so the file runs under Pester 5.x.
+    is touched. Throw-based assertions so the file runs under Pester 6.x.
 #>
 
 BeforeDiscovery {

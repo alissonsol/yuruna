@@ -1,10 +1,10 @@
 #!/bin/bash
-# Version: 2026.11.08
+# Version: 2026.11.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42f9c4ac-c6ad-4def-81e6-8822c5a6abdb
 # Yuruna macOS UTM bootstrap installer.
-# --- REGION: https://yuruna.link/429fb30b
+# See https://yuruna.link/429fb30b
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
 set -euo pipefail
@@ -1230,15 +1230,10 @@ else
   brew_ensure_cask utm "/Applications/UTM.app" || note_issue "The UTM cask step did not succeed -- the verification below says whether the installed UTM is still usable."
 fi
 
-# --- REGION: .NET runtime location
+# --- REGION: record_dotnet_install_location
 # See https://yuruna.link/42885ada-0006
-# A framework-dependent PowerShell needs the machine-wide runtime location file
-# for a nested `sudo pwsh`; the cask and .pkg builds are self-contained and never read it.
-# A location another installer recorded (Microsoft's SDK package writes
-# /usr/local/share/dotnet) is operator configuration: it is kept, and only an
-# absent or blank file, or one naming a directory that no longer exists, takes
-# Homebrew's runtime. A replaced value is reported as previous -> new and kept
-# in a backup beside the file before anything is written.
+# A nested sudo pwsh reads this machine-wide location. Keep valid operator
+# paths; report and back up a stale value before replacing it with Homebrew's.
 record_dotnet_install_location() {
   local location_file="$1" wanted="$2" previous="" backup
   if [[ -r "$location_file" ]]; then
@@ -1924,7 +1919,7 @@ if command -v pwsh >/dev/null 2>&1 && [[ -f "$YURUNA_DIR/automation/Test-Require
   bring_tools_to_required_versions
 fi
 
-# --- REGION: Newer versions report
+# --- REGION: Newer versions available
 # See https://yuruna.link/429fb30b-003c
 # The upgrades above have run, so a tool listed here is one its own source still
 # offers newer than what this Mac runs: deferred on purpose (UTM while a service

@@ -1,10 +1,10 @@
 #!/bin/bash
-# Version: 2026.11.08
+# Version: 2026.11.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42c18f3d-326c-467e-a500-0668e518bf56
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
-# --- REGION: https://yuruna.link/429fb30b
+# See https://yuruna.link/429fb30b
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).
 
@@ -844,15 +844,8 @@ capture_installer_state
 stop_yuruna_processes
 
 # --- REGION: Microsoft's Ubuntu 24.04 suite for PowerShell
-# Microsoft's suite for a release does not always carry the stable package: the 26.04
-# suite publishes only powershell-preview. When neither the host's own apt sources nor
-# the release's .deb can move PowerShell, the PowerShell region below adds Microsoft's
-# 24.04 suite, verified with the key that signs it and pinned so apt takes nothing but
-# powershell from it. These three files are this installer's own; an operator's own
-# Microsoft source is never touched. They go again once another source offers
-# powershell, so the host returns to its own release's source when Microsoft publishes
-# there. Refresh the key pin when that suite's signer changes: `gpg --list-packets` on
-# its InRelease names the signing key.
+# Restrict the fallback suite to PowerShell and remove only this installer's
+# files when a native source becomes usable; operator sources stay intact.
 # See https://yuruna.link/429fb30b-0034
 PWSH_NOBLE_URL="https://packages.microsoft.com/ubuntu/24.04/prod"
 PWSH_NOBLE_ORIGIN="microsoft-ubuntu-noble-prod noble"
@@ -985,15 +978,8 @@ powershell_deb_installed() {
 apt_package_held() {
   apt-mark showhold 2>/dev/null | grep -x -- "$1" >/dev/null
 }
-# A PowerShell that apt installed moves with this list to the newest version a
-# configured source offers. A source can stop short of the newest release or carry no
-# powershell at all, and the region after the checkout then moves the package from the
-# release's own .deb. A copy the operator holds with apt-mark stays: naming a held
-# package here would make apt refuse the whole list, and the closing report says it
-# was held. So does a candidate apt cannot install on this release -- a build whose
-# dependencies it cannot meet -- which is left out for this run rather than failing
-# every package. A first install, with no package yet, goes through the PowerShell
-# region below.
+# Leave held or uninstallable PowerShell packages out of this transaction.
+# The later source repair and closing report handle them independently.
 # See https://yuruna.link/4213a0b3-01b1
 PWSH_APT_UNINSTALLABLE=0
 if powershell_deb_installed && ! apt_package_held powershell; then
@@ -1273,26 +1259,11 @@ pwsh_latest_release() {
   printf '%s\n' "${tag#v}"
 }
 
-# Downloads asset $2 of PowerShell release $1 and the release's published hashes.sha256
-# into a directory only root can write, and verifies the asset there, so the file apt
-# or tar then reads as root is the file that was checked. Each download streams from
-# curl into a file root writes: a directory the operator's account can write is one
-# another process of that account can swap a file in, and with the asset and the list
-# it must match both there, that process could swap the two together. Root opens
-# nothing such a process can reach, so it never follows a link planted in place of a
-# download either. That account still chooses which curl and checksum tools its PATH
-# finds and the curl configuration they read, so this narrows what its other processes
-# can do rather than closing it. Leaves the verified file's path in PWSH_RELEASE_ASSET.
-# The list also names sibling artifacts (arm64/musl/.deb) that are not downloaded, so
-# the asset's single line is pulled out first (awk index() = literal match). The
-# downloads retry the way the latest-release lookup does: one attempt may take 15
-# minutes, which a ~70 MB asset needs on a slow link (--max-time bounds a single
-# attempt), and no retry starts once 15 minutes have passed since the first
-# (--retry-max-time). The directory is made under /tmp by name, because sudo can keep
-# the account's TMPDIR, and /tmp's sticky bit keeps other accounts from renaming what
-# root created there. Every step checks its own result, because callers run this where
-# errexit does not apply.
 PWSH_RELEASE_ASSET=""
+# --- REGION: fetch_pwsh_release_asset
+# Verify assets in root-owned staging; root must never follow a caller-writable
+# download. Leave the verified path in PWSH_RELEASE_ASSET.
+# See https://yuruna.link/4213a0b3-01b7
 fetch_pwsh_release_asset() {
   local ver="$1" asset="$2" url="https://github.com/PowerShell/PowerShell/releases/download/v$1" verified line expected actual
   local -a get=(curl -fsSL --retry 3 --retry-delay 5 --retry-connrefused --connect-timeout 15 --max-time 900 --retry-max-time 900)
@@ -1352,18 +1323,9 @@ install_pwsh_tarball() {
     || die "PowerShell $ver: could not link /usr/local/bin/pwsh"
 }
 
-# Microsoft's powershell package from the .deb its release publishes, for the release
-# PWSH_VERSION names or the newest; the amd64 file is the one Microsoft's 24.04
-# repository serves for that version. apt installs it, so dpkg records what is on disk;
-# a tarball unpacked over the package would leave dpkg recording the old version and
-# its checksums, and a later apt operation would rewrite or remove files under the
-# newer interpreter. --reinstall unpacks a package already at that version again, so
-# files that no longer match what dpkg recorded are replaced. A package the operator
-# holds is never handed to apt here: apt refuses to change a held version, but it
-# performs a same-version --reinstall, and dpkg then resets the hold. apt waits for a
-# dpkg lock another apt run holds, such as an unattended upgrade. Exits 1 when the .deb
-# could not be fetched or verified, and returns 2 when the package is held or apt did
-# not install it.
+# --- REGION: install_pwsh_deb
+# Preserve dpkg ownership and apt holds. Return 1 for an unavailable release
+# asset, or 2 for a held package or an unsuccessful apt install.
 # See https://yuruna.link/4213a0b3-01b7
 install_pwsh_deb() {
   local ver="${PWSH_VERSION:-}" arch pkg
@@ -1870,22 +1832,9 @@ pwsh_package_mismatches() {
     | awk '$NF ~ /^\/opt\/microsoft\/powershell\/7\// { n++ } END { print n + 0 }'
 }
 
-# A re-run moves the interpreter to the newest release its own source offers, not only
-# to the floor: a copy that once met the floor would otherwise keep that version for
-# the life of the machine. That release is whatever GitHub marks as the latest, or
-# PWSH_VERSION when the operator set one, and nothing is ever downgraded. snapd moves a
-# snap. Microsoft's package has moved with the package list as far as a configured
-# source offers; short of that release it moves through apt from the release's
-# verified .deb, then from Microsoft's apt sources -- never by a tarball over the
-# package. An apt pin does not stop the release's .deb; a package the operator holds
-# with apt-mark stays. Files of the package that no longer match what dpkg recorded --
-# a tarball unpacked over it leaves them so -- are replaced the same way, at the
-# release pwsh answers as when there is nothing newer, so dpkg and the files agree. A
-# tarball copy is replaced by the release's verified tarball. A copy from any other
-# source is left alone, and the closing report names what is newer.
-# The replacement runs between pwsh calls, never under one: the runner and the status
-# service were stopped before the package install, and every later step starts a
-# new pwsh. A source that cannot install ends its attempt, not the install.
+# --- REGION: bring_powershell_to_newest
+# Upgrade through the interpreter's own source between pwsh calls, preserving
+# holds and package ownership. A failed source ends its attempt, not the install.
 # See https://yuruna.link/4213a0b3-01b8
 bring_powershell_to_newest() {
   local have want source damaged
@@ -1998,16 +1947,8 @@ bring_powershell_to_required_version() {
       note_issue "PowerShell $have is below the $floor floor, and $from, which is below it too, so this installer installed nothing; re-run it with PWSH_VERSION set to $floor or later."
       return 0
     fi
-    # Each source is judged by the version the name answers with afterward, never by its
-    # exit status: apt succeeds without moving a package that no configured source offers
-    # newer. On x86_64: Microsoft's apt repo for this release -- asked only when no
-    # package is installed, because the package list already asked those sources about
-    # one -- then the release's .deb and Microsoft's 24.04 suite, then the tarball only
-    # while no package owns the tree it unpacks into. On aarch64: the release's .deb for
-    # a host with Microsoft's package, the tarball otherwise. The package installs
-    # /usr/bin/pwsh and the tarball links /usr/local/bin/pwsh, both ahead of /snap/bin
-    # on the stock PATH, so the newer copy wins the name. Each source runs in its own
-    # subshell: one that gives up ends its attempt, never the install or the next source.
+    # Judge each source by the version pwsh answers afterward. A package owns
+    # its tree even when its source cannot satisfy the floor, so never overwrite it.
     # See https://yuruna.link/4213a0b3-01b8
     if [[ "$ARCH" == x86_64 ]] && ! powershell_deb_installed; then
       run_pwsh_source install_pwsh_apt || true
@@ -2570,6 +2511,7 @@ if command -v pwsh >/dev/null 2>&1 && [[ -f "$YURUNA_DIR/automation/Test-Require
   report_floor_check
 fi
 
+# --- REGION: Newer versions available
 # Advisory, after the floor check: each tool this installer manages that its own
 # source offers newer than what is installed, as `tool: installed -> available
 # (source; why this run left it)`. A source that does not answer is reported as

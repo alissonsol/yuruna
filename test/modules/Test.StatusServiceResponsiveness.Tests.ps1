@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 421acc52-385e-488d-859e-c51ce10fdcdc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,8 @@
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path $here 'Test.Config.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $here 'Test.SingleFlightLock.psm1') -Force -DisableNameChecking
 
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 $script:RuntimePath = Join-Path $script:RepoRoot 'test/service/Invoke-StatusServiceRuntime.ps1'
@@ -187,12 +189,23 @@ function New-HarnessTree {
     $tree = [pscustomobject]@{
         Root = $root; Repo = (Join-Path $root 'repo'); Runtime = (Join-Path $root 'runtime'); Log = (Join-Path $root 'log')
         Home = (Join-Path $root 'home'); Pids = (Join-Path $root 'pids'); Stub = (Join-Path $root 'stub')
+        Config = (Join-Path $root 'operator.config.yml')
     }
     $modules = Join-Path $tree.Repo 'test/modules'
     $null = New-Item -ItemType Directory -Path $modules, (Join-Path $tree.Repo 'test/lab'), $tree.Runtime, $tree.Log, $tree.Home, $tree.Pids, $tree.Stub
     foreach ($name in @('automation', 'globalization')) {
         if ($IsWindows) { Copy-Item -LiteralPath (Join-Path $script:RepoRoot $name) -Destination (Join-Path $tree.Repo $name) -Recurse }
         else { $null = New-Item -ItemType SymbolicLink -Path (Join-Path $tree.Repo $name) -Target (Join-Path $script:RepoRoot $name) }
+    }
+    if ($IsWindows) {
+        # A slow first ACL-backed directory creation must precede request
+        # handling. Delay only creation, leaving every existing-path check real.
+        $commonPath = Join-Path $tree.Repo 'automation/Yuruna.Common.psm1'
+        $common = [IO.File]::ReadAllText($commonPath)
+        $creation = 'if ($Platform -eq ''windows'') { $null = [IO.Directory]::CreateDirectory($Path) }'
+        if (-not $common.Contains($creation)) { throw 'The private-directory creation fixture no longer matches its source.' }
+        $common = $common.Replace($creation, 'if ($Platform -eq ''windows'') { Start-Sleep -Milliseconds 700; $null = [IO.Directory]::CreateDirectory($Path) }')
+        [IO.File]::WriteAllText($commonPath, $common)
     }
     $replaced = @('Test.HostRefresh.psm1', 'Test.HostRefreshIntent.psm1', 'Test.InnerSpawn.psm1', 'Test.HostMemoryMetrics.psm1', 'Invoke-HostDiagnosticWorker.ps1', 'Invoke-StartCycleWorker.ps1')
     foreach ($file in @(Get-ChildItem -LiteralPath $here -File)) {
@@ -221,6 +234,18 @@ Export-ModuleMember -Function Get-YurunaHostMemoryMetricPayload
     [string]$RunId, [string]$DiagnosticScriptPath, [string]$WorkDirectory, [string]$WorkingDirectory, [int]$TimeoutSeconds, [int]$MaxReportChars
 '@))
     [IO.File]::WriteAllText((Join-Path $tree.Runtime 'status.json'), '{"overallStatus":"running","cyclePaused":false}')
+    [IO.File]::WriteAllText((Join-Path $tree.Repo 'test/test.config.yml'), "repositories:`n  frameworkUrl: file:///checkout-default-framework`n  projectUrl: file:///checkout-default-project`n")
+    [IO.File]::WriteAllText($tree.Config, @'
+repositories:
+  frameworkUrl: file:///operator-framework
+  projectUrl: file:///operator-project
+vmStart:
+  cachingProxyGitMirrorRefreshSeconds: 900
+testCycle:
+  stepTimeoutSeconds: 2700
+secrets:
+  fixture: retain-on-save
+'@)
     return $tree
 }
 
@@ -369,14 +394,25 @@ function Stop-HarnessProcess {
     try { (Get-Process -Id $ProcessId -ErrorAction Stop).Kill($true) } catch { $null = $_ }
 }
 
-& {
+function Start-Harness {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Starts a loopback-only server in a throwaway test tree.')]
+    [CmdletBinding()]
+    param([switch]$UnsafePrivateRoot)
+    $script:HarnessReady = $false
+    $script:HarnessSkipReason = ''
     $script:Tree = New-HarnessTree
+    if ($UnsafePrivateRoot) {
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:Tree.Home '.yuruna')
+        $linkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+        $null = New-Item -ItemType $linkType -Path (Join-Path $script:Tree.Home '.yuruna/host-refresh') -Target $script:Tree.Runtime
+    }
     $script:Port = Get-YurunaTestFreePort -AnyAddress
     # The runtime's own inputs, passed the way the launcher passes them.
     $serverArguments = @(
         '-Port', "$($script:Port)", '-StatusDir', (Join-Path $script:RepoRoot 'test/status'), '-RuntimeDir', $script:Tree.Runtime
         '-LogDir', $script:Tree.Log, '-RepoRoot', $script:Tree.Repo, '-ServerHostType', 'host.ubuntu.kvm'
-        '-ServerConfigPath', (Join-Path $script:Tree.Repo 'test/test.config.yml'), '-WorkerRoot', $script:Tree.Repo
+        '-ServerConfigPath', $script:Tree.Config, '-WorkerRoot', $script:Tree.Repo
     )
     $server = [IO.File]::ReadAllText($script:RuntimePath)
     if ($IsWindows) { $server = $server.Replace('"http://*:$Port/"', '"http://localhost:$Port/"') }
@@ -416,9 +452,12 @@ function Stop-HarnessProcess {
         $script:HarnessSkipReason = ("the harness listener never answered: " + (($errors + ' ' + $stderr) -replace "`e\[[0-9;]*[A-Za-z]", '')).Trim()
     }
 }
-}
 
-AfterAll {
+function Stop-Harness {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Stops and removes only the scratch listener and its verified children.')]
+    [CmdletBinding()]
+    param()
     if ($script:Client) { $script:Client.Dispose() }
     if ($script:Tree) {
         foreach ($file in @(Get-ChildItem -LiteralPath $script:Tree.Pids -File -ErrorAction SilentlyContinue)) {
@@ -431,7 +470,70 @@ AfterAll {
     }
 }
 
+Start-Harness
+}
+
+AfterAll {
+    Stop-Harness
+}
+
 Describe 'a live listener stays responsive around bodies and workers' {
+
+    It 'reads the selected operator configuration instead of the checkout default' {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $reply = Invoke-HarnessRequest -Path 'control/test-config'
+        Assert-Equal 200 $reply.Status $reply.Text
+        Assert-StringEqual 'file:///operator-framework' $reply.Json.repositories.frameworkUrl
+        Assert-StringEqual 'file:///operator-project' $reply.Json.repositories.projectUrl
+        Assert-Equal 0 @($reply.Json.secrets.PSObject.Properties).Count 'the selected file secrets remain redacted'
+        $disk = Read-TestConfig -Path $script:Tree.Config -NoCache -ThrowOnError
+        Assert-StringEqual 'file:///operator-framework' $disk.repositories.frameworkUrl
+        Assert-StringEqual 'retain-on-save' $disk.secrets.fixture
+    }
+
+    It 'saves only the selected configuration, retaining operator URLs and reporting the replaced value' {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $defaultPath = Join-Path $script:Tree.Repo 'test/test.config.yml'
+        $defaultBefore = [IO.File]::ReadAllText($defaultPath)
+        $posted = [ordered]@{
+            repositories = @{ frameworkUrl = 'file:///operator-framework'; projectUrl = 'file:///operator-project' }
+            vmStart = @{ cachingProxyGitMirrorRefreshSeconds = 1800 }
+            testCycle = @{ stepTimeoutSeconds = 2700 }
+            secrets = @{}
+        }
+        $saved = Invoke-HarnessRequest -Method POST -Path 'control/test-config' -Body ($posted | ConvertTo-Json -Depth 8)
+        Assert-Equal 200 $saved.Status $saved.Text
+        $disk = Read-TestConfig -Path $script:Tree.Config -NoCache -ThrowOnError
+        Assert-Equal 1800 $disk.vmStart.cachingProxyGitMirrorRefreshSeconds
+        Assert-StringEqual 'file:///operator-framework' $disk.repositories.frameworkUrl
+        Assert-StringEqual 'file:///operator-project' $disk.repositories.projectUrl
+        Assert-StringEqual 'retain-on-save' $disk.secrets.fixture
+        Assert-StringEqual $defaultBefore ([IO.File]::ReadAllText($defaultPath)) 'the checkout default is never the selected writer target'
+        $backup = Read-TestConfig -Path ($script:Tree.Config + '.backup') -NoCache -ThrowOnError
+        Assert-Equal 900 $backup.vmStart.cachingProxyGitMirrorRefreshSeconds
+        $errors = [IO.File]::ReadAllText((Join-Path $script:Tree.Runtime 'server.err'))
+        Assert-Match 'vmStart\.cachingProxyGitMirrorRefreshSeconds: 900 -> 1800 \(backup:' $errors
+    }
+
+    It 'refuses a save while another process holds the selected configuration write lock' {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $before = [IO.File]::ReadAllText($script:Tree.Config)
+        $lock = Enter-YurunaSingleFlightLock -Path ($script:Tree.Config + '.lock') -WaitMilliseconds 0
+        Assert-True $lock.Held 'the test process owns the selected configuration lock'
+        $previousClient = $script:Client
+        $script:Client = [System.Net.Http.HttpClient]::new()
+        $script:Client.Timeout = [TimeSpan]::FromSeconds(45)
+        try {
+            $body = '{"repositories":{"frameworkUrl":"file:///operator-framework","projectUrl":"file:///operator-project"}}'
+            $reply = Invoke-HarnessRequest -Method POST -Path 'control/test-config' -Body $body -TimeoutMs 45000
+            Assert-Equal 503 $reply.Status $reply.Text
+            Assert-StringEqual $before ([IO.File]::ReadAllText($script:Tree.Config)) 'a refused concurrent save preserves the operator file'
+        } finally {
+            Exit-YurunaSingleFlightLock -Lock $lock
+            $script:Client.Dispose()
+            $script:Client = $previousClient
+        }
+    }
 
     It 'serves native memory readings as Prometheus metrics without a control header' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
@@ -633,6 +735,36 @@ Describe 'a live listener stays responsive around bodies and workers' {
         }
     }
 
+    It 'keeps reads available and refuses unsafe worker state after startup preparation fails' {
+        $saved = @{}
+        foreach ($name in 'Tree', 'Port', 'ServerFile', 'Server', 'Client', 'HarnessReady', 'HarnessSkipReason') {
+            $saved[$name] = Get-Variable -Name $name -Scope Script -ValueOnly
+        }
+        $script:Tree = $null
+        $script:ServerFile = $null
+        $script:Server = $null
+        $script:Client = $null
+        try {
+            Start-Harness -UnsafePrivateRoot
+            Assert-True $script:HarnessReady $script:HarnessSkipReason
+            $errors = [IO.File]::ReadAllText((Join-Path $script:Tree.Runtime 'server.err'))
+            Assert-Match 'private worker directory work preparation failed: reparse-point' $errors
+            foreach ($path in 'status/', 'runtime/status.json') {
+                $reply = Invoke-HarnessRequest -Path $path -TimeoutMs 3000
+                Assert-Equal 200 $reply.Status $reply.Text
+            }
+            $reply = Invoke-HarnessRequest -Method POST -Path 'control/start-cycle' -TimeoutMs 3000
+            Assert-Equal 503 $reply.Status $reply.Text
+            Assert-StringEqual 'private_state_unavailable' $reply.Json.reason
+            Assert-Equal 0 ((Get-StandInPid -Kind 'start-cycle').Count) 'unsafe state launches no worker'
+            Assert-Equal 0 ((Get-HarnessCall -Prefix 'launch:').Count) 'startup preparation never launches work'
+            Assert-Equal 200 (Invoke-HarnessRequest -Path 'status/' -TimeoutMs 3000).Status
+        } finally {
+            Stop-Harness
+            foreach ($name in $saved.Keys) { Set-Variable -Name $name -Scope Script -Value $saved[$name] }
+        }
+    }
+
     It 'answers 408 for a withheld body within its deadline, admits nothing and keeps serving meanwhile' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal $null
@@ -779,6 +911,16 @@ Describe 'a live listener stays responsive around bodies and workers' {
     It 'answers pending on repeated diagnostic requests without launching a second worker' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         $before = (Get-StandInPid -Kind 'diagnostic').Count
+        # An earlier case's run can still be inside its spawn grace, and a grace
+        # that ends between two requests starts the next run by design. Ask
+        # until this case's own run has started, so the burst below falls
+        # wholly inside one grace however slowly the host answers.
+        $launchDeadline = [DateTime]::UtcNow.AddSeconds(45)
+        while ([DateTime]::UtcNow -lt $launchDeadline -and (Get-StandInPid -Kind 'diagnostic').Count -le $before) {
+            $null = Invoke-HarnessRequest -Path 'control/host-diagnostic'
+            Start-Sleep -Milliseconds 500
+        }
+        Assert-True ((Get-StandInPid -Kind 'diagnostic').Count -gt $before) 'the diagnostic stand-in worker of this case is running'
         $replies = @(1..4 | ForEach-Object { Invoke-HarnessRequest -Path 'control/host-diagnostic'; Start-Sleep -Milliseconds 400 })
         foreach ($reply in $replies) {
             Assert-Equal 202 $reply.Status

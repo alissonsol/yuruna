@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42e19a4c-5b73-4c81-9f26-3d0a8b7e6c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,24 +21,9 @@
     Hold the browser catalog kernel to a single source, and hold every
     runtime that formats a value to one answer.
 .DESCRIPTION
-    The kernel is copied into two browser runtimes so that a page spends no
-    request on it. Two copies of a file diverge the moment someone edits the
-    near one, so the first thing checked here is that both copies are still the
-    source they came from.
-
-    The second is agreement. A count rendered by a PowerShell command lands in
-    a transcript, the same count rendered by the kernel lands on the page above
-    it, and a reader comparing the two cannot tell a formatting difference from
-    a real one. Both run the same fixture, and the fixture states the answer
-    rather than recording what either currently produces.
-
-    The third is independence from the engine. The kernel is rendered by a
-    browser with Intl and String.prototype.normalize removed and with
-    toLocaleString made locale-blind, so a formatter that quietly delegated to
-    the engine would fail here. That delegation is exactly what the agreement
-    cannot survive: ICU data differs between browsers and moves between
-    releases, so a number that came from it would stop matching the same
-    number written by PowerShell and Go.
+    Compare embedded kernels with their source and verify shared formatting
+    fixtures without browser-provided locale formatters.
+    See https://yuruna.link/420b66d2-0005 for the runtime agreement contract.
 
     Run: Invoke-Pester -Path test/modules/Test.BrowserCatalogKernel.Tests.ps1
 #>
@@ -129,7 +114,11 @@ Describe 'the embed check tells a copy that would change from one it cannot embe
         $null = New-Item -ItemType Directory -Path $script:EmbedTree
         $archive = Join-Path $TestDrive 'embed-tree.tar'
         & git -C $script:RepoRoot archive --format=tar -o $archive HEAD
-        & tar -xf $archive -C $script:EmbedTree
+        # GNU tar treats an archive path's drive-letter colon as a remote host.
+        Push-Location -LiteralPath (Split-Path -Parent $archive)
+        try {
+            & tar -xf (Split-Path -Leaf $archive) -C (Split-Path -Leaf $script:EmbedTree)
+        } finally { Pop-Location }
         Copy-Item -LiteralPath $script:EmbedTool -Destination (Join-Path $script:EmbedTree 'tools/Invoke-CatalogEmbed.ps1') -Force
         $script:TreeEmbed = Join-Path $script:EmbedTree 'tools/Invoke-CatalogEmbed.ps1'
         & pwsh -NoProfile -File $script:TreeEmbed -Quiet 2>&1 | Out-Null

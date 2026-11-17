@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42983c1f-31e3-40bb-a130-e4b666739c19
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,9 +29,9 @@
 #>
 
 BeforeAll {
-    # Split from Test.CatalogCompiler.Tests.ps1 so the files run at once. The
-    # setup is that file's own block, run as that file, so every case here sets
-    # up the way it did there.
+    # The suites that share this setup are separate files so they run at once.
+    # The setup is the BeforeAll of Test.CatalogCompiler.Tests.ps1, parsed
+    # and run as that file, so one block serves them all.
     $suite = [Management.Automation.Language.Parser]::ParseFile(
         (Join-Path $PSScriptRoot 'Test.CatalogCompiler.Tests.ps1'), [ref]$null, [ref]$null)
     $script:SharedBlock = @{}

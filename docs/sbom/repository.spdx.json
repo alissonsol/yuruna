@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "yuruna-repository",
-  "documentNamespace": "https://github.com/alissonsol/yuruna/sbom/repository/36e45144d6c15fde68103d577497d20860753ee6106b156161bb82c4da59fad3",
+  "documentNamespace": "https://github.com/alissonsol/yuruna/sbom/repository/ef43cc786844033358b3e81e6f8e052a931ea6881f6eb52f88dcc2fe74feda34",
   "creationInfo": {
     "created": "2026-10-03T16:48:41Z",
     "creators": [
@@ -25,8 +25,8 @@
       "licenseDeclared": "LicenseRef-Yuruna",
       "copyrightText": "NOASSERTION",
       "supplier": "Organization: Alisson Sol et al.",
-      "comment": "Declared repository inventory; source-inputs SHA256 36e45144d6c15fde68103d577497d20860753ee6106b156161bb82c4da59fad3. Not an installed-system scan.",
-      "versionInfo": "2026.11.08"
+      "comment": "Declared repository inventory; source-inputs SHA256 ef43cc786844033358b3e81e6f8e052a931ea6881f6eb52f88dcc2fe74feda34. Not an installed-system scan.",
+      "versionInfo": "2026.11.16"
     },
     {
       "name": "Git",
@@ -153,25 +153,25 @@
     },
     {
       "name": "github.com/google/pprof",
-      "SPDXID": "SPDXRef-0600ffc08ebfcd4ae0d8",
+      "SPDXID": "SPDXRef-f8c7ef3b051d1fe5aa1f",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 9, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.0.0-20260802141513-ef3492d7dac3",
+      "versionInfo": "v0.0.0-20261016150608-1facf8f91b50",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "2cc2d7f8b813356a5fbc205d15e6efe84b18a2d226aedfcfa5ce5c5c8ae2092a"
+          "checksumValue": "3e5356251c6ee403d2574a56a9f22c674aadf4e3861d259f650e33bf1f96816b"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/google/pprof@v0.0.0-20260802141513-ef3492d7dac3"
+          "referenceLocator": "pkg:golang/github.com/google/pprof@v0.0.0-20261016150608-1facf8f91b50"
         }
       ]
     },
@@ -297,25 +297,25 @@
     },
     {
       "name": "github.com/pkg/sftp",
-      "SPDXID": "SPDXRef-d6cf248cd102be5ff0e7",
+      "SPDXID": "SPDXRef-4782fea287e117704c70",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 12, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 21, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v1.13.11",
+      "versionInfo": "v1.13.12",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "d0df7648b4c1f09a80489075e192c71f3167055f261bdcf0e0aee38211055ae1"
+          "checksumValue": "332873cbf6732cf9c2b44d85d96b431ec82cf117e03271f681f6c7b8226190c5"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/github.com/pkg/sftp@v1.13.11"
+          "referenceLocator": "pkg:golang/github.com/pkg/sftp@v1.13.12"
         }
       ]
     },
@@ -393,169 +393,169 @@
     },
     {
       "name": "golang.org/x/crypto",
-      "SPDXID": "SPDXRef-02ff4d3b302990f322d7",
+      "SPDXID": "SPDXRef-4d48944848c55a5f2b53",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 13, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 29, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.58.0",
+      "versionInfo": "v0.59.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "08e9182ebe24ee70c8e2be90b4c30bd807f3788b30587009b612d2e8afccff9e"
+          "checksumValue": "c52da386a61bccdae9be458fd984c37f84c9c01cb7ca4474de2f2f143c4473b7"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/crypto@v0.58.0"
+          "referenceLocator": "pkg:golang/golang.org/x/crypto@v0.59.0"
         }
       ]
     },
     {
       "name": "golang.org/x/mod",
-      "SPDXID": "SPDXRef-da5d0b169766af760a32",
+      "SPDXID": "SPDXRef-4e2be818662bfa108216",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 31, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.41.0",
+      "versionInfo": "v0.42.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "a899a73946f8601f85b04b8cdc7716b9c75901208f1a1b17eae9633baa688347"
+          "checksumValue": "20278bdedd8bdf496348f1c7c439d1e1fa95701b7fcd1db32406fd8ee6af9908"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/mod@v0.41.0"
+          "referenceLocator": "pkg:golang/golang.org/x/mod@v0.42.0"
         }
       ]
     },
     {
       "name": "golang.org/x/sync",
-      "SPDXID": "SPDXRef-9ad44d7925eeabd7ab5f",
+      "SPDXID": "SPDXRef-669273910b4f0be62723",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 33, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.24.0",
+      "versionInfo": "v0.25.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "8aa883ac6a03832baf00aae12d0b61504cd4fd1dfbf0defc8176c18f179dee80"
+          "checksumValue": "7499e27ebd27315f3f4819c1bdda387921869eb7373b8145c7a22abed2dc991b"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/sync@v0.24.0"
+          "referenceLocator": "pkg:golang/golang.org/x/sync@v0.25.0"
         }
       ]
     },
     {
       "name": "golang.org/x/sys",
-      "SPDXID": "SPDXRef-8bd068a161452022ed8c",
+      "SPDXID": "SPDXRef-17839e50745f4cc7970b",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 25, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 35, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.49.0",
+      "versionInfo": "v0.50.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "5dbce481824776a87ff26d94bb45bf750bfc9e4b71c780451e9d4cd2044e4d70"
+          "checksumValue": "7642991054c429a2ebd6c8e1b345a22aaa22f098f99c76d2dcd8e6c75528309b"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/sys@v0.49.0"
+          "referenceLocator": "pkg:golang/golang.org/x/sys@v0.50.0"
         }
       ]
     },
     {
       "name": "golang.org/x/term",
-      "SPDXID": "SPDXRef-58f0d150aafb90b4ff7b",
+      "SPDXID": "SPDXRef-a7c7de02884504f0628a",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 37, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.47.0",
+      "versionInfo": "v0.48.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "729c8ec1092bd8dcf17b6a7a2a7ad31bb122db0b738ecb928e1a575dea59fc13"
+          "checksumValue": "1ba514d5e89207c9e5dc3cde506b7b320fb649cb48f2d3d2e99e7f981b7a70e9"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/term@v0.47.0"
+          "referenceLocator": "pkg:golang/golang.org/x/term@v0.48.0"
         }
       ]
     },
     {
       "name": "golang.org/x/text",
-      "SPDXID": "SPDXRef-80c86ce33a8a398b5681",
+      "SPDXID": "SPDXRef-486898713a5776599183",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 14, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 39, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.43.0",
+      "versionInfo": "v0.44.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "d508afae587002c9cc39caa039d97d9b2eecf4ec9997c3b9fd41944c9557a167"
+          "checksumValue": "608b5da7f9903469ec9ab82971d039c90ddb9d1c427e8fd38ff881c865bd186a"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/text@v0.43.0"
+          "referenceLocator": "pkg:golang/golang.org/x/text@v0.44.0"
         }
       ]
     },
     {
       "name": "golang.org/x/tools",
-      "SPDXID": "SPDXRef-c740ff745f2883ebf5be",
+      "SPDXID": "SPDXRef-bf1cbcfa8be0ec817927",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 41, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v0.51.0",
+      "versionInfo": "v0.52.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "9385dcff53a6f63c24049068e0d54b3120110685ad2b5d26c7e5b90675c27802"
+          "checksumValue": "af2c60e14eb7a1a51893bb8e2d3177ee7e377f8aa0b46bea5782288add41684b"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/tools@v0.51.0"
+          "referenceLocator": "pkg:golang/golang.org/x/tools@v0.52.0"
         }
       ]
     },
@@ -585,49 +585,49 @@
     },
     {
       "name": "modernc.org/cc/v4",
-      "SPDXID": "SPDXRef-ecb0e3f352e3a0cc6452",
+      "SPDXID": "SPDXRef-f388507da9a3f2c28f50",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 45, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v4.29.7",
+      "versionInfo": "v4.30.6-0.20261101114202-1b9d1a076f6b",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "abe357189d1b2b76f84d715841056bf696044c69e6c055a4ad4cc99ccc9afd38"
+          "checksumValue": "584e522ce51170d77cb3ab8f47f9f8595e30790c7160a8b93a911991f355bdd1"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/cc/v4@v4.29.7"
+          "referenceLocator": "pkg:golang/modernc.org/cc/v4@v4.30.6-0.20261101114202-1b9d1a076f6b"
         }
       ]
     },
     {
       "name": "modernc.org/ccgo/v4",
-      "SPDXID": "SPDXRef-15b2521b5bd7ca8b0e67",
+      "SPDXID": "SPDXRef-95c080d2dc52a85d7938",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 47, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v4.36.1",
+      "versionInfo": "v4.38.1",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "64d214640af23745209c9c2dcb1add133705737c83e02bb80338df3d7b0bb081"
+          "checksumValue": "c1dc49541b854fc26e7d99e74324ba05bcf734e5a15620f4c4938647de81a5de"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/ccgo/v4@v4.36.1"
+          "referenceLocator": "pkg:golang/modernc.org/ccgo/v4@v4.38.1"
         }
       ]
     },
@@ -681,25 +681,25 @@
     },
     {
       "name": "modernc.org/gc/v3",
-      "SPDXID": "SPDXRef-de651c013a28496d53d7",
+      "SPDXID": "SPDXRef-3b9f6319ee162930e05b",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Recorded Go module content checksum\", \"line\": 53, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v3.1.5",
+      "versionInfo": "v3.2.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "db595d7cf7d1604df54dbec1de6c002bc832d40c4fe3e74a8eb3903dfa9a9287"
+          "checksumValue": "fd8dcb1833106a861fe793de6cfd6ab19e450c68006721b54582841de433875a"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/gc/v3@v3.1.5"
+          "referenceLocator": "pkg:golang/modernc.org/gc/v3@v3.2.0"
         }
       ]
     },
@@ -729,25 +729,25 @@
     },
     {
       "name": "modernc.org/libc",
-      "SPDXID": "SPDXRef-47c58c7aab9f26416fb2",
+      "SPDXID": "SPDXRef-58e59b2a4d9452e4451d",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 26, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 57, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v1.77.1",
+      "versionInfo": "v1.80.1",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "0adf23e3b42d899d449e3d83b455d0b54aab3c202374298f8ed0aebeb610d07b"
+          "checksumValue": "7a39fb1ed4d5dc692734a6e496a590d67bd4adf5fc993c6cd43fb1a7f250c32e"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/libc@v1.77.1"
+          "referenceLocator": "pkg:golang/modernc.org/libc@v1.80.1"
         }
       ]
     },
@@ -849,25 +849,25 @@
     },
     {
       "name": "modernc.org/sqlite",
-      "SPDXID": "SPDXRef-0b3df35735774198d7c1",
+      "SPDXID": "SPDXRef-1b88164e7e72817e1664",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 15, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 67, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "v1.60.1",
+      "versionInfo": "v1.62.0",
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "fdb973e773bde7529614eb28e1042f12cfc5aba70304a2ed315ad835278954ac"
+          "checksumValue": "80c6828d2335aa997e88e8e25a14752d83f7ceaad80c8fb91982c6b7abde3f68"
         }
       ],
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/sqlite@v1.60.1"
+          "referenceLocator": "pkg:golang/modernc.org/sqlite@v1.62.0"
         }
       ]
     },
@@ -1233,14 +1233,14 @@
     },
     {
       "name": "Go",
-      "SPDXID": "SPDXRef-f178c1a1ebf07b0b8ac8",
+      "SPDXID": "SPDXRef-ce52eb7443151acaa723",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"declared\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/caching-proxy-parser-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/caching-proxy-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/download-agent-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/extension-sdk/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/pool-aggregator-service/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/pool-control-service/server/go.mod\"}, {\"detail\": \"Declared Go toolchain\", \"line\": 8, \"path\": \"test/extension/stash-service/server/go.mod\"}], \"notes\": [], \"scope\": \"build\"}",
-      "versionInfo": "1.27.2"
+      "versionInfo": "1.27.4"
     },
     {
       "name": "OpenTofu/Terraform",
@@ -1250,7 +1250,7 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
-      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Compatible HCL engine requirement\", \"line\": 10, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 10, \"path\": \"global/resources/localhost/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 6, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \">= 1.13.1\"}"
+      "comment": "{\"completeness\": \"unresolved\", \"ecosystem\": \"toolchain\", \"evidence\": [{\"detail\": \"Compatible HCL engine requirement\", \"line\": 10, \"path\": \"global/resources/localhost/context-copy/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 10, \"path\": \"global/resources/localhost/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 6, \"path\": \"global/resources/aws/eks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/aws/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/aks-cluster/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/postgresql/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/registry/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/resource-group/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/storage-share/versions.tf\"}, {\"detail\": \"Compatible HCL engine requirement\", \"line\": 8, \"path\": \"global/resources/azure/vm-linux/versions.tf\"}], \"notes\": [\"Declared source only; no provider/module restore, lock selection, or transitive graph was resolved.\"], \"scope\": \"build\", \"versionConstraint\": \">= 1.13.9\"}"
     }
   ],
   "relationships": [
@@ -1277,7 +1277,7 @@
     {
       "spdxElementId": "SPDXRef-d177cf988c867818ae63",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
+      "relatedSpdxElement": "SPDXRef-ce52eb7443151acaa723"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1302,7 +1302,7 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-0600ffc08ebfcd4ae0d8"
+      "relatedSpdxElement": "SPDXRef-f8c7ef3b051d1fe5aa1f"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1332,7 +1332,7 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-d6cf248cd102be5ff0e7"
+      "relatedSpdxElement": "SPDXRef-4782fea287e117704c70"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1352,37 +1352,37 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-02ff4d3b302990f322d7"
+      "relatedSpdxElement": "SPDXRef-4d48944848c55a5f2b53"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-da5d0b169766af760a32"
+      "relatedSpdxElement": "SPDXRef-4e2be818662bfa108216"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-9ad44d7925eeabd7ab5f"
+      "relatedSpdxElement": "SPDXRef-669273910b4f0be62723"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-8bd068a161452022ed8c"
+      "relatedSpdxElement": "SPDXRef-17839e50745f4cc7970b"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-58f0d150aafb90b4ff7b"
+      "relatedSpdxElement": "SPDXRef-a7c7de02884504f0628a"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-80c86ce33a8a398b5681"
+      "relatedSpdxElement": "SPDXRef-486898713a5776599183"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-c740ff745f2883ebf5be"
+      "relatedSpdxElement": "SPDXRef-bf1cbcfa8be0ec817927"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1392,12 +1392,12 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-ecb0e3f352e3a0cc6452"
+      "relatedSpdxElement": "SPDXRef-f388507da9a3f2c28f50"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-15b2521b5bd7ca8b0e67"
+      "relatedSpdxElement": "SPDXRef-95c080d2dc52a85d7938"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1412,7 +1412,7 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-de651c013a28496d53d7"
+      "relatedSpdxElement": "SPDXRef-3b9f6319ee162930e05b"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1422,7 +1422,7 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-47c58c7aab9f26416fb2"
+      "relatedSpdxElement": "SPDXRef-58e59b2a4d9452e4451d"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1447,7 +1447,7 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-0b3df35735774198d7c1"
+      "relatedSpdxElement": "SPDXRef-1b88164e7e72817e1664"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1472,7 +1472,7 @@
     {
       "spdxElementId": "SPDXRef-070ba5f14e1b7ce30bbc",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
+      "relatedSpdxElement": "SPDXRef-ce52eb7443151acaa723"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1512,7 +1512,7 @@
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-d6cf248cd102be5ff0e7"
+      "relatedSpdxElement": "SPDXRef-4782fea287e117704c70"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
@@ -1522,22 +1522,22 @@
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-02ff4d3b302990f322d7"
+      "relatedSpdxElement": "SPDXRef-4d48944848c55a5f2b53"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-8bd068a161452022ed8c"
+      "relatedSpdxElement": "SPDXRef-17839e50745f4cc7970b"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-80c86ce33a8a398b5681"
+      "relatedSpdxElement": "SPDXRef-486898713a5776599183"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-47c58c7aab9f26416fb2"
+      "relatedSpdxElement": "SPDXRef-58e59b2a4d9452e4451d"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
@@ -1552,7 +1552,7 @@
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-0b3df35735774198d7c1"
+      "relatedSpdxElement": "SPDXRef-1b88164e7e72817e1664"
     },
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
@@ -1562,7 +1562,7 @@
     {
       "spdxElementId": "SPDXRef-f9b42cdcad718e5a0d9f",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
+      "relatedSpdxElement": "SPDXRef-ce52eb7443151acaa723"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1577,7 +1577,7 @@
     {
       "spdxElementId": "SPDXRef-9756508f804a7e5f5603",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
+      "relatedSpdxElement": "SPDXRef-ce52eb7443151acaa723"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1592,7 +1592,7 @@
     {
       "spdxElementId": "SPDXRef-882d4bb41cb57da0b374",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
+      "relatedSpdxElement": "SPDXRef-ce52eb7443151acaa723"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1602,7 +1602,7 @@
     {
       "spdxElementId": "SPDXRef-7909813fb9c6b99a751b",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
+      "relatedSpdxElement": "SPDXRef-ce52eb7443151acaa723"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1617,7 +1617,7 @@
     {
       "spdxElementId": "SPDXRef-99fce750b9e0c923e887",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
+      "relatedSpdxElement": "SPDXRef-ce52eb7443151acaa723"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1997,7 +1997,7 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-f178c1a1ebf07b0b8ac8"
+      "relatedSpdxElement": "SPDXRef-ce52eb7443151acaa723"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -2009,7 +2009,7 @@
     {
       "licenseId": "LicenseRef-Yuruna",
       "name": "LicenseRef-Yuruna",
-      "extractedText": "# Yuruna License\n\nThis is the **Yuruna License**, based on the [MIT License](https://opensource.org/license/mit/).\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\n## No Warranty / \"As Is\"\n\n**There is no warranty of any kind.** The Software is provided **\"as is\"**,\nwithout any guarantees -- express or implied -- including but not limited to\ncorrectness, completeness, fitness for a particular purpose, merchantability,\nor non-infringement. You assume the entire risk of using it.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n\n## <span style=\"color:red;\">Administrator Risk Warning</span>\n\nPortions of this Software are designed to run with **elevated / administrator\nprivileges** (e.g., as Administrator on Windows, or via `sudo` / root on\nLinux and macOS). Running code at this privilege level is **inherently\nrisky**: it can modify system configuration, create or destroy virtual\nmachines, alter networking, install or remove packages, and read or write\narbitrary files. Mistakes -- whether in the Software, in the operator's\ninput, or in the surrounding environment -- **may lead to data loss, system\ninstability, or unrecoverable changes**.\n\nBy executing any part of the Software with administrator or root permissions,\nyou acknowledge this risk and accept full responsibility for the outcome.\nReview the code, take backups, and test in an isolated environment before\nrunning anything privileged against systems you cannot afford to lose.\n\n---\n\nLICENSEURI https://yuruna.link/license\n\nCopyright (c) 2019-2026 by Alisson Sol et al.\n\nLast review: 2026.11.08\n\nBack to [Yuruna](README.md)\n",
+      "extractedText": "# Yuruna License\n\nThis is the **Yuruna License**, based on the [MIT License](https://opensource.org/license/mit/).\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\n## No Warranty / \"As Is\"\n\n**There is no warranty of any kind.** The Software is provided **\"as is\"**,\nwithout any guarantees -- express or implied -- including but not limited to\ncorrectness, completeness, fitness for a particular purpose, merchantability,\nor non-infringement. You assume the entire risk of using it.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n\n## <span style=\"color:red;\">Administrator Risk Warning</span>\n\nPortions of this Software are designed to run with **elevated / administrator\nprivileges** (e.g., as Administrator on Windows, or via `sudo` / root on\nLinux and macOS). Running code at this privilege level is **inherently\nrisky**: it can modify system configuration, create or destroy virtual\nmachines, alter networking, install or remove packages, and read or write\narbitrary files. Mistakes -- whether in the Software, in the operator's\ninput, or in the surrounding environment -- **may lead to data loss, system\ninstability, or unrecoverable changes**.\n\nBy executing any part of the Software with administrator or root permissions,\nyou acknowledge this risk and accept full responsibility for the outcome.\nReview the code, take backups, and test in an isolated environment before\nrunning anything privileged against systems you cannot afford to lose.\n\n---\n\nLICENSEURI https://yuruna.link/license\n\nCopyright (c) 2019-2026 by Alisson Sol et al.\n\nLast review: 2026.11.16\n\nBack to [Yuruna](README.md)\n",
       "seeAlsos": [
         "https://github.com/alissonsol/yuruna/blob/main/LICENSE.md"
       ]

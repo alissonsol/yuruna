@@ -414,11 +414,11 @@ const DataheILaggregator = `{
   "aggregator.log_loki_outbox_full": [
     "תור היציאה של Loki מלא (",
     {
-      "arg": "lines",
+      "arg": "pushes",
       "type": "detail",
       "trust": "external"
     },
-    " שורות); שורות חדשות נדחות עד ש-Loki יקבל חלק מהן"
+    " דחיפות בתור; המגבלות הן DefaultMaxItems ו-DefaultMaxBytes בקובץ internal/loki/outbox.go); שורות חדשות נדחות עד ש-Loki יקבל חלק מהן"
   ],
   "aggregator.log_loki_outbox_memory_only": [
     "תור היציאה של Loki: לא ניתן להשתמש ב-",

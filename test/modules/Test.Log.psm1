@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -619,6 +619,10 @@ function Start-LogFile {
             cycleNumber  = [int]$CycleNumber
             cycleFolder  = $cycleBase
             hostname     = [string]$Hostname
+            # The runner's PowerShell can change under it (a Store or package
+            # update between cycles), and nothing else in the stream says which
+            # release ran a cycle.
+            runnerPowerShellVersion = [string]$PSVersionTable.PSVersion
         }
         # See https://yuruna.link/4213a0b3-009d
         $commitList = @(@($GitCommits) | Where-Object { $_ })
@@ -754,7 +758,19 @@ function Save-StepFailureEvidence {
         consoleSecondOpinion. Saved even when no screen could be captured.
         With captureStartupSnapshot set, an available UTM control snapshot is
         collected before this call returns, while the failed startup VM still
-        exists and before a retry can power it off.
+        exists and before a retry can power it off. On a host that names its
+        live serial capture (Get-VMSerialCaptureLogPath), the capture is also
+        copied as serial-console.log, with the failure path's kernel reading of
+        it (serial-console.kernel.json), before the restart deletes it, and
+        vm-diagnostics.json records the outcome as serialCapture: copied, empty,
+        no-capture-file or the error that stopped the copy.
+    .PARAMETER StepStartedUtc
+        When the failed step began. failure_ocr_<VM>.txt at the log root is
+        rewritten only by a wait that fails after reading text, so one last
+        written before this, give or take the two seconds the failure record's
+        own freshness check allows, belongs to an earlier wait: failure_ocr.txt
+        then holds a one-line note saying so instead of that text. Without it
+        the file is copied as found.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
@@ -763,7 +779,8 @@ function Save-StepFailureEvidence {
     param(
         [Parameter(Mandatory)][string]$VMName,
         [Parameter(Mandatory)][string]$Label,
-        [System.Collections.IDictionary]$DiagnosticRecord
+        [System.Collections.IDictionary]$DiagnosticRecord,
+        [Nullable[datetime]]$StepStartedUtc
     )
     try {
         if (-not $global:__YurunaCycleFolder) { return $null }
@@ -788,6 +805,11 @@ function Save-StepFailureEvidence {
         }
         $hasScreen = $srcScreen -and (Test-Path -LiteralPath $srcScreen)
         $hasOcr    = $srcOcr    -and (Test-Path -LiteralPath $srcOcr)
+        $staleOcrWrittenUtc = $null
+        if ($hasOcr -and $StepStartedUtc) {
+            $ocrWrittenUtc = [IO.File]::GetLastWriteTimeUtc($srcOcr)
+            if ($ocrWrittenUtc -lt $StepStartedUtc.ToUniversalTime().AddSeconds(-2)) { $staleOcrWrittenUtc = $ocrWrittenUtc }
+        }
         if ($frames.Count -eq 0 -and $earliest.Count -eq 0 -and -not $hasScreen -and -not $hasOcr -and -not $DiagnosticRecord) { return $null }
 
         if (-not $PSCmdlet.ShouldProcess($destDir, (Format-YurunaOperatorMessage -Key 'runner.operator_e93a4d7fd69e4e80'))) { return $null }
@@ -807,7 +829,12 @@ function Save-StepFailureEvidence {
         if ($hasScreen) {
             Copy-Item -LiteralPath $srcScreen -Destination (Join-Path $destDir 'failure_screenshot.png') -Force -ErrorAction SilentlyContinue
         }
-        if ($hasOcr) {
+        if ($staleOcrWrittenUtc) {
+            $utcText = { param([datetime]$Instant) $Instant.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture) }
+            Set-Content -LiteralPath (Join-Path $destDir 'failure_ocr.txt') -Encoding utf8NoBOM -ErrorAction SilentlyContinue -Value (
+                "No OCR text from this attempt: a wait that fails saves the last text it read, and failure_ocr_${VMName}.txt " +
+                "was last written at $(& $utcText $staleOcrWrittenUtc), before the failed step began at $(& $utcText $StepStartedUtc), so it holds an earlier wait's text.")
+        } elseif ($hasOcr) {
             Copy-Item -LiteralPath $srcOcr -Destination (Join-Path $destDir 'failure_ocr.txt') -Force -ErrorAction SilentlyContinue
         }
         if ($DiagnosticRecord) {
@@ -817,7 +844,7 @@ function Save-StepFailureEvidence {
                 schema = 'yuruna.vm-startup-diagnostic/v1'; observedAtUtc = [DateTime]::UtcNow.ToString('o')
                 vmName = $VMName; hostType = [string]$DiagnosticRecord.hostType
                 architecture = [string]$DiagnosticRecord.architecture; vmState = [string]$DiagnosticRecord.vmState
-                consoleSecondOpinion = $null; controlSnapshot = $null
+                consoleSecondOpinion = $null; controlSnapshot = $null; serialCapture = $null
             }
             if ($DiagnosticRecord.consoleSecondOpinion) {
                 $opinion = [ordered]@{}
@@ -826,6 +853,49 @@ function Save-StepFailureEvidence {
                     $opinion[$field] = $DiagnosticRecord.consoleSecondOpinion.$field
                 }
                 $diagnostic.consoleSecondOpinion = $opinion
+            }
+            # A host that keeps its serial capture outside the cycle folder
+            # deletes it at every VM start, so the restart that follows would take
+            # what the failed boot printed with it; such a host names the live
+            # file. The copy keeps the capture's last write time, which dates the
+            # console's last byte. Its outcome goes into the record written below,
+            # so a folder without the copy says why: the guest wrote nothing to the
+            # port (the live installer writes nothing there), no reader reached the
+            # pipe, or the copy failed.
+            if ($DiagnosticRecord.captureStartupSnapshot -and (Get-Command Get-VMSerialCaptureLogPath -ErrorAction SilentlyContinue)) {
+                # The reader creates the capture file when it first reaches the pipe.
+                $serialCapture = [ordered]@{ written = $false; reason = 'no-capture-file'; bytes = 0L; lastByteUtc = $null }
+                try {
+                    $serialSource = Get-VMSerialCaptureLogPath -VMName $VMName
+                    $serialWrittenUtc = $null
+                    if ($serialSource) {
+                        $serialCopy = Join-Path $destDir 'serial-console.log'
+                        # The reader still appends to it, and a copy that denies
+                        # writers is refused while the reader holds the file.
+                        $source = [IO.FileStream]::new($serialSource, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+                            ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+                        try {
+                            if ($source.Length -gt 0) {
+                                $target = [IO.FileStream]::new($serialCopy, [IO.FileMode]::Create, [IO.FileAccess]::Write)
+                                try { $source.CopyTo($target); $serialCapture.bytes = $target.Length } finally { $target.Dispose() }
+                                $serialCapture.written = $true
+                                $serialWrittenUtc = [IO.File]::GetLastWriteTimeUtc($serialSource)
+                                $serialCapture.lastByteUtc = $serialWrittenUtc.ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+                            } else { $serialCapture.reason = 'empty' }
+                        } finally { $source.Dispose() }
+                    }
+                    if ($serialWrittenUtc) {
+                        [IO.File]::SetLastWriteTimeUtc($serialCopy, $serialWrittenUtc)
+                        $serialCapture.reason = 'copied'
+                        if (Get-Command Save-SerialConsoleKernelFault -ErrorAction SilentlyContinue) {
+                            Save-SerialConsoleKernelFault -OutputDirectory $destDir
+                        }
+                    }
+                } catch {
+                    $serialCapture.reason = $_.Exception.Message
+                    Write-Verbose "Save-StepFailureEvidence: the serial capture of '$VMName' was not kept: $($_.Exception.Message)"
+                }
+                $diagnostic.serialCapture = $serialCapture
             }
             $diagnosticPath = Join-Path $destDir 'vm-diagnostics.json'
             $encoding = [System.Text.UTF8Encoding]::new($false)
@@ -2061,10 +2131,13 @@ function New-YurunaDegradationRecord {
         [Parameter(Mandatory)][string]$Fallback,
         [string]$Reason = '',
         [ValidateSet('soft','hard')][string]$Severity = 'soft',
-        [string]$Timestamp
+        [string]$Timestamp,
+        # The guest the degradation concerns, when it concerns one. Left off the
+        # record when empty, so a host-wide degradation keeps its shape.
+        [string]$VMName = ''
     )
     if (-not $Timestamp) { $Timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture) }
-    return @{
+    $record = @{
         timestamp  = $Timestamp
         event      = 'degradation'
         dependency = [string]$Dependency
@@ -2073,6 +2146,8 @@ function New-YurunaDegradationRecord {
         reason     = [string]$Reason
         severity   = [string]$Severity
     }
+    if ($VMName) { $record['vmName'] = $VMName }
+    return $record
 }
 
 function Send-YurunaDegradation {
@@ -2106,6 +2181,9 @@ function Send-YurunaDegradation {
     .PARAMETER Severity
         'soft' (default) -- work continues degraded; 'hard' -- proceeding but a
         material capability is lost (degradation is soft by nature, so rarely).
+    .PARAMETER VMName
+        The guest the degradation concerns, recorded as vmName; omitted when
+        the degradation is not about one guest.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
@@ -2115,11 +2193,12 @@ function Send-YurunaDegradation {
         [Parameter(Mandatory)][string]$Primary,
         [Parameter(Mandatory)][string]$Fallback,
         [string]$Reason = '',
-        [ValidateSet('soft','hard')][string]$Severity = 'soft'
+        [ValidateSet('soft','hard')][string]$Severity = 'soft',
+        [string]$VMName = ''
     )
     Send-CycleEventSafely -EventRecord (New-YurunaDegradationRecord `
         -Dependency $Dependency -Primary $Primary -Fallback $Fallback `
-        -Reason $Reason -Severity $Severity)
+        -Reason $Reason -Severity $Severity -VMName $VMName)
     $suffix = if ($Reason) { " ($Reason)" } else { '' }
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_240763f964a4eefb' -Arguments @{ dependency = "${Dependency}"; primary = "${Primary}"; fallback = "${Fallback}"; suffix = "${suffix}" })
 }

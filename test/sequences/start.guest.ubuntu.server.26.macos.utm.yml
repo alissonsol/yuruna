@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 42f376a1-b491-4c4a-a342-5de214eb512b
-sequenceRevision: 1
+sequenceRevision: 2
 
 description: "Ubuntu Server 26.04 on macOS UTM: cold start after the install powers off, first login, change password, run update script, then power-cycle into the workload CPU count."
 keystrokeMechanism: gui
@@ -77,7 +77,7 @@ component:
         blindAfterSeconds: 120
         blindSkipPattern: ["Bahasa Indonesia", "subiquity/Install/install/configure_apt", "subiquity/Install/install/curtin_install"]
         description: "OCR after cold restart: Continue with autoinstall?"
-    description: "Wait for installed login prompt (bounded cold restart on timeout)"
+    description: "First login and password change (bounded cold restart on a stalled display)"
     steps:
       # See https://yuruna.link/42e220c4-0007
       - action: pressKey
@@ -108,50 +108,50 @@ component:
           - "Authentication token manipulation error"
         description: "OCR: ${hostLabel} login:"
 
-  # Password mutation is intentionally outside the retry above. Once PAM has
-  # accepted either new-password prompt, neither a VM restart nor a replay with
-  # the old password has a well-defined result.
-  # See https://yuruna.link/42e220c4-0007
-  - action: passwdPrompt
-    pattern: "${hostLabel} login:"
-    freshMatch: true
-    text: "${username}"
-    description: "OCR: ${hostLabel} login:"
+      # A stalled password wait that has typed nothing can replay from login.
+      # The confirming entry ends this block; later shell confirmation and
+      # password persistence never replay after that entry may commit.
+      # See https://yuruna.link/42e220c4-0007
+      - action: passwdPrompt
+        pattern: "${hostLabel} login:"
+        freshMatch: true
+        text: "${username}"
+        description: "OCR: ${hostLabel} login:"
 
-  # See https://yuruna.link/42e220c4-0007
-  - action: passwdPrompt
-    pattern: "Password:"
-    timeoutSeconds: 30
-    sinceStepStart: true
-    failurePatterns:
-      - "BdsDxe:"
-      - "GNU GRUB"
-    text: "${currentPassword}"
-    description: "OCR: Password:"
+      # See https://yuruna.link/42e220c4-0007
+      - action: passwdPrompt
+        pattern: "Password:"
+        timeoutSeconds: 30
+        sinceStepStart: true
+        failurePatterns:
+          - "BdsDxe:"
+          - "GNU GRUB"
+        text: "${currentPassword}"
+        description: "OCR: Password:"
 
-  - action: passwdPrompt
-    pattern: ["Current password", "urrent password:"]
-    sinceStepStart: true
-    # A login that skips the forced change means the install never ran its
-    # late-commands: they expire the password and silence this motd banner.
-    failurePatterns:
-      - "Welcome to Ubuntu"
-      - "${username}@${hostLabel}:"
-    text: "${currentPassword}"
-    description: "OCR: Current password"
+      - action: passwdPrompt
+        pattern: ["Current password", "urrent password:"]
+        sinceStepStart: true
+        # A login that skips the forced change means the install never ran its
+        # late-commands: they expire the password and silence this motd banner.
+        failurePatterns:
+          - "Welcome to Ubuntu"
+          - "${username}@${hostLabel}:"
+        text: "${currentPassword}"
+        description: "OCR: Current password"
 
-  # Keep the full token distinct from the current-password and retype prompts.
-  - action: passwdPrompt
-    pattern: "New password"
-    sinceStepStart: true
-    text: "${newPassword}"
-    description: "OCR: New password"
+      # Keep the full token distinct from the current-password and retype prompts.
+      - action: passwdPrompt
+        pattern: "New password"
+        sinceStepStart: true
+        text: "${newPassword}"
+        description: "OCR: New password"
 
-  - action: passwdPrompt
-    pattern: ["Retype new password", "etype new password:"]
-    sinceStepStart: true
-    text: "${newPassword}"
-    description: "OCR: Retype new password"
+      - action: passwdPrompt
+        pattern: ["Retype new password", "etype new password:"]
+        sinceStepStart: true
+        text: "${newPassword}"
+        description: "OCR: Retype new password"
 
   # See https://yuruna.link/42e220c4-0007
   - action: waitForSeconds
@@ -250,8 +250,10 @@ workload:
         expectBlankConsole: true
         description: "OCR: ${hostLabel} login:"
 
-  # Use only the address already proven during provisioning; do not wait for
-  # networking or extend the boot recovery policy to collect diagnostics.
+  # Waits up to ten seconds for one SSH login (about 25 seconds in all when the
+  # wait gives up, with the readiness helper's closing handshake), then samples
+  # at the proven address; advisory, so it neither fails the step nor extends
+  # the boot recovery policy.
   - action: saveGuestClockSnapshot
     phase: after-cpu-restart
     description: "Capture clocks and CPU accounting after the processor restart"

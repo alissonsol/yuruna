@@ -9425,6 +9425,24 @@ const DatazhCNhost = `{
     },
     "' 的构建计划已接受：构建所需的每个输入都已存在，且没有更改任何内容。"
   ],
+  "host.service_build_plan_auth_readonly_unsupported": [
+    "身份验证提供程序 ",
+    {
+      "arg": "provider",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " 不支持只读密码验证。构建计划不能调用会修改数据的读取方法。"
+  ],
+  "host.service_build_plan_cache_state_invalid": [
+    "无法在不修改状态的情况下验证 ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 处的缓存代理状态：主文件及其备份均包含不可用的数据。"
+  ],
   "host.service_seed_degraded": [
     "'",
     {

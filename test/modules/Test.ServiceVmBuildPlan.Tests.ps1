@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42861ba7-21b4-45b8-96e4-6615fceded8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,9 +22,10 @@
     run before teardown, the bounded build, adoption of a running guest, the
     one start outcome, and the host-side proof's previous daemon.
 .DESCRIPTION
-    Builders cannot run here (they need a hypervisor and a base image), so their
-    plan-before-teardown order is read from the syntax tree of all twelve. The
-    shared functions run for real against stub builders and injected probes.
+    Pre-teardown plans run from all twelve shipped builders with isolated
+    state and injected platform services. Syntax-tree checks retain their
+    refusing-input order. Shared state and switch helpers run against
+    disposable files and injected probes, without changing the host.
 #>
 
 BeforeAll {
@@ -50,6 +51,124 @@ BeforeAll {
         [IO.File]::WriteAllText($path, "param([string]`$VMName, [switch]`$AllowPseudoLocale, [switch]`$PlanOnly)`n$Body`n")
         return $path
     }
+    function New-IsolatedBuilderPlanFixture {
+        <# .SYNOPSIS
+            Run the shipped plan with injected platform services and observable fixture state.
+        #>
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+            Justification = 'Writes an isolated builder copy and state under TestDrive only.')]
+        param([string]$Builder, [string]$Case)
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $state = Join-Path $root 'state'
+        [void](New-Item -ItemType Directory -Path $state)
+        if ($Case -ne 'absent') {
+            foreach ($name in 'private-key', 'public-key', 'vault', 'users', 'cache-state') {
+                [IO.File]::WriteAllText((Join-Path $state $name), "$Case fixture $name")
+            }
+        }
+        $sourcePath = Join-Path $script:RepoRoot $Builder
+        $source = Get-Content -Raw -LiteralPath $sourcePath
+        $ast = [Management.Automation.Language.Parser]::ParseFile($sourcePath, [ref]$null, [ref]$null)
+        $bodyStart = $ast.ParamBlock.Extent.EndOffset
+        $body = $source.Substring($bodyStart)
+        # Linux cannot construct WindowsIdentity. Only that native administrator
+        # check is supplied by the fixture; the production plan remains intact.
+        foreach ($statement in @($ast.EndBlock.Statements | Where-Object {
+                    $_ -is [Management.Automation.Language.IfStatementAst] -and
+                    $_.Clauses[0].Item1.Extent.Text -match 'WindowsIdentity' } | Sort-Object { $_.Extent.StartOffset } -Descending)) {
+            $offset = $statement.Extent.StartOffset - $bodyStart
+            $body = $body.Remove($offset, $statement.Extent.Text.Length).Insert($offset, '# Administrator preflight supplied by the fixture.')
+        }
+        $prefix = @'
+$script:FixtureState = '__STATE__'
+$script:FixtureCase = '__CASE__'
+function Write-FixtureMutation { param($Name); [IO.File]::WriteAllText((Join-Path $script:FixtureState $Name), 'unexpected plan mutation') }
+function Import-Module {}
+function Use-LogLevelFromEnv {
+    [CmdletBinding()]param([switch]$NoTranscript)
+    if (-not $NoTranscript) { Write-FixtureMutation 'transcript' }
+}
+function Format-YurunaOperatorMessage { param($Key, $Arguments); return $Key }
+function Get-CimInstance { return [pscustomobject]@{ NumberOfCores = 8 } }
+function Assert-HyperVEnabled { return $true }
+function Test-Path { return $true }
+function New-Item { Write-FixtureMutation 'directories' }
+function getent { $global:LASTEXITCODE = 0 }
+function setfacl { Write-FixtureMutation 'home-acl' }
+function Import-Extension { return 'fixture-auth' }
+function Resolve-ExtensionAreaDir { return 'fixture-auth' }
+function Get-YurunaSshPublicKey {
+    [CmdletBinding()]param([switch]$ReadOnly)
+    if (-not $ReadOnly) { Write-FixtureMutation 'private-key'; Write-FixtureMutation 'public-key' }
+    if ($ReadOnly -and $script:FixtureCase -eq 'absent') { return $null }
+    return 'ssh-ed25519 fixture-key'
+}
+__PASSWORD_FUNCTION__
+function Set-Password { Write-FixtureMutation 'vault'; Write-FixtureMutation 'users' }
+function Read-CachingProxyServiceState {
+    [CmdletBinding()]param([switch]$ReadOnly)
+    if (-not $ReadOnly) { Write-FixtureMutation 'cache-state' }
+    if ($ReadOnly -and $script:FixtureCase -eq 'corrupt') { throw 'Fixture cache state is corrupt.' }
+    if ($script:FixtureCase -in @('existing', 'unsupported proposed value')) { return @{ password = 'fixture-persisted-secret' } }
+    return @{ password = '' }
+}
+function Save-CachingProxyServiceState { Write-FixtureMutation 'cache-state' }
+function Get-CachingProxyServiceStatePath {
+    [CmdletBinding()]param([switch]$ReadOnly)
+    if (-not $ReadOnly) { Write-FixtureMutation 'directories' }
+    return (Join-Path $script:FixtureState 'cache-state')
+}
+function Resolve-GuestHostBinding { return @{ NetworkName = 'default'; HostIp = '192.0.2.1' } }
+function Resolve-UtmNetworkMode { return 'Shared' }
+function Resolve-HyperVGuestSwitch {
+    [CmdletBinding()]param([switch]$ReadOnly)
+    if (-not $ReadOnly) { Write-FixtureMutation 'switch' }
+    return 'fixture-switch'
+}
+function Get-GuestReachableHostIp { return '192.0.2.1' }
+function Get-YurunaStatusServiceSeed { return @{ Port = '8080'; Config = @{} } }
+function Get-YurunaPoolSeedValue { Write-FixtureMutation 'host-id'; Write-FixtureMutation 'vault'; return @{} }
+function Get-YurunaStashSeedValue { Write-FixtureMutation 'host-id'; Write-FixtureMutation 'vault'; return @{} }
+function Resolve-SeedLanguageTag { return 'en-US' }
+function Resolve-CachingProxyZotOverride { return @{} }
+function Get-ExtensionServiceHostNameSeed { return '' }
+function Write-SeedDegradation {}
+'@
+        $passwordFunction = if ($Case -eq 'unsupported provider') {
+            @'
+function Get-Password {
+    [CmdletBinding()]param([string]$Username)
+    Write-FixtureMutation 'vault'
+    throw 'Mutating unsupported provider must never be called by a plan.'
+}
+'@
+        } elseif ($Case -eq 'unsupported proposed value') {
+            @'
+function Get-Password {
+    [CmdletBinding()]param([string]$Username, [switch]$ReadOnly)
+    if (-not $ReadOnly) { Write-FixtureMutation 'vault' }
+    return 'fixture-secret'
+}
+'@
+        } else {
+            @'
+function Get-Password {
+    [CmdletBinding()]param([string]$Username, [switch]$ReadOnly, [string]$ProposedSecret)
+    if (-not $ReadOnly) { Write-FixtureMutation 'vault'; Write-FixtureMutation 'users' }
+    if ($script:FixtureCase -eq 'corrupt') { throw 'Fixture vault is corrupt.' }
+    if ($ReadOnly -and $script:FixtureCase -eq 'absent') { return $null }
+    if ($PSBoundParameters.ContainsKey('ProposedSecret')) { return $ProposedSecret }
+    return 'fixture-secret'
+}
+'@
+        }
+        $prefix = $prefix.Replace('__STATE__', $state.Replace("'", "''")).Replace('__CASE__', $Case).
+            Replace('__PASSWORD_FUNCTION__', $passwordFunction)
+        $path = Join-Path $root $Builder
+        [void](New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force)
+        [IO.File]::WriteAllText($path, $ast.ParamBlock.Extent.Text + "`n" + $prefix + "`n" + $body)
+        return @{ Path = $path; State = $state }
+    }
 }
 
 Describe 'service VM builders resolve their plan before anything is torn down' {
@@ -71,7 +190,8 @@ Describe 'service VM builders resolve their plan before anything is torn down' {
         $teardown = @(Get-BuilderCommand -Ast $ast -Name $teardownName)
         Assert-Equal -Expected 1 -Actual $teardown.Count -Because "$Builder tears the prior VM down once"
         $planExit = @($ast.FindAll({ param($n)
-                    $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$PlanOnly' }, $true))
+                    $n -is [Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$PlanOnly' -and
+                    $null -ne $n.Clauses[0].Item2.Find({ param($child) $child -is [Management.Automation.Language.ExitStatementAst] }, $true) }, $true))
         Assert-Equal -Expected 1 -Actual $planExit.Count -Because "$Builder has one -PlanOnly exit"
         Assert-True ($planExit[0].Clauses[0].Item2.Extent.Text -match 'exit 0') "$Builder exits 0 after an accepted plan"
         Assert-True ($planExit[0].Extent.EndOffset -lt $teardown[0].Extent.StartOffset) "$Builder stops for -PlanOnly before its teardown"
@@ -132,6 +252,297 @@ Describe 'service VM builders resolve their plan before anything is torn down' {
             "$($statement.Extent.Text)`nexit 0")
         $plan = Test-YurunaServiceVmBuildPlan -BuilderPath $stub -VMName 'fixture-vm' 6>$null
         Assert-Equal -Expected $false -Actual $plan.Ok -Because "$Builder refuses the plan"
+    }
+}
+
+Describe 'KVM service build plans preserve the host home ACL' {
+    It '<Builder> makes <ExpectedCalls> ACL calls when PlanOnly is <PlanOnly>' -ForEach @(
+        foreach ($service in 'caching-proxy-service', 'stash-service', 'pool-control-service', 'download-agent-service') {
+            foreach ($preview in $true, $false) {
+                @{ Builder = "host/ubuntu.kvm/guest.$service/New-VM.ps1"; PlanOnly = $preview; ExpectedCalls = [int](-not $preview) }
+            }
+        }
+    ) {
+        $source = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot $Builder)
+        $marker = [regex]::Match($source, '(?m)^# --- REGION: libvirt-qemu search ACL on \$HOME\r?$')
+        $marker.Success | Should -BeTrue
+        $start = $marker.Index
+        $end = $source.IndexOf('# --- REGION:', $start + 15, [StringComparison]::Ordinal)
+        $end | Should -BeGreaterThan $start
+        $acl = [scriptblock]::Create($source.Substring($start, $end - $start))
+        $script:AclArguments = [Collections.Generic.List[object]]::new()
+        function getent { $global:LASTEXITCODE = 0 }
+        function setfacl {
+            $script:AclArguments.Add(@($args))
+            $global:LASTEXITCODE = 0
+        }
+        $previousExitCode = Get-Variable -Name LASTEXITCODE -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+        try { . $acl } finally { $global:LASTEXITCODE = $previousExitCode }
+        $script:AclArguments.Count | Should -Be $ExpectedCalls
+        if (-not $PlanOnly) {
+            $script:AclArguments[0] | Should -Be @('-m', 'u:libvirt-qemu:--x', $HOME)
+        }
+    }
+}
+
+Describe 'Read-only caching-proxy state validation' {
+    BeforeAll {
+        Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.CachingProxyService.psm1') -Force -DisableNameChecking
+    }
+    It 'preserves <Case> state while validating its password' -ForEach @(
+        @{ Case = 'absent'; Expected = ''; Invalid = $false },
+        @{ Case = 'existing'; Expected = 'fixture-secret'; Invalid = $false },
+        @{ Case = 'corrupt'; Expected = ''; Invalid = $true },
+        @{ Case = 'recoverable backup'; Expected = 'backup-secret'; Invalid = $false },
+        @{ Case = 'legacy'; Expected = 'legacy-secret'; Invalid = $false },
+        @{ Case = 'nonstring password'; Expected = ''; Invalid = $true }
+    ) {
+        $runtime = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $path = Join-Path $runtime 'yuruna-caching-proxy-service.yml'
+        if ($Case -ne 'absent') {
+            [void](New-Item -ItemType Directory -Path $runtime)
+            $content = switch ($Case) {
+                existing { "password: fixture-secret`nipAddress: 192.0.2.25`n" }
+                legacy { "password: legacy-secret`nlegacyField: kept`n" }
+                'nonstring password' { "password:`n  nested: invalid`n" }
+                default { 'password: [' }
+            }
+            [IO.File]::WriteAllText($path, $content)
+            if ($Case -eq 'recoverable backup') { [IO.File]::WriteAllText("$path.backup", "password: backup-secret`n") }
+        }
+        $before = @(Get-ChildItem -LiteralPath $runtime -File -ErrorAction SilentlyContinue | ForEach-Object {
+                "$($_.Name)|$((Get-FileHash -LiteralPath $_.FullName).Hash)|$($_.LastWriteTimeUtc.Ticks)"
+            })
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        try {
+            $env:YURUNA_RUNTIME_DIR = $runtime
+            if ($Invalid) {
+                $caught = $null
+                try { $null = Read-CachingProxyServiceState -ReadOnly -WarningAction SilentlyContinue } catch { $caught = $_ }
+                $caught | Should -Not -BeNullOrEmpty
+                $caught.Exception | Should -BeOfType ([IO.InvalidDataException])
+            } else {
+                (Read-CachingProxyServiceState -ReadOnly -WarningAction SilentlyContinue).password | Should -Be $Expected
+            }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+        $after = @(Get-ChildItem -LiteralPath $runtime -File -ErrorAction SilentlyContinue | ForEach-Object {
+                "$($_.Name)|$((Get-FileHash -LiteralPath $_.FullName).Hash)|$($_.LastWriteTimeUtc.Ticks)"
+            })
+        $after | Should -Be $before
+        (Test-Path -LiteralPath $runtime) | Should -Be ($Case -ne 'absent')
+    }
+    It 'retains normal state initialization and corrupt-file recovery' {
+        $runtime = Join-Path $TestDrive 'normal-cache-state'
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        try {
+            $env:YURUNA_RUNTIME_DIR = $runtime
+            $null = Read-CachingProxyServiceState
+            Test-Path -LiteralPath $runtime | Should -BeTrue
+            $path = Join-Path $runtime 'yuruna-caching-proxy-service.yml'
+            [IO.File]::WriteAllText($path, 'password: [')
+            $null = Read-CachingProxyServiceState -WarningAction SilentlyContinue
+            Test-Path -LiteralPath $path | Should -BeFalse
+            @(Get-ChildItem -LiteralPath $runtime -Filter '*.corrupt.*').Count | Should -Be 1
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+    }
+    It 'preserves existing state when the YAML parser is unavailable and ReadOnly is <Preview>' -ForEach @(
+        @{ Preview = $true }, @{ Preview = $false }
+    ) {
+        $runtime = Join-Path $TestDrive "unavailable-parser-$Preview"
+        [void](New-Item -ItemType Directory -Path $runtime)
+        $path = Join-Path $runtime 'yuruna-caching-proxy-service.yml'
+        [IO.File]::WriteAllText($path, "password: fixture-secret`n")
+        [IO.File]::WriteAllText("$path.backup", "password: fixture-backup`n")
+        $before = @(Get-ChildItem -LiteralPath $runtime -File | ForEach-Object {
+                "$($_.Name)|$((Get-FileHash -LiteralPath $_.FullName).Hash)|$($_.LastWriteTimeUtc.Ticks)"
+            })
+        Mock -ModuleName Test.CachingProxyService Get-Module { return $null } -ParameterFilter { $Name -contains 'powershell-yaml' }
+        Mock -ModuleName Test.CachingProxyService Import-Module { throw 'fixture parser unavailable' } -ParameterFilter { $Name -contains 'powershell-yaml' }
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        try {
+            $env:YURUNA_RUNTIME_DIR = $runtime
+            $caught = $null
+            $result = $null
+            $warnings = @()
+            try {
+                $result = Read-CachingProxyServiceState -ReadOnly:$Preview -WarningVariable warnings -WarningAction SilentlyContinue
+            } catch { $caught = $_ }
+            if ($Preview) {
+                $caught | Should -Not -BeNullOrEmpty
+                $caught.Exception.Message | Should -Be 'fixture parser unavailable'
+                $result | Should -BeNullOrEmpty
+                @($warnings).Count | Should -Be 0
+            } else {
+                $caught | Should -BeNullOrEmpty
+                $result.password | Should -Be ''
+                @($warnings).Count | Should -Be 1
+                [string]$warnings[0] | Should -Match 'fixture parser unavailable'
+            }
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+        $after = @(Get-ChildItem -LiteralPath $runtime -File | ForEach-Object {
+                "$($_.Name)|$((Get-FileHash -LiteralPath $_.FullName).Hash)|$($_.LastWriteTimeUtc.Ticks)"
+            })
+        $after | Should -Be $before
+    }
+    It 'refuses an unanswered <Stage> existence probe instead of treating it as missing' -ForEach @(
+        @{ Stage = 'primary' }, @{ Stage = 'backup' }
+    ) {
+        $runtime = Join-Path $TestDrive "denied-probe-$Stage"
+        [void](New-Item -ItemType Directory -Path $runtime)
+        $path = Join-Path $runtime 'yuruna-caching-proxy-service.yml'
+        [IO.File]::WriteAllText($path, 'password: [')
+        [IO.File]::WriteAllText("$path.backup", "password: fixture-backup`n")
+        $before = @(Get-ChildItem -LiteralPath $runtime -File | ForEach-Object {
+                "$($_.Name)|$((Get-FileHash -LiteralPath $_.FullName).Hash)|$($_.LastWriteTimeUtc.Ticks)"
+            })
+        Mock -ModuleName Test.CachingProxyService Test-Path {
+            param($LiteralPath)
+            return Microsoft.PowerShell.Management\Test-Path -LiteralPath $LiteralPath -ErrorAction Stop
+        }
+        if ($Stage -eq 'primary') {
+            Mock -ModuleName Test.CachingProxyService Test-Path {
+                if ([string]$PesterBoundParameters.ErrorAction -eq 'Stop') { throw [UnauthorizedAccessException]::new('fixture access denied') }
+                return $false
+            } -ParameterFilter { $LiteralPath -like '*denied-probe-primary*' }
+        } else {
+            Mock -ModuleName Test.CachingProxyService Test-Path {
+                if ([string]$PesterBoundParameters.ErrorAction -eq 'Stop') { throw [UnauthorizedAccessException]::new('fixture access denied') }
+                return $false
+            } -ParameterFilter { $LiteralPath -like '*denied-probe-backup*' -and $LiteralPath -like '*.backup' }
+        }
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        try {
+            $env:YURUNA_RUNTIME_DIR = $runtime
+            $caught = $null
+            try { $null = Read-CachingProxyServiceState -ReadOnly -ErrorAction Continue 2>$null } catch { $caught = $_ }
+            $caught | Should -Not -BeNullOrEmpty
+            $caught.Exception.Message | Should -Match 'fixture access denied'
+        } finally { Restore-YurunaTestEnvironment -Saved $saved }
+        $after = @(Get-ChildItem -LiteralPath $runtime -File | ForEach-Object {
+                "$($_.Name)|$((Get-FileHash -LiteralPath $_.FullName).Hash)|$($_.LastWriteTimeUtc.Ticks)"
+            })
+        $after | Should -Be $before
+    }
+    It 'preserves inaccessible <Target> bytes and modes and refuses the state' -ForEach @(
+        @{ Target = 'runtime' }, @{ Target = 'primary' }, @{ Target = 'backup' }
+    ) {
+        $runtime = Join-Path $TestDrive "denied-native-$Target"
+        [void](New-Item -ItemType Directory -Path $runtime)
+        $path = Join-Path $runtime 'yuruna-caching-proxy-service.yml'
+        $content = if ($Target -eq 'backup') { 'password: [' } else { "password: fixture-secret`n" }
+        [IO.File]::WriteAllText($path, $content)
+        [IO.File]::WriteAllText("$path.backup", "password: fixture-backup`n")
+        $hashes = @((Get-FileHash -LiteralPath $path).Hash, (Get-FileHash -LiteralPath "$path.backup").Hash)
+        $nativePermission = -not $IsWindows -and [Environment]::UserName -ne 'root'
+        if ($nativePermission) {
+            [IO.File]::SetUnixFileMode($path, [IO.UnixFileMode]256)
+            [IO.File]::SetUnixFileMode("$path.backup", [IO.UnixFileMode]256)
+            $deniedPath = switch ($Target) { runtime { $runtime }; primary { $path }; backup { "$path.backup" } }
+            $deniedMode = [IO.File]::GetUnixFileMode($deniedPath)
+            [IO.File]::SetUnixFileMode($deniedPath, [IO.UnixFileMode]0)
+        } else {
+            if ($Target -eq 'runtime') {
+                Mock -ModuleName Test.CachingProxyService Test-Path {
+                    if ([string]$PesterBoundParameters.ErrorAction -eq 'Stop') { throw [UnauthorizedAccessException]::new('fixture access denied') }
+                    return $false
+                } -ParameterFilter { $LiteralPath -like '*denied-native-runtime*' }
+            } else {
+                Mock -ModuleName Test.CachingProxyService Get-Content {
+                    param($LiteralPath)
+                    return Microsoft.PowerShell.Management\Get-Content -LiteralPath $LiteralPath -Raw -ErrorAction Stop
+                }
+                if ($Target -eq 'primary') {
+                    Mock -ModuleName Test.CachingProxyService Get-Content {
+                        if ([string]$PesterBoundParameters.ErrorAction -eq 'Stop') { throw [UnauthorizedAccessException]::new('fixture access denied') }
+                        return $null
+                    } -ParameterFilter { $LiteralPath -like '*denied-native-primary*' -and $LiteralPath -notlike '*.backup' }
+                } else {
+                    Mock -ModuleName Test.CachingProxyService Get-Content {
+                        if ([string]$PesterBoundParameters.ErrorAction -eq 'Stop') { throw [UnauthorizedAccessException]::new('fixture access denied') }
+                        return $null
+                    } -ParameterFilter { $LiteralPath -like '*denied-native-backup*' -and $LiteralPath -like '*.backup' }
+                }
+            }
+        }
+        $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        try {
+            $env:YURUNA_RUNTIME_DIR = $runtime
+            $caught = $null
+            try { $null = Read-CachingProxyServiceState -ReadOnly -ErrorAction Continue 2>$null } catch { $caught = $_ }
+            $caught | Should -Not -BeNullOrEmpty
+            if ($nativePermission) {
+                [int][IO.File]::GetUnixFileMode($deniedPath) | Should -Be 0
+                [string]$caught.CategoryInfo.Category | Should -Be 'PermissionDenied'
+            } else { $caught.Exception.Message | Should -Match 'fixture access denied' }
+        } finally {
+            if ($nativePermission) { [IO.File]::SetUnixFileMode($deniedPath, $deniedMode) }
+            Restore-YurunaTestEnvironment -Saved $saved
+        }
+        @((Get-FileHash -LiteralPath $path).Hash, (Get-FileHash -LiteralPath "$path.backup").Hash) | Should -Be $hashes
+        if ($nativePermission) {
+            [int][IO.File]::GetUnixFileMode($path) | Should -Be 256
+            [int][IO.File]::GetUnixFileMode("$path.backup") | Should -Be 256
+        }
+    }
+}
+
+Describe 'A Hyper-V service plan can select a future switch without creating it' {
+    It 'makes <ExpectedCalls> switch writes when ReadOnly is <Preview>' -ForEach @(
+        @{ Preview = $true; ExpectedCalls = 0 }, @{ Preview = $false; ExpectedCalls = 1 }
+    ) {
+        foreach ($entry in @(
+                @{ Path = 'host/windows.hyper-v/modules/Yuruna.Host.CacheDiscovery.ps1'; Name = 'Get-OrCreateYurunaExternalSwitch' },
+                @{ Path = 'host/windows.hyper-v/modules/Yuruna.Host.ServiceGuest.ps1'; Name = 'Resolve-HyperVGuestSwitch' })) {
+            $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot $entry.Path), [ref]$null, [ref]$null)
+            $name = $entry.Name
+            $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+        $script:SwitchWrites = 0
+        function Test-WindowsUplinkNotBridgeable { return $false }
+        function Get-VMSwitch { return $null }
+        function Get-WindowsDefaultIPv4Route { return @{ InterfaceIndex = 7 } }
+        function Get-NetAdapter { return @{ InterfaceAlias = 'fixture-ethernet' } }
+        function Test-YurunaAdapterUp { return $true }
+        function Invoke-HyperVLifecycleCmdlet { $script:SwitchWrites++ }
+        function Wait-ExternalSwitchHostIpv4 { return $true }
+        function Format-YurunaOperatorMessage { param($Key); return $Key }
+        $arguments = @{}
+        if ($Preview) { $arguments.ReadOnly = $true }
+        Resolve-HyperVGuestSwitch @arguments | Should -Be 'Yuruna-External'
+        $script:SwitchWrites | Should -Be $ExpectedCalls
+    }
+}
+
+Describe 'Every service builder validates its actual plan without changing durable inputs' {
+    It '<Builder> preserves <Case> fixture state' -ForEach @(
+        foreach ($platform in 'ubuntu.kvm', 'macos.utm', 'windows.hyper-v') {
+            foreach ($service in 'caching-proxy-service', 'stash-service', 'pool-control-service', 'download-agent-service') {
+                $states = @('absent', 'existing', 'corrupt', 'legacy', 'unsupported provider')
+                if ($service -eq 'caching-proxy-service') { $states += 'unsupported proposed value' }
+                foreach ($state in $states) {
+                    @{ Builder = "host/$platform/guest.$service/New-VM.ps1"; Case = $state; Accepted = $state -notin @('corrupt', 'unsupported provider', 'unsupported proposed value') }
+                }
+            }
+        }
+    ) {
+        $fixture = New-IsolatedBuilderPlanFixture -Builder $Builder -Case $Case
+        $before = @(Get-ChildItem -LiteralPath $fixture.State -File | ForEach-Object {
+                "$($_.Name)|$((Get-FileHash -LiteralPath $_.FullName).Hash)|$($_.LastWriteTimeUtc.Ticks)"
+            })
+        $output = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File $fixture.Path -PlanOnly 2>&1 | Out-String
+        $exitCode = $LASTEXITCODE
+        $after = @(Get-ChildItem -LiteralPath $fixture.State -File | ForEach-Object {
+                "$($_.Name)|$((Get-FileHash -LiteralPath $_.FullName).Hash)|$($_.LastWriteTimeUtc.Ticks)"
+            })
+        $after | Should -Be $before -Because 'key, vault, users, state, directory, ACL and switch writes are excluded from a plan'
+        if ($Accepted) {
+            $exitCode | Should -Be 0 -Because $output
+            $output | Should -Match 'host.service_build_plan_accepted'
+        } else {
+            $exitCode | Should -Not -Be 0 -Because 'unusable input and unsupported safe validation are refused'
+            if ($Case -like 'unsupported*') { $output | Should -Match 'host.service_build_plan_auth_readonly_unsupported' }
+        }
     }
 }
 

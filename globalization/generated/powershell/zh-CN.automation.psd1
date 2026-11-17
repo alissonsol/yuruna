@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4215a4b8-4fbf-82d7-effd-933fdbd2dd43
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5015,6 +5015,47 @@
             'trust' = 'external'
         }
     )
+    'automation.retry_already_applied' = @(
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '：第'
+        @{
+            'arg' = 'attempt'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '/'
+        @{
+            'arg' = 'maxAttempts'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '次尝试失败（exit='
+        @{
+            'arg' = 'lastExit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '），但其结果已由先前的尝试应用；该命令计为已完成。'
+    )
+    'automation.retry_succeed_when_threw' = @(
+        '!! '
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '：SucceedWhen谓词抛出异常（'
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）；该尝试仍视为失败'
+    )
     'automation.runtime_ipc_remove_action' = '删除已不存在的进程遗留的 .NET 运行时条目'
     'automation.seed_value_unsafe' = @(
         @{
@@ -5199,6 +5240,22 @@
     'automation.system_diagnostic_kernel_log_unavailable' = "（无内核日志：此处无法读取dmesg，且journalctl -k -b 0未返回任何记录；请参阅RECENT SYSTEM EVENTS下的`“系统日志访问权限`”）"
     'automation.system_diagnostic_lockup_settings' = '锁死检测与崩溃证据设置'
     'automation.system_diagnostic_networkmanager_dhcp_none' = '（本次启动没有NetworkManager的dhcp4条目）'
+    'automation.system_diagnostic_previous_boot_middle_omitted' = '……（已跳过中间的行且不计数，以免较长的上一次启动拖慢本报告）……'
+    'automation.system_diagnostic_probe_stopped' = @(
+        '  （'
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '未在'
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        's内完成，已被停止；此前输出的内容见上方）'
+    )
     'automation.system_diagnostic_registry_images_refused' = @(
         'REGISTRY：客户机拉取的'
         @{
@@ -5337,6 +5394,16 @@
             'trust' = 'external'
         }
     )
+    'automation.system_diagnostic_restart_not_pending' = '待重启：否'
+    'automation.system_diagnostic_restart_pending' = @(
+        '待重启：是（'
+        @{
+            'arg' = 'sources'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '）'
+    )
     'automation.system_diagnostic_utmctl_list_incomplete' = @(
         '  utmctl list未在'
         @{
@@ -5354,6 +5421,45 @@
             'trust' = 'internal'
         }
         '下没有硬件看门狗设备）'
+    )
+    'automation.tofu_init_fetch_failed' = @(
+        '对资源'''
+        @{
+            'arg' = 'resourceName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''执行tofu init，尝试'
+        @{
+            'arg' = 'attempts'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '次后仍失败（最终退出码'
+        @{
+            'arg' = 'lastExit'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）：最后一次尝试无法下载'
+        @{
+            'arg' = 'url'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '（'
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '）。请检查'
+        @{
+            'arg' = 'tofuLogFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '以查看完整输出。'
     )
     'automation.top_processes_private_bytes' = '私有字节（提交占用）前10项'
 }

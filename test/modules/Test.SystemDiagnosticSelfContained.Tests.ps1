@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 429aa9e5-4b47-42a5-adc9-b48244e14f6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -725,7 +725,13 @@ if (-not $ParentExits) { Start-Sleep -Seconds 60 }
             $r.StdOut | Should -Match 'parent-prefix'
             $childId = [int][IO.File]::ReadAllText($pidPath)
             $child = Get-Process -Id $childId -ErrorAction SilentlyContinue
-            if ($child) { $child.HasExited | Should -BeTrue }
+            if ($child) {
+                # The kill reaches the child at once, but the kernel finishes
+                # its exit on its own schedule, later on a busy host. The claim
+                # is that the child is gone, so it gets a bounded moment to be.
+                $null = $child.WaitForExit(15000)
+                $child.HasExited | Should -BeTrue
+            }
         } finally {
             if (Test-Path -LiteralPath $pidPath) {
                 $child = Get-Process -Id ([int][IO.File]::ReadAllText($pidPath)) -ErrorAction SilentlyContinue

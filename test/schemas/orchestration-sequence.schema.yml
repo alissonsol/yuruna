@@ -38,6 +38,10 @@ properties:
     type: string
     description: One-line summary shown in cycle logs.
 
+  descriptionLocalized:
+    type: object
+    additionalProperties: { type: string }
+
   continueOnError:
     type: boolean
     description: >
@@ -67,3 +71,6 @@ properties:
         description:
           type: string
           description: Free-form label shown in the cycle log and dashboard.
+        descriptionLocalized:
+          type: object
+          additionalProperties: { type: string }

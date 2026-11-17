@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42a8a29c-b477-4fc9-8825-b4aabcec2cc6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,7 @@
         exit with $ExitFailure (Get-EntryPointExitCode -Outcome Failure), so the
         canonical exit contract is honored everywhere.
 
-    The throw-free Should assertions run under Pester 5.x.
+    The throw-free Should assertions run under Pester 6.x.
 #>
 
 BeforeAll {

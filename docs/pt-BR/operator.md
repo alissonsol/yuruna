@@ -487,7 +487,7 @@ instalação parcial. Execute o
 versões usadas nos testes
 ([`automation/Yuruna.Requirement.yml`](../../automation/Yuruna.Requirement.yml)).
 
-- Instale o [PowerShell Core](https://github.com/powershell/powershell) 7.6.9+ -- o piso definido em [`Yuruna.Requirement.yml`](../../automation/Yuruna.Requirement.yml); qualquer versão anterior falha no `Test-Requirement.ps1`.
+- Instale o [PowerShell Core](https://github.com/powershell/powershell) 7.7.0+ -- o piso definido em [`Yuruna.Requirement.yml`](../../automation/Yuruna.Requirement.yml); qualquer versão anterior falha no `Test-Requirement.ps1`.
   No Windows, a partir de um PowerShell de Administrador:
   - Instale-o para todos os usuários: `winget install --id Microsoft.PowerShell --scope machine`. Uma cópia por usuário fica sob `%LOCALAPPDATA%`, onde nenhuma outra conta pode executá-la, então o usuário de teste de [B.4](#b4-criar-o-usuário-de-teste-do-yuruna) não consegue rodar o `pwsh` de jeito nenhum.
   - `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned` (veja [políticas de execução](https://go.microsoft.com/fwlink/?LinkID=135170))
@@ -737,7 +737,7 @@ pwsh test/service/Start-CachingProxyServiceVM.ps1
 ```
 
 Compila a VM `yuruna-caching-proxy-service` e expõe as portas 80
-(certificado CA), 3128/3129 (Squid), 3000 (Grafana), 9302 (métricas).
+(certificado CA), 3128/3129 (Squid), 3000 (Grafana), 9302 (acompanhamento ao vivo do parser).
 Elevado no Windows; não elevado no macOS. Defina
 `vmStart.cachingProxyIp` no `test.config.yml` com o IP do proxy para
 que os ciclos o encontrem. A VM de cache sobrevive a reinstalações do
@@ -890,7 +890,7 @@ O relatório final dele distingue três coisas:
   versão anterior adicionou antes de o framework passar a marcar suas
   regras; uma regra allow simples entre elas também é listada com o
   comando que a remove -- mais a
-  participação nos grupos `libvirt` / `kvm` e a ACL de
+  participação nos grupos `libvirt` / `kvm` / `systemd-journal` e a ACL de
   `libvirt-qemu` em `$HOME`, esses dois últimos apenas quando a captura
   prova que o `Enable-TestAutomation` os adicionou. O macOS não remove nada. No
   Windows, a regra do serviço de configuração não está nesta lista:
@@ -970,6 +970,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.11.08
+Última revisão: 2026.11.16
 
 Voltar para [Yuruna](../../README.md)

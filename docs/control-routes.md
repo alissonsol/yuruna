@@ -464,14 +464,20 @@ joined with the `runtime/runner.exit.json` its SIGHUP or SIGTERM handler wrote:
 `pid`, `startedUtc`, `recordedUtc`, `sshSession` (it ran under an SSH session),
 `terminalProgram`, `multiplexer` (`tmux` or `screen`), `parents` (executable
 names and process ids, nearest first), `hostBootUtc` (the boot it started in),
-`signal` and `signalAtUtc`, and `hostRestarted`. A `SIGHUP` is a closed terminal
-window or a dropped SSH session that took the runner with it; a `SIGTERM` is a
-deliberate stop or a logout. A `null` signal is a runner that stopped on its
-own, or one ended without a catchable signal, such as a kill or an
-out-of-memory kill; `hostRestarted` `true` says the host booted since, which is
-what ended it. `hostRestarted` is `null` when either boot time is unknown. A
-record whose `pid` is not the one in `runner.pid` belongs to another runner and
-is not reported.
+`signal` and `signalAtUtc`, and `hostRestarted`. On Windows it also carries
+`sessionId`, `sessionName` (`SESSIONNAME`: `Console` on the local desktop,
+`RDP-Tcp#<n>` over remote desktop, absent for a scheduled task),
+`windowsTerminal` (`WT_SESSION` was set) and `elevated`. A `SIGHUP` is a closed
+terminal window or a dropped SSH session that took the runner with it; a
+`SIGTERM` is a deliberate stop or a logout. On Windows, closing the runner's
+console window reads as `SIGHUP`, but Windows sends no shutdown or logoff
+notice to a console process that loads user32, as pwsh does, so a Windows
+restart leaves `signal` `null` and `hostRestarted` `true`. A `null` signal is a
+runner that stopped on its own, or one ended without a catchable signal, such
+as a kill or an out-of-memory kill; `hostRestarted` `true` says the host booted
+since, which is what ended it. `hostRestarted` is `null` when either boot time
+is unknown. A record whose `pid` is not the one in `runner.pid` belongs to
+another runner and is not reported.
 
 **`test/service/Start-StatusService.ps1`.**
 
@@ -848,7 +854,8 @@ deny-list are then applied against the share root exactly as against the local o
 and only *this* host's own `hostId` is ever used -- a host can never serve another
 host's archives. Nothing is mounted here: the fallback is skipped unless the mount
 is already present, because the status service never runs `sudo`. The `/log/` root
-index also lists archived cycles (deduplicated against local ones), so the
+index also lists archived cycles (deduplicated against local ones by the same stable
+identity, so a local `<base>.aborted.<UTC>` folder hides its archived `<base>`), so the
 directory does not look empty on a move-mode host.
 
 <a id="42185271-000e"></a>
@@ -986,6 +993,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

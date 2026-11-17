@@ -199,8 +199,10 @@ which is what the status service sends for `?commit=`. The script asks for
 each archive by its commit and unpacks it only when the bytes match; a mismatch
 is reported, and the script falls back as it does when the host serves
 nothing. Only these scripts carry the fields, because a console guest types the
-whole context. A run by hand has no context and unpacks the archive as served,
-and the Windows updater, which does not run under this envelope, does too.
+whole context. A run by hand has no context and unpacks the archive as served.
+The Windows updater, which does not run under this envelope, verifies the
+archive with the guest-channel key when available; without a key it remains
+unverified.
 
 Console input can arrive damaged: a key whose release reaches the guest late
 repeats, and one extra character makes the compact envelope's base64 invalid.
@@ -545,8 +547,18 @@ scheme so framework + project URLs are NOT duplicated across them:
    `host.env` when step 2 returned nothing or its answer was not proven.
    That endpoint lives *on* the host, so a guest cut off from the host
    gets nothing from it -- exactly the moment it most needs a URL to
-   clone from. The same two URLs
-   are baked into the seed at New-VM time for that case.
+   clone from. Two clone URLs are baked into the seed at New-VM time for
+   that case. Outside a pooled cycle they are the pair the endpoint
+   serves. In a pooled cycle the seed carries the pool's pair, the
+   repositories the cycle tests: the runner publishes it as
+   `YURUNA_POOL_FRAMEWORK_URL` and `YURUNA_POOL_PROJECT_URL` for the
+   New-VM processes it starts, and `Get-YurunaGitHubSource` prefers that
+   pair over this host's configuration. The endpoint still serves this
+   host's own pair from `test/test.config.yml`, because the pool
+   override changes only the runner's in-memory configuration. A guest
+   that gets a proven answer in step 2 therefore uses this host's pair,
+   including for the clone fallbacks in steps 4 and 5; only a guest
+   without one uses the pool's pair.
 4. **Framework**: prefer the host's `/yuruna-archive.tar.gz` (committed
    working tree, no `.git/`), fall back to `git clone $FRAMEWORK_URL`
    with retries.
@@ -845,7 +857,19 @@ rationale for specific checks is in the
 **Section internals**
 
 **1. HOST** -- platform-conditional. Windows uses
-`Win32_OperatingSystem` for OS/version/uptime. macOS/Linux use
+`Win32_OperatingSystem` for OS/version/uptime, and the registry's
+`CurrentVersion` key for the update build revision (UBR), which
+identifies the installed cumulative update and which BuildNumber does
+not carry, and for `DisplayVersion`, which names the feature release and
+stays the same across a cumulative update: the OS line reads
+`<Caption> <DisplayVersion> (build <CurrentBuild>.<UBR>)`. A
+`Restart pending:` line follows, naming the
+servicing keys that exist (`WindowsUpdate\Auto Update\RebootRequired`,
+`Component Based Servicing\RebootPending`), or `no`. A key that cannot be
+read counts as absent. The JSON sidecar carries the same reading as
+`windowsOs` (`build`, `displayVersion`, `restartPending`,
+`restartPendingSources`), where the boot sweep finds the build a cycle
+that a restart later aborted ran on. macOS/Linux use
 `uname -a` + `uptime` (plus `sw_vers` on macOS, `/etc/os-release` on
 Linux).
 
@@ -869,9 +893,9 @@ canonical property order is:
 
 Dates use UTC ISO 8601,
 arrays are complete rather than truncated by `$FormatEnumerationLimit`,
-and all values are escaped onto one invariant line. Non-Windows hosts and
-failed Windows queries retain the section with stable unavailable/error
-output. `BiosSerialNumber` and `BiosIdentificationCode` can uniquely
+and all values are escaped onto one invariant line. Linux reports world-readable DMI identity and CPU microcode revisions.
+Other non-Windows hosts and failed Windows queries retain the section with
+stable unavailable/error output. `BiosSerialNumber` and `BiosIdentificationCode` can uniquely
 identify hardware, so diagnostic captures containing this section are
 sensitive artifacts.
 
@@ -939,7 +963,8 @@ Windows, `/bin/ps` on Unix -- because it's not a cluster resource.
 Failure-mode rationale for helm + empty-namespace flagging in
 [Yuruna memory](memory.md#why-get-systemdiagnostic-flags-helm-releases-not-in-deployedsuperseded-states).
 
-**11. LINUX HOST DETAIL** -- Linux-only deep dive. Networking
+**11. HOST DETAIL** -- includes the runner process tree on every platform.
+The Linux-specific detail includes the networking
 blueprint (netplan, `/etc/resolv.conf`, `/etc/hosts`, resolvectl /
 systemd-resolve); runtime networking state (`ip route`,
 `ss -tulpn`, `ping`); firewall (`iptables -t filter -S` + `iptables -t nat -S`,
@@ -980,7 +1005,19 @@ DNS-side explanation is visible without re-shelling into the
 guest, and a current `Get-PSRepository` /
 `Get-PackageProvider -ListAvailable` / module snapshot so the
 operator can compare against the preflight state captured in
-the log at install time. Rationale in
+the log at install time. That log holds a preflight only when the
+parser needed repair, taken before the install, so the snapshot is
+not a copy of it. `Get-PSRepository` and `Get-PackageProvider` run in a
+child `pwsh -NonInteractive` under a five-second deadline: loading
+PowerShellGet can take a slow guest's whole diagnostic budget, and every
+later section with it, and a module load stuck in-process cannot be
+stopped. The deadline is sized to leave room for the sections after
+this one inside the guest diagnostic's 60-second per-command SSH budget:
+a slow guest reaches this section late in that budget. A part finished
+before the deadline prints; a stopped one says so and raises
+`DIAG.probe-timeout`. The module versions come from
+`Get-Module -ListAvailable`, which loads nothing, in the report's own
+process, so they print even when the child is stopped. Rationale in
 [Yuruna memory](memory.md#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry).
 
 **12. YURUNA PROJECT** -- surfaces three artifacts that pinpoint
@@ -1474,16 +1511,17 @@ underlining only on hover.
 
 ### Defining the status-page caching-proxy-service banner
 
-`$env:YURUNA_RUNTIME_DIR/caching-proxy-service.txt` is rewritten at the start
-of every test cycle by `Start-StatusService.ps1` (run with `-Restart`
-from `Start-TestRunner.ps1` on each cycle; its
-`Test-CachingProxyServiceAvailable` probe re-runs then). The file contains
-trusted server-generated HTML -- possibly an `<a href>` to the
-`cachemgr` URL -- and the dashboard applies that href to the "Latest
+`$env:YURUNA_RUNTIME_DIR/caching-proxy-service.txt` is rewritten when
+`Start-StatusService.ps1` launches the status service and runs its
+`Test-CachingProxyServiceAvailable` probe. A cycle reuses a healthy server
+at the same framework commit; restart the service to refresh the reading
+after bringing the cache up or down. The file contains trusted
+server-generated HTML -- possibly an `<a href>` to the cache's dashboard
+landing page -- and the dashboard applies that href to the "Latest
 Cycle" Dashboards link via `setAttribute` (not `innerHTML`, so the
 fetched markup is never injected). The dashboard re-fetches the
-file on every `loadStatus()` poll so a page left open sees the new
-cycle's cache state within one poll interval, even across cycles.
+file on every `loadStatus()` poll so a page left open sees an updated
+reading within one poll interval, even across cycles.
 
 <a id="42fa6f45-0020"></a>
 
@@ -1592,8 +1630,10 @@ Page-specific behavior:
 - **Break-step Continue.** When a guest is parked at a `break` action
   the runner writes `runtime/break-active.json`; the renderer emits an
   inline Continue button on that guest's action pill. Server-side
-  Continue restores the snapshot, starts the VM, and removes the
-  break-active sidecar, so the button vanishes on the next poll.
+  Continue resumes in place by default. Snapshot restore and VM restart require
+  `restoreOnContinue: true` and an existing snapshot identified by the step's
+  `id`. After resuming, the handler removes the break-active sidecar, so the
+  button vanishes on the next poll.
 - **VM-prep collapse.** `New-VM`, `Start-VM`, and `New-VM.Resource`
   render as a single combined pill labeled "New VM". Status
   precedence inside the triplet is `fail > running > pass > skipped >
@@ -1665,9 +1705,9 @@ Page-specific behavior:
 - **Per-page dashboards label.** Right-aligned `#banner-dash-row`
   inside `#banner`, transparent background. Parses
   `runtime/caching-proxy-service.txt` for an `<a href="...">` -- if present,
-  renders a **`Dashboards`** anchor to that URL (the Grafana
-  dashboards browse page filtered by the `yuruna` tag, served from
-  the same host as the caching-proxy-service); otherwise renders text **`No
+  renders a **`Dashboards`** anchor to that URL (the landing page
+  at `http://<cache>/` on the caching-proxy-service, an index of the
+  Grafana dashboards and extension services); otherwise renders text **`No
   dashboard server`**. `&amp;` in the file is unescaped to `&` before
   `setAttribute('href', ...)` so the browser hits the actual URL on
   click.
@@ -1929,6 +1969,7 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `manifest.json` | cycle folder | `Write-CycleManifest` in [Test.Log.psm1](../test/modules/Test.Log.psm1) at cycle close | overwritten on next cycle close (same folder is single-use) | Enumerates every artifact in the cycle folder with kind + sha256 + size + mtime so downstream consumers (CI, remediator, dashboard) don't have to walk the directory. |
 | `cycle.events.ndjson` | cycle folder | `Write-CycleNdjsonEvent` in [Test.Log.psm1](../test/modules/Test.Log.psm1) -- every emit site routes through the `Send-CycleEventSafely` wrapper | append-only for the life of the cycle | JSON-Lines event stream stamped with `cycleStartUtc` + `cycleFolder` so multi-host pool consumers can join events without parsing folder names. |
 | `cycle.events.gaps` | cycle folder | `Write-CycleNdjsonEvent` failure sentinel | append-only | One line per failed NDJSON append (open-handle race, disk full). Surfaces stream gaps to a remediator that would otherwise consume truncated truth. |
+| `leftover-vms.json` | cycle folder | `Save-CycleLeftoverVMRecord` in [Test.RunnerInnerLoop.psm1](../test/modules/Test.RunnerInnerLoop.psm1), just before the cycle-start VM sweep deletes anything | persists with the cycle | Written only when its own inventory read finds VMs to delete (the sweep reads the inventory again): `{schema, recordedUtc, prefixes, vms[]}`, each VM as the `leftover_vms_found` event records it. The sweep deletes the only other evidence of what became of an aborted cycle's VMs while no runner watched them. An orchestration cycle has no folder yet at the sweep: it gets no file, and its event waits in `cycle-events.pending.json` and is written into the stream of the cycle that opens next, normally the orchestration's own, ahead of `cycle_start`. |
 | `last_failure.json` | `$YURUNA_LOG_DIR`, mirrored in cycle and per-guest folders | the failure-emit blocks in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1) | root copy cleared at each sequence start and before ordinary cycle spawns by [Start-TestRunner.ps1](../test/Start-TestRunner.ps1); mirrors are removed on pass and retained on non-pass | Schema-v2 record (failureClass, severity, suggestedRecoveries, action, vmName, guestKey, hostType) that an out-of-process remediator consumes to choose a recovery handler. |
 | `cycle_failures.json` | `$YURUNA_LOG_DIR`; archived into the cycle folder as `failures.json` | `Add-CycleFailureIndexRow` in [Test.Log.psm1](../test/modules/Test.Log.psm1), from every `Copy-CycleFailureRecord` | belongs to one cycle generation and starts over when another cycle writes to it; a sequence start does not clear it | One row per failing guest or stage, in the order the failures happened. `Get-LastFailureFact` reads its first row -- the cycle's first failure -- before the root `last_failure.json`, which by the end of a cycle that ran on past a failure is gone or names a later guest. |
 | `current-action.json` | `<runtimeDir>` | retry-with-backoff write loop in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1) | every action transition rewrites it; cleared at cycle end | In-flight action breadcrumb the dashboard reads to display "running step N of M: `<verb>` `<description>`". |
@@ -1939,11 +1980,11 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `runner.stepHeartbeat` | `<runtimeDir>` | runspace-side touch at step boundaries and after completed pause polls or lab-health probes; outer pre-wipes + force-touches before each spawn | overwritten on completed progress | Runspace-level proof of life. Deliberate holds remain live; blocked calls still age beyond `testCycle.stepTimeoutSeconds` and trigger the watchdog. |
 | `runner.configGate.json` + `runner-attempts/<attempt>/config-gate.{json,log}` | `<runtimeDir>` | [Test.ConfigPreflight.psm1](../test/modules/Test.ConfigPreflight.psm1) after a gate verdict | latest pointer replaced; the folders of the latest 20 attempts retained, plus up to 30 older failed attempts that a later attempt passed after (`olderFailures` in `runner-attempts/index.json`) | Structured configuration findings and transcript with attempt generation, timestamps and framework commit. Separate from completed cycle artifacts. |
 | `runner-attempts/<attempt>/runner-fault.queued` | `<runtimeDir>` | `Start-LogFile` in [Test.Log.psm1](../test/modules/Test.Log.psm1), once a `runner_fault` for the failed attempt is queued, found queued by the runner or found in an earlier cycle's stream | removed with its attempt folder | `{ attemptGeneration, queuedAtUtc }`: the attempt's fault reached the pending queue or a cycle stream, so no later cycle queues it again. Not served. |
-| `cycle-events.pending.json` | `<runtimeDir>` | `Add-PendingCycleEvent` in [Test.Log.psm1](../test/modules/Test.Log.psm1), for events raised while no cycle is open (boot recovery, runner faults) | emptied by `Send-PendingCycleEvent` once the next cycle's stream holds the events | Events waiting for a cycle stream, oldest first, each with its own `timestamp` and an `eventId`; at most 200 events and 512 KiB, the oldest dropped and counted past either bound; an event larger than 512 KiB on its own is the only one dropped. Changed only under the held-open `cycle-events.pending.json.lock`. Not served. |
+| `cycle-events.pending.json` | `<runtimeDir>` | `Add-PendingCycleEvent` in [Test.Log.psm1](../test/modules/Test.Log.psm1), for events raised while no cycle is open (boot recovery, runner faults, an orchestration cycle's leftover-VM record) | emptied by `Send-PendingCycleEvent` once the next cycle's stream holds the events | Events waiting for a cycle stream, oldest first, each with its own `timestamp` and an `eventId`; at most 200 events and 512 KiB, the oldest dropped and counted past either bound; an event larger than 512 KiB on its own is the only one dropped. Changed only under the held-open `cycle-events.pending.json.lock`. Not served. |
 | `recovery.health.json` | `<runtimeDir>` | `Set-RecoveryLedgerHealth` in [Test.RecoveryLedger.psm1](../test/modules/Test.RecoveryLedger.psm1) when the recovery ledger cannot be read or written | removed once a ledger line is written again | Why automatic recovery is disabled (`ledger-unreadable` or `ledger-unwritable`); `/control/runner-status` reports it as `recoveryDisabled`, the status page shows it, and the pool notifier queues one `pool.alert` notice per episode. |
 | `server.lease.json` | `<runtimeDir>` | the status service's listener loop (`Update-StatusServiceLease` in [Test.StatusControlRoute.psm1](../test/modules/Test.StatusControlRoute.psm1)), renewed while idle and stamped with each request | replaced by the next listener; a lease naming another process is ignored | The listener's liveness: `idle` or `busy`, the route being served and since when. A start whose probe times out leaves a listener the lease shows serving, and the host-address beacon replaces one whose lease reads wedged (`Get-StatusServiceLeaseVerdict`). Not served. |
 | `status-replace.out`, `status-replace.err` | `<runtimeDir>` | the host-address beacon, from the `Start-StatusService.ps1 -RefreshSafe -ReplaceWedged` run that replaced a wedged listener | replaced by the next replacement | That start's console output, for the operator who wants to know why a listener was replaced. Not served. |
-| `runner.watchdog-kill.json` | `<runtimeDir>` | [Test.RunnerWatchdog.psm1](../test/modules/Test.RunnerWatchdog.psm1) before terminating a matching stale inner; `Write-OuterStopRecord` in [Test.RunnerOuterLoop.psm1](../test/modules/Test.RunnerOuterLoop.psm1), in the same shape, for a cycle the resident stopped | cleared before the next spawn | Attempt-bound evidence that termination was initiated by the watchdog; a nonzero gate exit alone is not a stall. |
+| `runner.watchdog-kill.json` | `<runtimeDir>` | [Test.RunnerWatchdog.psm1](../test/modules/Test.RunnerWatchdog.psm1) before terminating a matching stale inner; `Write-OuterStopRecord` in [Test.RunnerOuterLoop.psm1](../test/modules/Test.RunnerOuterLoop.psm1), in the same shape, for a cycle the resident stopped | cleared before the next spawn | Attempt-bound evidence that termination was initiated by the watchdog; a non-zero gate exit alone is not a stall. |
 | `.test.config.snapshot.json` | `<runtimeDir>` | `Publish-TestConfigSnapshot` in [Test.Config.psm1](../test/modules/Test.Config.psm1), auto-fired by every `Read-TestConfig` parse | overwritten on next parse | Cross-process parsed-config snapshot (envelope: sourcePath, sourceMtime, sourceHash, publishedAt, publisherPid, config). `Read-TestConfigOrSnapshot` validates the envelope's mtime+hash against the live YAML and uses the snapshot when both still match, avoiding a redundant YAML parse in the inner. |
 | `.caching-proxy-service.env.json` | `<runtimeDir>` | no longer written | removed by [test/service/Start-CachingProxyServiceVM.ps1](../test/service/Start-CachingProxyServiceVM.ps1) | Older versions kept the cleared `*_proxy` values here for a restore that was never built. A proxy URL can carry credentials, so the cleared names are logged and the values are not kept. |
 | `yuruna-caching-proxy-service.yml` | `<runtimeDir>` | `Save-CachingProxyServiceState` in [Test.CachingProxyService.psm1](../test/modules/Test.CachingProxyService.psm1) (temp-file + Move-Item + `.backup` rotation) | merged on next save | Cache-VM password + IP. Has a `.backup` sibling rotated on each successful write; `Read-CachingProxyServiceState` falls back to the backup when the main is corrupt and rotates the bad copy to `.corrupt.<UTC>` for forensics. |
@@ -1974,7 +2015,12 @@ Conventions:
   waits in `cycle-events.pending.json` and is written into the next
   cycle's stream. An archived cycle whose host booted after its
   last file write also gets `host-restart.json` and
-  `host-restart.txt` and a `host_restart` event.
+  `host-restart.txt` and a `host_restart` event; one whose runner
+  the previous runner's recorded signal ended and whose host has not
+  rebooted since gets `runner-signal.json`, `runner-signal.txt` and a
+  `runner_ended_by_signal` event. The cycle that ran when the
+  inner's progress sidecars were last written gets a copy of them,
+  `runner-state-at-loss.json`.
 
 <a id="42fa6f45-002a"></a>
 
@@ -2113,7 +2159,7 @@ enums in [Test.SequenceAction.psm1](../test/modules/Test.SequenceAction.psm1):
   host_network_degraded, ip_not_discovered, payload_unavailable,
   pool_storage_full, dhcp_identity_unbounded, lab_dependency_down, input_lost,
   hypervisor_unresponsive, source_integrity, vm_not_stopped, guest_run_lost,
-  guest_kernel_stalled, unknown.
+  guest_kernel_stalled, guest_display_stalled, unknown.
 * **severity**: hard, soft, unknown.
 
 `actionVerb`, `action`, `description`, `sequencePath`, `vmName`,
@@ -2135,17 +2181,19 @@ typed fields.
 
 | Event name | Producer | Trigger |
 | --- | --- | --- |
-| `cycle_start` | [Start-LogFile](../test/modules/Test.Log.psm1) | New cycle begins; carries `cycleStartUtc`, `cycleNumber`, `cycleFolder`, `hostname`. |
+| `cycle_start` | [Start-LogFile](../test/modules/Test.Log.psm1) | New cycle begins; carries `cycleStartUtc`, `cycleNumber`, `cycleFolder`, `hostname`, and `runnerPowerShellVersion` (the runner's `$PSVersionTable.PSVersion`). |
 | `cycle_end` | [Stop-LogFile](../test/modules/Test.Log.psm1) | Cycle closes; carries `outcome` (pass/fail/aborted/unknown) and `reason`. |
 | `step_end` | [Test.SequenceEngine](../test/modules/Test.SequenceEngine.psm1) | Each step finishes; carries `stepNumber`, `actionVerb`, `ok`, `durationMs`, `failureClass`/`severity`/`suggestedRecoveries` from the verb's static registration. |
 | `step_failure` | [Test.SequenceEngine](../test/modules/Test.SequenceEngine.psm1) | Normal-path or engine-crash failure; mirrors `step_end` plus `lastSucceededStepNumber`, `innerActionVerb`, `failureScreenshotPath`, `failureOcrPath`. |
 | `runner_state_transition` | [Test.RunnerState](../test/modules/Test.RunnerState.psm1) | Every state transition + synthetic boot-recovery fault pair; carries `fromState`, `toState`, optional `reason` / `synthetic`. |
 | `remediation_recommended` | [Test.Remediation](../test/modules/Test.Remediation.psm1) | `Invoke-Remediation` dispatched a handler; carries `recommendation` enum, `handledBy`, `autoApply`. |
-| `boot_recovery_completed` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep found at least one stale class to clean; carries `archivedCycleCount`, `clearedPidFileCount`, `archivedBreakActive`, `warningCount`, and `previousRunner` (the previous runner's session and exit records, as runner-status's `lastExit`) when it left them. Silent on clean boot. Queued, and delivered by the next cycle (see below). |
-| `host_restart` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep archived a cycle whose host booted after the cycle's last file write; carries `abortedCycleFolder`, `abortedCycleStartUtc`, `abortedCycleNumber`, `lastWriteUtc`, `bootUtc`, `downSeconds`, `evidenceFiles[]`, `deepDiagnosticsBundles`. Queued. |
+| `boot_recovery_completed` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep found at least one stale class to clean; carries `archivedCycleCount`, `clearedPidFileCount`, `archivedBreakActive`, `clearedPauseFlagCount`, `clearedPauseFlags` (one `{name, recordedAtUtc, fileWrittenAtUtc}` per pause or lab-hold flag cleared: the time the flag records, when it holds one, and its file time), `warningCount`, and `previousRunner` (the previous runner's session and exit records, as runner-status's `lastExit`) when it left them, else `previousRunnerAbsent`: `no-session-record`, `unreadable`, or `same-process` for records with the sweeping process's own pid and start time, which it wrote itself. Silent on clean boot. Queued, and delivered by the next cycle (see below). |
+| `host_restart` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep archived a cycle whose host booted after the cycle's last file write; carries `abortedCycleFolder`, `abortedCycleStartUtc`, `abortedCycleNumber`, `lastWriteUtc`, `bootUtc`, `downSeconds` (seconds from the cycle's last write to the boot, not downtime), `evidenceFiles[]`, `deepDiagnosticsBundles`. When the previous runner's recorded signal fell in the cycle, also `endedBy` (`signal` when the boot came more than 15 minutes after it, else `host-restart`), `signal`, `signalAtUtc` and, with `endedBy` `signal`, `silentSeconds` (signal to boot); on Windows `osBuildBefore` and `osBuildAfter` (CurrentBuild.UBR) when known. Queued. |
+| `runner_ended_by_signal` | [Test.Recovery](../test/modules/Test.Recovery.psm1) | Boot sweep archived a cycle whose runner the previous runner's recorded signal ended and whose host has not rebooted since; carries `abortedCycleFolder`, `abortedCycleStartUtc`, `abortedCycleNumber`, `lastWriteUtc`, `signal`, `signalAtUtc`, `silentSeconds` (signal to sweep), `terminalProgram`, `sshSession`, `evidenceFiles[]` (`runner-signal.json`, `runner-signal.txt`, and `runner-state-at-loss.json` when saved). No `endedBy`: a reboot after the signal reports the cycle as `host_restart` instead. Queued. |
 | `runner_fault` | [Update-RunnerFaultStatus](../test/modules/Test.RunnerOuterLoop.psm1), [Start-LogFile](../test/modules/Test.Log.psm1) | The runner published a new `runnerFault` in `status.json`, once per attempt generation, and each time for a fault published without one (an escape from the outer loop, a diagnostic hold); carries the same fields (`failureClass`, `stage`, `severity`, `stepName`, `errorMessage`, `attemptGeneration`, `attemptStartedAtUtc`, `attemptElapsedSeconds`, `frameworkCommitSha`, `recordPath`, `transcriptPath`, `recordedAt`). A cycle that opens also queues one for each failed attempt in the `attempts` list of `runtime/runner-attempts/index.json` that finished after the newest passing attempt and that no `runner_fault` carried, from the fields the history keeps (no `severity` or `stepName`), dated when the attempt failed and placed ahead of any queued event dated after it, with an `eventId` derived from `attemptGeneration`. Queued. |
 | `pending_cycle_events_dropped` | [Send-PendingCycleEvent](../test/modules/Test.Log.psm1) | The pending queue dropped events at a bound, its oldest or one too large to queue; carries `droppedCount` and `lastDroppedEvent`, dated by the newest event dropped but never after the first event that survived, which it precedes. |
 | `cycle_log_rotated` | [Invoke-CycleLogRotation](../test/modules/Test.Log.psm1) | Cycle-folder count reached `CYCLE_HISTORY_TRIGGER`; carries `historyFolder`, `moved`, `kept`. |
+| `leftover_vms_found` | [Save-CycleLeftoverVMRecord](../test/modules/Test.RunnerInnerLoop.psm1) | The cycle-start VM sweep found VMs a killed or restarted cycle left behind, before it deletes them; carries `leftoverVmCount` and `leftoverVms[]`, one `{name, state, uptimeSeconds, createdUtc, stoppedByAdmission}` per VM, with `reason` when `state` is `unknown`. `state` is the hypervisor's own word from before the cycle-start VM admission stopped anything (Hyper-V `Running`/`Saved`/`Off`, UTM `started`/`suspended`/`stopped`/`paused`, libvirt `running`/`paused`/`shut off`): admission force-stops every running guest first and reads each one just before (`stoppedVms` in `vm-admission.json`), so a VM it stopped has `stoppedByAdmission` true and the state read at the sweep as `stateAtSweep`. Uptime and creation time come from Hyper-V only and are `null` elsewhere. A VM whose state admission cannot classify (any state `Get-VMState` reads as `unknown`: Hyper-V `Paused` and other transitional states, UTM `starting`/`stopping`/`pausing`/`resuming`) keeps the cycle from starting (exit 2, `state-unverified` in `vm-admission.json`), so it is never swept or recorded. Silent when nothing is left over; when the record's own inventory read fails, carries `leftoverVmCount` 0 and that failure as `reason`, because the sweep reads the inventory again and may still delete. Queued when no cycle is open at the sweep (an orchestration cycle). |
 | `snapshot_missing` | [loadDiskSnapshot / recoverFromSnapshot](../test/modules/Test.SequenceHandler.psm1) | `Test-VMDiskSnapshot` returned $false; carries `vmName`, `snapshotId`, `handler`. |
 | `snapshot_manifest_missing` | snapshot handlers | Manifest sidecar absent -- legacy snapshot; warn-only. |
 | `snapshot_manifest_mismatch` | snapshot handlers | Manifest present but `vmName`/`snapshotId`/`hostType` disagree -- hard refuse. Carries `violations[]`. |
@@ -2158,6 +2206,7 @@ typed fields.
 | `sidecar_write_failed` | [Test.SequenceEngine](../test/modules/Test.SequenceEngine.psm1), [Test.SequenceHandler](../test/modules/Test.SequenceHandler.psm1) | An action's sidecar write (current-action.json / break-active.json) exhausted retries; carries `file`, `path`, `attempts`, `error`. |
 | `status_doc_corrupt` | [Test.Status](../test/modules/Test.Status.psm1) | status.json parse failed at cycle start; original moved to `.corrupt.<UTC>.json`. |
 | `guest_diagnostic` | [Test.SequenceHandler.saveSystemDiagnostic](../test/modules/Test.SequenceHandler.psm1) | Capture-outcome breadcrumb; carries `success`, `mechanism`, `attempted[]`, `exitCode`, `bytes`, `skipped`. |
+| `guest_clock_accounting` | [Test.SequenceHandler.saveGuestClockSnapshot](../test/modules/Test.SequenceHandler.psm1) | Advisory ARM64 Hyper-V clock sample around the processor restart; carries `phase`, `diagnosticOutcome`, `analysis`, `outPath`, `reason` when the capture is not complete (`ssh-timeout`, `ssh-not-ready`, `ssh-failed`, `samples-incomplete`, `clock-evidence-capture-error`), and, after the restart, `sshReadiness` (`ready`, `cause`, `attempts`, `waitedSeconds`) from the bounded login wait before the sample. |
 | `schema_violation` | [Send-CycleEventSafely](../test/modules/Test.Log.psm1) | An emit-site record failed the schema check; carries `badEvent` + `violations[]`. The bad event is preserved on the line that follows. |
 | `ndjson_write_gap` | [Write-CycleNdjsonEvent](../test/modules/Test.Log.psm1) | The NDJSON append itself failed; gap-sentinel written to `cycle.events.gaps` carrying `droppedEvent`, `droppedAction`, `writeError`. |
 
@@ -2166,7 +2215,9 @@ so a streaming consumer never discovers a new
 event name in production.
 
 **Queued events.** An event raised while no cycle is open -- the outer
-runner's boot recovery and its runner faults -- has no stream to join,
+runner's boot recovery and its runner faults, and the leftover-VM
+record of an orchestration cycle, whose folder opens after the
+cycle-start sweep -- has no stream to join,
 and the log-root fallback is a file nothing collects. It waits in
 `<runtimeDir>/cycle-events.pending.json` (`Add-PendingCycleEvent`) and
 `Start-LogFile` writes it into the next cycle's stream through
@@ -2405,8 +2456,8 @@ schema-validated `runner_state_transition` NDJSON event.
 | `idle`         | Runner alive and ready for the next cycle.                         |
 | `cycle-start`  | A new cycle is starting; pre-spawn work in flight.                 |
 | `in-cycle`     | Inner runner is executing steps.                                   |
-| `cycle-end`    | Inner exited 0; outer is in post-cycle cleanup.                    |
-| `fault`        | Inner exited non-zero or crashed before exit.                      |
+| `cycle-end`    | The outer is closing an attempt after exit 0, a completed degraded cycle (75), an inner-side refresh hold, or refresh preflight.                    |
+| `fault`        | The outer is handling a failed or unrecorded cycle attempt.                      |
 | `paused`       | Failure-pause loop waiting for new commit / cap elapsed.           |
 
 <a id="42fa6f45-003c"></a>
@@ -2598,6 +2649,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

@@ -184,8 +184,7 @@
     },
     "configsync.operator_9e1f86637c4a7e09": {
       "sourceHash": "2883f991cbb88d4457420355d24382d91426be9e166e547e27a72aca5cbfa722",
-      "message": "mantido vazio (o padrão é <runtime>/pool-configuration)",
-      "origin": "machine"
+      "message": "mantido vazio (o padrão é <runtime>/pool-configuration)"
     },
     "configsync.operator_9e44a801c5e38eb2": {
       "sourceHash": "11078a006929941559fb2b92d4450eb9fbb22ac7aaaa6e93e162f4434bdaba30",
@@ -197,8 +196,7 @@
     },
     "configsync.operator_a07da31688eb8071": {
       "sourceHash": "cb2e1f75b7c5fa30bcdc7c4dfaa2cb28051d625f4c74d1b7fd846acc18f2805c",
-      "message": "Sync-HostConfiguration: a cópia de uma configuração desatualizada de {referenceHost} foi recusada no modo -NonInteractive. Execute novamente com -AllowStaleReference para aceitar a configuração desatualizada ou atualize primeiro o host de referência.",
-      "origin": "machine"
+      "message": "Sync-HostConfiguration: a cópia de uma configuração desatualizada de {referenceHost} foi recusada no modo -NonInteractive. Execute novamente com -AllowStaleReference para aceitar a configuração desatualizada ou atualize primeiro o host de referência."
     },
     "configsync.operator_a610cd0fd716e5f9": {
       "sourceHash": "c27b6d61e9ab7fad84b17d5821b74361579cb14972c75131fb3e6decf63048e4",

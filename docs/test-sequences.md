@@ -451,7 +451,7 @@ sequence's `break` handler polls for:
 ```
 # HTTP (mirrors the UI button exactly; refuses with 409 when no break
 # is active, so a stray POST cannot arm the NEXT break).
-curl -fsS -X POST http://localhost:8080/control/break-continue
+curl -fsS -X POST -H 'X-Yuruna: 1' http://localhost:8080/control/break-continue
 
 # Direct flag-file write (no status service required; useful on a
 # headless host or when the dashboard isn't running).
@@ -730,16 +730,24 @@ attempt would fail the same way; the inner class is `plan_invalid`.
 |---|---|---|
 | `maxAttempts` | integer | Default `3`, must be `>= 1`. |
 | `steps` | array | Step objects, recursive (same shape as a top-level `steps:`). |
-| `restartVmBeforeRetry` | string | Optional. `coldPowerCycle` cold-restarts a guest after a safe login-wait timeout on Windows Hyper-V (AMD64 or ARM64), Ubuntu KVM, and macOS UTM. Another attempt must remain. `arm64HyperVColdPowerCycle` retains its native ARM64 Hyper-V restriction for existing sequences. `arm64HyperVInstallerBoot` provides the separately gated initial-installer recovery described below. |
+| `restartVmBeforeRetry` | string | Optional. `coldPowerCycle` cold-restarts a guest after a safe login-wait timeout, or an untyped password wait ended by a display stall, on Windows Hyper-V (AMD64 or ARM64), Ubuntu KVM, and macOS UTM. Another attempt must remain. `arm64HyperVColdPowerCycle` retains its native ARM64 Hyper-V restriction for existing sequences. `arm64HyperVInstallerBoot` provides the separately gated initial-installer recovery described below. |
 | `stepsAfterVmRestart` | array | Optional recursive steps run only after that cold restart succeeds. Use this to restore or settle boot state (for example, re-answering an installer confirmation or waiting for an installed guest's console) before the next attempt. |
 
-The portable cold-restart mode accepts only the bounded, observation-only
-login retry used by the Ubuntu startup sequences: console redraw keys and
-login waits, with explicitly declared installer-confirmation recovery steps.
-It does not run for a matched `failurePatterns` entry, a
-console flood, or a password-prompt failure. Keep credential-changing steps
-outside such a retry block so a partially completed password transaction is
-never replayed after a power cut.
+The portable cold-restart mode accepts the bounded first-login flow used by
+the Ubuntu startup sequences: console redraw keys and a login wait, optionally
+followed by the five prompts for the username, login password, current
+password, new password, and confirming entry. A password prompt restarts only
+when its wait ended on a proven display stall before that prompt typed
+anything. An ordinary password timeout, a matched `failurePatterns` entry, a
+console flood, or an input-phase failure never restarts the flow. The retry
+ends at the confirming entry: shell confirmation, password persistence, and
+provisioning stay outside it, so no later failure replays a committed password.
+
+If the wait still ends on a proven display stall after its permitted recovery,
+the failure class is `guest_display_stalled`. Its remediation points to the
+display-driver reports and the saved console evidence. An ordinary prompt
+timeout remains `ocr_timeout`; the display class adds no unattended retry or
+password replay.
 
 Ubuntu 24 and 26 use `coldPowerCycle` for their login waits. Recovery saves
 the failed attempt's evidence before stopping the VM, confirms that the VM
@@ -765,27 +773,33 @@ so other hosts keep their full budget. The failure record keeps the verdict in
 `causeDetail.guestLivelock`, whose `reason` names the display evidence, and the
 probe's reading in `causeDetail.consoleSecondOpinion`.
 
-The same login waits also end on a display that stopped presenting frames.
+The same login waits and the first-login password prompts also end on a display that stopped presenting frames.
 A display driver whose page flips time out leaves the framebuffer on its last
 presented frame while the guest runs on, so the prompt can be printed and never
 reach the screen in that boot. The guest's kernel reports each timed-out commit
 on the serial console, which the Hyper-V driver reads live. Once at least six
-`hyperv_drm` reports that reached the console after the wait began span 20
+`hyperv_drm` or `virtio_gpu` reports that reached the console after the wait began span 20
 seconds or more, the newest of them within 30 seconds of the console's newest
 record, and the console's text, or its blank run, has stayed unchanged for 30
 seconds, the wait ends and the retry cold-restarts the guest as it does after
 a login timeout. The DRM core waits ten seconds for a flip and a stalled commit
 prints two lines, so a single timed-out commit, such as a mode set can leave,
-never ends a wait. The retry hands the login wait a copy of its step marked
+never ends a wait. The retry hands each eligible wait a copy of its step marked
 `endWaitOnDisplayStall`; the post-restart recovery steps, the installer
 confirmation of `arm64HyperVInstallerBoot`, `fetchAndExecute` and every step
-outside such a retry, the password-change prompts among them, keep the stall
+outside such a retry keep the stall
 as a diagnostic (`causeDetail.guestKernelFault.serial.displayStall`). The
 failure record carries the evidence in `causeDetail.guestDisplayStallEnd`, and
 `retry_attempt` and `retry_vm_restart` carry it as `guestDisplayStall`.
 
 `retry_attempt.evidencePath` points to the retained frames and
-`vm-diagnostics.json` for that attempt. `retry_vm_restart` records the
+`vm-diagnostics.json` for that attempt, and on Hyper-V to the guest's serial
+console since its latest start (`serial-console.log`, with its kernel reading
+in `serial-console.kernel.json`), which the cold restart would otherwise
+delete; when there is no copy, `serialCapture` in `vm-diagnostics.json` says
+why. `retry_attempt` also carries the attempt's `guestKernelStallEnd`, a
+summary of the processor window its wait read, and the installer stage its OCR
+showed. `retry_vm_restart` records the
 recovery phase, outcome, and observed VM states, so a failed stop, failed
 start, or console refresh can be distinguished from another guest timeout.
 Copy these artifacts and the guest's `last_failure.json` before a manual
@@ -924,9 +938,9 @@ so a later failure is not misattributed to this wait; the evidence and the
 ### saveDiskSnapshot
 
 Disk-only snapshot of the sequence's VM via the
-[`Save-VMDiskSnapshot`](#save-vmdisksnapshot--rename-vm) contract. Then
+[`Save-VMDiskSnapshot`](#save-vmdisksnapshot--rename-vm) contract. It first
 RENAMES the VM (and relocates its storage, where supported) to the
-snapshot id so the next cycle's
+snapshot id before taking the snapshot, so the next cycle's
 [`Remove-TestVMFiles.ps1`](../test/Remove-TestVMFiles.ps1) -- which sweeps
 every VM whose name matches the `test-*` prefix -- leaves the persisted
 VM alone. After a successful rename the engine updates its internal
@@ -1278,7 +1292,7 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | `Description`        | `[string]`                                                                                                                                                                                                                                                                                     | Free-form note carried on the entry. Nothing in the engine reads it; it is there for `Get-SequenceAction` consumers (matrix dumps, docs generators).         |
 | `Aliases`            | `[string[]]`                                                                                                                                                                                                                                                                                   | Alternate YAML names that resolve to the same entry (legacy renames).                                                                                       |
 | `Handler`            | `[scriptblock]` `param([hashtable]$c)` -> `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches.                                                                                                                |
-| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `console_flooded`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `lab_dependency_down`, `input_lost`, `hypervisor_unresponsive`, `source_integrity`, `vm_not_stopped`, `guest_run_lost`, `guest_kernel_stalled`, `unknown` | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
+| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `console_flooded`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `lab_dependency_down`, `input_lost`, `hypervisor_unresponsive`, `source_integrity`, `vm_not_stopped`, `guest_run_lost`, `guest_kernel_stalled`, `guest_display_stalled`, `unknown` | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
 | `Severity`           | `ValidateSet`: `hard`, `soft`, `unknown`                                                                                                                                                                                                                                                       | `soft` = retry is plausible; `hard` = retry won't help (e.g. snapshot restore failed); `unknown` = no claim either way.                                     |
 | `SuggestedRecoveries`| `[string[]]` -- free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `retry_with_backoff`, `restart_from_snapshot`, `operator_intervention_required`. A token outside the remediation dispatcher's vocabulary warns at registration. |
 | `UsesWaitSignals`    | `[bool]`                                                                                                                                                                                                                                                                                       | **Changes engine behavior.** `$true` lets the engine append `-- matched failurePattern "..."` to the step's failure label when the verb short-circuited on an anti-pattern. Set it on any verb that writes that signal: without it the step is labeled as a plain "pattern not found within Ns" timeout, so the ERROR banner and `last_failure.json` both hide the real cause -- a guest process that crashed and printed why. |
@@ -1578,13 +1592,26 @@ whose unqualified name collides with a platform cmdlet.
 ## saveGuestClockSnapshot
 
 Collect two guest clock and CPU-accounting samples using the snapshot helper
-and an already proven SSH address. The required `phase` is
+and a proven SSH address. The required `phase` is
 `before-cpu-restart` or `after-cpu-restart`. Native ARM64 Hyper-V Linux guests
 use a ten-second SSH wall budget; other hosts skip the action. The two samples
 are collected before optional boot metadata so slow metadata reads cannot erase
 the observations. The budget includes authentication and transport cleanup.
 Missing evidence and clock warnings are advisory, so the action does not fail
 the sequence.
+
+Just after the processor restart, the guest's first SSH login can outlast that
+budget while its SSH port already answers. So `after-cpu-restart` first waits
+up to ten seconds for one login (`Wait-SshReady`, which also proves the address
+the samples use); a wait that gives up adds at most about 25 seconds, with the
+readiness helper's closing handshake, and leaves the helper's usual
+`ssh_handshake_failed` event in the cycle's event stream (`network_timeout`,
+soft, unless the guest reports an expired password); the sample still runs at
+the address proven before. The
+`guest_clock_accounting` event carries what that wait saw as `sshReadiness`
+(`ready`, `cause`, `attempts`, `waitedSeconds`), and a capture that is not
+complete names why in `reason`: `ssh-timeout`, `ssh-not-ready`, `ssh-failed`,
+or `samples-incomplete`.
 Ubuntu Server 26 places these captures before clean shutdown and after the
 existing SSH readiness or console login steps. `startVm` separately brackets
 the offline processor change with bounded host Hyper-V context.
@@ -1599,6 +1626,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../README.md)

@@ -1,11 +1,11 @@
 {
-  "zotVersion": "v2.1.22",
+  "zotVersion": "v2.1.23",
   "sha256": {
-    "amd64": "33b9b5bfe05d6788c076de951a01920477dbd6395c330146e23cc2340073e52e",
-    "arm64": "abc9bab13c144a4ee2f9067a6bbbe70ca1c018c49dbf521db28975514ea705da"
+    "amd64": "1f6bab0b9eee426d0785de701ff510df5c02bdb8d7287494a582634abfc5d638",
+    "arm64": "b66d90c4641173c12e5af91357b23d716b345228b093bf0c73b5b9d51d6cc1ff"
   },
-  "fingerprint": "2bcd27c0c3d84ae3934f67c87365864fdfb58aa9526adb4c6e0ced4b0c0a3ed9",
-  "qualifiedOn": "2026-10-12",
+  "fingerprint": "cdb3b585895ad093034f4b0ab0a94516e81908fbd1989d1dbb6639342aaa2bc4",
+  "qualifiedOn": "2026-11-15",
   "qualifiedWith": "zot-linux-amd64",
   "probes": [
     {

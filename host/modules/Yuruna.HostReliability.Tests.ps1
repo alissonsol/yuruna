@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4270c5ae-4f32-42b7-a8e4-08bd28d7d218
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -570,36 +570,87 @@ Describe 'Windows ISO adoption follows the configured VHD root' {
     }
 }
 Describe 'KVM capture lifetime belongs to its arming process' {
-    It 'redirects all standard streams, bounds quiet captures, and kills the complete capture tree' {
+    It 'kills the complete capture tree when the window is dropped' {
+        . ([scriptblock]::Create((Get-SourceFunction 'host/ubuntu.kvm/modules/Yuruna.Host.psm1' 'Stop-VMDhcpCapture')))
+        $fixtureProcess = [pscustomobject]@{ HasExited = $false; EntireTree = $false }
+        $fixtureProcess | Add-Member ScriptMethod Kill { param($EntireTree); $this.EntireTree = $EntireTree; $this.HasExited = $true }
+        $fixtureProcess | Add-Member ScriptMethod WaitForExit { param($Timeout); return $Timeout -gt 0 }
+        $script:YurunaDhcpCapture = @{ VMName = 'fixture'; ArmedUtc = 1; PcapPath = ''; Process = $fixtureProcess }
+        Stop-VMDhcpCapture | Should -BeTrue
+        $fixtureProcess.HasExited | Should -BeTrue
+        $fixtureProcess.EntireTree | Should -BeTrue -Because 'tcpdump runs under timeout, so killing only the direct child leaves it capturing'
+    }
+
+    It 'redirects all standard streams, bounds quiet captures, and kills the complete capture tree' -Skip:(-not $IsLinux) {
+        # Launched for real against a stand-in timeout that writes down its
+        # arguments and what its standard streams are, then waits on a child
+        # the way timeout waits on tcpdump.
         . ([scriptblock]::Create((Get-SourceFunction 'host/ubuntu.kvm/modules/Yuruna.Host.psm1' 'Start-VMDhcpCapture')))
         . ([scriptblock]::Create((Get-SourceFunction 'host/ubuntu.kvm/modules/Yuruna.Host.psm1' 'Stop-VMDhcpCapture')))
         function Get-YurunaGuestBridge { return @{ Bridge = 'fixture'; Network = 'fixture' } }
         function Get-VMMac { return '52:54:00:00:00:01' }
-        function Get-Command { param($Name); return @{ Name = $Name } }
-        function Start-Sleep { }
         function Write-YurunaDhcpGap { throw 'Unexpected capture failure' }
-        function Start-Process {
-            param($FilePath, $ArgumentList, [switch]$PassThru, [switch]$NoNewWindow,
-                $RedirectStandardInput, $RedirectStandardOutput, $RedirectStandardError, $ErrorAction)
-            $script:SpawnArguments = $ArgumentList
-            $FilePath | Should -Be 'timeout'
-            $RedirectStandardInput | Should -Match '\.stdin$'
-            (Get-Item -LiteralPath $RedirectStandardInput).Length | Should -Be 0
-            $RedirectStandardOutput | Should -Be '/dev/null'
-            $RedirectStandardError | Should -Match '\.err$'
-            $fixtureProcess = [pscustomobject]@{ HasExited = $false; EntireTree = $false }
-            $fixtureProcess | Add-Member ScriptMethod Kill { param($EntireTree); $this.EntireTree = $EntireTree; $this.HasExited = $true }
-            $fixtureProcess | Add-Member ScriptMethod WaitForExit { param($Timeout); return $Timeout -gt 0 }
-            return $fixtureProcess
+        function Test-LiveProcess {
+            param([int]$Id)
+            # A killed process can linger as a zombie until it is reaped; that is not alive.
+            try { $stat = [IO.File]::ReadAllText("/proc/$Id/stat") } catch { return $false }
+            return (($stat -replace '^.*\)\s+', '').Substring(0, 1) -ne 'Z')
         }
+        $bin = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        [void](New-Item -ItemType Directory $bin)
+        [IO.File]::WriteAllText((Join-Path $bin 'timeout'), @'
+#!/bin/bash
+exec 3>"$0.partial"
+printf 'arg|%s\n' "$@" >&3
+for fd in 0 1 2; do
+    printf 'fd%s|%s|%s\n' "$fd" "$(readlink "/proc/$$/fd/$fd")" "$(readlink "/proc/$PPID/fd/$fd")" >&3
+done
+IFS= read -r -t 5 line
+printf 'stdin|%s\n' "$?" >&3
+sleep 30 &
+printf 'child|%s\n' "$!" >&3
+exec 3>&-
+mv "$0.partial" "$0.report"
+wait
+'@)
+        [IO.File]::WriteAllText((Join-Path $bin 'tcpdump'), "#!/bin/sh`nexit 0`n")
+        foreach ($tool in 'timeout', 'tcpdump') {
+            [IO.File]::SetUnixFileMode((Join-Path $bin $tool), [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+        }
+        $savedPath = Save-YurunaTestEnvironment -Name 'PATH'
         $script:YurunaDhcpCapture = $null
         $script:YurunaDhcpWireRefusal = ''
-        Start-VMDhcpCapture -VMName ('fixture-' + [guid]::NewGuid().ToString('N')) | Should -BeTrue
-        $script:SpawnArguments[0..3] | Should -Be @('--signal=TERM', '--kill-after=5s', '300s', 'tcpdump')
-        $process = $script:YurunaDhcpCapture.Process
-        Stop-VMDhcpCapture | Should -BeTrue
-        $process.HasExited | Should -BeTrue
-        $process.EntireTree | Should -BeTrue
+        $stubPid = 0
+        $childPid = 0
+        try {
+            $env:PATH = $bin + [IO.Path]::PathSeparator + $env:PATH
+            Start-VMDhcpCapture -VMName ('fixture-' + [guid]::NewGuid().ToString('N')) | Should -BeTrue
+            $process = $script:YurunaDhcpCapture.Process
+            $process | Should -Not -BeNullOrEmpty -Because 'a capture still running after the settle is kept as running'
+            $stubPid = $process.Id
+            $reportPath = Join-Path $bin 'timeout.report'
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            while (-not (Test-Path -LiteralPath $reportPath) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+            $lines = @(Get-Content -LiteralPath $reportPath)
+            $field = { param($Tag) @($lines | Where-Object { $_ -like "$Tag|*" } | ForEach-Object { $_.Substring($Tag.Length + 1) }) }
+            @(& $field 'arg')[0..3] | Should -Be @('--signal=TERM', '--kill-after=5s', '300s', 'tcpdump') `
+                -Because 'a quiet bridge never reaches the packet bound, so a wall clock has to end the capture'
+            foreach ($fd in 0, 1, 2) {
+                $own, $parent = @(& $field "fd$fd")[0] -split '\|', 2
+                $own | Should -Match '^pipe:\[\d+\]$' -Because "fd $fd of the capture must be a pipe of the arming process"
+                $own | Should -Not -Be $parent -Because "fd $fd must not be the arming process's own stream"
+            }
+            @(& $field 'stdin')[0] | Should -Be '1' -Because 'stdin is closed at once, so a reader gets end of file rather than a line or a wait'
+            $childPid = [int]@(& $field 'child')[0]
+            Stop-VMDhcpCapture | Should -BeTrue
+            $deadline = [DateTime]::UtcNow.AddSeconds(5)
+            while (((Test-LiveProcess $stubPid) -or (Test-LiveProcess $childPid)) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+            Test-LiveProcess $stubPid | Should -BeFalse -Because 'the capture process is stopped with its window'
+            Test-LiveProcess $childPid | Should -BeFalse -Because 'what the capture started is stopped with it'
+        } finally {
+            Restore-YurunaTestEnvironment -Saved $savedPath
+            foreach ($id in $stubPid, $childPid) { if ($id -gt 0) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue } }
+        }
     }
 }
 Describe 'KVM capture subprocess teardown' -Skip:(-not $IsLinux) {

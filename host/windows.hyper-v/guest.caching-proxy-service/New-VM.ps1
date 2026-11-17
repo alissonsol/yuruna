@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4242f187-1ce6-46a5-a5a4-7c2435ed1ac1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,7 +83,11 @@ $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
 }
-if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+$loadedLogLevel = Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue
+if ($loadedLogLevel) {
+    if (-not $PlanOnly) { Use-LogLevelFromEnv }
+    elseif ($loadedLogLevel.Parameters.ContainsKey('NoTranscript')) { Use-LogLevelFromEnv -NoTranscript }
+}
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
@@ -134,25 +138,35 @@ if (-not (Assert-HyperVEnabled)) { exit 1 }
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-$SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
+$SshAuthorizedKey = Get-YurunaSshPublicKey -ReadOnly:$PlanOnly
+if (-not $SshAuthorizedKey -and -not $PlanOnly) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_6424990f88c7f7bc' -Arguments @{ testSshModule = "$TestSshModule" }); exit 1 }
 
 # --- REGION: Vault admin password
 # See https://yuruna.link/42f6b05f-0041
 # The runtime state file <track>/yuruna-caching-proxy-service.yml is the source of
-# truth; Set-Password rehydrates the vault from it before Get-Password.
+# truth; a real build rehydrates the vault before Get-Password, while the
+# read-only plan validates the same proposed value without persisting it.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$persisted = (Read-CachingProxyServiceState).password
-if ($persisted) { Set-Password -Username 'caching-proxy-service-admin' -NewPassword $persisted }
-$AdminPassword = Get-Password -Username 'caching-proxy-service-admin'
-if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_47959938846e1bd4'); exit 1 }
+$persisted = (Read-CachingProxyServiceState -ReadOnly:$PlanOnly).password
+$passwordArguments = @{ Username = 'caching-proxy-service-admin' }
+if ($PlanOnly) {
+    $passwordCommand = Get-Command -Name 'Get-Password' -ErrorAction Stop
+    if (-not $passwordCommand.Parameters.ContainsKey('ReadOnly') -or
+        ($persisted -and -not $passwordCommand.Parameters.ContainsKey('ProposedSecret'))) {
+        throw (Format-YurunaOperatorMessage -Key 'host.service_build_plan_auth_readonly_unsupported' -Arguments @{ provider = "$_authActiveName" })
+    }
+    $passwordArguments.ReadOnly = $true
+    if ($persisted) { $passwordArguments.ProposedSecret = $persisted }
+} elseif ($persisted) { Set-Password -Username 'caching-proxy-service-admin' -NewPassword $persisted }
+$AdminPassword = Get-Password @passwordArguments
+if (-not $AdminPassword -and -not $PlanOnly) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_47959938846e1bd4'); exit 1 }
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
-[void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false)
-$PasswordFile = Get-CachingProxyServiceStatePath
+if (-not $PlanOnly) { [void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false) }
+$PasswordFile = Get-CachingProxyServiceStatePath -ReadOnly:$PlanOnly
 
 # Check the shared seed templates before the guest network is resolved.
 foreach ($f in @((Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-service.base.user-data'),
@@ -167,7 +181,7 @@ foreach ($f in @((Join-Path $_repoRootForExt 'host/vmconfig/caching-proxy-servic
 # --- REGION: Select the guest network
 # See https://yuruna.link/42e220c4-0004
 # Select the switch before resolving the host address reachable through it.
-$switchName = Resolve-HyperVGuestSwitch
+$switchName = Resolve-HyperVGuestSwitch -ReadOnly:$PlanOnly
 
 # --- REGION: Yuruna host coordinates
 # See https://yuruna.link/4220a755-001b
@@ -494,7 +508,6 @@ try {
     Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy-service.meta-data') -Destination "$SeedDir/meta-data"
 
     Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
-
     # --- REGION: https://yuruna.link/4220a755-000b
     Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 

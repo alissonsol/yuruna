@@ -40,7 +40,20 @@ Every `-interval` (default 30s) it:
    sub-events, so the dashboard can answer *which step failed*, not just which
    host. A per-host byte cursor forwards only new lines (resets per cycle); each
    entry uses the **event's own timestamp**, so a restart that re-ships the
-   in-flight cycle is idempotent (Loki drops exact duplicates).
+   in-flight cycle is idempotent (Loki drops exact duplicates). A line without
+   one (`step.start`/`step.end` from an older runner) takes the timestamp of the
+   line before it in the file, or the cycle's start, never the ingest clock: in a
+   catch-up the ingest clock would move the stream past the hour Loki accepts
+   behind its newest entry, and Loki would refuse the cycle's older lines.
+4c. **Records what it observes itself** in the host's event stream, under
+   `{pool,hostId,src=event,emitter=pool-aggregator-service}`: `runner_lost` once
+   per runner found lost mid-cycle (with the runner's exit report and an
+   `episodeKey`; a collector restart repeats it once for a runner still lost),
+   `host_unreachable` once per stretch a host it reached goes 5 minutes without
+   answering (with the last probe's error), and `host_dropped` when the host TTL
+   removes a host (again after each collector restart that restores a host still
+   silent). See
+   [Events the collector observes](../../../docs/pool-aggregator-implementation-notes.md#42c29d04-0025).
 5. Bumps **Prometheus** counters (`yuruna_pool_cycles_{pass,fail}_total` by
    `hostId`) once per terminal cycle, and on every scrape exposes per-host
    series that drive the dashboard table/timeline: `yuruna_pool_host_info`
@@ -350,8 +363,8 @@ each host by its opaque **Host ID** (the stable `hostId`, shown as its first 8
 characters and revealed in full, GUID-formatted, from the cell's own menu)
 and its `hostType`, **not** its hostname, so the whole pool view stays safe to
 expose unauthenticated; the hostname stays on each host's own
-(to-be-authenticated) status page. Deep-links point at each host's **own status
-server** -- artifacts never leave the generating host.
+(to-be-authenticated) status page. Host deep-links point at each host's **own status
+server**; cycle-results links prefer committed copies on the pool share.
 
 The timeline shows **host state**, including failures before a cycle exists.
 `config_gate_failed` is **preflight failed** (yellow, status code 9); failed
@@ -385,15 +398,17 @@ the lines to Loki in order, each only after Loki has accepted the one before,
 retrying with a backoff from one second to a minute while Loki is away. A cycle
 transition is recorded as seen, and an event file's read position moves on,
 only once the line is held, so a line that could not be held is built and sent
-again by the next poll. The outbox holds up to 20,000 lines or 256 MiB; past
-that new lines are refused (logged once) and `/ingest` answers `503` with the
-code `aggregator.ingest_queue_full`. A line the outbox could not write to its
+again by the next poll. The outbox is bounded by a count of queued pushes and
+by their total size: see the constants `DefaultMaxItems` and `DefaultMaxBytes`
+in `internal/loki/outbox.go`. Past either limit new lines are refused (logged
+once) and `/ingest` answers `503` with the code `aggregator.ingest_queue_full`. A line the outbox could not write to its
 folder is answered `503` with `aggregator.ingest_not_recorded` instead, so the
 pusher can tell a fault on the collector from backpressure. The
-`yuruna_pool_loki_outbox_pending` gauge shows how many lines wait. An announce
-is still pushed directly, because its reply states whether Loki took it. With
-no usable directory the outbox works in memory, capped at 64 MiB, which bridges
-a Loki outage but not a restart of the collector.
+`yuruna_pool_loki_outbox_pending` gauge shows how many pushes wait; one push
+carries one or more lines. An announce is still pushed directly, because its
+reply states whether Loki took it. With no usable directory the outbox works in
+memory, capped by `defaultMemoryMaxBytes` in the same file, which bridges a
+Loki outage but not a restart of the collector.
 
 **Framework canary ring.** For a pool whose `pools.yml` carries a
 `frameworkRing` block, the members it names as canaries track the framework tip
@@ -631,7 +646,7 @@ the leaf is absent.
 | `/announce` | POST | none (self-identity-bound) | extension-presence beacon (stash service et al., point 5c): the advertised URL derives from / must match the sender's address, so an announcer can only advertise itself, and must be an address the pool could route to (`400` for loopback/link-local/multicast/non-URL); the handler confirms a newly announced address against `/healthz` before it is resolvable (point 5c-ii). Telemetry-only, bounded, disabled (503) when `-announce-ttl` is `0` |
 | `/api/v1/pool-stats` | GET | none | per-**host** terminal-cycle counts over a preset window -- the numbers behind the pool-control board's cards. Per-host rather than per-pool because pool membership lives in the configuration store this service never reads; the control service does the join. Read-only and open, like `pool-status` |
 | `/api/v1/host-announce` | POST | none (self-identity-bound) | host-presence beacon, the host-level counterpart to `/announce`. Same open, self-identity-bound posture, but the confirm is an identity check against the announced address's own `status.json` rather than a `/healthz` probe. Self-gates on `-announce-ttl` (503 when `0`) |
-| `/api/v1/host-address?host=<hostId>` | GET | none | one host's current base URL, for the guest-side resolver. The read-only, proof-free counterpart to `/go/host`: it answers with the address instead of redirecting to it, so a guest can resolve a host without following a 302 or carrying a control proof. Documented in [network.md](../../../docs/network.md) |
+| `/api/v1/host-address?hostId=<hostId>` | GET | none | one host's current base URL, for the guest-side resolver. The read-only, proof-free counterpart to `/go/host`: it answers with the address instead of redirecting to it, so a guest can resolve a host without following a 302 or carrying a control proof. Documented in [network.md](../../../docs/network.md) |
 | `/api/v1/control-proof` | POST | none | verifier, not a mint: "was this proof made from the pool's internal authentication key, and is it still live?" -- asked by an extension service that holds no key of its own and so cannot check the proof the `/go/stash` redirect handed its UI. 503 when the proxy holds no key. Documented in [control-routes.md](../../../docs/control-routes.md) |
 | `/go/cycle-share?host=<hostId>&t=<epochMs>` | GET | none | the `/go/cycle` click resolved the same way, but landing on the host's **share** page for that cycle -- one archive of the whole results folder, ready for the operator's mail client. Open, like the redirects around it. Documented in [control-routes.md](../../../docs/control-routes.md) |
 
@@ -677,7 +692,7 @@ curl -sk https://localhost:9400/metrics            # -> yuruna_pool_* lines
 
 ### When the Lab token tile reads Collector down
 
-The dashboard's last summary tile turns red and reads **Collector down** when
+The dashboard's first summary tile turns red and reads **Collector down** when
 Prometheus has no `yuruna_pool_collector_up` sample. The collector exports that
 gauge as a constant `1`, and Prometheus stales a target's series on the first
 failed scrape, so the tile means one thing: *this proxy's
@@ -722,9 +737,8 @@ dashboard's 30s refresh, with no Grafana or dashboard action.
 
 ## MVP limits
 
-- **Initial** discovery is **proxy-traffic-driven**: a host first appears only
-  once it (or its guests) has pulled through the proxy (registration-driven
-  discovery is planned). Once discovered, though, a host is remembered -- re-probed at its
+- **Initial** discovery is **proxy-traffic-driven** or uses a host's
+  `/api/v1/host-announce` beacon (registration-driven discovery is planned). Once discovered, though, a host is remembered -- re-probed at its
   last-known IP while idle (`hostTtl`) and re-seeded from Loki's presence beacon
   across a collector restart -- so an idle / stash-only host stays on the dashboard
   without fresh proxy traffic. The **Extension hosts** row additionally has a
@@ -775,10 +789,11 @@ dashboard's 30s refresh, with no Grafana or dashboard action.
   and the hostname-bearing `cycleFolder`. The metric/JSON struct field carrying
   the hostname is `json:"-"` (never parsed or serialized), so the unauthenticated
   `/api/v1/pool-status` snapshot is hostname-free too. The host's own (separately
-  authenticated) status page keeps the full detail. **One residual:**
-  `cycleFolderUrl`, whose host-side folder name embeds the hostname, is still
-  present in the table's Last-cycle deep-link URL and in the `/api/v1/pool-status`
-  JSON snapshot -- never as rendered dashboard text. Eliminating it needs a
+  authenticated) status page keeps the full detail. **Legacy folders:**
+  `cycleFolderUrl` is still present in the table's Last-cycle deep-link URL and
+  in the `/api/v1/pool-status` JSON snapshot -- never as rendered dashboard text.
+  New cycle-folder names use the opaque `hostId`; retained legacy names can
+  still embed a hostname. Removing hostnames from those legacy URLs needs a
   host-side cycle-folder rename (or dropping the per-cycle deep-link), out of the
   collector's control.
 - The table is mixed-datasource: `host_info` + last-seen (Prometheus, deep-link
@@ -798,6 +813,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.08
+Last review: 2026.11.16
 
 Back to [Yuruna](../../../README.md)

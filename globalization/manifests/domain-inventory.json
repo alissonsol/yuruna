@@ -8,9 +8,9 @@
   "totals": {
     "domains": 16,
     "files": 545,
-    "candidates": 8977,
-    "fragments": 1871,
-    "catalogCalls": 5742,
+    "candidates": 9030,
+    "fragments": 1876,
+    "catalogCalls": 5779,
     "pages": 15,
     "markdown": 152,
     "yamlFields": 178
@@ -94,9 +94,9 @@
       "repository": "yuruna",
       "present": true,
       "files": 21,
-      "candidates": 658,
+      "candidates": 660,
       "fragments": 279,
-      "catalogCalls": 102,
+      "catalogCalls": 103,
       "pages": 0,
       "markdown": 1,
       "yamlFields": 0,
@@ -111,7 +111,7 @@
         },
         {
           "file": "test/service/Invoke-StatusServiceRuntime.ps1",
-          "candidates": 81
+          "candidates": 83
         },
         {
           "file": "test/service/Start-ExtensionService.stash.ps1",
@@ -350,20 +350,20 @@
       "repository": "yuruna",
       "present": true,
       "files": 142,
-      "candidates": 2458,
-      "fragments": 334,
-      "catalogCalls": 2463,
+      "candidates": 2493,
+      "fragments": 339,
+      "catalogCalls": 2473,
       "pages": 0,
       "markdown": 1,
       "yamlFields": 0,
       "topFiles": [
         {
           "file": "test/modules/Test.SequenceHandler.psm1",
-          "candidates": 125
+          "candidates": 132
         },
         {
           "file": "test/modules/Test.Ssh.psm1",
-          "candidates": 113
+          "candidates": 114
         },
         {
           "file": "test/modules/Test.CachingProxyService.psm1",
@@ -371,7 +371,7 @@
         },
         {
           "file": "test/modules/Test.RunnerInnerLoop.psm1",
-          "candidates": 103
+          "candidates": 106
         },
         {
           "file": "test/modules/Test.HostCondition.Mac.psm1",
@@ -384,9 +384,9 @@
       "repository": "yuruna",
       "present": true,
       "files": 106,
-      "candidates": 973,
+      "candidates": 977,
       "fragments": 136,
-      "catalogCalls": 1898,
+      "catalogCalls": 1913,
       "pages": 0,
       "markdown": 28,
       "yamlFields": 0,
@@ -418,16 +418,16 @@
       "repository": "yuruna",
       "present": true,
       "files": 40,
-      "candidates": 411,
+      "candidates": 423,
       "fragments": 17,
-      "catalogCalls": 698,
+      "catalogCalls": 709,
       "pages": 0,
       "markdown": 0,
       "yamlFields": 0,
       "topFiles": [
         {
           "file": "automation/Get-SystemDiagnostic.ps1",
-          "candidates": 93
+          "candidates": 104
         },
         {
           "file": "automation/Yuruna.Common.psm1",

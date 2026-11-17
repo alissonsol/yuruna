@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 4284f1a3-c3b1-43a6-8b63-36822be6e25d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,7 +55,11 @@ $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
 }
-if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+$loadedLogLevel = Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue
+if ($loadedLogLevel) {
+    if (-not $PlanOnly) { Use-LogLevelFromEnv }
+    elseif ($loadedLogLevel.Parameters.ContainsKey('NoTranscript')) { Use-LogLevelFromEnv -NoTranscript }
+}
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e147c2f7708fdd27' -Arguments @{ vMName = "$VMName" })
@@ -96,15 +100,23 @@ $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScrip
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-$SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
+$SshAuthorizedKey = Get-YurunaSshPublicKey -ReadOnly:$PlanOnly
+if (-not $SshAuthorizedKey -and -not $PlanOnly) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_24e40b06bcf4c618'); exit 1 }
 
 # --- REGION: Vault admin password
 # Each service family has its own admin account: a shared name would map several
 # VMs to one vault entry, and the last build would invalidate the others' credential.
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-$AdminPassword = Get-Password -Username 'download-agent-service-admin'
-if (-not $AdminPassword) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce7652d3e480135e'); exit 1 }
+$passwordArguments = @{ Username = 'download-agent-service-admin' }
+if ($PlanOnly) {
+    $passwordCommand = Get-Command -Name 'Get-Password' -ErrorAction Stop
+    if (-not $passwordCommand.Parameters.ContainsKey('ReadOnly')) {
+        throw (Format-YurunaOperatorMessage -Key 'host.service_build_plan_auth_readonly_unsupported' -Arguments @{ provider = "$_authActiveName" })
+    }
+    $passwordArguments.ReadOnly = $true
+}
+$AdminPassword = Get-Password @passwordArguments
+if (-not $AdminPassword -and -not $PlanOnly) { Write-Error (Format-YurunaOperatorMessage -Key 'host.operator_ce7652d3e480135e'); exit 1 }
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_762658980a25b8fb' -Arguments @{ authActiveName = "$_authActiveName" })
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_c427eb2402415f42' -Arguments @{ authentication = "$(Resolve-ExtensionAreaDir -Area 'authentication')" })
 
@@ -121,7 +133,7 @@ foreach ($f in @((Join-Path $_repoRoot 'host/vmconfig/download-agent-service.bas
 # --- REGION: Select the guest network
 # See https://yuruna.link/42e220c4-0004
 # Select the switch before resolving the host address reachable through it.
-$switchName = Resolve-HyperVGuestSwitch
+$switchName = Resolve-HyperVGuestSwitch -ReadOnly:$PlanOnly
 
 # --- REGION: Yuruna host coordinates
 # See https://yuruna.link/4220a755-001b
@@ -138,7 +150,7 @@ $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 $serviceLanguage = Resolve-SeedLanguageTag -Config $tc
 $allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
-$poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
+if (-not $PlanOnly) { $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp }
 # The names the VM answers to besides its addresses, from this host's
 # test.config.yml. Read in the plan, while the working VM is still advertised,
 # because a malformed vmStart.serviceHostNames entry refuses the build.

@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -478,6 +479,23 @@ func TestEventNano(t *testing.T) {
 	}
 	if got := eventNano(`not json`, fb); got != fb.UnixNano() {
 		t.Fatalf("eventNano: unparseable line must fall back to ingest clock")
+	}
+}
+
+// TestEventStamps confirms a line of an event file without a usable timestamp
+// of its own takes the stamp of the line before it, and the first such line the
+// stamp it is handed, never the clock of the moment it is shipped.
+func TestEventStamps(t *testing.T) {
+	prev := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC).UnixNano()
+	own := time.Date(2026, 6, 10, 0, 12, 4, 0, time.UTC).UnixNano()
+	got := eventStamps([]string{
+		`{"event":"step.start","index":0}`,
+		`{"timestamp":"2026-06-10T00:12:04Z","event":"step_end"}`,
+		`{"timestamp":"10 June 2026","event":"step.end"}`,
+		`{"event":"trunc`,
+	}, prev)
+	if want := []int64{prev, own, own, own}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("eventStamps = %v, want %v", got, want)
 	}
 }
 

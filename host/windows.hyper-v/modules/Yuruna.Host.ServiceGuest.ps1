@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.08
+.VERSION 2026.11.16
 .GUID 42bfb844-2da5-4372-8912-d611d68edee6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,11 +72,16 @@ function Resolve-HyperVGuestSwitch {
     <#
     .SYNOPSIS
         Resolve a usable external switch or an existing fallback.
+    .PARAMETER ReadOnly
+        Validate selection without creating a missing switch. A usable uplink
+        can name the switch the real build will create.
     #>
     [CmdletBinding()]
     [OutputType([string])]
-    param()
-    $name = Get-OrCreateYurunaExternalSwitch
+    param([switch]$ReadOnly)
+    $arguments = @{}
+    if ($ReadOnly) { $arguments.ReadOnly = $true }
+    $name = Get-OrCreateYurunaExternalSwitch @arguments
     if ($name) { return $name }
     $name = 'Default Switch'
     if (-not (Get-VMSwitch -Name $name -ErrorAction SilentlyContinue)) {
